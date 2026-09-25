@@ -4,6 +4,11 @@ var movement_vector := Vector2.ZERO
 var rally_pressed := false
 var movement_pointer := -1
 var rally_pointer := -1
+var population := 25
+var biomass_bank := 0.0
+var corpse_count := 0
+var kills := 0
+var hint := ""
 
 
 func _ready() -> void:
@@ -68,9 +73,14 @@ func _rally_center() -> Vector2:
 
 func _draw() -> void:
 	var font := ThemeDB.fallback_font
-	draw_rect(Rect2(Vector2(18.0, 20.0), Vector2(410.0, 116.0)), Color(0.05, 0.12, 0.10, 0.78))
+	draw_rect(Rect2(Vector2(18.0, 20.0), Vector2(490.0, 184.0)), Color(0.05, 0.12, 0.10, 0.78))
 	draw_string(font, Vector2(38.0, 63.0), "MAWLINGS", HORIZONTAL_ALIGNMENT_LEFT, -1, 31, Color("ffe6b4"))
-	draw_string(font, Vector2(38.0, 104.0), "Godot · Bewegungs-Prototyp", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("d5e7d4"))
+	draw_string(font, Vector2(38.0, 103.0), "Schwarm  %d" % population, HORIZONTAL_ALIGNMENT_LEFT, -1, 27, Color.WHITE)
+	draw_string(font, Vector2(38.0, 144.0), "Biomasse  %.1f / 2" % biomass_bank, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("d5e7d4"))
+	draw_string(font, Vector2(38.0, 178.0), "Kadaver  %d    Beute  %d" % [corpse_count, kills], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("d5e7d4"))
+	if hint != "":
+		draw_rect(Rect2(Vector2(18.0, size.y - 328.0), Vector2(size.x - 36.0, 62.0)), Color(0.05, 0.12, 0.10, 0.68))
+		draw_string(font, Vector2(38.0, size.y - 288.0), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color("e9ecce"))
 	draw_circle(_rally_center(), 86.0, Color(0.45, 0.14, 0.10, 0.82 if rally_pressed else 0.66))
 	draw_circle(_movement_center(), 86.0, Color(0.05, 0.21, 0.22, 0.66))
 	draw_circle(_movement_center() + movement_vector * 52.0, 31.0, Color("a7e2cf"))

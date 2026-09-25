@@ -26,7 +26,37 @@ func _run() -> void:
 	if not swarm.rally_pressed:
 		_fail("Rally input did not reach the swarm")
 		return
-	print("PASS: scene, 25 Mawlings, keyboard movement, Rally")
+	controls.rally_pressed = false
+	var move_center: Vector2 = Vector2(controls.size.x - 125.0, controls.size.y - 145.0)
+	var rally_center: Vector2 = Vector2(125.0, controls.size.y - 145.0)
+	var move_touch := InputEventScreenTouch.new()
+	move_touch.index = 1
+	move_touch.position = move_center
+	move_touch.pressed = true
+	controls._input(move_touch)
+	var drag := InputEventScreenDrag.new()
+	drag.index = 1
+	drag.position = move_center + Vector2(66.0, 0.0)
+	controls._input(drag)
+	var rally_touch := InputEventScreenTouch.new()
+	rally_touch.index = 2
+	rally_touch.position = rally_center
+	rally_touch.pressed = true
+	controls._input(rally_touch)
+	if controls.movement_vector.x < 0.9 or not controls.rally_pressed:
+		_fail("Right movement and left Rally must work at the same time")
+		return
+	move_touch.pressed = false
+	controls._input(move_touch)
+	if controls.movement_vector != Vector2.ZERO or not controls.rally_pressed:
+		_fail("Releasing movement must preserve the other touch")
+		return
+	rally_touch.pressed = false
+	controls._input(rally_touch)
+	if controls.rally_pressed:
+		_fail("Rally must release independently")
+		return
+	print("PASS: scene, movement, Rally, simultaneous right/left touch")
 	quit(0)
 
 
