@@ -5,6 +5,7 @@ const FLEE_SPEED := 1.8
 
 var health := MAX_HEALTH
 var wander_phase := 0.0
+var health_fill: MeshInstance3D
 
 
 func _ready() -> void:
@@ -22,9 +23,21 @@ func _ready() -> void:
 	spot.height = 0.16
 	_piece(spot, eye, Vector3(-0.25, 0.68, 0.34), Vector3.ONE)
 	_piece(spot, eye, Vector3(0.25, 0.68, 0.34), Vector3.ONE)
+	var bar := BoxMesh.new()
+	bar.size = Vector3(0.95, 0.06, 0.1)
+	var fill := StandardMaterial3D.new()
+	fill.albedo_color = Color("9ef1cf")
+	fill.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	health_fill = MeshInstance3D.new()
+	health_fill.mesh = bar
+	health_fill.material_override = fill
+	health_fill.position = Vector3(0, 1.05, 0)
+	add_child(health_fill)
 
 
 func step(delta: float, swarm_position: Vector3) -> void:
+	health_fill.visible = health < MAX_HEALTH
+	health_fill.scale.x = clampf(health / MAX_HEALTH, 0.001, 1.0)
 	wander_phase += delta
 	var away := global_position - swarm_position
 	away.y = 0.0

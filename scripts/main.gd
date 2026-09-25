@@ -3,6 +3,7 @@ extends Node3D
 @onready var swarm: Node3D = $Swarm
 @onready var camera: Camera3D = $Camera3D
 @onready var controls: Control = $HUD/Controls
+@onready var world: Node3D = $HuntWorld
 
 const CAMERA_OFFSET := Vector3(0.0, 23.0, 15.0)
 
@@ -10,6 +11,8 @@ const CAMERA_OFFSET := Vector3(0.0, 23.0, 15.0)
 func _ready() -> void:
 	_register_keyboard_input()
 	_build_open_arena()
+	controls.restart_requested.connect(_restart)
+	controls.pause_requested.connect(world.toggle_pause)
 	camera.position = swarm.position + CAMERA_OFFSET
 	camera.look_at(swarm.position, Vector3.UP)
 	DisplayServer.window_set_title("MAWLINGS — Godot Prototype")
@@ -18,9 +21,17 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	var keyboard := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var movement: Vector2 = controls.movement_vector if controls.movement_vector.length() > 0.05 else keyboard
-	swarm.set_controls(movement, controls.rally_pressed or Input.is_key_pressed(KEY_SPACE))
+	var active: bool = not world.paused and not world.model.extinct
+	swarm.set_controls(movement if active else Vector2.ZERO, active and (controls.rally_pressed or Input.is_key_pressed(KEY_SPACE)))
+	get_node("Open ground").position = Vector3(swarm.position.x, 0, swarm.position.z)
 	var target := swarm.position + CAMERA_OFFSET
 	camera.position = camera.position.lerp(target, 1.0 - exp(-5.0 * delta))
+	camera.look_at(swarm.position, Vector3.UP)
+
+
+func _restart() -> void:
+	world.reset_run()
+	camera.position = swarm.position + CAMERA_OFFSET
 	camera.look_at(swarm.position, Vector3.UP)
 
 

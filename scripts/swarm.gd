@@ -45,6 +45,7 @@ func set_controls(direction: Vector2, rally: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	delta = minf(delta, 0.05)
 	position += Vector3(movement_vector.x, 0.0, movement_vector.y) * MOVE_SPEED * delta
 	var flow_radius := 2.15 + maxf(0.0, sqrt(float(population) / 25.0) - 1.0) * 0.45
 	var radius := flow_radius * 0.42 if rally_pressed else flow_radius
