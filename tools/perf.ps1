@@ -16,6 +16,9 @@ param(
 )
 $godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
 $projectDir = Split-Path -Parent $PSScriptRoot
+# Game windows open on the secondary (portrait) monitor so they do not disturb
+# work on the main screen. Override with $env:MAWLINGS_SCREEN (Godot screen index).
+$screen = if ($env:MAWLINGS_SCREEN) { $env:MAWLINGS_SCREEN } else { '1' }
 $half = [Math]::Max(5, [Math]::Round($Seconds / 2))
 
 # name -> bench arguments
@@ -54,9 +57,9 @@ $lines = @()
 foreach ($name in $names) {
 	$benchArgs = $variants[$name]
 	$job = Start-Job -ScriptBlock {
-		param($exe, $dir, $extra)
-		& $exe --path $dir --script 'res://tests/perf_bench.gd' -- @extra 2>&1 | ForEach-Object { "$_" }
-	} -ArgumentList $godotExe, $projectDir, $benchArgs
+		param($exe, $dir, $extra, $scr)
+		& $exe --screen $scr --path $dir --script 'res://tests/perf_bench.gd' -- @extra 2>&1 | ForEach-Object { "$_" }
+	} -ArgumentList $godotExe, $projectDir, $benchArgs, $screen
 	if (Wait-Job $job -Timeout ([int]($Seconds * 2 + 90))) {
 		$output = @(Receive-Job $job)
 		$perf = @($output | Where-Object { $_ -match '^PERF' })

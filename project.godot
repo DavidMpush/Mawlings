@@ -20,6 +20,8 @@ window/size/viewport_width=900
 window/size/viewport_height=1600
 window/size/window_width_override=450
 window/size/window_height_override=800
+window/size/initial_position_type=3
+window/size/initial_screen=1
 window/stretch/mode="canvas_items"
 window/handheld/orientation=1
 

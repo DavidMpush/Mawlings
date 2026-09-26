@@ -40,6 +40,7 @@ Die `tests/capture_*.gd`-Skripte erzeugen Bilder aus der echten Spielkamera. **O
 - Schnellbefehle: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1 [-Only boss,smoke]` und `... tools/capture.ps1 [-Only boss]`.
 - Hook `tools/hooks/check_gdscript.js` parst jede geänderte `.gd`-Datei mit Godot und meldet Fehler sofort.
 - Der Nutzer erlaubt Commits direkt auf `main` nach bestandener Prüfung; kein Push ohne Nachfrage.
+- Godot-Läufe **mit Fenster** (Captures, Perf-Bench, Sonden) immer mit `--screen 1` starten (zweiter Monitor, Hochformat), damit der Hauptbildschirm des Nutzers frei bleibt. `tools/capture.ps1` und `tools/perf.ps1` tun das automatisch (`$env:MAWLINGS_SCREEN` überschreibt).
 - Subagenten arbeiten parallel im selben Arbeitsverzeichnis: **kein** `git stash`, `git checkout -- …`, `git reset`, `git clean` oder Commit durch Subagenten. Vergleiche mit dem alten Stand nur über `git show HEAD:<pfad>` oder Kopien im Scratchpad.
 
 ## Orientierung
