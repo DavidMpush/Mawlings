@@ -1,5 +1,7 @@
 extends Node3D
 
+const MAWLING_SCENE = preload("res://assets/Mawling_game.glb")
+
 const START_POPULATION := 25
 const MOVE_SPEED := 7.0
 const FOLLOW_SPEED := 7.0
@@ -10,21 +12,18 @@ var movement_vector := Vector2.ZERO
 var rally_pressed := false
 var units: Array[Node3D] = []
 var population := START_POPULATION
-var body_material: Material
-var head_material: Material
-var jaw_material: Material
-var crest_material: Material
+var game_material: StandardMaterial3D
 
 
 func _ready() -> void:
-	body_material = _material(Color("a92c1a"))
-	head_material = _material(Color("f26927"))
-	jaw_material = _material(Color("451b20"))
-	crest_material = _material(Color("f8b75b"))
+	game_material = StandardMaterial3D.new()
+	game_material.vertex_color_use_as_albedo = true
+	game_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	game_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	set_population(START_POPULATION)
 	for index in units.size():
 		var angle := float(index) * GOLDEN_ANGLE
-		var radius := sqrt((float(index) + 0.5) / float(units.size())) * 1.75
+		var radius := sqrt((float(index) + 0.5) / float(units.size())) * 2.65
 		units[index].position = Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
 
 
@@ -33,12 +32,15 @@ func set_population(value: int) -> void:
 	var target := mini(population, VISUAL_LIMIT)
 	while units.size() < target:
 		var index := units.size()
-		var unit := _make_unit(body_material, head_material, jaw_material)
+		var unit := _make_unit()
 		unit.rotation.y = float(index) * GOLDEN_ANGLE
 		add_child(unit)
 		units.append(unit)
 	while units.size() > target:
 		units.pop_back().queue_free()
+	var display_scale := lerpf(0.91, 0.58, clampf(float(population - 25) / 225.0, 0.0, 1.0))
+	for unit in units:
+		unit.scale = Vector3.ONE * display_scale
 
 
 func set_controls(direction: Vector2, rally: bool) -> void:
@@ -50,7 +52,7 @@ func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
 	var motion := Vector3(movement_vector.x, 0.0, movement_vector.y) * MOVE_SPEED * delta
 	position = get_parent().get_node("Arena").resolve_motion(position, motion, 0.75)
-	var flow_radius := 2.15 + maxf(0.0, sqrt(float(population) / 25.0) - 1.0) * 0.45
+	var flow_radius := 2.65 + maxf(0.0, sqrt(float(population) / 25.0) - 1.0) * 0.55
 	var radius := flow_radius * 0.42 if rally_pressed else flow_radius
 	var response := 1.0 - exp(-FOLLOW_SPEED * delta)
 	for index in units.size():
@@ -61,48 +63,17 @@ func _process(delta: float) -> void:
 		units[index].position = units[index].position.lerp(goal, response)
 		if movement_vector.length_squared() > 0.01:
 			units[index].rotation.y = lerp_angle(units[index].rotation.y,
-				atan2(movement_vector.x, movement_vector.y), response)
+				atan2(movement_vector.x, movement_vector.y) + PI * 0.5, response)
 
 
-func _make_unit(body: Material, head: Material, jaw: Material) -> Node3D:
+func _make_unit() -> Node3D:
 	var unit := Node3D.new()
 	unit.name = "Mawling"
-	var body_mesh := SphereMesh.new()
-	body_mesh.radius = 0.26
-	body_mesh.height = 0.48
-	_piece(unit, body_mesh, body, Vector3(0.0, 0.22, -0.12), Vector3(0.85, 0.65, 1.0))
-	var head_mesh := SphereMesh.new()
-	head_mesh.radius = 0.29
-	head_mesh.height = 0.52
-	_piece(unit, head_mesh, head, Vector3(0.0, 0.25, 0.19), Vector3(1.08, 0.72, 0.9))
-	var jaw_mesh := BoxMesh.new()
-	jaw_mesh.size = Vector3(0.48, 0.08, 0.20)
-	_piece(unit, jaw_mesh, jaw, Vector3(0.0, 0.12, 0.40), Vector3.ONE)
-	var crest := CylinderMesh.new()
-	crest.top_radius = 0.0
-	crest.bottom_radius = 0.11
-	crest.height = 0.3
-	_piece(unit, crest, crest_material, Vector3(0.0, 0.62, -0.12), Vector3.ONE)
-	var eyes := SphereMesh.new()
-	eyes.radius = 0.055
-	eyes.height = 0.08
-	for side in [-1.0, 1.0]:
-		_piece(unit, eyes, jaw, Vector3(side * 0.19, 0.34, 0.40), Vector3.ONE)
+	var model: Node3D = MAWLING_SCENE.instantiate()
+	model.name = "Game model"
+	model.scale = Vector3.ONE
+	unit.add_child(model)
+	for mesh in model.find_children("*", "MeshInstance3D", true, false):
+		mesh.material_override = game_material
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return unit
-
-
-func _piece(parent: Node3D, mesh: Mesh, material: Material, location: Vector3, mesh_scale: Vector3) -> void:
-	var piece := MeshInstance3D.new()
-	piece.mesh = mesh
-	piece.material_override = material
-	piece.position = location
-	piece.scale = mesh_scale
-	piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(piece)
-
-
-func _material(color: Color) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.roughness = 0.9
-	return material

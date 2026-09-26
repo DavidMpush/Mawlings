@@ -6,3 +6,7 @@ preview_hunt.png
 preview_hunt.png.import
 preview_*.png
 preview_*.png.import
+
+.tools/
+assets/Mawling_texture_*.png
+assets/Mawling_texture_*.png.import
