@@ -38,6 +38,14 @@ func _run() -> void:
 				if distance < best:
 					best = distance
 					target = prey.position
+		# Brutnest: go there when no corpse is close and no hunter warns.
+		var calm := true
+		for hunter in world.hunters:
+			if hunter.get("state") == HUNTER.State.WARNING:
+				calm = false
+		if world.nest != null and calm and (not harvesting or best > 6.0):
+			target = world.nest.position if world.nest.position.distance_to(swarm.position) > 1.2 else swarm.position
+			harvesting = false
 		var direction: Vector3 = target - swarm.position
 		if harvesting and direction.length() < 1.0:
 			direction = Vector3.ZERO
@@ -64,7 +72,7 @@ func _run() -> void:
 		hud.movement_vector = Vector2(direction.x, direction.z).limit_length(1.0)
 		hud.rally_pressed = best < 1.05 and not avoiding
 		await process_frame
-	print("PLAYTEST seconds=%.1f population=%d peak=%d kills=%d lost=%d corpses=%d hunters=%d skitters=%d extinct=%s" % [world.model.elapsed, world.model.population, world.model.peak_population, world.model.kills, world.model.lost_population, world.model.corpses.size(), world.hunters.size(), world.skitters.size(), world.model.extinct])
+	print("PLAYTEST seconds=%.1f population=%d peak=%d kills=%d lost=%d corpses=%d hunters=%d skitters=%d nests=%d extinct=%s" % [world.model.elapsed, world.model.population, world.model.peak_population, world.model.kills, world.model.lost_population, world.model.corpses.size(), world.hunters.size(), world.skitters.size(), world.nests_completed, world.model.extinct])
 	print("EVOLUTION level=%d build=%s" % [world.evolution.level, world.evolution.summary()])
 	if world.evolution.level < 1 or world.model.kills < 3 or world.model.peak_population <= 25 or world.model.elapsed < 60.0:
 		push_error("Automated food-and-dodge playtest could not establish the survival loop")

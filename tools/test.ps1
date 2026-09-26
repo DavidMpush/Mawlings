@@ -1,50 +1,67 @@
 # Runs the complete automated MAWLINGS check and prints one compact line per test.
-# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1 [-Only smoke,boss] [-SkipPlaythrough]
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1 [-Only smoke,boss] [-SkipPlaythrough] [-TimeoutSec 180]
+# Each Godot run has its own timeout: a headless script with a runtime error can
+# hang, and only that one process is killed (never other Godot instances).
 param(
 	[string[]]$Only = @(),
-	[switch]$SkipPlaythrough
+	[switch]$SkipPlaythrough,
+	[int]$TimeoutSec = 180
 )
 $ErrorActionPreference = 'Continue'
 $godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
 $projectDir = Split-Path -Parent $PSScriptRoot
-$tests = @('smoke','run_model','hunt_flow','survival','evolution','arena','skitter','leaper','model_budget','boss','motion','per_unit_hits','meta','attack_forms','run_config','menu','sfx')
+$tests = @('smoke','run_model','hunt_flow','survival','evolution','arena','skitter','leaper','model_budget','boss','motion','per_unit_hits','objectives','onboarding','meta','attack_forms','run_config','menu','sfx')
 $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 if ($Only.Count -gt 0) { $tests = $tests | Where-Object { $Only -contains $_ } }
+
+function Invoke-Godot([string[]]$GodotArgs) {
+	$outFile = [IO.Path]::GetTempFileName()
+	$errFile = [IO.Path]::GetTempFileName()
+	$quoted = $GodotArgs | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }
+	$process = Start-Process -FilePath $godotExe -ArgumentList $quoted -NoNewWindow -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+	$null = $process.Handle  # keeps ExitCode readable after exit
+	$timedOut = -not $process.WaitForExit($TimeoutSec * 1000)
+	if ($timedOut) {
+		try { $process.Kill() } catch {}
+		$process.WaitForExit()
+	}
+	$text = (Get-Content $outFile -Raw -Encoding UTF8) + "`n" + (Get-Content $errFile -Raw -Encoding UTF8)
+	Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
+	return @{ Code = $(if ($timedOut) { -1 } else { $process.ExitCode }); Out = $text; TimedOut = $timedOut }
+}
+
+function Report([string]$Name, $Run, [string]$Pattern) {
+	$errors = ($Run.Out -split "`n" | Where-Object { $_ -cmatch '(^|\s)(SCRIPT )?ERROR:|Parse Error' }) -join "`n"
+	if ($Run.TimedOut) {
+		Write-Host "FAIL $Name (Zeitlimit $TimeoutSec s ueberschritten, Prozess beendet)"
+		Write-Host (($Run.Out.Trim() -split "`n") | Select-Object -Last 12 | Out-String)
+		return $false
+	}
+	if ($Run.Code -ne 0 -or $errors) {
+		Write-Host "FAIL $Name (exit $($Run.Code))"
+		Write-Host (($Run.Out.Trim() -split "`n") | Select-Object -Last 15 | Out-String)
+		return $false
+	}
+	$lines = ($Run.Out.Trim() -split "`n") | Where-Object { $_.Trim() -ne '' }
+	# Prefer a PASS line as summary; warnings on stderr may come last.
+	$pass = $lines | Where-Object { $_ -match "PASS|passed|bestanden" } | Select-Object -Last 1
+	$summary = if ($Pattern) { ($lines | Where-Object { $_ -match $Pattern }) -join ' | ' } elseif ($pass) { $pass } else { ($lines | Select-Object -Last 1) }
+	Write-Host ("ok   $Name :: " + "$summary".Trim())
+	return $true
+}
 
 & $godotExe --headless --editor --import --path $projectDir --quit *> $null
 $failed = @()
 foreach ($testName in $tests) {
-	$out = & $godotExe --headless --path $projectDir --script "res://tests/$testName.gd" 2>&1 | Out-String
-	$code = $LASTEXITCODE
-	$errors = ($out -split "`n" | Where-Object { $_ -cmatch '(^|\s)(SCRIPT )?ERROR:|Parse Error' }) -join "`n"
-	if ($code -ne 0 -or $errors) {
-		$failed += $testName
-		Write-Output "FAIL $testName (exit $code)"
-		Write-Output ($out.Trim() -split "`n" | Select-Object -Last 15 | Out-String)
-	} else {
-		Write-Output ("ok   $testName :: " + (($out.Trim() -split "`n") | Select-Object -Last 1).Trim())
-	}
+	$run = Invoke-Godot @('--headless', '--path', $projectDir, '--script', "res://tests/$testName.gd")
+	if (-not (Report $testName $run '')) { $failed += $testName }
 }
 if (-not $SkipPlaythrough -and $Only.Count -eq 0) {
-	$out = & $godotExe --headless --fixed-fps 60 --path $projectDir --script 'res://tests/endless_playthrough.gd' 2>&1 | Out-String
-	$code = $LASTEXITCODE
-	if ($code -ne 0) {
-		$failed += 'endless_playthrough'
-		Write-Output "FAIL endless_playthrough (exit $code)"
-		Write-Output ($out.Trim() -split "`n" | Select-Object -Last 15 | Out-String)
-	} else {
-		Write-Output ("ok   endless_playthrough :: " + (($out.Trim() -split "`n") | Where-Object { $_ -match 'PLAYTEST' } | Select-Object -Last 1))
-	}
+	$run = Invoke-Godot @('--headless', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/endless_playthrough.gd')
+	if (-not (Report 'endless_playthrough' $run 'PLAYTEST')) { $failed += 'endless_playthrough' }
 	# Balance regression: two short bot runs against the difficulty target curve.
-	$out = & $godotExe --headless --fixed-fps 60 --path $projectDir --script 'res://tests/balance_sim.gd' -- regress 2>&1 | Out-String
-	$code = $LASTEXITCODE
-	if ($code -ne 0) {
-		$failed += 'balance_regress'
-		Write-Output "FAIL balance_regress (exit $code)"
-		Write-Output ($out.Trim() -split "`n" | Select-Object -Last 15 | Out-String)
-	} else {
-		Write-Output ("ok   balance_regress :: " + ((($out.Trim() -split "`n") | Where-Object { $_ -match 'BALANCE|PASS' }) -join ' | '))
-	}
+	$run = Invoke-Godot @('--headless', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/balance_sim.gd', '--', 'regress')
+	if (-not (Report 'balance_regress' $run 'BALANCE|PASS')) { $failed += 'balance_regress' }
 }
 if ($failed.Count -gt 0) {
 	Write-Output "RESULT: FAILED -> $($failed -join ', ')"

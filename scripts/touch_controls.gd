@@ -206,7 +206,7 @@ func _hub_rect() -> Rect2:
 
 func _banish_rect(slot: int) -> Rect2:
 	var card := _mutation_rect(slot)
-	return Rect2(Vector2(card.end.x - 190, card.position.y + 14), Vector2(172, 44))
+	return Rect2(Vector2(card.end.x - 262, card.position.y + 46), Vector2(182, 46))
 
 # Reroll and skip share one row below the cards; a lone button is centred.
 func _reroll_rect() -> Rect2:

@@ -65,3 +65,40 @@ const LEAPER_RETREAT_DISTANCE := 5.0
 const LEAPER_BIOMASS := 20.0
 const LEAPER_DNA := 15
 const MAX_LEAPERS := 3
+
+# Run-Ziele (Etappe 06). Brutnest: Kreiszone, die der Schwarm durch Anwesenheit
+# füllt; bei voll bleibt ein Gelege als normale Kadaver-Biomasse liegen.
+# Füllrate/s = Anteil der Tiere in der Zone / NEST_FILL_SECONDS x Populationsfaktor
+# (1,0 bei 25 Tieren, +1 je NEST_POPULATION_STEP weitere Tiere, max. NEST_MAX_SPEED).
+const NEST_FIRST_SECONDS := 20.0
+const NEST_RESPAWN_SECONDS := 30.0
+const NEST_RADIUS := 4.0
+const NEST_FILL_SECONDS := 8.0
+const NEST_POPULATION_STEP := 125.0
+const NEST_MAX_SPEED := 2.6
+const NEST_BIOMASS := 44.0          # erstes Nest; jedes weitere + NEST_BIOMASS_GROWTH
+const NEST_BIOMASS_GROWTH := 12.0
+const NEST_CLUTCH := 3              # Biomasse verteilt auf so viele Eier-Kadaver
+const NEST_DNA := 25
+const OBJECTIVE_MIN_DISTANCE := 14.0
+const OBJECTIVE_MAX_DISTANCE := 22.0
+const OBJECTIVE_START_CLEARANCE := 12.0   # Abstand zum Startpunkt (0,0)
+
+# Fluch-Totem: erscheint vor einem Boss (wenn keiner lebt); 1,5 s im Radius halten
+# nimmt den Fluch an: nächster Boss +50 % HP/Schaden, bis zu dessen Tod doppelte
+# Biomasse/DNA. Nicht angenommene Totems zerfallen, sobald der Boss erscheint.
+const TOTEM_RADIUS := 1.8
+const TOTEM_HOLD_SECONDS := 1.5
+const TOTEM_LEAD_SECONDS := 50.0    # erscheint, wenn der Boss in <= so vielen s kommt
+const TOTEM_MIN_LEAD_SECONDS := 15.0
+const TOTEM_CHANCE := 0.75          # ab dem zweiten Boss-Zyklus; der erste hat immer eins
+const CURSE_BOSS_MULTIPLIER := 1.5
+const CURSE_REWARD_MULTIPLIER := 2.0
+
+# Elite-Jäger: größer, gekrönt, mehr HP, garantierter Alpha-Kern.
+const ELITE_FIRST_SECONDS := 180.0
+const ELITE_INTERVAL_SECONDS := 180.0
+const ELITE_HEALTH_MULTIPLIER := 4.0
+const ELITE_SCALE := 1.45
+const ELITE_BIOMASS := 44.0
+const ELITE_DNA := 40

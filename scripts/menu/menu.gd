@@ -40,6 +40,8 @@ static var daily_pending: Dictionary = {}
 var profile_path := "user://mawlings_profile.json"
 ## Tests set this to false so SPIELEN does not leave the menu scene.
 var change_scene_on_play := true
+## Erststart (Profil ohne Runs und ohne gesehene Tipps) überspringt das Menü.
+var skip_menu_on_first_start := true
 
 var profile: Variant = null
 var meta: Variant = null
@@ -74,6 +76,8 @@ func _ready() -> void:
 	_consume_last_result()
 	_add_components()
 	queue_redraw()
+	if skip_menu_on_first_start and change_scene_on_play:
+		try_first_start()
 
 
 # Stage 04 components draw the hub; this script keeps state and input.
@@ -341,8 +345,22 @@ func play_daily() -> Dictionary:
 	return _start(config)
 
 
+## Erststart-Weiche: ohne gebuchten Run und ohne gesehenen Tipp geht es direkt in
+## einen Run (Glutmaw, erstes Biom, Wild, Profil-Seed) – wie SPIELEN. Sonst {}.
+func try_first_start() -> Dictionary:
+	if profile == null or meta == null or not profile.has_method("is_first_start") or not profile.is_first_start():
+		return {}
+	var config: Dictionary = profile.build_run_config("glutmaw", meta.BIOME_ORDER[0], 0)
+	config["first_start"] = true
+	daily_pending = {}
+	visible = false
+	return _start(config)
+
+
 func _start(config: Dictionary) -> Dictionary:
 	config["settings"] = profile.settings.duplicate()
+	# Main creates the onboarding (tips) only for runs that carry a profile path.
+	config["profile_path"] = profile_path
 	session.pending_config = config
 	play_requested.emit(config)
 	if change_scene_on_play and is_inside_tree():
@@ -675,7 +693,7 @@ func play_rect() -> Rect2:
 
 ## Next-map code card below SPIELEN (left half) with its NEU WÜRFELN mini button.
 func seed_card_rect() -> Rect2:
-	return Rect2(28, 1318, 470, 94)
+	return Rect2(28, 1310, 470, 94)
 
 
 func seed_reroll_rect() -> Rect2:

@@ -12,6 +12,7 @@ const SESSION_PATH := "res://scripts/meta/session.gd"
 const SFX_PATH := "res://scripts/sfx.gd"
 const PROFILE_PATH := "res://scripts/meta/profile.gd"
 const MENU_SCENE := "res://scenes/menu.tscn"
+const ONBOARDING_PATH := "res://scripts/onboarding.gd"
 
 const KING_SLOW_SCALE := 0.3
 const KING_SLOW_SECONDS := 0.6      # real time, not game time
@@ -45,6 +46,7 @@ func _ready() -> void:
 		arena.set_seed(int(config.get("seed", 0)))
 		_apply_settings(config.get("settings", {}))
 		world.apply_config(config)
+		_create_onboarding(config)
 	_snap_camera()
 	DisplayServer.window_set_title("MAWLINGS — Godot Prototype")
 
@@ -121,6 +123,18 @@ func _take_pending_config() -> Dictionary:
 	var pending: Variant = session.get("pending_config")
 	session.set("pending_config", {})
 	return (pending as Dictionary).duplicate(true) if pending is Dictionary else {}
+
+
+# Einstieg: contextual first-time tips, only for runs started from the menu
+# (the menu adds its profile path to the RunConfig). Tests and F5 stay without.
+func _create_onboarding(config: Dictionary) -> void:
+	var profile_path := String(config.get("profile_path", ""))
+	if profile_path == "" or has_node("Onboarding") or not ResourceLoader.exists(ONBOARDING_PATH):
+		return
+	var onboarding: Node = load(ONBOARDING_PATH).new()
+	onboarding.name = "Onboarding"
+	add_child(onboarding)
+	onboarding.setup(world, controls, swarm, profile_path)
 
 
 # Menu settings travel inside the RunConfig; the menu already mutes the bus.

@@ -451,6 +451,113 @@ def vine():
     ])
 
 
+# ---------------------------------------------------------------- card cells
+# Organic cell/vein layer for the card body (stage 06 polish). 760 x 170, drawn
+# stretched over UiFrames.card_inner() and tinted; white strokes, dark cell
+# wells. Dense along the edges and around the icon, faint behind the text.
+CELLS_W, CELLS_H = 760, 170
+
+
+def _clip(poly, a, b, c):
+    """Keep the part of poly with a*x + b*y <= c (convex clipping)."""
+    out = []
+    n = len(poly)
+    for i in range(n):
+        p, q = poly[i], poly[(i + 1) % n]
+        fp = a * p[0] + b * p[1] - c
+        fq = a * q[0] + b * q[1] - c
+        if fp <= 0:
+            out.append(p)
+        if fp * fq < 0:
+            t = fp / (fp - fq)
+            out.append((p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t))
+    return out
+
+
+def _smooth(poly):
+    """Closed quadratic path through edge midpoints (rounded blob)."""
+    n = len(poly)
+    mids = [((poly[i][0] + poly[(i + 1) % n][0]) / 2, (poly[i][1] + poly[(i + 1) % n][1]) / 2) for i in range(n)]
+    d = f"M {mids[-1][0]:.1f},{mids[-1][1]:.1f} "
+    for i in range(n):
+        d += f"Q {poly[i][0]:.1f},{poly[i][1]:.1f} {mids[i][0]:.1f},{mids[i][1]:.1f} "
+    return d + "Z"
+
+
+def _cell_weight(x, y):
+    left = 1.2 - x / 260.0
+    right = (x - 600.0) / 150.0
+    top = 0.8 - y / 40.0
+    bottom = (y - 136.0) / 40.0
+    return max(0.0, min(1.0, max(left, right, top, bottom)))
+
+
+def card_cells():
+    import random
+    rng = random.Random(4711)
+    sites = []
+    step = 44.0
+    y = -step * 0.5
+    row = 0
+    while y < CELLS_H + step:
+        x = -step + (step * 0.5 if row % 2 else 0.0)
+        while x < CELLS_W + step:
+            sites.append((x + rng.uniform(-14, 14), y + rng.uniform(-12, 12)))
+            x += step * rng.uniform(0.75, 1.35)
+        y += step * 0.86
+        row += 1
+    parts = [f'<clipPath id="k"><rect x="0" y="0" width="{CELLS_W}" height="{CELLS_H}" rx="18"/></clipPath>', '<g clip-path="url(#k)">']
+    for i, (sx, sy) in enumerate(sites):
+        poly = [(sx - 60, sy - 60), (sx + 60, sy - 60), (sx + 60, sy + 60), (sx - 60, sy + 60)]
+        for j, (tx, ty) in enumerate(sites):
+            if i == j or abs(tx - sx) > 70 or abs(ty - sy) > 70:
+                continue
+            a, b = tx - sx, ty - sy
+            c = (tx * tx + ty * ty - sx * sx - sy * sy) / 2.0
+            poly = _clip(poly, a, b, c)
+            if not poly:
+                break
+        if len(poly) < 3:
+            continue
+        w = _cell_weight(sx, sy)
+        if w < 0.08:
+            continue
+        shrink = 0.72 + 0.14 * rng.random()
+        inner = [(sx + (px - sx) * shrink, sy + (py - sy) * shrink) for px, py in poly]
+        path = _smooth(inner)
+        parts.append(f'<path d="{path}" fill="#000" fill-opacity="{0.42 * w:.2f}" stroke="#fff" stroke-opacity="{0.9 * w:.2f}" stroke-width="{1.6 + 1.6 * w:.2f}"/>')
+        if w > 0.45 and rng.random() < 0.3:
+            r = 2.0 + 3.0 * rng.random()
+            parts.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="{r:.1f}" fill="#000" fill-opacity="{0.55 * w:.2f}" stroke="#fff" stroke-opacity="{0.5 * w:.2f}" stroke-width="1"/>')
+    # a few thicker veins running in from the edges
+    veins = [
+        "M 0,30 C 40,40 70,22 110,34 C 150,46 170,30 210,38",
+        "M 0,140 C 36,128 70,148 116,136 C 150,128 180,146 230,132",
+        "M 760,24 C 724,40 700,26 664,42 C 636,54 612,42 580,52",
+        "M 760,150 C 730,136 704,152 668,138 C 640,128 618,140 590,130",
+        "M 300,0 C 306,14 296,24 304,40",
+        "M 470,170 C 464,156 474,148 468,132",
+    ]
+    for v in veins:
+        parts.append(f'<path d="{v}" fill="none" stroke="#fff" stroke-opacity="0.55" stroke-width="3.2" stroke-linecap="round"/>')
+        parts.append(f'<path d="{v}" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="1.2" stroke-linecap="round"/>')
+    parts.append("</g>")
+    return "\n".join(parts)
+
+
+def halo():
+    # 128 x 128 soft radial glow, white, tinted by the caller.
+    return (
+        '<defs><radialGradient id="g" cx="0.5" cy="0.5" r="0.5">'
+        '<stop offset="0" stop-color="#fff" stop-opacity="1"/>'
+        '<stop offset="0.45" stop-color="#fff" stop-opacity="0.45"/>'
+        '<stop offset="0.75" stop-color="#fff" stop-opacity="0.12"/>'
+        '<stop offset="1" stop-color="#fff" stop-opacity="0"/>'
+        '</radialGradient></defs>'
+        '<circle cx="64" cy="64" r="64" fill="url(#g)"/>'
+    )
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     save("card_body", CARD_W, CARD_H, card_body())
@@ -473,6 +580,8 @@ def main():
     save("claw", 60, 120, claw())
     save("tooth", 40, 64, tooth())
     save("vine_divider", 260, 96, vine())
+    save("card_cells", CELLS_W, CELLS_H, card_cells())
+    save("halo", 128, 128, halo())
 
 
 if __name__ == "__main__":

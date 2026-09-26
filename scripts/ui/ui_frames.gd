@@ -87,6 +87,27 @@ static func card_inner(rect: Rect2) -> Rect2:
 	return rect.grow_individual(-CARD_INSETS.x * k, -CARD_INSETS.y * k, -CARD_INSETS.z * k, -CARD_INSETS.w * k)
 
 
+# Organic cell/vein layer inside a card body (stage 06): dense along the edges
+# and around the icon, faint behind the text. Draw after card(), before text.
+# strength scales the opacity (1.0 = mutation cards).
+static func card_cells(canvas: CanvasItem, rect: Rect2, accent: Color, strength: float = 1.0) -> void:
+	var tex := UiStyle.tex(DIR + "card_cells.svg")
+	if tex == null or strength <= 0.0:
+		return
+	var inner := card_inner(rect).grow(-2.0)
+	var vein := accent.lerp(Color("3b6a47"), 0.5)
+	canvas.draw_texture_rect(tex, inner, false, Color(vein, 0.42 * strength))
+
+
+# Soft radial glow (white texture, tinted). radius = visible fade-out radius.
+static func halo(canvas: CanvasItem, center: Vector2, radius: float, color: Color) -> void:
+	var tex := UiStyle.tex(DIR + "halo.svg")
+	if tex == null:
+		canvas.draw_circle(center, radius * 0.6, Color(color, color.a * 0.3))
+		return
+	canvas.draw_texture_rect(tex, Rect2(center - Vector2.ONE * radius, Vector2.ONE * radius * 2.0), false, color)
+
+
 # Quiet HUD panel; claws adds small bone hooks at the chamfered corners.
 static func panel(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle.PANEL_EDGE, claws: bool = true) -> void:
 	var k := _fit(rect, PANEL_MARGINS, PANEL_PAD)

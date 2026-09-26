@@ -169,10 +169,11 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 	var stats := {
 		"seconds": world.model.elapsed, "peak": world.model.peak_population, "kills": world.model.kills,
 		"extinct": world.model.extinct, "cause": cause, "lost": world.model.lost_population,
+		"nests": int(world.get("nests_completed")) if world.get("nests_completed") != null else 0,
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d losses=h%d/s%d/l%d/b%d build=%s forms=%s wall=%.1f" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d build=%s forms=%s wall=%.1f" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
-		cause, world.model.extinct, world.model.bosses, world.evolution.level,
+		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
 		losses.hunter, losses.skitter, losses.leaper, losses.boss,
 		_build(world.evolution), ",".join(dealt), (Time.get_ticks_msec() - wall) / 1000.0])
 	root.remove_child(scene)
@@ -240,6 +241,14 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 			best = distance
 			target = pickup.position
 			harvesting = false
+	# Brutnest (stage 06): walk into it when no enemy is announcing an attack and
+	# no corpse lies close by; stay until it hatches.
+	var nest: Variant = world.get("nest")
+	if nest != null and (best == INF or best > 6.0) and not _any_armed(world):
+		var inside: float = Vector2(nest.position.x - here.x, nest.position.z - here.z).length()
+		best = inside
+		target = nest.position if inside > 1.2 else here
+		harvesting = false
 	if best == INF:
 		for prey in world.prey:
 			var distance: float = prey.position.distance_to(here)
@@ -312,6 +321,13 @@ func _is_armed(enemy: Variant) -> bool:
 	if enemy is MIRE_LEAPER:
 		return enemy.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP]
 	return enemy.state == BOG_KING.State.WARNING
+
+
+func _any_armed(world: Variant) -> bool:
+	for enemy in _enemies(world):
+		if _is_armed(enemy):
+			return true
+	return false
 
 
 func _enemies(world: Variant) -> Array:

@@ -67,7 +67,7 @@ const SIZE_HERO := 72
 const SIZE_TITLE := 48
 const SIZE_HEAD := 34
 const SIZE_BODY := 26
-const SIZE_LABEL := 21
+const SIZE_LABEL := 22
 
 const DISPLAY_FONT_PATH := "res://assets/ui/fonts/display.ttf"
 const BODY_FONT_PATH := "res://assets/ui/fonts/body.ttf"

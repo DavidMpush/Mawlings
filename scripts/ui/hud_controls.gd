@@ -23,17 +23,39 @@ var _icons_checked := false
 var _frames: Script = null
 var _frames_checked := false
 
+# Einstieg (stage 06): one friendly tip panel above the hint banner. The
+# onboarding node writes `tutorial_tip` / `tutorial_icon` on the HUD (as a
+# variable when it exists, else as metadata); this component only draws it on
+# a child layer so the whole panel can fade through `modulate`.
+const TIP_FADE_SPEED := 3.2
+const TIP_GAP := 22.0       # space between tip panel and the hint banner
+const TIP_ICONS := {
+	"move": "mawling_head_color", "rally": "pack", "warning": "skull", "boss": "bog_king",
+	"prey": "nibbler", "corpse": "biomass", "alpha": "alpha_core", "mutation": "dna", "nest": "brood",
+}
+var _tip_layer: Control = null
+var _tip_text := ""
+var _tip_icon := ""
+var _tip_alpha := 0.0
+
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip_layer = Control.new()
+	_tip_layer.name = "TutorialTip"
+	_tip_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip_layer.visible = false
+	add_child(_tip_layer)
+	_tip_layer.draw.connect(_draw_tip)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var hud := _hud()
 	if hud != null and size != hud.size:
 		position = Vector2.ZERO
 		size = hud.size
+	_update_tip(hud, delta)
 	queue_redraw()
 
 
@@ -199,6 +221,191 @@ func _draw_joystick(c: Vector2, move: Vector2) -> void:
 	var knob := c + move.limit_length(1.0) * KNOB_TRAVEL
 	if not _tex_at("joy_knob.svg", knob + Vector2(0, 4), Vector2.ONE * KNOB_R * 2.46):
 		draw_circle(knob, KNOB_R, Color("d8e6e0f0"))
+
+
+# ---------------------------------------------------------------- tutorial tip
+
+func tip_value(hud: Object, key: String) -> String:
+	if hud == null:
+		return ""
+	if key in hud:
+		return String(hud.get(key))
+	return String(hud.get_meta(key, ""))
+
+
+# Fades in a new tip; a changed tip first fades the old one out, then swaps.
+func _update_tip(hud: Control, delta: float) -> void:
+	if _tip_layer == null:
+		return
+	var wanted := tip_value(hud, "tutorial_tip")
+	var target := 0.0
+	if wanted != "":
+		if _tip_text == "" or _tip_alpha <= 0.02:
+			_tip_text = wanted
+			_tip_icon = tip_value(hud, "tutorial_icon")
+		target = 1.0 if wanted == _tip_text else 0.0
+	_tip_alpha = move_toward(_tip_alpha, target, delta * TIP_FADE_SPEED)
+	if _tip_alpha <= 0.0 and wanted == "":
+		_tip_text = ""
+	_tip_layer.position = Vector2.ZERO
+	_tip_layer.size = size
+	_tip_layer.modulate = Color(1, 1, 1, _ease(_tip_alpha))
+	_tip_layer.visible = _tip_alpha > 0.0 and _tip_text != "" and _visible_now(hud)
+	if _tip_layer.visible:
+		_tip_layer.queue_redraw()
+
+
+func _ease(x: float) -> float:
+	return x * x * (3.0 - 2.0 * x)
+
+
+func _tip_accent(id: String) -> Color:
+	match id:
+		"rally":
+			return UiStyle.EMBER
+		"warning":
+			return UiStyle.DANGER
+		"boss":
+			return UiStyle.GOLD
+		"corpse", "alpha":
+			return UiStyle.AMBER
+		"mutation":
+			return UiStyle.VIOLET
+		"nest":
+			return UiStyle.TOXIC
+	return UiStyle.CYAN
+
+
+# Panel rect of the tip: always above the banner slot so the screen centre stays free.
+func tip_rect() -> Rect2:
+	var hud := _hud()
+	if hud == null:
+		return Rect2()
+	var banner_top := minf(hud._rally_center().y, hud._movement_center().y) - FRAME_R - 30.0 - BANNER_GAP
+	var height := _tip_height()
+	var width := minf(size.x - 96.0, 780.0)
+	var slide := (1.0 - _ease(_tip_alpha)) * 22.0
+	return Rect2(Vector2(size.x * 0.5 - width * 0.5, banner_top - TIP_GAP - height + slide), Vector2(width, height))
+
+
+func _tip_text_width() -> float:
+	return minf(size.x - 96.0, 780.0) - 160.0
+
+
+func _tip_height() -> float:
+	var lines := _wrap(_tip_text, UiStyle.display_font(), UiStyle.SIZE_BODY, _tip_text_width())
+	return maxf(118.0, 60.0 + 34.0 * lines.size())
+
+
+func _wrap(text: String, font: Font, font_size: int, max_w: float) -> PackedStringArray:
+	var lines := PackedStringArray()
+	var line := ""
+	for word in text.split(" ", false):
+		var candidate := word if line == "" else line + " " + word
+		if line != "" and font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_w:
+			lines.append(line)
+			line = word
+		else:
+			line = candidate
+	if line != "":
+		lines.append(line)
+	return lines
+
+
+func _draw_tip() -> void:
+	var hud := _hud()
+	if hud == null or _tip_text == "":
+		return
+	var layer := _tip_layer
+	var rect := tip_rect()
+	var accent := _tip_accent(_tip_icon)
+	var beat := _pulse(3.0)
+	_draw_tip_pointer(layer, hud, rect, accent, beat)
+	var frames := _frames_script()
+	if frames != null and ResourceLoader.exists("res://assets/ui/frames/panel_body.svg"):
+		frames.panel(layer, rect, accent.lerp(Color.WHITE, 0.15 * beat), true)
+		# Soft accent wash so the tip reads friendlier than the dark HUD panels.
+		layer.draw_colored_polygon(_banner_points(frames.panel_inner(rect).grow(-4.0), 10.0), Color(accent, 0.1 + 0.04 * beat))
+	else:
+		var pts := _banner_points(rect, 18.0)
+		layer.draw_colored_polygon(_offset(pts, Vector2(0, 5)), UiStyle.SHADOW)
+		layer.draw_colored_polygon(pts, UiStyle.PANEL)
+		layer.draw_polyline(_closed(pts), accent, 3.0, true)
+	# Icon medallion on the left.
+	var icon_c := Vector2(rect.position.x + 70.0, rect.get_center().y)
+	var medal_r := 42.0
+	if not _tex_at_on(layer, "glow.svg", icon_c, Vector2.ONE * (medal_r + 22.0 + 6.0 * beat) * 2.0, Color(accent, 0.45)):
+		layer.draw_circle(icon_c, medal_r + 10.0, Color(accent, 0.18))
+	layer.draw_circle(icon_c, medal_r, Color("0a1712f2"))
+	layer.draw_arc(icon_c, medal_r, 0.0, TAU, 48, accent, 3.5, true)
+	var icons := _icons_script()
+	var icon_id: String = TIP_ICONS.get(_tip_icon, "")
+	if icons != null and icon_id != "" and icons.has(icon_id):
+		var icon_r := medal_r * 0.78
+		icons.draw(layer, icon_id, Rect2(icon_c - Vector2.ONE * icon_r, Vector2.ONE * icon_r * 2.0), Color.WHITE)
+	else:
+		UiStyle.text(layer, "!", icon_c + Vector2(0, 14), UiStyle.SIZE_HEAD, accent, true, 6)
+	# "TIPP" tag hangs on the top edge; the message sits right of the medallion.
+	var tag := Rect2(Vector2(rect.position.x + 128.0, rect.position.y - 17.0), Vector2(92.0, 34.0))
+	if frames != null and ResourceLoader.exists("res://assets/ui/frames/pill_body.svg"):
+		frames.pill(layer, tag, accent)
+	else:
+		layer.draw_rect(tag, Color("0a1712f2"))
+		layer.draw_rect(tag, accent, false, 2.0)
+	UiStyle.text(layer, "TIPP", tag.get_center() + Vector2(0, 8), UiStyle.SIZE_LABEL, accent.lerp(Color.WHITE, 0.35), true, 5)
+	var lines := _wrap(_tip_text, UiStyle.display_font(), UiStyle.SIZE_BODY, _tip_text_width())
+	var text_x := rect.position.x + 128.0
+	var first_baseline := rect.get_center().y - (lines.size() - 1) * 17.0 + UiStyle.SIZE_BODY * 0.36
+	for i in lines.size():
+		UiStyle.text(layer, lines[i], Vector2(text_x, first_baseline + i * 34.0), UiStyle.SIZE_BODY, UiStyle.TEXT, false, 6)
+
+
+# Bewegen/Rally: animated chevrons from the panel down to the matching control,
+# a pulsing ring around it and a fingertip (dragging on the joystick, pressing Rally).
+func _draw_tip_pointer(layer: Control, hud: Control, rect: Rect2, accent: Color, beat: float) -> void:
+	var target: Vector2
+	match _tip_icon:
+		"move":
+			target = hud._movement_center()
+		"rally":
+			target = hud._rally_center()
+		_:
+			return
+	var from := Vector2(clampf(target.x, rect.position.x + 40.0, rect.end.x - 40.0), rect.end.y + 6.0)
+	var to := target + Vector2(0.0, -FRAME_R - 14.0)
+	var along := to - from
+	var dir := along.normalized()
+	var side := Vector2(-dir.y, dir.x)
+	for i in 3:
+		var phase := fposmod(_t() * 0.9 + i / 3.0, 1.0)
+		var p := from + along * phase
+		var fade := sin(phase * PI)
+		var pts := PackedVector2Array([p - dir * 10.0 + side * 16.0, p + dir * 6.0, p - dir * 10.0 - side * 16.0])
+		layer.draw_polyline(pts, Color(UiStyle.OUTLINE, 0.7 * fade), 9.0, true)
+		layer.draw_polyline(pts, Color(accent.lerp(Color.WHITE, 0.3), fade), 5.0, true)
+	var ring_r := FRAME_R + 12.0 + 10.0 * beat
+	layer.draw_arc(target, ring_r, 0.0, TAU, 72, Color(UiStyle.OUTLINE, 0.5), 8.0, true)
+	layer.draw_arc(target, ring_r, 0.0, TAU, 72, Color(accent, 0.55 + 0.4 * beat), 4.0, true)
+	var finger: Vector2
+	var finger_r := 22.0
+	if _tip_icon == "move":
+		var swing := sin(_t() * 2.2)
+		finger = target + Vector2(swing * 46.0, -26.0 + absf(swing) * 10.0)
+	else:
+		finger = target + Vector2(0.0, -16.0)
+		finger_r = 20.0 + 6.0 * beat
+		layer.draw_arc(target, 36.0 + 40.0 * (1.0 - beat), 0.0, TAU, 48, Color(UiStyle.TEXT, 0.6 * beat), 3.0, true)
+	layer.draw_circle(finger + Vector2(0, 4), finger_r + 3.0, Color(UiStyle.OUTLINE, 0.55))
+	layer.draw_circle(finger, finger_r, Color(UiStyle.TEXT, 0.92))
+	layer.draw_arc(finger, finger_r, 0.0, TAU, 32, accent, 3.0, true)
+
+
+func _tex_at_on(layer: CanvasItem, name: String, center: Vector2, tex_size: Vector2, tint: Color) -> bool:
+	var texture := UiStyle.tex(DIR + name)
+	if texture == null:
+		return false
+	layer.draw_texture_rect(texture, Rect2(center - tex_size * 0.5, tex_size), false, tint)
+	return true
 
 
 # ---------------------------------------------------------------- hint banner

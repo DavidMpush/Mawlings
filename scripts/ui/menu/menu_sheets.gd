@@ -448,10 +448,10 @@ func _draw_upgrades() -> void:
 			var dx := x + nw + 22
 			for k in max_rank:
 				_rank_diamond(Vector2(dx + k * gap, row.position.y + 39), 7.0, accent, k < rank)
-			_body("%d/%d" % [rank, max_rank], Vector2(dx + max_rank * gap + 2, row.position.y + 47), 20, Color(S.TEXT_DIM, 0.9))
+			_body("%d/%d" % [rank, max_rank], Vector2(dx + max_rank * gap + 2, row.position.y + 47), 22, Color(S.TEXT_DIM, 0.9))
 		if not available:
 			var q: Dictionary = meta.quest(String(u.get("requires", "")))
-			var line := _fit("Trophäe: %s – %s" % [String(q.get("name", "")), String(q.get("description", ""))], right - x - 30, [22, 20], S.body_font())
+			var line := _fit("Trophäe: %s – %s" % [String(q.get("name", "")), String(q.get("description", ""))], right - x - 30, [22], S.body_font())
 			_lock(Vector2(x + 11, row.position.y + 88), 11, S.GOLD)
 			_body(line[0], Vector2(x + 30, row.position.y + 96), line[1], S.GOLD)
 		else:
@@ -470,7 +470,7 @@ func _draw_upgrades() -> void:
 		elif not available:
 			_button(buy, "off")
 			_lock(buy.get_center() + Vector2(0, -14), 17, Color("7d8a80"))
-			_txt("GESPERRT", buy.get_center() + Vector2(0, 34), 21, Color("8d998f"), 1, 4)
+			_txt("GESPERRT", buy.get_center() + Vector2(0, 34), 22, Color("8d998f"), 1, 4)
 		else:
 			var pulse := 0.6 + 0.4 * sin(now * 3.0 + i * 0.7)
 			var down: bool = menu.is_pressed(buy)
@@ -548,7 +548,7 @@ func _draw_trophy_header(s: Rect2, accent: Color) -> void:
 	var lw := _w(label, 34)
 	_icon_trophy(Vector2(right - lw - 40, y - 12), 20)
 	_txt(label, Vector2(right, y), 34, S.GOLD, 2, 6)
-	_body("erledigt", Vector2(right, y + 30), 21, Color(S.GOLD, 0.8), 2)
+	_body("erledigt", Vector2(right, y + 30), 22, Color(S.GOLD, 0.8), 2)
 	_bar_fill(Rect2(right - 170, y + 44, 170, 14), float(done) / maxf(1.0, total), S.GOLD)
 
 
@@ -635,7 +635,7 @@ func _draw_trophy_rows() -> void:
 			_check(ic + Vector2(27, 26), 10, S.GOLD)
 		var x := row.position.x + 110
 		_txt(String(q.name), Vector2(x, row.position.y + 38), 29, S.GOLD.lightened(0.25) if done else S.TEXT, 0, 6)
-		_body(String(q.description), Vector2(x, row.position.y + 66), 21, Color(S.TEXT_DIM, 0.95))
+		_body(String(q.description), Vector2(x, row.position.y + 66), 22, Color(S.TEXT_DIM, 0.95))
 		var progress: Vector2 = profile.quest_progress(q.id)
 		# Currency rewards right-aligned on the name line (clear of the frame pores).
 		_draw_reward_chips(q, Vector2(row.end.x - 70, row.position.y + 40), done)
@@ -645,14 +645,14 @@ func _draw_trophy_rows() -> void:
 		else:
 			var bar := Rect2(x, row.position.y + 78, 210, 16)
 			_bar_fill(bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), cat_color)
-			used_right = bar.end.x + 12 + _body(menu._progress_text(q, progress), Vector2(bar.end.x + 12, row.position.y + 94), 21, S.TEXT)
+			used_right = bar.end.x + 12 + _body(menu._progress_text(q, progress), Vector2(bar.end.x + 12, row.position.y + 94), 22, S.TEXT)
 		var unlocks: Array = q.get("reward", {}).get("unlock", [])
 		if not unlocks.is_empty():
 			var label := String(menu.meta.unlock_label(unlocks[0]))
 			if unlocks.size() > 1:
 				label += " +%d" % (unlocks.size() - 1)
 			var room := row.end.x - 26 - used_right - 18 - 34
-			var fitted := _fit(label, room, [20], S.body_font())
+			var fitted := _fit(label, room, [22], S.body_font())
 			var tw := _w(fitted[0], fitted[1], S.body_font()) + 34
 			var tag := Rect2(row.end.x - 26 - tw, row.position.y + 70, tw, 32)
 			draw_colored_polygon(_rounded_points(tag, 15, 4), Color("050c09", 0.85))
@@ -752,10 +752,10 @@ func _draw_instinct() -> void:
 	var nxt := Rect2(cur.end.x + 20, tiles_y, tw, 136)
 	_card(cur, S.CYAN, "normal", 18, false)
 	_card(nxt, S.EMBER, "normal", 18, false)
-	_body("AKTUELL", cur.position + Vector2(32, 48), 21, Color(S.CYAN, 0.9))
+	_body("AKTUELL", cur.position + Vector2(32, 48), 22, Color(S.CYAN, 0.9))
 	_txt("+%d %% Schaden" % roundi(bonus * level), cur.position + Vector2(32, 86), 28, S.TEXT, 0, 5)
 	_txt("+%d %% Ernte" % roundi(bonus * level), cur.position + Vector2(32, 118), 28, S.TEXT, 0, 5)
-	_body("STUFE %d" % (level + 1), nxt.position + Vector2(32, 48), 21, Color(S.EMBER_GLOW, 0.95))
+	_body("STUFE %d" % (level + 1), nxt.position + Vector2(32, 48), 22, Color(S.EMBER_GLOW, 0.95))
 	_txt("+%d %% Schaden" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 86), 28, S.EMBER_GLOW.lightened(0.3), 0, 5)
 	_txt("+%d %% Ernte" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 118), 28, S.EMBER_GLOW.lightened(0.3), 0, 5)
 	_arrow(Vector2(cur.end.x + 10, tiles_y + 68), 16, 1.0, S.EMBER_GLOW)
@@ -776,7 +776,7 @@ func _draw_instinct() -> void:
 	if not affordable:
 		_body("Noch %d Essenz" % (cost - int(menu.profile.essence)), Vector2(buy.get_center().x, buy.end.y + 40), 22, S.DANGER.lightened(0.3), 1)
 	var note_y := buy.end.y + (84 if not affordable else 56)
-	_paragraph_body("Urinstinkt hat keine Obergrenze. Jede Stufe kostet %d Essenz mehr – lohnt sich, wenn die Brutkammer ausgebaut ist." % int(info.get("step", 50)), Vector2(s.get_center().x, note_y), s.size.x - 140, 21, Color(S.TEXT_DIM, 0.85))
+	_paragraph_body("Urinstinkt hat keine Obergrenze. Jede Stufe kostet %d Essenz mehr – lohnt sich, wenn die Brutkammer ausgebaut ist." % int(info.get("step", 50)), Vector2(s.get_center().x, note_y), s.size.x - 140, 22, Color(S.TEXT_DIM, 0.85))
 
 
 func _paragraph_body(value: String, at: Vector2, width: float, px: int, color: Color) -> void:
@@ -844,7 +844,7 @@ func _draw_reward() -> void:
 	for i in tiles.size():
 		var tile := Rect2(panel.position.x + 30 + i * (tw + 20), 470, tw, 108)
 		_card(tile, tiles[i][2], "normal", 16, false)
-		_body(tiles[i][0], Vector2(tile.get_center().x, tile.position.y + 44), 21, Color(S.TEXT_DIM, 0.95), 1)
+		_body(tiles[i][0], Vector2(tile.get_center().x, tile.position.y + 44), 22, Color(S.TEXT_DIM, 0.95), 1)
 		var v := roundi(float(tiles[i][1]) * _ease(0.45 + i * 0.1, 1.0))
 		_txt("%d" % v, Vector2(tile.get_center().x, tile.position.y + 88), 44, (tiles[i][2] as Color).lightened(0.25), 1, 6)
 	# Loot header.
@@ -883,7 +883,13 @@ func _draw_reward() -> void:
 		_txt(L.label, Vector2(tile.position.x + 138, tile.position.y + 112), 22, col.lightened(0.3), 0, 4)
 		var split: Array = L.split
 		if split[1] > 0:
-			_body("Run +%d · Trophäe +%d" % [split[0], split[1]], Vector2(tile.position.x + 138, tile.position.y + 138), 20, Color(S.TEXT_DIM, 0.9), 0)
+			var room := tile.end.x - 34.0 - (tile.position.x + 138)
+			var parts := "Run +%d · Trophäe +%d" % [split[0], split[1]]
+			if _w(parts, 22, S.body_font()) > room:
+				parts = "+%d Run · +%d Tr." % [split[0], split[1]]
+			if _w(parts, 22, S.body_font()) > room:
+				parts = "+%d · +%d" % [split[0], split[1]]
+			_body(parts, Vector2(tile.position.x + 138, tile.position.y + 138), 22, Color(S.TEXT_DIM, 0.9), 0)
 		# Shine sweep once the count lands, then every few seconds.
 		var since := _now() - _reward_t0 - (2.1 + i * 0.15)
 		if since > 0.0:
@@ -943,7 +949,7 @@ func _draw_reward() -> void:
 			cy += chip_h + 8
 		if shown < total:
 			var a := _ease(2.0 + shown * 0.16, 0.3)
-			_body("+ %d weitere in TROPHÄEN" % (total - shown), Vector2(cx, cy + 22), 21, Color(S.VIOLET.lightened(0.35), a), 1)
+			_body("+ %d weitere in TROPHÄEN" % (total - shown), Vector2(cx, cy + 22), 22, Color(S.VIOLET.lightened(0.35), a), 1)
 	# WEITER on the menu rectangle.
 	var pulse := 0.5 + 0.5 * sin(_now() * 2.5)
 	var down: bool = menu.is_pressed(button)
@@ -974,11 +980,11 @@ func _unlock_card(rect: Rect2, q: Dictionary, index: int) -> void:
 	draw_colored_polygon(_rounded_points(tag, 14, 4), Color(S.GOLD, 0.25 + 0.15 * sin(_now() * 4.0)))
 	_txt("NEU", tag.get_center() + Vector2(0, 9), 22, S.GOLD.lightened(0.4), 1, 4)
 	var text := " · ".join(labels)
-	var fitted := _fit(text, r.size.x - 180, [25, 22, 20])
+	var fitted := _fit(text, r.size.x - 180, [25, 23, 22])
 	_txt(fitted[0], r.position + Vector2(76, 30), fitted[1], S.GOLD.lightened(0.35), 0, 5)
 	var line := "%s%s" % [q.name, _currency_suffix(q)]
-	var f2 := _fit(line, r.size.x - 180, [20], S.body_font())
-	_body(f2[0], r.position + Vector2(76, 56), 20, Color(S.TEXT_DIM, 0.95))
+	var f2 := _fit(line, r.size.x - 180, [22], S.body_font())
+	_body(f2[0], r.position + Vector2(76, 57), f2[1], Color(S.TEXT_DIM, 0.95))
 
 
 func _currency_suffix(q: Dictionary) -> String:
@@ -1017,7 +1023,7 @@ func _trophy_chip(rect: Rect2, q: Dictionary, index: int) -> void:
 	var ic := r.position + Vector2(28, r.size.y * 0.5)
 	draw_circle(ic, 15, Color(S.TOXIC, 0.25))
 	_check(ic, 11, S.TOXIC.lightened(0.3))
-	var fitted := _fit(String(q.name), r.size.x - 150, [23, 21, 20])
+	var fitted := _fit(String(q.name), r.size.x - 150, [23, 22])
 	_txt(fitted[0], r.position + Vector2(52, 34), fitted[1], S.TEXT, 0, 4)
 	var rw: Dictionary = q.get("reward", {})
 	var right := r.end.x - 14
@@ -1058,15 +1064,31 @@ func _draw_settings() -> void:
 		var accent: Color = accents[i % accents.size()]
 		var down: bool = menu.is_pressed(row)
 		var po := _press_offset(down)
-		_card(row, accent if on else Color("5b675f"), "normal" if on else "dim", 20, false)
-		var ic := row.position + Vector2(62, row.size.y * 0.5) + po
-		_medallion(ic, 40, accent if on else Color("56625a"), 1.0 if on else 0.0)
+		_setting_row(row, accent, on, down)
+		var ic := row.position + Vector2(58, row.size.y * 0.5) + po
+		_medallion(ic, 36, accent if on else Color("56625a"), 0.7 if on else 0.0)
 		_setting_glyph(String(entry[0]), ic, accent.lightened(0.2) if on else Color("7d8a80"), on)
-		_txt(String(entry[1]), row.position + Vector2(124, 54) + po, 32, S.TEXT if on else S.TEXT_DIM, 0, 6)
-		_body(String(entry[2]), row.position + Vector2(124, 92) + po, 22, Color(S.TEXT_DIM, 0.95))
-		_switch(Rect2(Vector2(row.end.x - 150, row.get_center().y - 28) + po, Vector2(124, 56)), on, accent)
-	var note_y: float = menu.settings_row_rect(menu.SETTINGS.size() - 1).end.y + 50
-	_body("Farbenblind-Modus: Gefahren tragen zusätzlich Muster und Kontur.", Vector2(p.get_center().x, note_y), 21, Color(S.TEXT_DIM, 0.85), 1)
+		_txt(String(entry[1]), row.position + Vector2(116, 56) + po, 32, S.TEXT if on else S.TEXT_DIM, 0, 6)
+		var desc := _fit(String(entry[2]), row.size.x - 116 - 190, [22], S.body_font())
+		_body(desc[0], row.position + Vector2(116, 92) + po, desc[1], Color(S.TEXT_DIM, 0.95))
+		_switch(Rect2(Vector2(row.end.x - 164, row.get_center().y - 30) + po, Vector2(140, 60)), on, accent)
+	var note_y: float = menu.settings_row_rect(menu.SETTINGS.size() - 1).end.y + 46
+	_paragraph_body("Farbenblind: Gefahren zusätzlich mit Muster und Kontur.", Vector2(p.get_center().x, note_y), p.size.x - 110, 22, Color(S.TEXT_DIM, 0.85))
+
+
+## Light settings row (stage 06): flat dark strip with a thin rim and an accent
+## stripe when on – no claw frame per row, the switch carries the state.
+func _setting_row(row: Rect2, accent: Color, on: bool, down: bool) -> void:
+	var shape := _rounded_points(row, 18, 5)
+	draw_colored_polygon(shape, Color("06110c", 0.72 if on else 0.5))
+	if on:
+		_gradient_fill(_rounded_points(row.grow(-2), 16, 5), row, Color(accent, 0.10), Color(accent, 0.02))
+	if down:
+		draw_colored_polygon(shape, Color(1, 1, 1, 0.05))
+	_outline(shape, Color(accent, 0.45) if on else Color(S.PANEL_EDGE, 0.9), 1.5)
+	if on:
+		var stripe := Rect2(row.position + Vector2(0, 22), Vector2(5, row.size.y - 44))
+		draw_colored_polygon(_rounded_points(stripe, 2.5, 2), accent)
 
 
 ## Toggle switch: capsule track, sliding knob, AN/AUS written inside.
@@ -1074,16 +1096,16 @@ func _switch(rect: Rect2, on: bool, accent: Color) -> void:
 	var r := rect.size.y * 0.5
 	draw_colored_polygon(_rounded_points(rect.grow(3), r + 3, 6), S.OUTLINE)
 	var track := _rounded_points(rect, r, 6)
-	_gradient_fill(track, rect, (accent.darkened(0.25) if on else Color("1c2621")), (accent.darkened(0.6) if on else Color("0c1410")))
-	_outline(track, Color(accent, 0.8) if on else Color("46524a"), 2.0)
+	_gradient_fill(track, rect, (accent.darkened(0.05) if on else Color("1c2621")), (accent.darkened(0.45) if on else Color("0c1410")))
+	_outline(track, accent.lightened(0.3) if on else Color("5b675f"), 2.0)
 	var knob := Vector2(rect.end.x - r if on else rect.position.x + r, rect.get_center().y)
-	draw_circle(knob + Vector2(0, 3), r - 5, Color(0, 0, 0, 0.4))
+	draw_circle(knob + Vector2(0, 3), r - 5, Color(0, 0, 0, 0.45))
 	draw_circle(knob, r - 5, S.BONE if on else Color("8d998f"))
 	draw_circle(knob + Vector2(-5, -6), 6, Color(1, 1, 1, 0.4))
 	var label := "AN" if on else "AUS"
 	var free := rect.size.x - 2.0 * r
 	var lx := rect.position.x + free * 0.5 + (0.0 if on else 2.0 * r)
-	_txt(label, Vector2(lx, rect.get_center().y + 8), 21, S.TEXT if on else S.TEXT_DIM, 1, 4)
+	_txt(label, Vector2(lx, rect.get_center().y + 9), 24, S.OUTLINE if on else S.TEXT_DIM, 1, 0 if on else 4)
 
 
 func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
@@ -1128,7 +1150,7 @@ func _draw_toast() -> void:
 	var fade_out := clampf(remaining / 0.3, 0.0, 1.0)
 	var fade_in := clampf((1.8 - remaining) / 0.15, 0.0, 1.0)
 	var a := minf(fade_out, fade_in)
-	var fitted := _fit(text, size.x - 140, [24, 22, 20], S.body_font())
+	var fitted := _fit(text, size.x - 140, [24, 22], S.body_font())
 	var w := _w(fitted[0], fitted[1], S.body_font()) + 84
 	var rect := Rect2(size.x * 0.5 - w * 0.5, 30 - (1.0 - fade_in) * 16, w, 56)
 	var accent := S.DANGER if text.begins_with("Nicht") or text.begins_with("Gesperrt") or text.begins_with("Noch") else S.TOXIC

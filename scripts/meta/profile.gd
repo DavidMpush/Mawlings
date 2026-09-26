@@ -28,6 +28,8 @@ var next_seed: int = 1
 var daily_records: Dictionary = {}
 ## Einstellungen (Ton, Vibration, Farbenblind-Modus); fehlende Schlüssel = DEFAULT_SETTINGS.
 var settings: Dictionary = {}
+## Einstieg: IDs der bereits gezeigten Tipps (jeder Tipp einmal pro Profil).
+var seen_tips: Array = []
 
 const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false}
 ## So viele Tage bleiben in daily_records erhalten (älteste fallen heraus).
@@ -60,6 +62,7 @@ func _reset_defaults() -> void:
 	next_seed = random_seed()
 	daily_records = {}
 	settings = DEFAULT_SETTINGS.duplicate()
+	seen_tips = []
 
 static func _default_records() -> Dictionary:
 	return {
@@ -100,7 +103,7 @@ func to_dict() -> Dictionary:
 		"unlocked_difficulties": unlocked_difficulties, "unlocked_upgrades": unlocked_upgrades,
 		"unlocked_mutations": unlocked_mutations, "bonus_rerolls": bonus_rerolls,
 		"bonus_banishes": bonus_banishes, "bonus_skips": bonus_skips, "next_seed": next_seed,
-		"daily_records": daily_records, "settings": settings,
+		"daily_records": daily_records, "settings": settings, "seen_tips": seen_tips,
 	}
 
 func _apply(d: Dictionary) -> void:
@@ -138,6 +141,7 @@ func _apply(d: Dictionary) -> void:
 	_merge_strings(completed_quests, d.get("completed_quests"), [])
 	_merge_strings(unlocked_upgrades, d.get("unlocked_upgrades"), DATA.UPGRADES.keys())
 	_merge_strings(unlocked_mutations, d.get("unlocked_mutations"), [])
+	_merge_strings(seen_tips, d.get("seen_tips"), [])
 	var diffs: Variant = d.get("unlocked_difficulties")
 	if diffs is Array:
 		for value in diffs:
@@ -308,6 +312,23 @@ func get_setting(key: String) -> bool:
 func set_setting(key: String, value: bool) -> void:
 	if DEFAULT_SETTINGS.has(key):
 		settings[key] = value
+
+# --- Einstieg (Tipps) -------------------------------------------------------------
+
+func has_seen_tip(id: String) -> bool:
+	return seen_tips.has(id)
+
+## Merkt einen Tipp als gesehen und speichert sofort; false, wenn er schon bekannt war.
+func mark_tip(id: String) -> bool:
+	if id == "" or seen_tips.has(id):
+		return false
+	seen_tips.append(id)
+	save()
+	return true
+
+## Erststart: noch kein Run gebucht und noch kein Tipp gesehen.
+func is_first_start() -> bool:
+	return int(records.get("runs", 0)) == 0 and seen_tips.is_empty()
 
 # --- Run-Konfiguration ---------------------------------------------------------
 

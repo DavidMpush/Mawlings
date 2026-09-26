@@ -15,6 +15,7 @@ const TOP := 18.0
 const BAR_H := 100.0
 const ROW_H := 40.0
 const GAP := 10.0
+const LABEL := 22       # stage 06: smallest HUD text (900 grid)
 # Threat chips repeat the in-world creature colours (no palette token exists).
 const HUNTER_COLOR := UiStyle.VIOLET
 const SKITTER_COLOR := Color("e46ad0")
@@ -179,7 +180,7 @@ func _draw_swarm(rect: Rect2) -> void:
 	var num_size := int(round(54 + 8 * _ease(_pop_pulse)))
 	var num_color := Color.WHITE.lerp(pulse_color.lightened(0.25), _pop_pulse)
 	var w := UiStyle.text(self, "%d" % pop, Vector2(x - 2, rect.position.y + 84), num_size, num_color, false, 9)
-	UiStyle.text(self, "/ %d" % MAX_POPULATION, Vector2(x + w + 6, rect.position.y + 82), UiStyle.SIZE_LABEL, UiStyle.TEXT_DIM, false, 5, UiStyle.body_font())
+	UiStyle.text(self, "/ %d" % MAX_POPULATION, Vector2(x + w + 6, rect.position.y + 82), LABEL, UiStyle.TEXT_DIM, false, 5, UiStyle.body_font())
 	# Floating delta ("+7" / "−12") rises out of the number.
 	if _pop_pulse > 0.0 and _pop_delta != 0:
 		var rise := (1.0 - _pop_pulse) * 12.0
@@ -225,7 +226,10 @@ func _draw_dna(rect: Rect2) -> void:
 	var lv_size := int(round(38 + 8 * _ease(_level_pulse)))
 	UiStyle.text(self, "LV %d" % level, Vector2(x, rect.position.y + 48), lv_size, Color.WHITE.lerp(UiStyle.CYAN.lightened(0.4), _level_pulse), false, 8)
 	_bar(Rect2(x, rect.position.y + 58, rect.end.x - x - 14, 12), 1.0 if maxed else clampf(float(dna) / maxf(1.0, needed), 0.0, 1.0), UiStyle.CYAN)
-	UiStyle.text(self, "MAX" if maxed else "%d/%d DNA" % [dna, needed], Vector2(x, rect.position.y + 92), UiStyle.SIZE_LABEL - 1, UiStyle.CYAN.lightened(0.45), false, 5, UiStyle.body_font())
+	var dna_text := "MAX" if maxed else "%d/%d DNA" % [dna, needed]
+	if _text_width(dna_text, LABEL) > rect.end.x - x - 8.0:
+		dna_text = "%d/%d" % [dna, needed]
+	UiStyle.text(self, dna_text, Vector2(x, rect.position.y + 92), LABEL, UiStyle.CYAN.lightened(0.45), false, 5, UiStyle.body_font())
 
 
 func _draw_pause(rect: Rect2) -> void:
@@ -247,13 +251,13 @@ func _draw_pressure_chip(y: float) -> Rect2:
 	var pressure: float = _hud_value("pressure", 1.0)
 	var text := ("DRUCK ×%.1f" % pressure) if pressure < 10.0 else ("DRUCK ×%d" % int(pressure))
 	var color := _danger_color()
-	var w := _text_width(text, UiStyle.SIZE_LABEL) + 40
+	var w := _text_width(text, LABEL) + 40
 	var rect := Rect2(size.x * 0.5 - w * 0.5, y, w, ROW_H - 4)
 	var hot := smoothstep(0.55, 0.9, _danger_fraction())
 	if hot > 0.0:
 		_pill(rect.grow(4), Color(UiStyle.DANGER, 0.0), Color(UiStyle.DANGER, hot * (0.2 + 0.15 * sin(_time * 6.0))))
 	_pill(rect, color, UiStyle.PANEL_SOFT.lerp(Color(UiStyle.DANGER, 0.8), hot * 0.35))
-	UiStyle.text(self, text, Vector2(rect.get_center().x, rect.position.y + 26), UiStyle.SIZE_LABEL, color.lerp(Color.WHITE, 0.5 + 0.4 * hot), true, 5, UiStyle.body_font())
+	UiStyle.text(self, text, Vector2(rect.get_center().x, rect.position.y + 26), LABEL, color.lerp(Color.WHITE, 0.5 + 0.4 * hot), true, 5, UiStyle.body_font())
 	return rect
 
 
@@ -273,7 +277,7 @@ func _draw_threat_chips(y: float, right_limit: float) -> float:
 		return y
 	var x := 16.0
 	for entry in entries:
-		var w := _text_width(entry[0], UiStyle.SIZE_LABEL) + 52
+		var w := _text_width(entry[0], LABEL) + 52
 		if x > 16.0 and x + w > right_limit:
 			x = 16.0
 			y += ROW_H + 4
@@ -281,7 +285,7 @@ func _draw_threat_chips(y: float, right_limit: float) -> float:
 		var accent: Color = entry[1]
 		_pill(rect, accent)
 		_diamond(rect.position + Vector2(21, rect.size.y * 0.5), 9, accent)
-		UiStyle.text(self, entry[0], rect.position + Vector2(38, 26), UiStyle.SIZE_LABEL, accent.lerp(Color.WHITE, 0.7), false, 5, UiStyle.body_font())
+		UiStyle.text(self, entry[0], rect.position + Vector2(38, 26), LABEL, accent.lerp(Color.WHITE, 0.7), false, 5, UiStyle.body_font())
 		x += w + 8
 	return y + ROW_H + 4
 
@@ -292,7 +296,7 @@ func _draw_alpha_chip(y: float, left_limit: float) -> float:
 	if cores <= 0:
 		return y
 	var text := "ALPHA-KERN ×%d" % cores
-	var w := _text_width(text, UiStyle.SIZE_LABEL) + 58
+	var w := _text_width(text, LABEL) + 58
 	if size.x - 16 - w < left_limit:
 		y += ROW_H + 4
 	var rect := Rect2(size.x - 16 - w, y, w, ROW_H - 4)
@@ -301,7 +305,7 @@ func _draw_alpha_chip(y: float, left_limit: float) -> float:
 	draw_circle(gem_c, 16, Color(UiStyle.VIOLET, 0.2 + 0.15 * sin(_time * 4.0)))
 	if not _icon(["alpha_core"], Rect2(gem_c - Vector2(18, 18), Vector2(36, 36)), Color.WHITE):
 		_fb_gem(gem_c, 12)
-	UiStyle.text(self, text, rect.position + Vector2(44, 26), UiStyle.SIZE_LABEL, UiStyle.GOLD.lightened(0.3), false, 5, UiStyle.body_font())
+	UiStyle.text(self, text, rect.position + Vector2(44, 26), LABEL, UiStyle.GOLD.lightened(0.3), false, 5, UiStyle.body_font())
 	return y + ROW_H + 4
 
 
@@ -327,10 +331,10 @@ func _draw_boss_bar(y: float) -> float:
 	UiStyle.text(self, "BOG KING", Vector2(x, rect.position.y + 36), 30, UiStyle.TEXT, false, 7)
 	if vulnerable:
 		var tag := "VERWUNDBAR"
-		var tw := _text_width(tag, UiStyle.SIZE_LABEL) + 28
+		var tw := _text_width(tag, LABEL) + 28
 		var tag_rect := Rect2(rect.end.x - 18 - tw, rect.position.y + 10, tw, 32)
 		_pill(tag_rect, UiStyle.GOLD, UiStyle.GOLD.darkened(0.55).lerp(UiStyle.GOLD.darkened(0.3), blink))
-		UiStyle.text(self, tag, Vector2(tag_rect.get_center().x, tag_rect.position.y + 24), UiStyle.SIZE_LABEL, Color.WHITE, true, 5, UiStyle.body_font())
+		UiStyle.text(self, tag, Vector2(tag_rect.get_center().x, tag_rect.position.y + 24), LABEL, Color.WHITE, true, 5, UiStyle.body_font())
 	var bar := Rect2(x, rect.position.y + 50, rect.end.x - x - 20, 20)
 	_segments(bar, clampf(health / max_health, 0.0, 1.0), UiStyle.GOLD if vulnerable else UiStyle.DANGER, 14)
 	return rect.end.y
@@ -343,12 +347,12 @@ func _draw_corpse_hint(y: float) -> float:
 	var parts := hint.split("·")
 	var text := parts[0].strip_edges()
 	var direction := parts[1].strip_edges() if parts.size() > 1 else ""
-	var w := _text_width(text, UiStyle.SIZE_LABEL) + 104
+	var w := _text_width(text, LABEL) + 104
 	var rect := Rect2(16, y, w, 44)
 	_pill(rect, UiStyle.AMBER)
 	var drop_c := rect.position + Vector2(24, 24)
 	_fb_drop(drop_c + Vector2(0, 2), 11, UiStyle.AMBER)
-	UiStyle.text(self, text, rect.position + Vector2(44, 30), UiStyle.SIZE_LABEL, UiStyle.BONE, false, 5, UiStyle.body_font())
+	UiStyle.text(self, text, rect.position + Vector2(44, 30), LABEL, UiStyle.BONE, false, 5, UiStyle.body_font())
 	_direction_mark(rect.position + Vector2(rect.size.x - 30, 22), direction, UiStyle.AMBER)
 	return rect.end.y + 8
 
@@ -358,12 +362,12 @@ func _draw_biomass(y: float) -> void:
 	if bank <= 0.01:
 		return
 	var text := "BIOMASSE %.1f / 2" % bank
-	var w := _text_width(text, UiStyle.SIZE_LABEL) + 60
+	var w := _text_width(text, LABEL) + 60
 	var rect := Rect2(16, y, w, 44)
 	_pill(rect, UiStyle.AMBER)
 	var drop_c := rect.position + Vector2(24, 22)
 	_fb_drop(drop_c + Vector2(0, 2), 10, UiStyle.AMBER)
-	UiStyle.text(self, text, rect.position + Vector2(44, 26), UiStyle.SIZE_LABEL, UiStyle.AMBER.lightened(0.3), false, 5, UiStyle.body_font())
+	UiStyle.text(self, text, rect.position + Vector2(44, 26), LABEL, UiStyle.AMBER.lightened(0.3), false, 5, UiStyle.body_font())
 	_bar(Rect2(rect.position.x + 44, rect.end.y - 11, w - 64, 5), clampf(bank / 2.0, 0.0, 1.0), UiStyle.AMBER)
 
 
@@ -600,7 +604,7 @@ func _text_width(value: String, font_size: int) -> float:
 
 
 func _label(value: String, at: Vector2, color: Color) -> void:
-	UiStyle.text(self, value, at, UiStyle.SIZE_LABEL - 1, color, false, 5, UiStyle.body_font())
+	UiStyle.text(self, value, at, LABEL, color, false, 5, UiStyle.body_font())
 
 
 func _ease(t: float) -> float:

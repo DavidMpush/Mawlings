@@ -9,6 +9,11 @@ const BOG_KING = preload("res://scripts/bog_king.gd")
 const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
+const BROOD_NEST = preload("res://scripts/objectives/brood_nest.gd")
+const CURSE_TOTEM = preload("res://scripts/objectives/curse_totem.gd")
+const HUD_OBJECTIVES_PATH := "res://scripts/ui/hud_objectives.gd"
+const NEST_COLOR := Color("3fe6d8")
+const CURSE_COLOR := Color("ff4a8a")
 const CORPSE_BIOMASS := TUNING.CORPSE_BIOMASS
 # Written by parallel modules; loaded at runtime so a missing file never breaks a run.
 const ATTACK_FORMS_PATH := "res://scripts/attack_forms.gd"
@@ -23,7 +28,7 @@ const ALPHA_PICKUP_RADIUS := 1.7
 const MELEE_REACH := 1.2
 const MELEE_FULL_SHARE := 0.6
 const MELEE_MIN_ENGAGE := 0.5
-const BODY_RADIUS := {"prey": 0.45, "hunter": 0.72, "skitter": 0.55, "leaper": 0.7, "boss": 2.3}
+const BODY_RADIUS := {"prey": 0.45, "hunter": 0.72, "elite": 1.05, "skitter": 0.55, "leaper": 0.7, "boss": 2.3}
 const POPUP_SECONDS := 0.9
 const POPUP_MAX := 6
 const POPUP_MERGE_SECONDS := 0.3
@@ -76,10 +81,27 @@ var kill_popups: Array[Dictionary] = []
 # Counts Bog King kills this run; HUD and Main react to changes (Königsmoment).
 var king_moments := 0
 var last_hit_share := 1.0
+# Run-Ziele (stage 06): one Brutnest at a time, an optional Fluch-Totem before a
+# boss, elite hunters on a timer. Placement uses objective_rng seeded from the
+# run seed, so a seed always yields the same first nest.
+var nest: Node3D
+var totem: Node3D
+var objective_rng := RandomNumberGenerator.new()
+var nest_clock := TUNING.NEST_FIRST_SECONDS
+var elite_clock := TUNING.ELITE_FIRST_SECONDS
+# True once this boss cycle had its totem roll; boss_cycles counts boss spawns.
+var totem_offered := false
+var boss_cycles := 0
+# 0 = no curse, 1 = accepted and waiting for the next boss, 2 = cursed boss alive.
+var curse_state := 0
+var nests_completed := 0
+var totems_taken := 0
 
 
 func _ready() -> void:
 	drop_rng.randomize()
+	_seed_objectives()
+	_ensure_objective_hud()
 	_create_attack_forms()
 	_starting_prey()
 	_update_hud("")
@@ -116,6 +138,7 @@ func reset_run() -> void:
 	evolution = EVOLUTION.new()
 	model = RUN_MODEL.new()
 	_configure_run()
+	_seed_objectives()
 	spawn_clock = 0.0
 	hunter_clock = TUNING.FIRST_HUNTER_SECONDS
 	skitter_clock = TUNING.FIRST_SKITTER_SECONDS
@@ -238,7 +261,7 @@ func step(delta: float) -> void:
 				return
 			continue
 		_consider_focus(hunter.position, 3.4)
-		var hunter_bite := 0.0 if hunter.get("state") == HUNTER.State.ARRIVING else melee_factor(hunter.position, "hunter", attack_range)
+		var hunter_bite := 0.0 if hunter.get("state") == HUNTER.State.ARRIVING else melee_factor(hunter.position, "elite" if hunter.elite else "hunter", attack_range)
 		if hunter_bite > 0.0:
 			hunter.call("take_damage", damage * hunter_bite * delta)
 			melee_contact = true
@@ -366,6 +389,7 @@ func step(delta: float) -> void:
 		boss_clock -= delta
 		if boss_clock <= 0.0:
 			_spawn_boss(_spawn_position(11.0))
+	message = _step_objectives(delta, message)
 	_update_hud(message)
 
 
@@ -401,10 +425,15 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			if not hunters.has(enemy):
 				return false
 			hunters.erase(enemy)
-			_kill_burst(location, Color("c58be0"), 2.6, 0.25)
-			_create_corpse(location, TUNING.HUNTER_BIOMASS * evolution.biomass_multiplier())
-			if model.pressure() >= 2.0 and drop_rng.randf() < 0.10:
+			if enemy.elite:
+				_kill_burst(location, Color("f5c86a"), 4.0, 0.35)
+				_create_corpse(location, TUNING.ELITE_BIOMASS * evolution.biomass_multiplier())
 				_drop_alpha_core(location)
+			else:
+				_kill_burst(location, Color("c58be0"), 2.6, 0.25)
+				_create_corpse(location, TUNING.HUNTER_BIOMASS * evolution.biomass_multiplier())
+				if model.pressure() >= 2.0 and drop_rng.randf() < 0.10:
+					_drop_alpha_core(location)
 		"skitter":
 			if not skitters.has(enemy):
 				return false
@@ -434,10 +463,17 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			return false
 	model.record_kill(kind)
 	enemy.queue_free()
-	var dna: int = {"hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50}[kind]
+	var base_dna: int = {"hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50}[kind]
+	if kind == "hunter" and enemy.elite:
+		base_dna = TUNING.ELITE_DNA
+	var dna := _reward_dna(base_dna)
 	_add_popup(location, dna, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
 	if kind == "boss":
 		_king_moment(location)
+		# The curse (and its double reward) ends with the cursed boss; its own
+		# corpse and DNA above were still doubled.
+		if curse_state == 2:
+			curse_state = 0
 	_award_dna(dna)
 	return true
 
@@ -497,6 +533,7 @@ func _spawn_boss(location: Vector3) -> Node3D:
 	target.max_health = target.health
 	add_child(target)
 	boss = target
+	_on_boss_spawned(target)
 	return target
 
 
@@ -509,14 +546,16 @@ func _kill_prey(target: Node3D) -> void:
 	_create_corpse(target.position, CORPSE_BIOMASS * evolution.biomass_multiplier())
 	model.record_kill("prey")
 	target.queue_free()
-	_add_popup(target.position, 10, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
-	_award_dna(10)
+	var dna := _reward_dna(10)
+	_add_popup(target.position, dna, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
+	_award_dna(dna)
 
 
-func _create_corpse(location: Vector3, biomass: float) -> void:
-	var id: int = model.add_corpse(location, biomass)
+func _create_corpse(location: Vector3, biomass: float) -> int:
+	# Fluch-Totem: doubled biomass until the cursed boss dies.
+	var id: int = model.add_corpse(location, biomass * reward_multiplier())
 	if id < 0:
-		return
+		return id
 	var visual := Node3D.new()
 	visual.name = "Persistent corpse %d" % id
 	visual.position = location
@@ -534,6 +573,7 @@ func _create_corpse(location: Vector3, biomass: float) -> void:
 	core.height = 0.4
 	_piece(visual, core, amber, Vector3(0.0, 0.25, 0.0))
 	corpse_visuals[id] = visual
+	return id
 
 
 func _update_corpse(id: int, initial: float) -> void:
@@ -650,6 +690,230 @@ func _try_evolve() -> bool:
 	return true
 
 
+# ---------------------------------------------------------------- Run-Ziele
+
+# Resets every objective and seeds placement from the run seed (0 without config).
+func _seed_objectives() -> void:
+	objective_rng.seed = hash("mawlings-objectives:%d" % int(config.get("seed", 0)))
+	nest = null
+	totem = null
+	nest_clock = TUNING.NEST_FIRST_SECONDS
+	elite_clock = TUNING.ELITE_FIRST_SECONDS
+	totem_offered = false
+	boss_cycles = 0
+	curse_state = 0
+	nests_completed = 0
+	totems_taken = 0
+
+
+# Adds the objective HUD component (pointers, totem status) once.
+func _ensure_objective_hud() -> void:
+	if hud == null or hud.get_node_or_null("hud_objectives") != null or not ResourceLoader.exists(HUD_OBJECTIVES_PATH):
+		return
+	var component: Control = load(HUD_OBJECTIVES_PATH).new()
+	component.name = "hud_objectives"
+	hud.add_child(component)
+
+
+# Doubles biomass and DNA while a Fluch-Totem curse is accepted (until the boss dies).
+func reward_multiplier() -> float:
+	return TUNING.CURSE_REWARD_MULTIPLIER if curse_state > 0 else 1.0
+
+
+func _reward_dna(amount: int) -> int:
+	return int(round(float(amount) * reward_multiplier()))
+
+
+# Runs nest, totem and elite schedules inside step(); returns the hint to show.
+func _step_objectives(delta: float, message: String) -> String:
+	var calm := message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Biomasse") or message.begins_with("Schwarm voll")
+	# Brutnest: one at a time; a new one after the previous one hatched.
+	if nest == null:
+		nest_clock -= delta
+		if nest_clock <= 0.0:
+			spawn_nest(_objective_position(TUNING.NEST_RADIUS, [totem]))
+	if nest != null:
+		var share := 0.0
+		var points := _unit_points()
+		if points.is_empty():
+			share = 1.0 if nest.contains(swarm.position) else 0.0
+		else:
+			share = nest.hit_fraction(points)
+		var full: bool = nest.fill(delta, share, model.population)
+		nest.animate(delta, share > 0.0)
+		if full:
+			_complete_nest()
+			return "BRUTNEST GESCHLÜPFT · BIOMASSE FRESSEN!"
+		if share > 0.0 and calm:
+			message = "Brutnest füllen · %d Prozent" % int(nest.progress * 100.0)
+	# Fluch-Totem: rolled once per boss cycle while no boss is alive.
+	if boss == null and totem == null and curse_state == 0 and not totem_offered and boss_clock <= TUNING.TOTEM_LEAD_SECONDS and boss_clock >= TUNING.TOTEM_MIN_LEAD_SECONDS:
+		totem_offered = true
+		if boss_cycles == 0 or objective_rng.randf() < TUNING.TOTEM_CHANCE:
+			spawn_totem(_objective_position(TUNING.TOTEM_RADIUS + 0.6, [nest]))
+	if totem != null:
+		if totem.hold_step(delta, swarm.position):
+			_accept_curse()
+			return "FLUCH ANGENOMMEN · BEUTE ×2 BIS ZUM BOSS-TOD"
+		if totem.inside and calm:
+			message = "Fluch-Totem halten: Boss stärker · Beute ×2"
+	# Elite hunter: crowned, tougher, guaranteed Alpha-Kern.
+	elite_clock -= delta
+	if elite_clock <= 0.0:
+		elite_clock = TUNING.ELITE_INTERVAL_SECONDS
+		spawn_elite(_spawn_position(9.0))
+	if curse_state > 0 and message.begins_with("Jage"):
+		message = "Fluch aktiv · Beute ×2"
+	return message
+
+
+func spawn_nest(location: Vector3) -> Node3D:
+	if nest != null:
+		nest.queue_free()
+	nest = BROOD_NEST.new()
+	nest.name = "Brood nest"
+	nest.position = Vector3(location.x, 0.0, location.z)
+	add_child(nest)
+	FX.ring(self, nest.position, Color(NEST_COLOR, 0.9), 0.5, TUNING.NEST_RADIUS + 1.0, 0.7)
+	return nest
+
+
+func spawn_totem(location: Vector3) -> Node3D:
+	if totem != null:
+		totem.queue_free()
+	totem = CURSE_TOTEM.new()
+	totem.name = "Curse totem"
+	totem.position = Vector3(location.x, 0.0, location.z)
+	add_child(totem)
+	FX.ring(self, totem.position, Color(CURSE_COLOR, 0.85), 0.3, 3.0, 0.6)
+	return totem
+
+
+func spawn_elite(location: Vector3) -> Node3D:
+	var target := _spawn_hunter(location)
+	target.name = "Elite hunter"
+	target.make_elite(TUNING.ELITE_HEALTH_MULTIPLIER)
+	FX.ring(self, target.position, Color("f5c86a"), 0.4, 3.2, 0.6)
+	return target
+
+
+# Full nest: a clutch of ordinary corpses (they stay until eaten) plus DNA.
+func _complete_nest() -> void:
+	var location: Vector3 = nest.position
+	nest.queue_free()
+	nest = null
+	nest_clock = TUNING.NEST_RESPAWN_SECONDS
+	var total: float = (TUNING.NEST_BIOMASS + TUNING.NEST_BIOMASS_GROWTH * float(nests_completed)) * evolution.biomass_multiplier()
+	nests_completed += 1
+	var created := 0.0
+	for index in TUNING.NEST_CLUTCH:
+		var angle := TAU * float(index) / float(TUNING.NEST_CLUTCH) + 0.4
+		var id := _create_corpse(location + Vector3(cos(angle), 0.0, sin(angle)) * 0.55, total / float(TUNING.NEST_CLUTCH))
+		if id >= 0:
+			# A hatched nest is not a kill.
+			model.kills -= 1
+			created += model.remaining_biomass(id)
+	var dna := _reward_dna(TUNING.NEST_DNA)
+	FX.ring(self, location, Color(NEST_COLOR, 0.95), 0.6, TUNING.NEST_RADIUS + 3.0, 0.8)
+	FX.ring(self, location, Color("f5c86a", 0.8), 0.3, TUNING.NEST_RADIUS, 0.55)
+	_shake(0.2)
+	_sfx("grow")
+	_sfx("evolve", 60)
+	_add_popup(location, dna, created)
+	_award_dna(dna)
+
+
+func _accept_curse() -> void:
+	var location: Vector3 = totem.position
+	totem.queue_free()
+	totem = null
+	curse_state = 1
+	totems_taken += 1
+	FX.ring(self, location, Color(CURSE_COLOR, 0.95), 0.4, 5.0, 0.7)
+	FX.ring(self, location, Color("b07ae8", 0.8), 0.2, 3.0, 0.5)
+	_shake(0.15)
+	_sfx("mutate", 50)
+
+
+# A boss spawn closes the totem window; an accepted curse empowers this boss.
+func _on_boss_spawned(target: Node3D) -> void:
+	boss_cycles += 1
+	totem_offered = false
+	if totem != null:
+		FX.ring(self, totem.position, Color("b07ae8", 0.6), 1.0, 2.5, 0.5)
+		totem.queue_free()
+		totem = null
+	if curse_state != 1:
+		return
+	curse_state = 2
+	target.set_meta("cursed", true)
+	target.health *= TUNING.CURSE_BOSS_MULTIPLIER
+	target.max_health = target.health
+	var aura_material := StandardMaterial3D.new()
+	aura_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	aura_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	aura_material.albedo_color = Color(CURSE_COLOR, 0.75)
+	var aura := TorusMesh.new()
+	aura.inner_radius = 2.4
+	aura.outer_radius = 2.95
+	aura.rings = 48
+	aura.ring_segments = 4
+	var ring := _piece(target, aura, aura_material, Vector3(0.0, 0.12, 0.0))
+	ring.name = "Curse aura"
+	ring.scale = Vector3(1.0, 0.3, 1.0)
+
+
+# Seeded point 14-22 m from the swarm on open ground, away from the start and
+# from the other objective. `clearance` is the radius that must stay open.
+func _objective_position(clearance: float, avoid: Array) -> Vector3:
+	var arena: Node3D = get_parent().get_node("Arena")
+	var fallback := Vector3.ZERO
+	for attempt in 40:
+		var angle := objective_rng.randf() * TAU
+		var distance := objective_rng.randf_range(TUNING.OBJECTIVE_MIN_DISTANCE, TUNING.OBJECTIVE_MAX_DISTANCE)
+		var candidate: Vector3 = swarm.position + Vector3(cos(angle), 0.0, sin(angle)) * distance
+		candidate.y = 0.0
+		if attempt == 0:
+			fallback = candidate
+		if Vector2(candidate.x, candidate.z).length() < TUNING.OBJECTIVE_START_CLEARANCE:
+			continue
+		var blocked := false
+		for other in avoid:
+			if other != null and is_instance_valid(other) and other.position.distance_to(candidate) < 9.0:
+				blocked = true
+		if blocked or not _zone_open(arena, candidate, clearance):
+			continue
+		return candidate
+	return arena.safe_spawn(fallback, clearance)
+
+
+func _zone_open(arena: Node3D, center: Vector3, clearance: float) -> bool:
+	if not arena.is_open(center, minf(clearance, 1.8)):
+		return false
+	for index in 8:
+		var angle := TAU * float(index) / 8.0
+		if not arena.is_open(center + Vector3(cos(angle), 0.0, sin(angle)) * clearance * 0.85, 0.3):
+			return false
+	return true
+
+
+# Objective state for hud_objectives.gd (screen pointers are INF when on screen).
+func _objective_hud() -> Dictionary:
+	return {
+		"nest_active": nest != null,
+		"nest_progress": nest.progress if nest != null else 0.0,
+		"nest_inside": nest != null and nest.inside_share > 0.0,
+		"nest_pointer": _edge_pointer(nest.position + Vector3.UP * 1.0) if nest != null else Vector2.INF,
+		"totem_active": totem != null,
+		"totem_hold": totem.hold if totem != null else 0.0,
+		"totem_pointer": _edge_pointer(totem.position + Vector3.UP * 1.5) if totem != null else Vector2.INF,
+		"totem_screen": _screen_point(totem.position + Vector3.UP * 1.2) if totem != null else Vector2.INF,
+		"curse": curse_state,
+		"reward_multiplier": reward_multiplier(),
+		"nests": nests_completed,
+	}
+
+
 # ---------------------------------------------------------------- HUD
 
 func _update_hud(message: String) -> void:
@@ -682,6 +946,10 @@ func _update_hud(message: String) -> void:
 	hud.hint = message
 	hud.set_meta("kill_popups", _popup_screen())
 	hud.set_meta("king_moments", king_moments)
+	var objectives := _objective_hud()
+	hud.set_meta("objectives", objectives)
+	if "objectives" in hud:
+		hud.set("objectives", objectives)
 	hud.nearest_corpse = ""
 	var nearest := INF
 	for corpse in model.corpses:
@@ -698,11 +966,25 @@ func _update_hud(message: String) -> void:
 
 # Edge-of-screen position pointing at an off-screen Bog King, or INF when visible.
 func _boss_pointer() -> Vector2:
-	var camera := get_viewport().get_camera_3d()
-	if boss == null or camera == null:
+	if boss == null:
+		return Vector2.INF
+	return _edge_pointer(boss.position + Vector3.UP * 2.0)
+
+
+# Screen position of a world point, or INF when behind the camera.
+func _screen_point(point: Vector3) -> Vector2:
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if camera == null or camera.is_position_behind(point):
+		return Vector2.INF
+	return camera.unproject_position(point)
+
+
+# Edge-of-screen marker position for a world point, or INF when it is on screen.
+func _edge_pointer(point: Vector3) -> Vector2:
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if camera == null:
 		return Vector2.INF
 	var view: Vector2 = hud.size
-	var point: Vector3 = boss.position + Vector3.UP * 2.0
 	var screen := camera.unproject_position(point)
 	var behind := camera.is_position_behind(point)
 	if not behind and Rect2(Vector2(20, 20), view - Vector2(40, 40)).has_point(screen):
@@ -757,6 +1039,8 @@ func _resolve_area_hit(enemy: Node3D, fallback_impact: Vector3, shake_amount: fl
 	var power: int = enemy.get("resolved_power")
 	if power <= 0:
 		return false
+	if enemy == boss and enemy.has_meta("cursed"):
+		power = ceili(float(power) * TUNING.CURSE_BOSS_MULTIPLIER)
 	var points := _unit_points()
 	var inside := PackedInt32Array()
 	var impact := Vector3.ZERO
@@ -879,6 +1163,8 @@ func run_stats() -> Dictionary:
 		"evolutions": Array(evolution.evolutions),
 		"mutations": mutations,
 		"used_rally": model.used_rally,
+		"nests": nests_completed,
+		"totems": totems_taken,
 		"seed": int(config.get("seed", 0)),
 		"daily": bool(config.get("daily", false)),
 		"daily_date": str(config.get("daily_date", "")),

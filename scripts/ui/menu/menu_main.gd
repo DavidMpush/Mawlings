@@ -19,6 +19,7 @@ const MAWLING_PATH := "res://assets/gameplay/characters/Mawling_game.glb"
 const SHADER_PATH := "res://shaders/creature_anim.gdshader"
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
+const LABEL := 22   # stage 06: smallest menu text (900 grid)
 
 ## Legacy keys of menu.gd this component takes over.
 const REPLACES := ["background", "logo", "resources", "strain", "biomes", "difficulties", "play", "tabs"]
@@ -510,7 +511,7 @@ func _resource_pill(rect: Rect2, accent: Color, label: String, value: int, essen
 			_essence_drop(ic + Vector2(0, 3), 15, accent)
 		else:
 			_fang(ic + Vector2(-2, 2), 20, S.BONE)
-	_txt(label, Vector2(rect.position.x + 80, rect.position.y + 36), S.SIZE_LABEL - 1, accent.lightened(0.35), false, 4)
+	_txt(label, Vector2(rect.position.x + 80, rect.position.y + 36), LABEL, accent.lightened(0.35), false, 4)
 	_txt("%d" % value, Vector2(rect.position.x + 80, rect.position.y + 70), S.SIZE_HEAD, S.TEXT, false, 6)
 
 
@@ -548,14 +549,14 @@ func _draw_logo() -> void:
 	# Subtitle plate.
 	var sub := "BRUTSTÄTTE"
 	var sub_y := baseline + 64.0
-	var half := _tw(sub, S.SIZE_LABEL + 3) * 0.5
+	var half := _tw(sub, LABEL + 3) * 0.5
 	for side in [-1.0, 1.0]:
 		var a := Vector2(cx + side * (half + 14), sub_y - 9)
 		var b := Vector2(cx + side * (half + 150), sub_y - 9)
 		draw_line(a, b, Color(S.TOXIC, 0.45), 2.0, true)
 		_gem(b + Vector2(side * 8, 0), 6, S.TOXIC)
 		_gem(a + Vector2(side * 36, 0), 3.5, Color(S.TOXIC, 0.8))
-	_txt(sub, Vector2(cx, sub_y), S.SIZE_LABEL + 3, S.TOXIC.lerp(S.TEXT, 0.45), true, 5)
+	_txt(sub, Vector2(cx, sub_y), LABEL + 3, S.TOXIC.lerp(S.TEXT, 0.45), true, 5)
 
 
 ## A curved jaw band with teeth hanging (dir 1) or rising (dir -1) from it.
@@ -596,7 +597,7 @@ func _jaw(a: Vector2, ctrl: Vector2, b: Vector2, thick: float, gum: Color, dir: 
 
 func _draw_section(label: String, y: float) -> void:
 	_gem(Vector2(40, y - 8), 6, S.TOXIC)
-	var w := _txt(label, Vector2(54, y), S.SIZE_LABEL, S.TOXIC.lerp(S.TEXT, 0.4), false, 4)
+	var w := _txt(label, Vector2(54, y), LABEL, S.TOXIC.lerp(S.TEXT, 0.4), false, 4)
 	var a := Vector2(66 + w, y - 8)
 	var b := Vector2(size.x - 40, y - 8)
 	draw_polygon(PackedVector2Array([a + Vector2(0, -1), b + Vector2(0, -1), b + Vector2(0, 1), a + Vector2(0, 1)]), PackedColorArray([Color(S.TOXIC, 0.5), Color(S.TOXIC, 0.0), Color(S.TOXIC, 0.0), Color(S.TOXIC, 0.5)]))
@@ -683,7 +684,7 @@ func _status_badge(card: Rect2, id: String, owned: bool, unlocked: bool) -> void
 	elif not owned:
 		text = "KAUFBAR · %d" % int(menu.profile.strain_cost(id))
 		color = S.GOLD
-	var w := _tw(text, S.SIZE_LABEL) + 58 + (26 if unlocked and not owned else 0)
+	var w := _tw(text, LABEL) + 58 + (26 if unlocked and not owned else 0)
 	var badge := Rect2(card.position.x + 26, card.position.y + 22, w, 40)
 	var shape := _rounded_points(badge, 20, 4)
 	draw_colored_polygon(shape, Color(S.OUTLINE, 0.9))
@@ -696,7 +697,7 @@ func _status_badge(card: Rect2, id: String, owned: bool, unlocked: bool) -> void
 		_check(ic, 11, color)
 	else:
 		_gem(ic, 7, color)
-	_txt(text, badge.position + Vector2(42, 28), S.SIZE_LABEL, color, false, 4)
+	_txt(text, badge.position + Vector2(42, 28), LABEL, color, false, 4)
 	if unlocked and not owned:
 		var fc := badge.position + Vector2(badge.size.x - 24, 20)
 		if not _icon(["crown_tooth"], Rect2(fc - Vector2(15, 15), Vector2(30, 30))):
@@ -709,11 +710,11 @@ func _draw_unlock_quest(quest_id: String, cx: float, card: Rect2) -> void:
 	var tw := _tw(title, 24)
 	_skull(Vector2(cx - tw * 0.5 - 20, 704), 12, S.GOLD)
 	_txt(title, Vector2(cx + 14, 714), 24, S.GOLD, true, 5)
-	_txt(String(q.get("description", "")), Vector2(cx, 744), S.SIZE_LABEL + 1, S.TEXT.darkened(0.1), true, 4, true)
+	_txt(String(q.get("description", "")), Vector2(cx, 744), LABEL + 1, S.TEXT.darkened(0.1), true, 4, true)
 	var progress: Vector2 = menu.profile.quest_progress(quest_id)
 	var bar := Rect2(cx - 220, 762, 330, 18)
 	_progress_bar(bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), S.GOLD)
-	_txt(menu._progress_text(q, progress), Vector2(bar.end.x + 16, bar.position.y + 17), S.SIZE_LABEL, S.GOLD.lerp(S.TEXT, 0.4), false, 4)
+	_txt(menu._progress_text(q, progress), Vector2(bar.end.x + 16, bar.position.y + 17), LABEL, S.GOLD.lerp(S.TEXT, 0.4), false, 4)
 
 
 func _progress_bar(rect: Rect2, fraction: float, color: Color) -> void:
@@ -739,14 +740,14 @@ func _draw_chips(s: Dictionary, area: Rect2) -> void:
 			chips.append({"kind": "up" if delta > 0 else "down", "icon": "", "text": "%s %+d %%" % [pair[1], roundi(delta)], "color": S.TOXIC if delta > 0 else S.DANGER.lerp(S.TEXT, 0.2)})
 	if s.has("rally_damage"):
 		chips.append({"kind": "up", "icon": "", "text": "RALLY %+d %%" % roundi((float(s.rally_damage) - 1.0) * 100.0), "color": S.TOXIC})
-	var fs := S.SIZE_LABEL + 1
+	var fs := LABEL + 1
 	var gap := 10.0
 	var total := -gap
 	for c in chips:
 		c["w"] = _tw(c.text, fs) + 58.0
 		total += c.w + gap
 	if total > area.size.x:
-		fs = S.SIZE_LABEL
+		fs = LABEL
 		total = -gap
 		for c in chips:
 			c["w"] = _tw(c.text, fs) + 50.0
@@ -781,33 +782,44 @@ func _chip_glyph(kind: String, ic: Vector2, color: Color) -> void:
 
 
 func _draw_arrows(accent: Color) -> void:
+	# Stage 06: slim round knobs on the card's side edge instead of tall tabs;
+	# the whole prev/next rect stays the hit area.
 	for i in 2:
 		var rect: Rect2 = menu.strain_prev_rect() if i == 0 else menu.strain_next_rect()
 		var dir := -1.0 if i == 0 else 1.0
 		var pressed: bool = menu.is_pressed(rect)
-		var tab := rect.grow_individual(-4, -6, -4, -6)
-		var c := tab.get_center() + (Vector2(0, 3) if pressed else Vector2.ZERO)
-		if _frames != null:
-			_frames.button(self, tab, "secondary", pressed)
-		else:
-			_panel(tab, Color(S.BONE, 0.75), S.PANEL.darkened(0.2), 0.0, 16.0, 0.0, 0, 2.5)
-		_glow(c, Vector2(44, 60), Color(accent, 0.18))
-		_arrow(c + Vector2(dir * 3, 2), 30, dir, S.OUTLINE)
-		_arrow(c + Vector2(dir * 3, 0), 28, dir, S.BONE)
+		var c := rect.get_center() + Vector2(dir * 6.0, 0.0) + (Vector2(0, 3) if pressed else Vector2.ZERO)
+		var r := 30.0 * (0.94 if pressed else 1.0)
+		_glow(c, Vector2(52, 52), Color(accent, 0.22 if pressed else 0.14))
+		draw_circle(c + Vector2(0, 4), r + 3.0, Color(S.SHADOW, 0.8))
+		draw_circle(c, r + 3.0, S.OUTLINE)
+		draw_circle(c, r, S.PANEL.darkened(0.25))
+		draw_circle(c + Vector2(0, -r * 0.2), r * 0.72, Color(accent, 0.12 if not pressed else 0.2))
+		draw_arc(c, r, 0, TAU, 40, Color(S.BONE, 0.85), 2.5, true)
+		_arrow(c + Vector2(dir * 3, 2), 26, dir, S.OUTLINE)
+		_arrow(c + Vector2(dir * 3, 0), 24, dir, S.BONE)
 
 
 func _draw_page_dots(card: Rect2) -> void:
 	var n: int = menu.strain_ids.size()
+	var step := 40.0
+	var y := card.end.y + 28.0
+	# Faint rail so the dots read as one pager, not as loose sparkles.
+	var half := (n - 1) * step * 0.5 + 18.0
+	draw_line(Vector2(size.x * 0.5 - half, y), Vector2(size.x * 0.5 + half, y), Color(S.PANEL_EDGE, 0.8), 2.0, true)
 	for i in n:
-		var p := Vector2(size.x * 0.5 + (i - (n - 1) * 0.5) * 34.0, card.end.y + 26.0)
+		var p := Vector2(size.x * 0.5 + (i - (n - 1) * 0.5) * step, y)
 		var other: String = menu.strain_ids[i]
 		var open: bool = menu._strain_unlocked(other)
-		var color: Color = menu._strain_color(other).lightened(0.3) if open else S.PANEL_EDGE.lightened(0.15)
+		var color: Color = menu._strain_color(other).lightened(0.3) if open else S.PANEL_EDGE.lightened(0.25)
 		if i == menu.strain_index:
-			_glow(p, Vector2(26, 26), Color(color, 0.5))
-			_gem(p, 11, color)
+			_glow(p, Vector2(30, 30), Color(color, 0.55))
+			_gem(p, 12, color)
+		elif open:
+			_gem(p, 8, Color(color, 0.9))
 		else:
-			_gem(p, 6.5, Color(color, 0.8))
+			_gem(p, 7, Color(color, 0.8))
+			_lock(p + Vector2(0, 1), 5, Color(S.OUTLINE, 0.9))
 
 # ---------------------------------------------------------------- biomes
 
@@ -837,16 +849,16 @@ func _draw_biomes() -> void:
 		_txt(String(b.name).to_upper(), Vector2(tx, rect.position.y + 50), 29, S.TEXT if not locked else S.TEXT_DIM, false, 6)
 		if locked:
 			var status := String(b.get("status", "")).to_upper()
-			var pill := Rect2(tx, rect.position.y + 64, _tw(status, S.SIZE_LABEL) + 52, 34)
+			var pill := Rect2(tx, rect.position.y + 64, _tw(status, LABEL) + 52, 34)
 			draw_colored_polygon(_rounded_points(pill, 17, 4), Color(S.EMBER.darkened(0.55), 0.95))
 			draw_polyline(_closed(_rounded_points(pill, 17, 4)), Color(S.EMBER, 0.6), 2.0, true)
 			_lock(pill.position + Vector2(20, 16), 10, S.EMBER_GLOW)
-			_txt(status, pill.position + Vector2(36, 25), S.SIZE_LABEL, S.EMBER_GLOW, false, 3)
+			_txt(status, pill.position + Vector2(36, 25), LABEL, S.EMBER_GLOW, false, 3)
 		elif selected:
 			_check(Vector2(tx + 10, rect.position.y + 80), 10, accent)
-			_txt("GEWÄHLT", Vector2(tx + 28, rect.position.y + 88), S.SIZE_LABEL, accent.lerp(S.TEXT, 0.3), false, 4)
+			_txt("GEWÄHLT", Vector2(tx + 28, rect.position.y + 88), LABEL, accent.lerp(S.TEXT, 0.3), false, 4)
 		else:
-			_txt("ANTIPPEN", Vector2(tx, rect.position.y + 88), S.SIZE_LABEL, S.TEXT_DIM, false, 4)
+			_txt("ANTIPPEN", Vector2(tx, rect.position.y + 88), LABEL, S.TEXT_DIM, false, 4)
 
 
 ## Small painted landscape inside a biome tile (stays inside `r`).
@@ -928,17 +940,17 @@ func _draw_difficulties() -> void:
 					_skull(p, 14, accent.lerp(S.BONE, 0.25))
 			_txt(name, Vector2(c.x, rect.position.y + 75), 30, S.TEXT if selected else S.TEXT.darkened(0.15), true, 6)
 			var reward := "×%.1f ESSENZ" % float(d.get("reward", 1.0))
-			var rw := _tw(reward, S.SIZE_LABEL - 1) + 26.0
+			var rw := _tw(reward, LABEL) + 26.0
 			var ec := Vector2(c.x - rw * 0.5 + 10, rect.position.y + 90)
 			if not _icon(["essence"], Rect2(ec - Vector2(12, 12), Vector2(24, 24))):
 				_essence_drop(ec, 8, S.VIOLET)
-			_txt(reward, Vector2(c.x - rw * 0.5 + 26, rect.position.y + 97), S.SIZE_LABEL - 1, S.VIOLET.lerp(S.TEXT, 0.45), false, 4)
+			_txt(reward, Vector2(c.x - rw * 0.5 + 26, rect.position.y + 97), LABEL, S.VIOLET.lerp(S.TEXT, 0.45), false, 4)
 		else:
 			draw_colored_polygon(_shape(rect.grow(-4), 12.0), Color(S.OUTLINE, 0.35))
 			_lock(Vector2(c.x, rect.position.y + 30), 15, S.TEXT_DIM)
 			_txt(name, Vector2(c.x, rect.position.y + 72), 28, S.TEXT_DIM, true, 5)
 			var q: Dictionary = menu.meta.quest(d.get("unlock_quest", ""))
-			_txt(String(q.get("name", "")), Vector2(c.x, rect.position.y + 96), S.SIZE_LABEL - 1, S.GOLD.darkened(0.1), true, 4)
+			_txt(String(q.get("name", "")), Vector2(c.x, rect.position.y + 96), LABEL, S.GOLD.darkened(0.1), true, 4)
 
 # ---------------------------------------------------------------- main button
 
@@ -973,7 +985,7 @@ func _draw_play() -> void:
 		var fc := c + Vector2(w * 0.5 + 6, -8)
 		if not _icon(["crown_tooth"], Rect2(fc - Vector2(30, 30), Vector2(60, 60))):
 			_fang(fc, 24, S.BONE)
-		_txt("KÖNIGSZÄHNE" if affordable else "ZU WENIGE KÖNIGSZÄHNE", c + Vector2(0, 48), S.SIZE_LABEL, S.TEXT if affordable else S.GOLD.lerp(S.TEXT_DIM, 0.4), true, 5)
+		_txt("KÖNIGSZÄHNE" if affordable else "ZU WENIGE KÖNIGSZÄHNE", c + Vector2(0, 48), LABEL, S.TEXT if affordable else S.GOLD.lerp(S.TEXT_DIM, 0.4), true, 5)
 	else:
 		_button(rect, S.TEXT_DIM.darkened(0.4), false)
 		var fs := 56
@@ -981,24 +993,25 @@ func _draw_play() -> void:
 		_lock(c + Vector2(-w * 0.5 - 16, -12), 22, S.TEXT_DIM)
 		_txt("GESPERRT", c + Vector2(22, 8), fs, S.TEXT_DIM, true, 8)
 		var q: Dictionary = menu.meta.quest(menu._strain(id).get("unlock_quest", ""))
-		_txt("Trophäe: " + String(q.get("name", "")), c + Vector2(0, 46), S.SIZE_LABEL, S.GOLD, true, 5)
+		_txt("Trophäe: " + String(q.get("name", "")), c + Vector2(0, 46), LABEL, S.GOLD, true, 5)
 	# All-time record line under the seed / daily row (the next trophy lives in TROPHÄEN).
 	var best := float(menu.profile.records.get("best_seconds", 0.0))
 	var peak := int(menu.profile.records.get("best_peak", 0))
-	var ry: float = menu.seed_card_rect().end.y + 32
+	# Centred between the seed row and the tab dock line (dock starts 8 px above the tabs).
+	var ry: float = (menu.seed_card_rect().end.y + menu.tab_rect(0).position.y - 8.0) * 0.5 + 8.0
 	var part_a := "REKORD %02d:%02d" % [int(best) / 60, int(best) % 60]
 	var part_b := "MAX. SCHWARM %d" % peak
-	var wa := _tw(part_a, S.SIZE_LABEL)
-	var wb := _tw(part_b, S.SIZE_LABEL)
+	var wa := _tw(part_a, LABEL)
+	var wb := _tw(part_b, LABEL)
 	var total := 26 + wa + 46 + 26 + wb
 	var x := size.x * 0.5 - total * 0.5
 	draw_arc(Vector2(x + 10, ry - 8), 10, 0, TAU, 20, S.TEXT_DIM, 2.5, true)
 	draw_line(Vector2(x + 10, ry - 8), Vector2(x + 10, ry - 14), S.TEXT_DIM, 2.0)
 	draw_line(Vector2(x + 10, ry - 8), Vector2(x + 15, ry - 6), S.TEXT_DIM, 2.0)
-	_txt(part_a, Vector2(x + 26, ry), S.SIZE_LABEL, S.TEXT.darkened(0.12), false, 4)
+	_txt(part_a, Vector2(x + 26, ry), LABEL, S.TEXT.darkened(0.12), false, 4)
 	_gem(Vector2(x + 26 + wa + 23, ry - 8), 4, S.TEXT_DIM)
 	_mawling_head(Vector2(x + 26 + wa + 46 + 10, ry - 8), 11, S.EMBER_GLOW)
-	_txt(part_b, Vector2(x + 26 + wa + 46 + 26, ry), S.SIZE_LABEL, S.TEXT.darkened(0.12), false, 4)
+	_txt(part_b, Vector2(x + 26 + wa + 46 + 26, ry), LABEL, S.TEXT.darkened(0.12), false, 4)
 
 
 ## Next map code with NEU WÜRFELN (hit area: menu.seed_reroll_rect()).
@@ -1006,10 +1019,14 @@ func _draw_seed_card() -> void:
 	var card: Rect2 = menu.seed_card_rect()
 	_panel(card, Color(S.CYAN, 0.6), S.PANEL, 0.0, 16.0, 0.0, 0, 2.0)
 	var x := card.position.x + 22
-	var label_w := _txt("KARTE", Vector2(x, card.position.y + 44), S.SIZE_LABEL, S.CYAN.lerp(S.TEXT, 0.35), false, 4)
+	var label_w := _txt("KARTE", Vector2(x, card.position.y + 44), LABEL, S.CYAN.lerp(S.TEXT, 0.35), false, 4)
 	var code: String = menu.next_seed_code()
 	_txt(code, Vector2(x + label_w + 14, card.position.y + 46), 38, S.TEXT, false, 6)
-	_txt("Gleicher Code = gleiche Karte", Vector2(x, card.position.y + 78), S.SIZE_LABEL - 1, S.TEXT_DIM, false, 4, true)
+	var roll_left: float = menu.seed_reroll_rect().position.x - 10.0
+	var note := "Gleicher Code = gleiche Karte"
+	if _tw(note, LABEL, true) > roll_left - x:
+		note = "Code = gleiche Karte"
+	_txt(note, Vector2(x, card.position.y + 78), LABEL, S.TEXT_DIM, false, 4, true)
 	var roll: Rect2 = menu.seed_reroll_rect()
 	var pressed: bool = menu.is_pressed(roll)
 	if _frames != null:
@@ -1017,11 +1034,14 @@ func _draw_seed_card() -> void:
 	else:
 		_panel(roll, Color(S.BONE, 0.7), S.PANEL.darkened(0.2), 0.0, 12.0, 0.0, 0, 2.0)
 	var off := Vector2(0, 3) if pressed else Vector2.ZERO
-	var ic := roll.position + Vector2(26, roll.size.y * 0.5) + off
-	if not _icon(["reroll"], Rect2(ic - Vector2(16, 16), Vector2(32, 32)), S.CYAN.lerp(S.TEXT, 0.3)):
-		draw_arc(ic, 12, 0.4, TAU - 0.4, 20, S.CYAN, 4.0, true)
-	_txt("NEU", roll.position + Vector2(46, 34) + off, S.SIZE_LABEL - 1, S.TEXT, false, 4)
-	_txt("WÜRFELN", roll.position + Vector2(46, 58) + off, S.SIZE_LABEL - 1, S.TEXT, false, 4)
+	# Icon + NEU on the first line, WÜRFELN centred below: fits at 22 px.
+	var cx := roll.get_center().x + off.x
+	var neu_w := _tw("NEU", LABEL)
+	var ic := Vector2(cx - (neu_w + 34.0) * 0.5 + 13.0, roll.position.y + 27) + off
+	if not _icon(["reroll"], Rect2(ic - Vector2(14, 14), Vector2(28, 28)), S.CYAN.lerp(S.TEXT, 0.3)):
+		draw_arc(ic, 11, 0.4, TAU - 0.4, 20, S.CYAN, 4.0, true)
+	_txt("NEU", Vector2(ic.x + 21, roll.position.y + 35 + off.y), LABEL, S.TEXT, false, 4)
+	_txt("WÜRFELN", Vector2(cx, roll.position.y + 62 + off.y), LABEL, S.TEXT, true, 4)
 
 
 ## TAGES-BRUT: secondary gold button with a sun glyph and today's record.
@@ -1060,7 +1080,10 @@ func _draw_daily() -> void:
 		var t := float(today.get("seconds", 0.0))
 		line = "Heute: %02d:%02d · Peak %d" % [int(t) / 60, int(t) % 60, int(today.get("peak", 0))]
 		color = S.GOLD
-	_txt(line, Vector2(x, rect.position.y + 76) + off, S.SIZE_LABEL - 1, color if ok else S.TEXT_DIM, false, 4)
+	if not today.is_empty() and _tw(line, LABEL) > rect.end.x - 12.0 - x:
+		var t2 := float(today.get("seconds", 0.0))
+		line = "%02d:%02d · Peak %d" % [int(t2) / 60, int(t2) % 60, int(today.get("peak", 0))]
+	_txt(line, Vector2(x, rect.position.y + 76) + off, LABEL, color if ok else S.TEXT_DIM, false, 4)
 
 
 ## Dominant glowing button with fang tips, gradient body, bevel and a moving shine.
@@ -1119,7 +1142,7 @@ func _button_shape(rect: Rect2, tip: float) -> PackedVector2Array:
 
 func _draw_tabs() -> void:
 	var first: Rect2 = menu.tab_rect(0)
-	var dock := Rect2(0, first.position.y - 16, size.x, size.y - first.position.y + 16)
+	var dock := Rect2(0, first.position.y - 8, size.x, size.y - first.position.y + 8)
 	_fill_gradient(PackedVector2Array([dock.position, Vector2(dock.end.x, dock.position.y), dock.end, Vector2(dock.position.x, dock.end.y)]), Color(S.OUTLINE, 0.55), Color(S.OUTLINE, 0.95))
 	draw_line(dock.position, Vector2(dock.end.x, dock.position.y), Color(S.PANEL_EDGE, 0.9), 2.0)
 	var names: Dictionary = menu.TAB_NAMES
@@ -1136,7 +1159,7 @@ func _draw_tabs() -> void:
 			_glow(ic, Vector2(56, 40), Color(accent, 0.4))
 		if not _icon([["brood"], ["trophy"], ["mawling_head_color"]][i], Rect2(ic - Vector2(32, 32), Vector2(64, 64))):
 			_tab_icon(id, ic, accent)
-		_txt(String(names[id]), Vector2(rect.get_center().x, rect.position.y + 96), S.SIZE_LABEL + 1, S.TEXT if active else S.TEXT.darkened(0.15), true, 5)
+		_txt(String(names[id]), Vector2(rect.get_center().x, rect.position.y + 96), LABEL + 1, S.TEXT if active else S.TEXT.darkened(0.15), true, 5)
 		var badge := ""
 		if id == "upgrades":
 			var n: int = menu._affordable_upgrades()
@@ -1149,7 +1172,7 @@ func _draw_tabs() -> void:
 			draw_circle(bc, 19 * pop, S.OUTLINE)
 			draw_circle(bc, 16 * pop, S.DANGER)
 			draw_circle(bc + Vector2(-4, -5), 5, Color(1, 1, 1, 0.3))
-			_txt(badge, bc + Vector2(0, 8), S.SIZE_LABEL, S.TEXT, true, 3)
+			_txt(badge, bc + Vector2(0, 8), LABEL, S.TEXT, true, 3)
 
 
 func _tab_icon(id: String, c: Vector2, accent: Color) -> void:

@@ -16,6 +16,10 @@ const KILL_TYPES := [
 const EVOLVE_TIME := 3.0      # hunt_world sets evolve_flash to this on evolution
 const LOSS_WINDOW := 0.9      # hits closer than this are bundled into one number
 const KING_TIME := 2.4        # real seconds of the "KÖNIG VERSCHLUNGEN" moment
+const LABEL := 22             # stage 06: smallest text on these overlays (900 grid)
+const SHORT_LABEL := {"MAX. SCHWARM": "PEAK"}
+const LOSS_Y := -250.0        # loss number sits fixed above the swarm (screen centre + this)
+const LOSS_ZONE := Vector2(360, 140)  # reserved while it shows; kill popups keep out
 
 var _icons: Script
 var _frames: Script
@@ -125,12 +129,12 @@ func _draw_result(hud: Control) -> void:
 	_title("AUSGESTORBEN", Vector2(cx, panel.position.y + 150), title_size, Color(UiStyle.TEXT, title_alpha), UiStyle.DANGER)
 	var lost := int(stats.get("lost", 0))
 	var sub := "DER SCHWARM IST ERLOSCHEN" if lost <= 0 else "%d MAWLINGS GEFALLEN" % lost
-	_label(sub, Vector2(cx, panel.position.y + 190), UiStyle.SIZE_LABEL, Color(UiStyle.TEXT_DIM, title_alpha), true)
+	_label(sub, Vector2(cx, panel.position.y + 190), LABEL, Color(UiStyle.TEXT_DIM, title_alpha), true)
 	# Survival time: the hero number, counted up from its own timer.
 	var seconds := float(stats.get("seconds", hud.elapsed))
 	var shown := seconds * _ease_out(clampf((t - 0.35) / 1.0, 0.0, 1.0))
 	var time_alpha := clampf((t - 0.3) / 0.2, 0.0, 1.0)
-	_label("ÜBERLEBT", Vector2(cx, panel.position.y + 232), UiStyle.SIZE_LABEL, Color(UiStyle.GOLD, time_alpha), true)
+	_label("ÜBERLEBT", Vector2(cx, panel.position.y + 232), LABEL, Color(UiStyle.GOLD, time_alpha), true)
 	_icon("clock", Rect2(cx - 196, panel.position.y + 258, 56, 56), Color(UiStyle.GOLD, time_alpha))
 	_title(_clock_text(shown), Vector2(cx + 24, panel.position.y + 318), 96, Color(UiStyle.TEXT, time_alpha), UiStyle.GOLD)
 	# Four stat tiles, each counting up in turn.
@@ -161,7 +165,7 @@ func _draw_result(hud: Control) -> void:
 		if count > 0:
 			chips.append([entry[0], count])
 	if chips.is_empty():
-		_label("Keine Beute erlegt", Vector2(cx, row_y + 46), UiStyle.SIZE_LABEL, Color(UiStyle.TEXT_DIM, kills_alpha), true)
+		_label("Keine Beute erlegt", Vector2(cx, row_y + 46), LABEL, Color(UiStyle.TEXT_DIM, kills_alpha), true)
 	else:
 		var chip_w := minf(146.0, (panel.size.x - 60 - (chips.size() - 1) * 10) / chips.size())
 		var x0 := cx - (chips.size() * chip_w + (chips.size() - 1) * 10) * 0.5
@@ -178,7 +182,7 @@ func _draw_result(hud: Control) -> void:
 	var button_alpha := clampf((t - 0.45) / 0.3, 0.0, 1.0)
 	_button(action, "NEUER RUN", "primary", button_alpha, "restart")
 	_button(hud._hub_rect(), "BRUTSTÄTTE", "secondary", button_alpha, "hub")
-	_label("R / ENTER  ·  H BRUTSTÄTTE", Vector2(cx, panel.end.y + 44), UiStyle.SIZE_LABEL, Color(UiStyle.TEXT_DIM, button_alpha * 0.8), true)
+	_label("R / ENTER  ·  H BRUTSTÄTTE", Vector2(cx, panel.end.y + 44), LABEL, Color(UiStyle.TEXT_DIM, button_alpha * 0.8), true)
 
 
 # ---------------------------------------------------------------- pause
@@ -196,7 +200,7 @@ func _draw_pause(hud: Control) -> void:
 	_medallion(Vector2(cx, top), 56.0, UiStyle.CYAN, a)
 	_icon("pause", Rect2(cx - 30, top - 30, 60, 60), Color(UiStyle.BONE, a))
 	_title("PAUSE", Vector2(cx, top + 120), UiStyle.SIZE_HERO, Color(UiStyle.TEXT, a), UiStyle.CYAN)
-	_label("DIE JAGD WARTET", Vector2(cx, top + 160), UiStyle.SIZE_LABEL, Color(UiStyle.TEXT_DIM, a), true)
+	_label("DIE JAGD WARTET", Vector2(cx, top + 160), LABEL, Color(UiStyle.TEXT_DIM, a), true)
 	# Run so far: time, swarm, level in three quiet columns.
 	var level: int = 0 if hud.evolution == null else int(hud.evolution.level)
 	var cols := [
@@ -213,7 +217,7 @@ func _draw_pause(hud: Control) -> void:
 	_build_row(_build(hud, {}), Vector2(cx, build_y + 74), 9.0, a)
 	_button(action, "WEITERSPIELEN", "primary", a, "play")
 	_button(hud._hub_rect(), "BRUTSTÄTTE", "secondary", a, "hub")
-	_label("P / ESCAPE", Vector2(cx, action.end.y + 52), UiStyle.SIZE_LABEL, Color(UiStyle.TEXT_DIM, 0.8 * a), true)
+	_label("P / ESCAPE", Vector2(cx, action.end.y + 52), LABEL, Color(UiStyle.TEXT_DIM, 0.8 * a), true)
 
 
 # ---------------------------------------------------------------- evolution banner
@@ -235,7 +239,7 @@ func _draw_evolve_banner(hud: Control) -> void:
 	var gem_c := c + Vector2(0, -104) * scale
 	_medallion(gem_c, 60.0 * scale, UiStyle.GOLD, fade)
 	_icon("alpha_core", Rect2(gem_c - Vector2(42, 42) * scale, Vector2(84, 84) * scale), Color(1, 1, 1, fade))
-	_label("EVOLUTION", c + Vector2(0, -24) * scale, maxi(UiStyle.SIZE_LABEL, int(UiStyle.SIZE_LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
+	_label("EVOLUTION", c + Vector2(0, -24) * scale, maxi(LABEL, int(LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
 	var name_text := String(hud.evolve_name).to_upper()
 	_title(name_text if name_text != "" else "EVOLUTION", c + Vector2(0, 54) * scale, int(UiStyle.SIZE_HERO * scale), Color(1, 1, 1, fade), UiStyle.VIOLET)
 
@@ -265,11 +269,13 @@ func _draw_loss(hud: Control) -> void:
 	if strength > 0.0:
 		var pulse := 0.75 + 0.25 * sin(_clock * 14.0)
 		_vignette(Color(UiStyle.DANGER, 0.3 * strength * pulse), 110.0 + 50.0 * strength)
-	if _loss_total <= 0 or _loss_age > 1.35:
+	if not _loss_visible():
 		return
 	var a := 1.0 - clampf((_loss_age - 0.95) / 0.4, 0.0, 1.0)
 	var pop := 1.0 + 0.45 * (1.0 - _ease_out(clampf(_loss_age / 0.18, 0.0, 1.0)))
-	var c := Vector2(size.x * 0.5, size.y * 0.5 - 180 - 26.0 * _ease_out(clampf(_loss_age / 1.3, 0.0, 1.0)))
+	# Fixed anchor above the swarm (the camera keeps the swarm centred): it no
+	# longer drifts, so kill popups can reliably steer around it.
+	var c := _loss_center()
 	var number := "−%d" % _loss_total
 	var font := UiStyle.display_font()
 	var fs := int(64 * pop)
@@ -281,15 +287,37 @@ func _draw_loss(hud: Control) -> void:
 	draw_colored_polygon(_chamfer(pill, 16.0 * pop, 0.0), Color(UiStyle.OUTLINE, 0.62 * a))
 	_icon("mawling", Rect2(x0, c.y - head * 0.5 - 14 * pop, head, head), Color(UiStyle.DANGER, a))
 	UiStyle.text(self, number, Vector2(x0 + head + 10, c.y + 8 * pop), fs, Color(Color("ffd9cc"), a), false, 9)
-	_label("MAWLINGS", Vector2(c.x, c.y + 44 * pop), UiStyle.SIZE_LABEL, Color(UiStyle.DANGER.lightened(0.35), a), true)
+	_label("MAWLINGS", Vector2(c.x, c.y + 44 * pop), LABEL, Color(UiStyle.DANGER.lightened(0.35), a), true)
+
+
+func _loss_visible() -> bool:
+	return _loss_total > 0 and _loss_age <= 1.35
+
+
+func _loss_center() -> Vector2:
+	return Vector2(size.x * 0.5, size.y * 0.5 + LOSS_Y)
+
+
+# Area the loss number owns while it shows (pill + MAWLINGS label).
+func _loss_zone() -> Rect2:
+	var c := _loss_center()
+	return Rect2(c.x - LOSS_ZONE.x * 0.5, c.y - 64.0, LOSS_ZONE.x, LOSS_ZONE.y)
 
 
 # ---------------------------------------------------------------- kill popups
 
 # "+DNA" and "+biomass" rise from the kill spot (screen positions from HuntWorld).
+# Simple collision avoidance: older popups keep their place, newer ones step
+# aside. The loss zone pushes sideways (up if the side is off screen), other
+# popups push upward; everything stays inside the screen.
 func _draw_popups(hud: Control) -> void:
 	var popups: Array = hud.get_meta("kill_popups", [])
 	var font := UiStyle.display_font()
+	var placed: Array = []
+	var loss_zone := Rect2()
+	if _loss_visible():
+		loss_zone = _loss_zone()
+		placed.append(loss_zone)
 	for popup in popups:
 		var t: float = popup.get("t", 1.0)
 		if t >= 1.0:
@@ -315,6 +343,11 @@ func _draw_popups(hud: Control) -> void:
 			total += w
 		total += gap * (parts.size() - 1)
 		var pill := Rect2(c.x - total * 0.5 - 14.0, c.y - 26.0 * pop, total + 28.0, 44.0 * pop)
+		var box := _avoid(pill.grow(5.0), placed, loss_zone)
+		placed.append(box)
+		var shift := box.get_center() - pill.grow(5.0).get_center()
+		pill.position += shift
+		c += shift
 		draw_colored_polygon(_chamfer(pill, 12.0 * pop, 0.0), Color(UiStyle.OUTLINE, 0.55 * a))
 		var x := c.x - total * 0.5
 		for index in parts.size():
@@ -322,6 +355,33 @@ func _draw_popups(hud: Control) -> void:
 			_icon(part[0], Rect2(Vector2(x, c.y - icon * 0.5 - 4.0 * pop), Vector2(icon, icon)), Color(part[2], a))
 			UiStyle.text(self, part[1], Vector2(x + icon + 4.0, c.y + 10.0 * pop), fs, Color(part[2].lightened(0.35), a), false, 7)
 			x += widths[index] + gap
+
+
+func _avoid(box: Rect2, placed: Array, loss_zone: Rect2) -> Rect2:
+	var margin := 8.0
+	for step in 10:
+		var hit := Rect2()
+		for other: Rect2 in placed:
+			if other.intersects(box):
+				hit = other
+				break
+		if hit.size == Vector2.ZERO:
+			break
+		var moved := box
+		if hit == loss_zone:
+			var to_right := box.get_center().x >= hit.get_center().x
+			moved.position.x = hit.end.x + 2.0 if to_right else hit.position.x - box.size.x - 2.0
+			if moved.position.x < margin or moved.end.x > size.x - margin:
+				moved.position.x = hit.position.x - box.size.x - 2.0 if to_right else hit.end.x + 2.0
+			if moved.position.x < margin or moved.end.x > size.x - margin:
+				moved = box
+				moved.position.y = hit.position.y - box.size.y - 2.0
+		else:
+			moved.position.y = hit.position.y - box.size.y - 2.0
+		box = moved
+	box.position.x = clampf(box.position.x, margin, maxf(margin, size.x - margin - box.size.x))
+	box.position.y = maxf(box.position.y, 150.0)
+	return box
 
 
 # ---------------------------------------------------------------- Königsmoment
@@ -344,7 +404,7 @@ func _draw_king(hud: Control) -> void:
 	var crown_c := c + Vector2(0, -112) * scale
 	_medallion(crown_c, 62.0 * scale, UiStyle.GOLD, fade)
 	_icon("crown", Rect2(crown_c - Vector2(40, 40) * scale, Vector2(80, 80) * scale), Color(UiStyle.GOLD, fade))
-	_label("BOG KING", c + Vector2(0, -26) * scale, maxi(UiStyle.SIZE_LABEL, int(UiStyle.SIZE_LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
+	_label("BOG KING", c + Vector2(0, -26) * scale, maxi(LABEL, int(LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
 	_title("KÖNIG VERSCHLUNGEN", c + Vector2(0, 50) * scale, int(58 * scale), Color(1, 1, 1, fade), UiStyle.GOLD)
 
 
@@ -376,12 +436,12 @@ func _draw_boss_pointer(hud: Control) -> void:
 	# Label under the medallion (above it near the bottom edge).
 	var label_c := at + Vector2(0, -74 if direction.y > 0.6 else 74)
 	var font := UiStyle.display_font()
-	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.SIZE_LABEL).x
+	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL).x
 	var pill := Rect2(label_c - Vector2(w * 0.5 + 16, 19), Vector2(w + 32, 38))
 	pill.position.x = clampf(pill.position.x, 8.0, size.x - pill.size.x - 8.0)
 	draw_colored_polygon(_chamfer(pill, 10.0, 0.0), Color(UiStyle.PANEL, 0.95))
 	_outline(_chamfer(pill, 10.0, 0.0), Color(accent, 0.8), 2.0)
-	UiStyle.text(self, label, Vector2(pill.get_center().x, pill.get_center().y + 8), UiStyle.SIZE_LABEL, accent.lightened(0.3) if vulnerable else UiStyle.TEXT, true, 4)
+	UiStyle.text(self, label, Vector2(pill.get_center().x, pill.get_center().y + 8), LABEL, accent.lightened(0.3) if vulnerable else UiStyle.TEXT, true, 4)
 
 
 # ---------------------------------------------------------------- building blocks
@@ -400,7 +460,11 @@ func _stat_tile(rect: Rect2, icon: String, label: String, value: String, accent:
 	while fs > 30 and font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > rect.size.x - 16:
 		fs -= 2
 	UiStyle.text(self, value, Vector2(rect.get_center().x, rect.position.y + 58 + fs * 0.82), fs, Color(UiStyle.TEXT, alpha), true, 6)
-	_label(label, Vector2(rect.get_center().x, rect.end.y - 14), UiStyle.SIZE_LABEL, Color(accent.lerp(UiStyle.TEXT, 0.35), alpha), true)
+	# Narrow tiles keep 22 px and switch to a short label instead of shrinking.
+	var shown := label
+	if font.get_string_size(shown, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL).x > rect.size.x - 12:
+		shown = SHORT_LABEL.get(label, label)
+	_label(shown, Vector2(rect.get_center().x, rect.end.y - 14), LABEL, Color(accent.lerp(UiStyle.TEXT, 0.35), alpha), true)
 
 
 func _kill_chip(rect: Rect2, kind: String, count: int, alpha: float) -> void:
@@ -465,7 +529,7 @@ func _build_row(build: Array, center: Vector2, t: float, alpha: float) -> void:
 		_medallion(c, r, UiStyle.GOLD if evolved else accent, a)
 		_icon(id, Rect2(c - Vector2(r, r) * 0.72, Vector2(r, r) * 1.44), Color(accent, a) if not _has_icon(id) else Color(1, 1, 1, a))
 		if evolved:
-			_label("EVO", c + Vector2(0, r + 30), UiStyle.SIZE_LABEL, Color(UiStyle.GOLD, a), true)
+			_label("EVO", c + Vector2(0, r + 30), LABEL, Color(UiStyle.GOLD, a), true)
 			continue
 		for k in 3:
 			var pc := c + Vector2((k - 1) * 18.0, r + 20)
@@ -509,17 +573,17 @@ func _divider(center: Vector2, half: float, label: String, alpha: float) -> void
 	if alpha <= 0.0:
 		return
 	var font := UiStyle.display_font()
-	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.SIZE_LABEL).x * 0.5
+	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL).x * 0.5
 	if _kit("divider"):
 		_frames.call("divider", self, center + Vector2(0, -7), half * 2.0, Color(UiStyle.BONE, alpha), w * 2.0 + 28.0, 0.6)
-		_label(label, center, UiStyle.SIZE_LABEL, Color(UiStyle.TEXT_DIM, alpha), true)
+		_label(label, center, LABEL, Color(UiStyle.TEXT_DIM, alpha), true)
 		return
 	for s: float in [-1.0, 1.0]:
 		var a := Vector2(center.x + s * (w + 16), center.y - 7)
 		var b := Vector2(center.x + s * half, center.y - 7)
 		draw_line(a, b, Color(UiStyle.PANEL_EDGE.lightened(0.25), alpha), 2.0, true)
 		draw_colored_polygon(PackedVector2Array([b + Vector2(0, -5), b + Vector2(s * 6, 0), b + Vector2(0, 5), b - Vector2(s * 6, 0)]), Color(UiStyle.BONE, 0.7 * alpha))
-	_label(label, center, UiStyle.SIZE_LABEL, Color(UiStyle.TEXT_DIM, alpha), true)
+	_label(label, center, LABEL, Color(UiStyle.TEXT_DIM, alpha), true)
 
 
 # Organic card: glow, gradient body, pores, double rim, bone horns on top.

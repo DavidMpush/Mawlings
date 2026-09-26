@@ -22,6 +22,10 @@ var warning_zone: MeshInstance3D
 var warning_material := StandardMaterial3D.new()
 # Movement multiplier set by attack forms (e.g. Sporenwolke); 1.0 = normal.
 var slow_factor := 1.0
+# Elite variant (stage 06): larger, crowned, more health; HuntWorld grants the
+# guaranteed Alpha-Kern and the bigger reward.
+var elite := false
+var crown: Node3D
 
 
 func _ready() -> void:
@@ -67,6 +71,54 @@ func _ready() -> void:
 	TG.set_armed(warning_zone, false)
 	warning.global_position = global_position
 	warning.scale = Vector3.ONE * 0.45
+
+
+# Turns this (already added) hunter into an elite: bigger body, golden crown,
+# golden health bar and `health_multiplier` x health. Attack area stays the same.
+func make_elite(health_multiplier: float) -> void:
+	if elite:
+		return
+	elite = true
+	health *= health_multiplier
+	max_health = health
+	scale = Vector3.ONE * TUNING.ELITE_SCALE
+	var gold := StandardMaterial3D.new()
+	gold.albedo_color = Color("ffbf1f")
+	gold.metallic = 0.1
+	gold.roughness = 0.35
+	gold.emission_enabled = true
+	gold.emission = Color("ffb347")
+	gold.emission_energy_multiplier = 0.9
+	crown = Node3D.new()
+	crown.name = "Crown"
+	crown.position = Vector3(0, 1.18, 0)
+	add_child(crown)
+	var band := CylinderMesh.new()
+	band.top_radius = 0.44
+	band.bottom_radius = 0.48
+	band.height = 0.18
+	band.radial_segments = 12
+	_part(crown, band, gold, Vector3.ZERO)
+	var spike := CylinderMesh.new()
+	spike.top_radius = 0.0
+	spike.bottom_radius = 0.13
+	spike.height = 0.42
+	spike.radial_segments = 6
+	for index in 5:
+		var angle := TAU * float(index) / 5.0
+		_part(crown, spike, gold, Vector3(cos(angle) * 0.38, 0.28, sin(angle) * 0.38))
+	var jewel := StandardMaterial3D.new()
+	jewel.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	jewel.albedo_color = Color("a86bff")
+	var gem := SphereMesh.new()
+	gem.radius = 0.09
+	gem.height = 0.18
+	_part(crown, gem, jewel, Vector3(0, 0.06, 0.46))
+	var bar_gold := StandardMaterial3D.new()
+	bar_gold.albedo_color = Color("ffd66e")
+	bar_gold.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	health_fill.material_override = bar_gold
+	health_fill.position.y = 1.85
 
 
 func take_damage(amount: float) -> void:

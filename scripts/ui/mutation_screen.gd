@@ -19,6 +19,7 @@ const INTRO := 0.34
 const STAGGER := 0.085
 const FLASH := 0.45
 const TOP_CLEAR := 124.0   # the status bar stays readable above the dimmer
+const MIN_TEXT := 22        # stage 06: nothing on this screen below 22 px (900 grid)
 
 # Category drives frame and name colour (stage 04 rules).
 const CATEGORY_OF := {
@@ -226,7 +227,7 @@ func _draw() -> void:
 	var hint_y := last.end.y + 58.0
 	if rerolls > 0 or skips > 0:
 		hint_y = (hud._reroll_rect() if rerolls > 0 else hud._skip_rect()).end.y + 50.0
-	_text(self, "KARTE ANTIPPEN ZUM WÄHLEN", Vector2(size.x * 0.5, hint_y), UI.SIZE_LABEL, Color(UI.TEXT_DIM, 0.85), 1, 5)
+	_text(self, "KARTE ANTIPPEN ZUM WÄHLEN", Vector2(size.x * 0.5, hint_y), MIN_TEXT, Color(UI.TEXT_DIM, 0.85), 1, 5)
 
 
 func _draw_dimmer(amount: float) -> void:
@@ -335,7 +336,7 @@ func _draw_button(rect: Rect2, icon_id: String, label: String, count: int, accen
 	var icon_rect := Rect2(rect.position + Vector2(18, rect.size.y * 0.5 - 22), Vector2(44, 44))
 	_icon(self, icon_id, icon_rect, accent)
 	var font := UI.display_font()
-	var fs := _fit(label, font, 26, rect.size.x - 100.0, 20)
+	var fs := _fit(label, font, 26, rect.size.x - 100.0, MIN_TEXT)
 	var lw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var lx := icon_rect.end.x + (rect.end.x - 24.0 - icon_rect.end.x - lw) * 0.5
 	_text(self, label, Vector2(lx, rect.get_center().y + fs * 0.36), fs, UI.TEXT, 0, 6)
@@ -359,22 +360,33 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 
 	if frames != null and use_frame_kit:
 		frames.card(c, Rect2(Vector2.ZERO, s), accent, "selected" if flash > 0.0 else "normal")
+		frames.card_cells(c, Rect2(Vector2.ZERO, s), accent)
 	else:
 		_card_frame(c, s, accent, slot)
 	if banish <= 0 and not (frames != null and use_frame_kit):
 		for pore in [Vector2(-58, 30), Vector2(-40, 22), Vector2(-42, 42), Vector2(-26, 34)]:
 			_ring(c, Vector2(s.x, 0) + pore, 7.0, Color(UI.OUTLINE, 0.9), Color(accent, 0.55))
 
-	# Medallion: dark disc, inner glow, big icon.
+	# Medallion (concept): a bulge of the frame band around a dark well, strong
+	# glow in the category colour outside and a lit core behind the icon.
 	var m := Vector2(120, s.y * 0.5)
-	c.draw_circle(m, 96, Color(accent, 0.07))
-	c.draw_circle(m, 88, Color(accent, 0.12))
-	c.draw_circle(m, 80, Color("040a07"))
-	for i in 5:
-		c.draw_circle(m, 72.0 - i * 11.0, Color(accent, 0.045))
-	c.draw_arc(m, 80, 0, TAU, 64, accent.lightened(0.1), 4.0, true)
-	c.draw_arc(m, 74, 0, TAU, 64, Color(accent, 0.25), 2.0, true)
-	_icon(c, id, Rect2(m - Vector2(60, 60), Vector2(120, 120)), accent)
+	_halo(c, m, 168.0, Color(accent, 0.62 + 0.4 * flash))
+	c.draw_circle(m, 92, Color("0c1d14"))
+	c.draw_circle(m, 88, Color("17321f"))
+	for i in 7:
+		var a := TAU * i / 7.0 + 0.3
+		c.draw_circle(m + Vector2(cos(a), sin(a)) * 88.0, 3.2, Color("020604"))
+	for i in 3:
+		c.draw_arc(m, 96.0 + i * 6.0, 0, TAU, 72, Color(accent, 0.34 - i * 0.1), 7.0, true)
+	c.draw_arc(m, 92, 0, TAU, 72, Color(accent, 0.9), 3.0, true)
+	c.draw_circle(m, 80, Color("020604"))
+	_halo(c, m + Vector2(0, 10), 78.0, Color(accent, 0.3))
+	# Inner rim light: the well glows at its edge, the centre stays dark.
+	for i in 3:
+		c.draw_arc(m, 75.0 - i * 6.0, 0, TAU, 64, Color(accent, 0.4 - i * 0.13), 6.0, true)
+	c.draw_arc(m, 80, 0, TAU, 64, accent.lightened(0.15), 4.0, true)
+	c.draw_arc(m, 80, PI * 1.1, PI * 1.9, 24, Color(accent.lightened(0.6), 0.7), 2.0, true)
+	_icon(c, id, Rect2(m - Vector2(64, 64), Vector2(128, 128)), accent)
 	# Number badge (keys 1/2/3), bottom left of the medallion.
 	var nb := m + Vector2(-62, 58)
 	c.draw_circle(nb, 19, Color(accent, 0.95))
@@ -392,11 +404,15 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 	var used: int = evo.slots_used(slot_kind)
 	var limit: int = evo.slot_limit(slot_kind)
 	var slot_text := "SLOT %d/%d" % [mini(used + (1 if rank == 0 else 0), limit), limit]
-	var head_right := (banish_local.position.x - 16.0) if banish > 0 else right - 80.0
+	# The banish tag may share the header or the name line; text yields to it.
+	var banish_head := banish > 0 and banish_local.position.y < 42.0
+	var banish_name := banish > 0 and banish_local.end.y > 52.0 and banish_local.position.y < 96.0
+	var head_right := (banish_local.position.x - 16.0) if banish_head else right - 80.0
+	var name_right := (banish_local.position.x - 14.0) if banish_name else right
 	var head := "%s  ·  %s" % [kind_label, slot_text]
-	_text(c, head, Vector2(x, 40), _fit(head, UI.display_font(), UI.SIZE_LABEL, head_right - x, 20), Color(accent.lerp(UI.TEXT_DIM, 0.35), 0.95), 0, 5)
+	_text(c, head, Vector2(x, 40), _fit(head, UI.display_font(), MIN_TEXT, head_right - x, MIN_TEXT), Color(accent.lerp(UI.TEXT_DIM, 0.35), 0.95), 0, 5)
 	var name := str(entry[1]).to_upper()
-	var name_size := _fit(name, UI.display_font(), 48, col_w, 30)
+	var name_size := _fit(name, UI.display_font(), 48, name_right - x, 30)
 	_text(c, name, Vector2(x, 92), name_size, accent.lightened(0.08), 0, 8)
 	c.draw_polyline_colors(PackedVector2Array([Vector2(x, 106), Vector2(right, 106)]), PackedColorArray([Color(accent, 0.75), Color(accent, 0.0)]), 2.5, true)
 
@@ -404,16 +420,16 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 		var body := _form_text(id, rank)
 		if body == "":
 			body = str(entry[2])
-		var fs := 23
+		var fs := 24
 		var lines := _wrap(body, UI.body_font(), fs, col_w)
-		while lines.size() > 2 and fs > 20:
+		while lines.size() > 2 and fs > MIN_TEXT:
 			fs -= 1
 			lines = _wrap(body, UI.body_font(), fs, col_w)
 		if lines.size() > 2:
 			lines = lines.slice(0, 2)
 			lines[1] = lines[1].rstrip(" .,") + "…"
 		for i in lines.size():
-			_text(c, lines[i], Vector2(x, 138 + i * (fs + 4)), fs, UI.TEXT, 0, 5, UI.body_font())
+			_text(c, lines[i], Vector2(x, 136 + i * (fs + 2)), fs, UI.TEXT, 0, 5, UI.body_font())
 	else:
 		var effect := _effect(id, entry, rank + 1, true)
 		_text(c, effect, Vector2(x, 150), _fit(effect, UI.display_font(), 34, col_w, 24), UI.TEXT, 0, 7)
@@ -453,9 +469,9 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 		var hint_font := UI.display_font()
 		var label: String = hint.text
 		var avail := right - cx - 30.0
-		if hint_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI.SIZE_LABEL).x > avail:
+		if hint_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, MIN_TEXT).x > avail:
 			label = hint.short
-		var fs := _fit(label, hint_font, UI.SIZE_LABEL, avail, 20)
+		var fs := _fit(label, hint_font, MIN_TEXT, avail, MIN_TEXT)
 		var lw := hint_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var hx := right - lw
 		var tint: Color = UI.GOLD if hint.ready else UI.VIOLET
@@ -477,15 +493,35 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 			c.draw_polyline(ring, Color(accent.lightened(0.5), flash), 6.0, true)
 
 
+# Compact danger tag inside the card body (hit area: hud._banish_rect(slot)).
 func _draw_banish(c: CanvasItem, r: Rect2, count: int) -> void:
-	if frames != null and use_frame_kit:
-		frames.button(c, r, "secondary", false, UI.DANGER)
-	else:
-		_plate(c, r, UI.DANGER, 8.0, Color(UI.DANGER.darkened(0.82), 0.95))
-	_icon(c, "banish", Rect2(r.position + Vector2(10, 7), Vector2(30, 30)), UI.DANGER.lightened(0.2))
-	var fs := _fit("VERBANNEN", UI.display_font(), 21, r.size.x - 56.0, 20)
-	_text(c, "VERBANNEN", Vector2(r.position.x + 46, r.get_center().y + 8), fs, UI.TEXT, 0, 5)
-	_badge(c, Vector2(r.end.x - 2, r.position.y + 2), count, UI.DANGER)
+	var red := UI.DANGER
+	var shape := _rounded(r, 14.0)
+	_halo(c, r.get_center(), r.size.x * 0.62, Color(red, 0.16))
+	c.draw_colored_polygon(_rounded(Rect2(r.position + Vector2(0, 3), r.size), 14.0), Color(0, 0, 0, 0.45))
+	c.draw_colored_polygon(shape, Color("1c0a08").lerp(Color("0c1d14"), 0.3))
+	c.draw_colored_polygon(_rounded(Rect2(r.position + Vector2(4, 4), Vector2(r.size.x - 8, r.size.y * 0.42)), 10.0), Color(red, 0.12))
+	var ring := shape.duplicate()
+	ring.append(ring[0])
+	c.draw_polyline(ring, Color(red, 0.85), 2.5, true)
+	var icon_size := minf(32.0, r.size.y - 12.0)
+	_icon(c, "banish", Rect2(r.position + Vector2(10, (r.size.y - icon_size) * 0.5), Vector2(icon_size, icon_size)), red.lightened(0.2))
+	var tx := r.position.x + 16.0 + icon_size
+	var fs := _fit("VERBANNEN", UI.display_font(), 23, r.end.x - 10.0 - tx, MIN_TEXT)
+	var lw := UI.display_font().get_string_size("VERBANNEN", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	_text(c, "VERBANNEN", Vector2(tx + maxf(0.0, (r.end.x - 10.0 - tx - lw) * 0.5), r.get_center().y + fs * 0.36), fs, UI.TEXT, 0, 5)
+	_badge(c, Vector2(r.end.x - 4, r.position.y + 2), count, red)
+
+
+func _rounded(r: Rect2, radius: float) -> PackedVector2Array:
+	var rad := minf(radius, minf(r.size.x, r.size.y) * 0.5)
+	var pts := PackedVector2Array()
+	var corners := [Vector2(r.end.x - rad, r.position.y + rad), Vector2(r.end.x - rad, r.end.y - rad), Vector2(r.position.x + rad, r.end.y - rad), Vector2(r.position.x + rad, r.position.y + rad)]
+	for k in 4:
+		for i in 5:
+			var a := -PI * 0.5 + PI * 0.5 * k + PI * 0.5 * i / 4.0
+			pts.append(corners[k] + Vector2(cos(a), sin(a)) * rad)
+	return pts
 
 
 # Organic card: chamfered corners, a stepped top edge, side notches, horns.
@@ -605,7 +641,7 @@ func _plaque(c: CanvasItem, center: Vector2, label: String, tint: Color) -> void
 func _badge(c: CanvasItem, center: Vector2, count: int, tint: Color) -> void:
 	c.draw_circle(center, 17, UI.OUTLINE)
 	c.draw_circle(center, 14.5, tint)
-	_text(c, str(count), center + Vector2(0, 8), 21, UI.OUTLINE, 1, 0)
+	_text(c, str(count), center + Vector2(0, 8), MIN_TEXT, UI.OUTLINE, 1, 0)
 
 
 func _arrow(c: CanvasItem, at: Vector2, tint: Color) -> void:
@@ -632,6 +668,14 @@ func _ellipse(c: CanvasItem, center: Vector2, rx: float, ry: float, tint: Color)
 		var a := TAU * i / 14.0
 		pts.append(center + Vector2(cos(a) * rx, sin(a) * ry))
 	c.draw_colored_polygon(pts, tint)
+
+
+func _halo(c: CanvasItem, center: Vector2, radius: float, tint: Color) -> void:
+	if frames != null and use_frame_kit:
+		frames.halo(c, center, radius, tint)
+		return
+	for i in 4:
+		c.draw_circle(center, radius * (0.4 + i * 0.18), Color(tint, tint.a * 0.12))
 
 
 # Icon from UiIcons when available, else a simple monogram medal.
