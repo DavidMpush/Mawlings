@@ -19,6 +19,8 @@ uniform float rim_strength = 0.0;
 uniform float rim_power = 2.5;
 uniform vec4 flash_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 uniform float flash = 0.0;
+// Strain recolour: keeps the model's light/dark pattern, replaces its hue (alpha = amount).
+uniform vec4 body_tint : source_color = vec4(1.0, 1.0, 1.0, 0.0);
 
 group_uniforms frame;
 uniform vec3 up_axis = vec3(0.0, 0.0, -1.0);
@@ -153,6 +155,8 @@ void fragment() {
 	vec3 base = COLOR.rgb * brightness;
 	float grey = dot(base, vec3(0.299, 0.587, 0.114));
 	base = mix(vec3(grey), base, saturation);
+	float luma = dot(base, vec3(0.299, 0.587, 0.114));
+	base = mix(base, body_tint.rgb * clamp(luma * 2.4, 0.0, 1.4), body_tint.a);
 	vec3 normal = normalize(NORMAL);
 	if (!FRONT_FACING) {
 		normal = -normal;

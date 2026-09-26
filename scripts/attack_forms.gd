@@ -1,0 +1,787 @@
+extends Node3D
+
+# Angriffsformen (Etappe 03): vier aktive Mutationen plus zwei Evolutionen.
+# Vertrag: stages/03_progression.md. Dieses Modul reduziert ausschließlich die
+# Gesundheit der übergebenen Ziele (take_damage() oder 'health'), gibt nie
+# Knoten frei und bewegt keine Mawlings. Alle Animationen laufen nur in step(),
+# damit die Pause alles einfriert. Effekte und Projektile sind gepoolt.
+
+const FORMS := {
+	"rudelbiss": {
+		"name": "Rudelbiss",
+		"icon_hint": "jaws_leap",
+		"ranks": [
+			"Rally: alle 2,2 s Sprungangriff auf den nächsten Gegner (4 m), 8 Flächenschaden.",
+			"Rally: alle 1,8 s Sprungangriff, 12 Flächenschaden.",
+			"Rally: alle 1,4 s Sprungangriff, 16 Flächenschaden.",
+		],
+	},
+	"sporenwolke": {
+		"name": "Sporenwolke",
+		"icon_hint": "spore_cloud",
+		"ranks": [
+			"Sporen-Aura (3 m): 2 Schaden/s, Gegner werden verlangsamt.",
+			"Sporen-Aura (3,6 m): 3,5 Schaden/s, Gegner werden verlangsamt.",
+			"Sporen-Aura (4,2 m): 5 Schaden/s, Gegner werden verlangsamt.",
+		],
+	},
+	"saeurespucker": {
+		"name": "Säurespucker",
+		"icon_hint": "acid_drop",
+		"ranks": [
+			"Alle 1,2 s ein Säureschuss auf den nächsten Gegner (9 m), 6 Schaden.",
+			"Alle 0,9 s ein Säureschuss, 9 Schaden.",
+			"Alle 0,7 s ein Säureschuss, 12 Schaden.",
+		],
+	},
+	"stachelruecken": {
+		"name": "Stachelrücken",
+		"icon_hint": "spikes",
+		"ranks": [
+			"Wer den Schwarm trifft, erleidet 10 Schaden + 2 je verlorenem Mawling.",
+			"Rückstoß-Stacheln: 18 Schaden + 2 je verlorenem Mawling.",
+			"Rückstoß-Stacheln: 26 Schaden + 2 je verlorenem Mawling.",
+		],
+	},
+	"meute": {
+		"name": "Meute",
+		"icon_hint": "pack_leap",
+		"evolved": true,
+		"base": "rudelbiss",
+		"requires": "pack",
+		"ranks": [
+			"Evolution von Rudelbiss: springt auch ohne Rally alle 1,2 s, Radius 2,4 m, 16 Schaden – doppelt bei Rally.",
+		],
+	},
+	"aetzflut": {
+		"name": "Ätzflut",
+		"icon_hint": "acid_pool",
+		"evolved": true,
+		"base": "saeurespucker",
+		"requires": "glutton",
+		"ranks": [
+			"Evolution von Säurespucker: jeder Treffer hinterlässt 2 s eine Säurepfütze (1,2 m, 4 Schaden/s).",
+		],
+	},
+}
+
+const RUDELBISS_INTERVAL := [2.2, 1.8, 1.4]
+const RUDELBISS_DAMAGE := [8.0, 12.0, 16.0]
+const RUDELBISS_RADIUS := 1.6
+const RUDELBISS_REACH := 4.0
+const LEAP_SECONDS := 0.24
+const MEUTE_INTERVAL := 1.2
+const MEUTE_RADIUS := 2.4
+const MEUTE_RALLY_MULTIPLIER := 2.0
+
+const SPORE_RADIUS := [3.0, 3.6, 4.2]
+const SPORE_DPS := [2.0, 3.5, 5.0]
+const SPORE_SLOW := 0.6
+
+const SPIT_INTERVAL := [1.2, 0.9, 0.7]
+const SPIT_REACH := 9.0
+const SPIT_SPEED := 14.0
+const SPIT_DAMAGE := [6.0, 9.0, 12.0]
+const SPIT_MAX_FLIGHT := 1.2
+const SPIT_HEIGHT := 0.75
+
+const PUDDLE_SECONDS := 2.0
+const PUDDLE_RADIUS := 1.2
+const PUDDLE_DPS := 4.0
+
+const SPINE_DAMAGE := [10.0, 18.0, 26.0]
+const SPINE_PER_LOSS := 2.0
+const SPINE_SECONDS := 0.42
+const SPINE_COUNT := 12
+
+const MAX_RINGS := 24
+const MAX_PROJECTILES := 16
+const MAX_PUDDLES := 10
+const ARC_DOTS := 7
+const SPORE_MOTES := 10
+
+const BITE_COLOR := Color(1.0, 0.62, 0.18)
+const LEAP_CORE := Color(1.0, 0.93, 0.55)
+const SPORE_COLOR := Color(0.8, 0.95, 0.32)
+const ACID_COLOR := Color(0.45, 1.0, 0.3)
+const SPINE_COLOR := Color(0.98, 0.9, 0.72)
+
+var world: Node3D
+var swarm: Node3D
+var ranks := {}
+# Summe des verursachten Schadens je Form (für Statistik/Tests).
+var damage_dealt := {}
+
+var _enemy_scale := 1.0
+var _clock := 0.0
+var _bite_timer := 0.0
+var _spit_timer := 0.0
+var _slowed := {}
+var _built := false
+var _current: Array = []
+
+var _leap_active := false
+var _leap_age := 0.0
+var _leap_from := Vector3.ZERO
+var _leap_to := Vector3.ZERO
+var _leap_target: Node3D
+var _leap_damage := 0.0
+var _leap_radius := RUDELBISS_RADIUS
+var _arc_root: Node3D
+var _leap_marker: MeshInstance3D
+var _leap_marker_material: StandardMaterial3D
+var _arc_dots: Array[MeshInstance3D] = []
+
+var _spore_root: Node3D
+var _spore_edge: MeshInstance3D
+var _spore_pulse: MeshInstance3D
+var _spore_edge_material: StandardMaterial3D
+var _spore_pulse_material: StandardMaterial3D
+var _spore_motes: Array[MeshInstance3D] = []
+var _spore_visual_radius := 0.0
+
+var _spine_root: Node3D
+var _spines: Array[MeshInstance3D] = []
+var _spine_material: StandardMaterial3D
+var _spine_age := SPINE_SECONDS
+var _spine_origin := Vector3.ZERO
+
+var _rings: Array = []
+var _projectiles: Array = []
+var _puddles: Array = []
+
+var _torus: TorusMesh
+var _thick_torus: TorusMesh
+var _dot_mesh: SphereMesh
+var _mote_mesh: SphereMesh
+var _bolt_mesh: SphereMesh
+var _bolt_halo_mesh: SphereMesh
+var _bolt_material: StandardMaterial3D
+var _bolt_halo_material: StandardMaterial3D
+var _bolt_trail_material: StandardMaterial3D
+var _puddle_mesh: CylinderMesh
+var _arc_material: StandardMaterial3D
+var _arc_tail_material: StandardMaterial3D
+
+
+func setup(world_node: Node3D, swarm_node: Node3D) -> void:
+	world = world_node
+	swarm = swarm_node
+	_build()
+
+
+# id -> Rang (0..3); evolvierte IDs 'aetzflut' und 'meute' zählen als Rang 1.
+func set_ranks(new_ranks: Dictionary) -> void:
+	ranks = {}
+	for id in new_ranks:
+		var limit := 1 if FORMS.has(id) and FORMS[id].get("evolved", false) else 3
+		ranks[id] = clampi(int(new_ranks[id]), 0, limit)
+
+
+func rank(id: String) -> int:
+	return int(ranks.get(id, 0))
+
+
+func step(delta: float, targets: Array, rally: bool, enemy_scale: float) -> void:
+	_build()
+	_enemy_scale = maxf(0.0, enemy_scale)
+	_clock += delta
+	var origin := _swarm_position()
+	var living := _living(targets)
+	_current = living
+	_step_bite(delta, origin, living, rally)
+	_step_spores(delta, origin, living)
+	_step_spit(delta, origin, living)
+	_step_projectiles(delta, living)
+	_step_puddles(delta, living)
+	_step_spines(delta)
+	_step_rings(delta)
+
+
+# Rückstoß für stachelruecken: sofortiger Schaden am Angreifer, Effekt läuft in step().
+func on_swarm_hit(attacker: Node3D, loss: int) -> void:
+	var level := rank("stachelruecken")
+	if level <= 0:
+		return
+	_build()
+	_spine_origin = _swarm_position()
+	_spine_age = 0.0
+	_ring(_spine_origin, SPINE_COLOR, 1.0, 3.2, SPINE_SECONDS)
+	if not _valid_target(attacker):
+		return
+	var amount: float = (SPINE_DAMAGE[level - 1] + float(maxi(0, loss)) * SPINE_PER_LOSS) * _enemy_scale
+	_hurt(attacker, amount, "stachelruecken")
+
+
+func clear() -> void:
+	_release_slow({})
+	_leap_active = false
+	_leap_target = null
+	_current = []
+	_bite_timer = 0.0
+	_spit_timer = 0.0
+	_spine_age = SPINE_SECONDS
+	if not _built:
+		return
+	_arc_root.visible = false
+	_leap_marker.visible = false
+	_spine_root.visible = false
+	_spore_root.visible = false
+	for entry in _rings:
+		entry.active = false
+		entry.node.visible = false
+	for entry in _projectiles:
+		entry.active = false
+		entry.target = null
+		entry.node.visible = false
+	for entry in _puddles:
+		entry.active = false
+		entry.node.visible = false
+
+
+func active_projectiles() -> int:
+	var count := 0
+	for entry in _projectiles:
+		if entry.active:
+			count += 1
+	return count
+
+
+func active_puddles() -> int:
+	var count := 0
+	for entry in _puddles:
+		if entry.active:
+			count += 1
+	return count
+
+
+func active_effects() -> int:
+	var count := active_projectiles() + active_puddles()
+	for entry in _rings:
+		if entry.active:
+			count += 1
+	if _leap_active:
+		count += 1
+	if _spine_age < SPINE_SECONDS:
+		count += 1
+	return count
+
+
+# --- Rudelbiss / Meute ---------------------------------------------------
+
+func _step_bite(delta: float, origin: Vector3, living: Array, rally: bool) -> void:
+	var level := rank("rudelbiss")
+	var pack := rank("meute") > 0
+	if level <= 0 and not pack:
+		_leap_active = false
+		_arc_root.visible = false
+		_leap_marker.visible = false
+		return
+	_bite_timer = maxf(0.0, _bite_timer - delta)
+	if _leap_active:
+		_advance_leap(delta)
+	if _leap_active or _bite_timer > 0.0 or (not rally and not pack):
+		return
+	var target := _nearest(living, origin, RUDELBISS_REACH)
+	if target == null:
+		return
+	var base: float = RUDELBISS_DAMAGE[maxi(level, 3 if pack else 1) - 1]
+	if pack:
+		_bite_timer = MEUTE_INTERVAL
+		_leap_radius = MEUTE_RADIUS
+		_leap_damage = base * (MEUTE_RALLY_MULTIPLIER if rally else 1.0)
+	else:
+		_bite_timer = RUDELBISS_INTERVAL[level - 1]
+		_leap_radius = RUDELBISS_RADIUS
+		_leap_damage = base
+	_leap_damage *= _enemy_scale
+	_leap_active = true
+	_leap_age = 0.0
+	_leap_from = origin
+	_leap_target = target
+	_leap_to = _flat(target.global_position)
+	_arc_root.visible = true
+	_leap_marker.visible = true
+	_pose_arc()
+
+
+func _advance_leap(delta: float) -> void:
+	_leap_age += delta
+	if _valid_target(_leap_target):
+		_leap_to = _flat(_leap_target.global_position)
+	if _leap_age < LEAP_SECONDS:
+		_pose_arc()
+		return
+	_leap_active = false
+	_leap_target = null
+	_arc_root.visible = false
+	_leap_marker.visible = false
+	var tint := BITE_COLOR if rank("meute") <= 0 else Color(1.0, 0.42, 0.16)
+	_ring(_leap_to, Color(tint.r, tint.g, tint.b, 0.95), _leap_radius * 0.6, _leap_radius * 1.1, 0.4, true)
+	_ring(_leap_to, Color(LEAP_CORE.r, LEAP_CORE.g, LEAP_CORE.b, 0.9), 0.2, _leap_radius * 0.55, 0.26, true)
+	for target in _targets_near(_leap_to, _leap_radius):
+		_hurt(target, _leap_damage, "meute" if rank("meute") > 0 else "rudelbiss")
+
+
+func _pose_arc() -> void:
+	var progress := clampf(_leap_age / LEAP_SECONDS, 0.0, 1.0)
+	var distance := _leap_from.distance_to(_leap_to)
+	var height := 0.9 + distance * 0.25
+	for index in _arc_dots.size():
+		# Die Punkte bilden einen kurzen Bogenabschnitt, der zum Ziel wandert.
+		var t := clampf(progress - float(index) * 0.06, 0.0, 1.0)
+		var point := _leap_from.lerp(_leap_to, t)
+		point.y = 0.25 + sin(t * PI) * height
+		var dot := _arc_dots[index]
+		dot.global_position = point
+		var size := 1.0 - float(index) / float(_arc_dots.size())
+		dot.scale = Vector3.ONE * maxf(0.25, size)
+	# Landemarke: schrumpft während des Sprungs auf den Wirkradius zu.
+	_leap_marker.global_position = Vector3(_leap_to.x, 0.15, _leap_to.z)
+	var mark := lerpf(_leap_radius * 1.15, _leap_radius, progress)
+	_leap_marker.scale = Vector3(mark, 0.4, mark)
+	_leap_marker_material.albedo_color = Color(BITE_COLOR.r, BITE_COLOR.g, BITE_COLOR.b, 0.25 + 0.45 * progress)
+
+
+# --- Sporenwolke ---------------------------------------------------------
+
+func _step_spores(delta: float, origin: Vector3, living: Array) -> void:
+	var level := rank("sporenwolke")
+	if level <= 0:
+		_spore_root.visible = false
+		_release_slow({})
+		return
+	var radius: float = SPORE_RADIUS[level - 1]
+	var dps: float = SPORE_DPS[level - 1] * _enemy_scale
+	var inside := {}
+	for target in living:
+		if _flat_distance(target.global_position, origin) > radius:
+			continue
+		_hurt(target, dps * delta, "sporenwolke")
+		if "slow_factor" in target:
+			target.set("slow_factor", SPORE_SLOW)
+			inside[target.get_instance_id()] = target
+	_release_slow(inside)
+	_slowed = inside
+	_pose_spores(origin, radius)
+
+
+func _pose_spores(origin: Vector3, radius: float) -> void:
+	_spore_root.visible = true
+	_spore_root.global_position = Vector3(origin.x, 0.0, origin.z)
+	_spore_visual_radius = lerpf(_spore_visual_radius, radius, 0.2) if _spore_visual_radius > 0.0 else radius
+	var r := _spore_visual_radius
+	_spore_edge.scale = Vector3(r, 0.3, r)
+	_spore_edge_material.albedo_color = Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.32 + 0.08 * sin(_clock * 3.0))
+	# Ein Innenring läuft langsam nach außen und verblasst – zeigt die Aura-Wirkung.
+	var wave := fmod(_clock * 0.55, 1.0)
+	var inner := lerpf(r * 0.35, r, wave)
+	_spore_pulse.scale = Vector3(inner, 0.3, inner)
+	_spore_pulse_material.albedo_color = Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.3 * (1.0 - wave))
+	for index in _spore_motes.size():
+		var mote := _spore_motes[index]
+		var phase := float(index) / float(_spore_motes.size())
+		var angle := phase * TAU + _clock * (0.35 + 0.1 * float(index % 3))
+		var reach := r * (0.45 + 0.5 * fmod(phase * 3.7 + _clock * 0.08, 1.0))
+		var lift := 0.35 + 0.35 * (0.5 + 0.5 * sin(_clock * 1.7 + phase * 11.0))
+		mote.position = Vector3(cos(angle) * reach, lift, sin(angle) * reach)
+		mote.scale = Vector3.ONE * (0.8 + 0.35 * sin(_clock * 2.3 + phase * 7.0))
+
+
+func _release_slow(keep: Dictionary) -> void:
+	for id in _slowed:
+		if keep.has(id):
+			continue
+		var target = _slowed[id]
+		if is_instance_valid(target) and "slow_factor" in target:
+			target.set("slow_factor", 1.0)
+	_slowed = keep.duplicate()
+
+
+# --- Säurespucker / Ätzflut ----------------------------------------------
+
+func _step_spit(delta: float, origin: Vector3, living: Array) -> void:
+	var level := rank("saeurespucker")
+	if rank("aetzflut") > 0:
+		level = 3
+	if level <= 0:
+		return
+	_spit_timer = maxf(0.0, _spit_timer - delta)
+	if _spit_timer > 0.0:
+		return
+	var target := _nearest(living, origin, SPIT_REACH)
+	if target == null:
+		return
+	_spit_timer = SPIT_INTERVAL[level - 1]
+	var entry: Dictionary = _take(_projectiles, MAX_PROJECTILES, _make_projectile)
+	entry.active = true
+	entry.age = 0.0
+	entry.target = target
+	entry.aim = _flat(target.global_position)
+	entry.damage = SPIT_DAMAGE[level - 1] * _enemy_scale
+	entry.node.visible = true
+	entry.node.global_position = Vector3(origin.x, SPIT_HEIGHT, origin.z)
+	for ghost in entry.trail:
+		ghost.position = Vector3.ZERO
+
+
+func _step_projectiles(delta: float, living: Array) -> void:
+	for entry in _projectiles:
+		if not entry.active:
+			continue
+		entry.age += delta
+		var tracking: bool = _valid_target(entry.target)
+		if tracking:
+			entry.aim = _flat(entry.target.global_position)
+		var node: Node3D = entry.node
+		var goal: Vector3 = entry.aim + Vector3(0, 0.45, 0)
+		var offset: Vector3 = goal - node.global_position
+		var travel := SPIT_SPEED * delta
+		node.scale = Vector3.ONE * (1.0 + 0.15 * sin(entry.age * 40.0))
+		if offset.length() > travel and entry.age < SPIT_MAX_FLIGHT:
+			var heading := offset.normalized()
+			node.global_position += heading * travel
+			for index in entry.trail.size():
+				entry.trail[index].global_position = node.global_position - heading * 0.32 * float(index + 1)
+			continue
+		node.global_position = goal
+		entry.active = false
+		node.visible = false
+		var hit_point: Vector3 = entry.aim
+		if tracking:
+			_hurt(entry.target, entry.damage, "saeurespucker")
+			_ring(hit_point, Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.85), 0.15, 0.9, 0.25)
+			if rank("aetzflut") > 0:
+				_spawn_puddle(hit_point)
+		entry.target = null
+
+
+func _spawn_puddle(location: Vector3) -> void:
+	var entry: Dictionary = _take(_puddles, MAX_PUDDLES, _make_puddle)
+	entry.active = true
+	entry.age = 0.0
+	entry.center = _flat(location)
+	entry.node.visible = true
+	entry.node.global_position = Vector3(location.x, 0.05, location.z)
+	_pose_puddle(entry)
+
+
+func _step_puddles(delta: float, living: Array) -> void:
+	for entry in _puddles:
+		if not entry.active:
+			continue
+		entry.age += delta
+		if entry.age >= PUDDLE_SECONDS:
+			entry.active = false
+			entry.node.visible = false
+			continue
+		for target in living:
+			if _flat_distance(target.global_position, entry.center) <= PUDDLE_RADIUS:
+				_hurt(target, PUDDLE_DPS * _enemy_scale * delta, "aetzflut")
+		_pose_puddle(entry)
+
+
+func _pose_puddle(entry: Dictionary) -> void:
+	var t: float = entry.age / PUDDLE_SECONDS
+	var grow := minf(1.0, t * 8.0)
+	var radius := PUDDLE_RADIUS * (0.4 + 0.6 * grow)
+	entry.node.scale = Vector3(radius, 1.0, radius)
+	var fade := 1.0 - smoothstep(0.7, 1.0, t)
+	var bubble := 0.06 * sin(_clock * 9.0 + entry.center.x)
+	entry.material.albedo_color = Color(0.62, 0.9, 0.18, (0.3 + bubble) * fade)
+	entry.rim_material.albedo_color = Color(0.82, 1.0, 0.4, 0.75 * fade)
+
+
+# --- Stachelrücken -------------------------------------------------------
+
+func _step_spines(delta: float) -> void:
+	if _spine_age >= SPINE_SECONDS:
+		_spine_root.visible = false
+		return
+	_spine_age += delta
+	var t := clampf(_spine_age / SPINE_SECONDS, 0.0, 1.0)
+	_spine_root.visible = t < 1.0
+	var origin := _swarm_position()
+	_spine_root.global_position = Vector3(origin.x, 0.0, origin.z)
+	var out := 1.0 - pow(1.0 - minf(1.0, t * 2.2), 3.0)
+	var shrink := 1.0 - smoothstep(0.55, 1.0, t)
+	for index in _spines.size():
+		var angle := TAU * float(index) / float(_spines.size())
+		var spine := _spines[index]
+		var reach := 1.1 + out * 1.3
+		spine.position = Vector3(cos(angle) * reach, 0.45, sin(angle) * reach)
+		spine.rotation = Vector3(0, -angle, -PI * 0.5 + 0.35)
+		spine.scale = Vector3.ONE * maxf(0.01, shrink)
+	_spine_material.albedo_color = Color(SPINE_COLOR.r, SPINE_COLOR.g, SPINE_COLOR.b, shrink)
+
+
+# --- Ringe (gepoolt) -----------------------------------------------------
+
+func _ring(location: Vector3, tint: Color, from_radius: float, to_radius: float, seconds: float, thick := false) -> void:
+	if not _built:
+		return
+	var entry: Dictionary = _take(_rings, MAX_RINGS, _make_ring)
+	entry.node.mesh = _thick_torus if thick else _torus
+	entry.active = true
+	entry.age = 0.0
+	entry.duration = seconds
+	entry.from_radius = from_radius
+	entry.to_radius = to_radius
+	entry.color = tint
+	entry.node.visible = true
+	entry.node.global_position = Vector3(location.x, 0.16, location.z)
+	_pose_ring(entry)
+
+
+func _step_rings(delta: float) -> void:
+	for entry in _rings:
+		if not entry.active:
+			continue
+		entry.age += delta
+		if entry.age >= entry.duration:
+			entry.active = false
+			entry.node.visible = false
+			continue
+		_pose_ring(entry)
+
+
+func _pose_ring(entry: Dictionary) -> void:
+	var progress: float = clampf(entry.age / entry.duration, 0.0, 1.0)
+	var eased := 1.0 - pow(1.0 - progress, 3.0)
+	var radius: float = lerpf(entry.from_radius, entry.to_radius, eased)
+	entry.node.scale = Vector3(radius, 0.4, radius)
+	var tint: Color = entry.color
+	entry.material.albedo_color = Color(tint.r, tint.g, tint.b, tint.a * (1.0 - progress * progress))
+
+
+# --- Schaden und Zielwahl ------------------------------------------------
+
+func _hurt(target, amount: float, source: String) -> void:
+	if amount <= 0.0 or not is_instance_valid(target):
+		return
+	if target.has_method("take_damage"):
+		target.call("take_damage", amount)
+	elif "health" in target:
+		target.set("health", float(target.get("health")) - amount)
+	else:
+		return
+	damage_dealt[source] = float(damage_dealt.get(source, 0.0)) + amount
+
+
+func _valid_target(target) -> bool:
+	if target == null or not is_instance_valid(target) or not (target is Node3D):
+		return false
+	if not (target as Node3D).is_inside_tree() or target.is_queued_for_deletion():
+		return false
+	if "health" in target and float(target.get("health")) <= 0.0:
+		return false
+	if target.has_method("can_be_hit") and not bool(target.call("can_be_hit")):
+		return false
+	return true
+
+
+func _living(targets: Array) -> Array:
+	var result: Array = []
+	for target in targets:
+		if _valid_target(target):
+			result.append(target)
+	return result
+
+
+func _nearest(living: Array, origin: Vector3, reach: float) -> Node3D:
+	var best: Node3D = null
+	var best_distance := reach
+	for target in living:
+		var distance := _flat_distance(target.global_position, origin)
+		if distance <= best_distance:
+			best = target
+			best_distance = distance
+	return best
+
+
+func _targets_near(center: Vector3, radius: float) -> Array:
+	# _current wurde in diesem step() gefiltert; Schaden davor kann Ziele töten.
+	var result: Array = []
+	for target in _current:
+		if _valid_target(target) and _flat_distance(target.global_position, center) <= radius:
+			result.append(target)
+	return result
+
+
+func _swarm_position() -> Vector3:
+	if swarm != null and is_instance_valid(swarm) and swarm.is_inside_tree():
+		return swarm.global_position
+	return Vector3.ZERO
+
+
+func _flat(location: Vector3) -> Vector3:
+	return Vector3(location.x, 0.0, location.z)
+
+
+func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+# --- Aufbau und Pools ----------------------------------------------------
+
+func _take(pool: Array, limit: int, factory: Callable) -> Dictionary:
+	for entry in pool:
+		if not entry.active:
+			return entry
+	if pool.size() < limit:
+		var created: Dictionary = factory.call()
+		pool.append(created)
+		return created
+	# Pool voll: den ältesten Eintrag wiederverwenden.
+	var oldest: Dictionary = pool[0]
+	for entry in pool:
+		if entry.age > oldest.age:
+			oldest = entry
+	return oldest
+
+
+func _make_ring() -> Dictionary:
+	var material := _glow_material(Color.WHITE, true)
+	var node := _mesh(self, _torus, material)
+	node.top_level = true
+	node.visible = false
+	return {"node": node, "material": material, "active": false, "age": 0.0, "duration": 1.0,
+		"from_radius": 0.0, "to_radius": 1.0, "color": Color.WHITE}
+
+
+func _make_projectile() -> Dictionary:
+	var node := _mesh(self, _bolt_mesh, _bolt_material)
+	node.top_level = true
+	node.visible = false
+	_mesh(node, _bolt_halo_mesh, _bolt_halo_material)
+	var trail: Array = []
+	for index in 2:
+		var ghost := _mesh(node, _bolt_halo_mesh, _bolt_trail_material)
+		ghost.scale = Vector3.ONE * (0.7 - 0.2 * float(index))
+		trail.append(ghost)
+	return {"trail": trail, "node": node, "active": false, "age": 0.0, "target": null, "aim": Vector3.ZERO, "damage": 0.0}
+
+
+func _make_puddle() -> Dictionary:
+	var material := _glow_material(ACID_COLOR, true)
+	material.render_priority = -1
+	var node := _mesh(self, _puddle_mesh, material)
+	node.top_level = true
+	node.visible = false
+	var rim_material := _glow_material(ACID_COLOR, true)
+	var rim := _mesh(node, _torus, rim_material)
+	rim.scale = Vector3(1.0, 0.25, 1.0)
+	rim.position.y = 0.04
+	return {"node": node, "material": material, "rim_material": rim_material, "active": false,
+		"age": 0.0, "center": Vector3.ZERO}
+
+
+func _build() -> void:
+	if _built:
+		return
+	_built = true
+	_torus = TorusMesh.new()
+	_torus.inner_radius = 0.9
+	_torus.outer_radius = 1.0
+	_torus.rings = 48
+	_torus.ring_segments = 6
+	_thick_torus = TorusMesh.new()
+	_thick_torus.inner_radius = 0.78
+	_thick_torus.outer_radius = 1.0
+	_thick_torus.rings = 48
+	_thick_torus.ring_segments = 6
+	_dot_mesh = SphereMesh.new()
+	_dot_mesh.radius = 0.26
+	_dot_mesh.height = 0.52
+	_dot_mesh.radial_segments = 10
+	_dot_mesh.rings = 5
+	_mote_mesh = SphereMesh.new()
+	_mote_mesh.radius = 0.2
+	_mote_mesh.height = 0.4
+	_mote_mesh.radial_segments = 8
+	_mote_mesh.rings = 4
+	_bolt_mesh = SphereMesh.new()
+	_bolt_mesh.radius = 0.24
+	_bolt_mesh.height = 0.48
+	_bolt_mesh.radial_segments = 10
+	_bolt_mesh.rings = 5
+	_bolt_halo_mesh = SphereMesh.new()
+	_bolt_halo_mesh.radius = 0.36
+	_bolt_halo_mesh.height = 0.72
+	_bolt_halo_mesh.radial_segments = 10
+	_bolt_halo_mesh.rings = 5
+	_puddle_mesh = CylinderMesh.new()
+	_puddle_mesh.top_radius = 1.0
+	_puddle_mesh.bottom_radius = 1.0
+	_puddle_mesh.height = 0.02
+	_puddle_mesh.radial_segments = 28
+	_puddle_mesh.rings = 1
+	_bolt_material = _glow_material(Color(0.7, 1.0, 0.45), false)
+	_bolt_halo_material = _glow_material(Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.35), true)
+	_bolt_trail_material = _glow_material(Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.3), true)
+	_arc_material = _glow_material(LEAP_CORE, false)
+	_arc_tail_material = _glow_material(Color(BITE_COLOR.r, BITE_COLOR.g, BITE_COLOR.b, 0.8), true)
+
+	_arc_root = Node3D.new()
+	_arc_root.name = "Leap arc"
+	add_child(_arc_root)
+	_arc_root.top_level = true
+	_arc_root.visible = false
+	for index in ARC_DOTS:
+		var dot := _mesh(_arc_root, _dot_mesh, _arc_material if index < 3 else _arc_tail_material)
+		dot.top_level = true
+		_arc_dots.append(dot)
+	_leap_marker_material = _glow_material(BITE_COLOR, true)
+	_leap_marker = _mesh(self, _thick_torus, _leap_marker_material)
+	_leap_marker.top_level = true
+	_leap_marker.visible = false
+
+	_spore_root = Node3D.new()
+	_spore_root.name = "Spore cloud"
+	add_child(_spore_root)
+	_spore_root.top_level = true
+	_spore_root.visible = false
+	_spore_edge_material = _glow_material(SPORE_COLOR, true)
+	_spore_pulse_material = _glow_material(SPORE_COLOR, true)
+	_spore_edge = _mesh(_spore_root, _torus, _spore_edge_material)
+	_spore_edge.position.y = 0.12
+	_spore_pulse = _mesh(_spore_root, _torus, _spore_pulse_material)
+	_spore_pulse.position.y = 0.1
+	var mote_material := _glow_material(Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.42), true)
+	for index in SPORE_MOTES:
+		_spore_motes.append(_mesh(_spore_root, _mote_mesh, mote_material))
+
+	_spine_root = Node3D.new()
+	_spine_root.name = "Spine burst"
+	add_child(_spine_root)
+	_spine_root.top_level = true
+	_spine_root.visible = false
+	_spine_material = _glow_material(SPINE_COLOR, true)
+	var spine_mesh := CylinderMesh.new()
+	spine_mesh.top_radius = 0.0
+	spine_mesh.bottom_radius = 0.11
+	spine_mesh.height = 0.75
+	spine_mesh.radial_segments = 6
+	spine_mesh.rings = 1
+	for index in SPINE_COUNT:
+		_spines.append(_mesh(_spine_root, spine_mesh, _spine_material))
+
+
+func _glow_material(tint: Color, transparent: bool) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = tint
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	if transparent:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.no_depth_test = false
+	return material
+
+
+func _mesh(parent: Node, mesh: Mesh, material: Material) -> MeshInstance3D:
+	var node := MeshInstance3D.new()
+	node.mesh = mesh
+	node.material_override = material
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(node)
+	return node

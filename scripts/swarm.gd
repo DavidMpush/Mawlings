@@ -30,10 +30,17 @@ const SHADOW_Y := 0.03
 const HALO_Y := 0.012
 const CORAL := Color(1.0, 0.45, 0.25)
 const CORAL_LIGHT := Color(1.0, 0.68, 0.48)
+const DEFAULT_RIM := Color("ffb27a")
 
 enum Focus { NONE, ATTACK, HARVEST }
 
 var movement_vector := Vector2.ZERO
+# Run configuration: strain speed multiplier and colour accent.
+var speed_multiplier := 1.0
+var coral := CORAL
+var coral_light := CORAL_LIGHT
+var rim_tint := DEFAULT_RIM
+var rim_amount := 0.45
 var rally_pressed := false
 var units: Array[Node3D] = []
 var population := START_POPULATION
@@ -130,10 +137,44 @@ func set_population(value: int, animate: bool = true) -> void:
 		shadows.multimesh.visible_instance_count = count
 
 
+func move_speed() -> float:
+	return MOVE_SPEED * speed_multiplier
+
+
+# Applies strain speed and tint from a RunConfig. creature_anim.gdshader has no
+# albedo tint uniform, so the strain colour drives the rim light and the ground
+# halo/Rally ring instead (a true body tint needs a shader uniform).
+func apply_config(config: Dictionary) -> void:
+	var mods: Dictionary = config.get("mods", {})
+	speed_multiplier = clampf(float(mods.get("speed", 1.0)), 0.5, 2.0)
+	var tint: Variant = config.get("tint", null)
+	if tint is Color:
+		coral = tint
+		coral_light = (tint as Color).lightened(0.3)
+		rim_tint = DEFAULT_RIM.lerp(tint, 0.8)
+		rim_amount = 0.62
+	else:
+		coral = CORAL
+		coral_light = CORAL_LIGHT
+		rim_tint = DEFAULT_RIM
+		rim_amount = 0.45
+	# Glutmaw keeps the authored ember red; other strains recolour the body.
+	var body := Color(1, 1, 1, 0)
+	if tint is Color and String(config.get("strain_id", "glutmaw")) != "glutmaw":
+		body = Color((tint as Color).r, (tint as Color).g, (tint as Color).b, 0.85)
+	for material in [game_material, ghost_material]:
+		if material != null:
+			material.set_shader_parameter("body_tint", body)
+			material.set_shader_parameter("rim_color", rim_tint)
+			material.set_shader_parameter("rim_strength", rim_amount)
+	if halo_material != null:
+		halo_material.albedo_color = Color(coral.r, coral.g, coral.b, 0.1)
+
+
 func set_controls(direction: Vector2, rally: bool) -> void:
 	if rally and not rally_pressed and is_inside_tree() and not units.is_empty():
 		var radius := _flow_radius() + 0.6
-		FX.ring(self, global_position, Color(CORAL_LIGHT.r, CORAL_LIGHT.g, CORAL_LIGHT.b, 0.55), radius, radius * 0.42, 0.3)
+		FX.ring(self, global_position, Color(coral_light.r, coral_light.g, coral_light.b, 0.55), radius, radius * 0.42, 0.3)
 	movement_vector = direction.limit_length(1.0)
 	rally_pressed = rally
 
@@ -185,7 +226,7 @@ func _process(delta: float) -> void:
 		return
 	game_material.set_shader_parameter("idle_motion", 1.0)
 	var before := position
-	var motion := Vector3(movement_vector.x, 0.0, movement_vector.y) * MOVE_SPEED * delta
+	var motion := Vector3(movement_vector.x, 0.0, movement_vector.y) * move_speed() * delta
 	position = get_parent().get_node("Arena").resolve_motion(position, motion, 0.75)
 	swarm_velocity = (position - before) / delta if delta > 0.0 else Vector3.ZERO
 	swarm_velocity.y = 0.0
@@ -244,7 +285,7 @@ func _animate_units(delta: float) -> void:
 		var velocity := (next - old) / maxf(delta, 0.001) + swarm_velocity
 		velocity.y = 0.0
 		var speed := velocity.length()
-		var speed_share := lerpf(unit_speed[index], clampf(speed / MOVE_SPEED, 0.0, 1.0), 1.0 - exp(-8.0 * delta))
+		var speed_share := lerpf(unit_speed[index], clampf(speed / move_speed(), 0.0, 1.0), 1.0 - exp(-8.0 * delta))
 		unit_speed[index] = speed_share
 		var turn := 1.0 - exp(-10.0 * delta)
 		if speed > 0.45:
@@ -300,11 +341,11 @@ func _update_ground_marks(radius: float) -> void:
 	var halo_radius := radius + 0.6
 	halo.visible = visible_swarm
 	halo.scale = Vector3(halo_radius, 1.0, halo_radius)
-	halo_material.albedo_color = Color(CORAL.r, CORAL.g, CORAL.b, lerpf(0.10, 0.2, rally_blend))
+	halo_material.albedo_color = Color(coral.r, coral.g, coral.b, lerpf(0.10, 0.2, rally_blend))
 	ring.visible = visible_swarm and rally_blend > 0.01
 	var pulse := 1.0 + 0.04 * sin(clock * 9.0)
 	ring.scale = Vector3(halo_radius * pulse, 0.3, halo_radius * pulse)
-	ring_material.albedo_color = Color(CORAL_LIGHT.r, CORAL_LIGHT.g, CORAL_LIGHT.b, 0.6 * rally_blend)
+	ring_material.albedo_color = Color(coral_light.r, coral_light.g, coral_light.b, 0.6 * rally_blend)
 
 
 func _resolve_pending_hit() -> void:
@@ -430,8 +471,8 @@ func _creature_material(base_flash: float) -> ShaderMaterial:
 	material.set_shader_parameter("brightness", 1.2)
 	material.set_shader_parameter("saturation", 1.15)
 	material.set_shader_parameter("shape_light", 0.35)
-	material.set_shader_parameter("rim_color", Color("ffb27a"))
-	material.set_shader_parameter("rim_strength", 0.45)
+	material.set_shader_parameter("rim_color", rim_tint)
+	material.set_shader_parameter("rim_strength", rim_amount)
 	material.set_shader_parameter("flash_color", Color("ffd9c9"))
 	material.set_shader_parameter("flash", base_flash)
 	# Limb animation frame for Mawling_game.glb, measured in raw mesh space (Z-up

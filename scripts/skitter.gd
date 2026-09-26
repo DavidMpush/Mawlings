@@ -13,6 +13,8 @@ var hit_flash := 0.0
 var body: MeshInstance3D
 var health_fill: MeshInstance3D
 var warning: MeshInstance3D
+# Movement multiplier set by attack forms (e.g. Sporenwolke); 1.0 = normal.
+var slow_factor := 1.0
 
 func _ready() -> void:
 	var shell := _material(Color("3874ba"))
@@ -58,7 +60,7 @@ func step(delta: float, swarm_position: Vector3, pressure: float) -> int:
 			_lock_dash(swarm_position, pressure)
 		else:
 			var direction: Vector3 = _arena().steer_direction(position, swarm_position, 0.6)
-			position = _arena().resolve_motion(position, direction * minf(9, TUNING.SKITTER_SPEED + 0.6 * log(pressure)) * delta, 0.6)
+			position = _arena().resolve_motion(position, direction * minf(9, TUNING.SKITTER_SPEED + 0.6 * log(pressure)) * slow_factor * delta, 0.6)
 		return 0
 	remaining -= delta
 	if state == State.ARRIVING and remaining <= 0:

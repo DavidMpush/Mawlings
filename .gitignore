@@ -10,3 +10,5 @@ preview_*.png.import
 .tools/
 assets/source/*/*_texture_*.png
 assets/source/*/*_texture_*.png.import
+
+__pycache__/

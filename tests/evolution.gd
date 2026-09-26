@@ -20,11 +20,16 @@ func _run() -> void:
 	check(evo.offers[0][0] != evo.offers[1][0] and evo.offers[1][0] != evo.offers[2][0] and evo.offers[0][0] != evo.offers[2][0], "Unique offers")
 	check(not evo.choose(-1) and not evo.choose(3), "Reject invalid selection")
 	evo.earn(10000)
-	for i in 18:
+	# Stage 03: 2 attack-form slots + 3 trait slots, 3 ranks each = 15 choices.
+	for i in 15:
 		check(evo.choose(0), "Queued evolution remains selectable")
-	check(evo.complete() and evo.offers.is_empty(), "All ranks complete without deadlock")
+	check(evo.complete() and evo.offers.is_empty(), "All slots and ranks complete without deadlock")
+	check(evo.slots_used("attack") == 2 and evo.slots_used("trait") == 3, "Slot limits respected")
+	for id in evo.ranks:
+		check(evo.rank(id) == 3, "Rank cap")
+	evo = EVOLUTION.new()
 	for mutation in evo.TRAITS:
-		check(evo.rank(mutation[0]) == 3, "Rank cap")
+		evo.ranks[mutation[0]] = 3
 	check(is_equal_approx(evo.damage_multiplier(false), 1.75), "Jaws damage")
 	check(is_equal_approx(evo.damage_multiplier(true), 2.8), "Rally damage")
 	check(is_equal_approx(evo.harvest_multiplier(), 1.9), "Brood harvest")

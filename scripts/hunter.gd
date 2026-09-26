@@ -13,6 +13,8 @@ var warning: Node3D
 var body: MeshInstance3D
 var health_fill: MeshInstance3D
 var warning_material: StandardMaterial3D
+# Movement multiplier set by attack forms (e.g. Sporenwolke); 1.0 = normal.
+var slow_factor := 1.0
 
 
 func _ready() -> void:
@@ -94,7 +96,7 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 			warning.visible = true
 		else:
 			var direction: Vector3 = arena.steer_direction(position, swarm_position, 0.8)
-			position = arena.resolve_motion(position, direction * minf(8.2, TUNING.HUNTER_SPEED + log(pressure) * 0.9) * delta, 0.8)
+			position = arena.resolve_motion(position, direction * minf(8.2, TUNING.HUNTER_SPEED + log(pressure) * 0.9) * slow_factor * delta, 0.8)
 		return 0
 	remaining -= delta
 	if state == State.WARNING:

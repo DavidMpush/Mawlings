@@ -17,6 +17,25 @@ var peak_population := 25
 var consumed_biomass := 0.0
 var lost_population := 0
 var extinct := false
+# Run configuration (difficulty); defaults reproduce the unconfigured prototype.
+var pressure_doubling: float = TUNING.PRESSURE_DOUBLING_SECONDS
+# Run statistics for the meta layer (see RunStats in stages/03_progression.md).
+var kills_by_type: Dictionary = {"prey": 0, "hunter": 0, "skitter": 0, "leaper": 0, "boss": 0}
+var bosses := 0
+var used_rally := false
+
+
+func configure(start_population: int, doubling_seconds: float) -> void:
+	population = clampi(start_population, 1, MAX_POPULATION)
+	peak_population = population
+	pressure_doubling = maxf(1.0, doubling_seconds)
+
+
+# Counts one defeated creature by type; called exactly once per death.
+func record_kill(kind: String) -> void:
+	kills_by_type[kind] = int(kills_by_type.get(kind, 0)) + 1
+	if kind == "boss":
+		bosses += 1
 
 
 func advance(delta: float) -> void:
@@ -26,7 +45,7 @@ func advance(delta: float) -> void:
 
 func pressure() -> float:
 	# Floating-point guard, not a run timer or victory condition.
-	return pow(2.0, minf(elapsed / TUNING.PRESSURE_DOUBLING_SECONDS, 40.0))
+	return pow(2.0, minf(elapsed / pressure_doubling, 40.0))
 
 
 func apply_loss(amount: int) -> int:

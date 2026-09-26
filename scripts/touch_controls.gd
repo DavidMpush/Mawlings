@@ -3,6 +3,10 @@ extends Control
 signal restart_requested
 signal pause_requested
 signal mutation_chosen(slot: int)
+signal hub_requested
+signal reroll_requested
+signal skip_requested
+signal banish_requested(slot: int)
 
 var evolution: RefCounted
 
@@ -31,6 +35,10 @@ var hit_feedback := 0.0
 var boss_pointer := Vector2.INF
 var boss_vulnerable := false
 var last_loss := 0
+var alpha_cores := 0
+var evolve_flash := 0.0
+var evolve_name := ""
+var run_stats: Dictionary = {}
 
 # Palette shared by all HUD parts.
 const INK := Color("0a1a17")
@@ -40,6 +48,12 @@ const CLAW := Color("d9c79a")
 const WARM := Color("ff8a3d")
 const CYAN := Color("6ee4d4")
 const DANGER := Color("ff5a44")
+const ALPHA_AMBER := Color("ffb347")
+const ALPHA_VIOLET := Color("a86bff")
+const FORMS_PATH := "res://scripts/attack_forms.gd"
+
+var _forms: Dictionary = {}
+var _forms_loaded := false
 
 var _bold: FontVariation
 
@@ -80,8 +94,14 @@ func _input(event: InputEvent) -> void:
 			pause_requested.emit()
 		elif not extinct and not paused and event.keycode in [KEY_1, KEY_2, KEY_3]:
 			mutation_chosen.emit(event.keycode - KEY_1)
+		elif not extinct and not paused and _choosing() and event.keycode == KEY_R:
+			reroll_requested.emit()
+		elif not extinct and not paused and _choosing() and event.keycode == KEY_X:
+			skip_requested.emit()
 		elif extinct and event.keycode in [KEY_R, KEY_ENTER]:
 			restart_requested.emit()
+		elif extinct and event.keycode in [KEY_H, KEY_M]:
+			hub_requested.emit()
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_press(event.index, event.position)
@@ -105,15 +125,24 @@ func _press(pointer: int, location: Vector2) -> void:
 				restart_requested.emit()
 			else:
 				pause_requested.emit()
+		elif extinct and _hub_rect().has_point(location):
+			hub_requested.emit()
 		return
 	if _pause_rect().has_point(location):
 		pause_requested.emit()
 		return
-	if evolution != null and not evolution.offers.is_empty():
+	if _choosing():
 		for slot in evolution.offers.size():
+			if _count("banishes") > 0 and _banish_rect(slot).has_point(location):
+				banish_requested.emit(slot)
+				return
 			if _mutation_rect(slot).has_point(location):
 				mutation_chosen.emit(slot)
 				return
+		if _count("rerolls") > 0 and _reroll_rect().has_point(location):
+			reroll_requested.emit()
+		elif _count("skips") > 0 and _skip_rect().has_point(location):
+			skip_requested.emit()
 		return
 	if movement_pointer == -1 and location.distance_to(_movement_center()) < 125.0:
 		movement_pointer = pointer
@@ -151,7 +180,35 @@ func _pause_rect() -> Rect2:
 	return Rect2(Vector2(size.x - 98, 18), Vector2(82, 100))
 
 func _action_rect() -> Rect2:
+	if extinct:
+		return Rect2(Vector2(size.x * 0.5 - 340, size.y * 0.5 + 235), Vector2(330, 88))
 	return Rect2(Vector2(size.x * 0.5 - 220, size.y * 0.5 + 235), Vector2(440, 88))
+
+func _hub_rect() -> Rect2:
+	return Rect2(Vector2(size.x * 0.5 + 10, size.y * 0.5 + 235), Vector2(330, 88))
+
+func _banish_rect(slot: int) -> Rect2:
+	var card := _mutation_rect(slot)
+	return Rect2(Vector2(card.end.x - 190, card.position.y + 14), Vector2(172, 44))
+
+# Reroll and skip share one row below the cards; a lone button is centred.
+func _reroll_rect() -> Rect2:
+	var both := _count("skips") > 0
+	return Rect2(Vector2(size.x * 0.5 - (322 if both else 160), size.y * 0.5 + 440), Vector2(300 if both else 320, 72))
+
+func _skip_rect() -> Rect2:
+	var both := _count("rerolls") > 0
+	return Rect2(Vector2(size.x * 0.5 + (22 if both else -160), size.y * 0.5 + 440), Vector2(300 if both else 320, 72))
+
+func _choosing() -> bool:
+	return evolution != null and not evolution.offers.is_empty()
+
+# Reroll/banish/skip counters; 0 when the evolution has none.
+func _count(counter: String) -> int:
+	if evolution == null:
+		return 0
+	var value: Variant = evolution.get(counter)
+	return int(value) if value != null else 0
 
 func _mutation_rect(slot: int) -> Rect2:
 	return Rect2(Vector2(36, size.y * 0.5 - 322 + slot * 246), Vector2(size.x - 72, 226))
@@ -161,20 +218,31 @@ func _pulse(speed: float = 3.0) -> float:
 
 # ---------------------------------------------------------------- drawing
 
+# UI pass (stage 04): each legacy block can be switched off once a component
+# under scripts/ui/ draws it instead. Input handling stays in this script.
+var legacy := {"top": true, "badges": true, "pointer": true, "feedback": true, "result": true, "mutations": true, "controls": true, "banner": true}
+
+
 func _draw() -> void:
 	_ensure_font()
-	_draw_top()
-	if boss_pointer.is_finite() and not extinct and not paused:
+	if legacy.top:
+		_draw_top()
+	if legacy.pointer and boss_pointer.is_finite() and not extinct and not paused:
 		_draw_boss_pointer()
-	if hit_feedback > 0.0 and not extinct:
+	if legacy.feedback and hit_feedback > 0.0 and not extinct:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.95, 0.24, 0.12, minf(0.11, hit_feedback * 0.11)))
 		_text("−%d MAWLINGS" % last_loss, Vector2(size.x * 0.5, size.y * 0.5 - 170), 30, Color("ffe2c5"), true, 8)
 	if extinct or paused:
-		_draw_result()
-	elif evolution != null and not evolution.offers.is_empty():
-		_draw_mutations()
+		if legacy.result:
+			_draw_result()
+	elif _choosing():
+		if legacy.mutations:
+			_draw_mutations()
 	else:
-		_draw_controls()
+		if legacy.controls:
+			_draw_controls()
+		if legacy.banner and evolve_flash > 0.0:
+			_draw_evolve_banner()
 
 func _draw_top() -> void:
 	# Swarm: Mawling head silhouette plus the survival number.
@@ -222,6 +290,10 @@ func _draw_top() -> void:
 		chip_x = _chip(chip_x, "SKITTER %d" % skitters, Color("e46ad0"), Color("fad6f2")) + 8
 	if leapers > 0:
 		_chip(chip_x, "LEAPER %d" % leapers, Color("5fc9c0"), Color("d2f4ef"))
+	if alpha_cores > 0:
+		_alpha_chip()
+	if legacy.badges:
+		_draw_form_badges()
 	var y := 176.0
 	if boss_health > 0.0:
 		var boss_rect := Rect2(cx - 300, y, 600, 72)
@@ -327,14 +399,25 @@ func _draw_mutations() -> void:
 		draw_line(inner, outer, Color("7fa86a"), 4, true)
 		_claw(outer, Vector2(s * 0.3, -1), 22, 6, Color("9fc47f"), s * 0.4)
 		_claw(inner + (outer - inner) * 0.5, Vector2(s * 0.6, 1), 14, 4, Color("7fa86a"), -s * 0.4)
-	var sub := "STUFE %d   ·   WELT PAUSIERT" % (evolution.level + 1)
+	var sub := "STUFE %d   ·   %s" % [evolution.level + 1, _slot_text()]
 	_text(sub, Vector2(size.x * 0.5, cy - 346), 22, Color("9ed5b3"), true)
 	var sub_half := ThemeDB.fallback_font.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x * 0.5
 	for s in [-1.0, 1.0]:
 		draw_line(Vector2(size.x * 0.5 + s * (sub_half + 16), cy - 353), Vector2(size.x * 0.5 + s * (sub_half + 130), cy - 353), Color("4f7a5c"), 2, true)
 	for slot in evolution.offers.size():
 		_draw_card(slot, evolution.offers[slot])
-	_text("KARTE ANTIPPEN  ODER  1 / 2 / 3", Vector2(size.x * 0.5, cy + 440), 21, Color("c5d4bb"), true)
+	var rerolls := _count("rerolls")
+	var skips := _count("skips")
+	if rerolls > 0:
+		_small_button(_reroll_rect(), "NEU WÜRFELN  ×%d" % rerolls, Color("7fd0e0"))
+	if skips > 0:
+		_small_button(_skip_rect(), "ÜBERSPRINGEN  ×%d" % skips, Color("c5b58f"))
+	var keys := "KARTE ANTIPPEN  ·  1 / 2 / 3"
+	if rerolls > 0:
+		keys += "  ·  R NEU"
+	if skips > 0:
+		keys += "  ·  X WEITER"
+	_text(keys, Vector2(size.x * 0.5, cy + (548 if rerolls > 0 or skips > 0 else 440)), 21, Color("c5d4bb"), true)
 
 func _draw_card(slot: int, mutation: Array) -> void:
 	var id: String = mutation[0]
@@ -344,9 +427,15 @@ func _draw_card(slot: int, mutation: Array) -> void:
 	var p := card.position
 	_frame(card.grow(7), Color(accent, 0.12), Color(accent, 0.0), 0)
 	_frame(card, Color("0e211cf5"), accent, 2 | 8, 4.0)
-	# Pores echo the bone-plate texture of the concept frames.
-	for pore in [Vector2(-44, 30), Vector2(-26, 22), Vector2(-30, 42)]:
-		draw_circle(Vector2(card.end.x, p.y) + pore, 6, Color(accent, 0.35))
+	var kind: String = evolution.kind_of(id) if evolution.has_method("kind_of") else "trait"
+	if _count("banishes") > 0:
+		var banish := _banish_rect(slot)
+		_frame(banish, Color("2a1512e8"), Color("e0785a"), 0, 2.0)
+		_text("× VERBANNEN", banish.get_center() + Vector2(0, 7), 18, Color("ffc9b4"), true)
+	else:
+		# Pores echo the bone-plate texture of the concept frames.
+		for pore in [Vector2(-44, 30), Vector2(-26, 22), Vector2(-30, 42)]:
+			draw_circle(Vector2(card.end.x, p.y) + pore, 6, Color(accent, 0.35))
 	# Icon medallion with number badge.
 	var mc := p + Vector2(116, card.size.y * 0.5)
 	draw_circle(mc, 84, Color(accent, 0.10))
@@ -361,10 +450,14 @@ func _draw_card(slot: int, mutation: Array) -> void:
 	# Text column.
 	var x := p.x + 222
 	var width := card.end.x - x - 28
-	_text(_mutation_category(id), Vector2(x, p.y + 42), 17, Color(accent, 0.8))
-	_text(mutation[1], Vector2(x, p.y + 86), 38, accent, false, 6)
-	draw_string(ThemeDB.fallback_font, Vector2(x, p.y + 124), mutation[2], HORIZONTAL_ALIGNMENT_LEFT, width, 21, Color("f2eacb"))
-	draw_line(Vector2(x, p.y + 144), Vector2(card.end.x - 28, p.y + 144), Color(accent, 0.45), 2)
+	var kind_label := "ANGRIFFSFORM" if kind == "attack" else "ANLAGE"
+	_text("%s · %s" % [kind_label, _mutation_category(id)], Vector2(x, p.y + 42), 17, Color(accent, 0.85))
+	_text(mutation[1], Vector2(x, p.y + 84), 36, accent, false, 6)
+	var description: String = _form_rank_text(id, rank) if kind == "attack" else String(mutation[2])
+	if description == "":
+		description = mutation[2]
+	draw_multiline_string(ThemeDB.fallback_font, Vector2(x, p.y + 116), description, HORIZONTAL_ALIGNMENT_LEFT, width, 19, 2, Color("f2eacb"))
+	draw_line(Vector2(x, p.y + 158), Vector2(card.end.x - 28, p.y + 158), Color(accent, 0.45), 2)
 	# Rank pips: owned ranks filled, the offered rank glows.
 	for i in 3:
 		var pc := Vector2(x + 14 + i * 32, p.y + 186)
@@ -379,6 +472,11 @@ func _draw_card(slot: int, mutation: Array) -> void:
 			shape.append(shape[0])
 			draw_polyline(shape, Color(accent, 0.5), 2, true)
 	_text("RANG %d" % (rank + 1), Vector2(x + 104, p.y + 194), 19, Color("b8d0bc"))
+	if kind == "attack":
+		var tag := "NEUE FORM" if rank == 0 else "VERSTÄRKEN"
+		var tag_w := _bold.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
+		_text(tag, Vector2(card.end.x - 30 - tag_w, p.y + 197), 26, Color.WHITE, false, 5)
+		return
 	# Before → after, right aligned.
 	var prefix := _mutation_sign(id)
 	var before := "0 %" if rank == 0 else "%s%d %%" % [prefix, rank * _step_percent(id)]
@@ -419,7 +517,7 @@ func _draw_result() -> void:
 	_text("MUTATIONEN  %d" % level, center + Vector2(0, -12), 24, Color("f4c48c"), true)
 	var row := 0
 	if evolution != null:
-		for mutation in evolution.TRAITS:
+		for mutation in _all_mutations():
 			var rank: int = evolution.rank(mutation[0])
 			if rank <= 0:
 				continue
@@ -429,6 +527,10 @@ func _draw_result() -> void:
 			draw_arc(cell + Vector2(24, 0), 24, 0, TAU, 32, color, 2, true)
 			_icon(mutation[0], cell + Vector2(24, 0), 16, color)
 			_text(mutation[1], cell + Vector2(58, 7), 21, color)
+			if evolution.has_method("kind_of") and evolution.kind_of(mutation[0]) == "evolved":
+				_text("EVO", cell + Vector2(246, 8), 21, ALPHA_AMBER, false, 3)
+				row += 1
+				continue
 			for i in 3:
 				var pc := cell + Vector2(252 + i * 22, 0)
 				var shape := PackedVector2Array([pc + Vector2(0, -9), pc + Vector2(7, 0), pc + Vector2(0, 9), pc + Vector2(-7, 0)])
@@ -444,8 +546,12 @@ func _draw_result() -> void:
 	var button_color := WARM if extinct else Color("7fd0a0")
 	_frame(button.grow(8), Color(button_color, 0.10 + 0.08 * _pulse(2.5)), Color(button_color, 0.0), 0)
 	_frame(button, Color("8a3a18") if extinct else Color("235a45"), button_color, 0, 4.0)
-	_text("NEUER RUN" if extinct else "WEITERSPIELEN", button.get_center() + Vector2(0, 12), 34, Color.WHITE, true, 6)
-	_text("R / ENTER" if extinct else "P / ESCAPE", center + Vector2(0, 360), 19, Color("b6d0bc"), true)
+	_text("NEUER RUN" if extinct else "WEITERSPIELEN", button.get_center() + Vector2(0, 12), 31 if extinct else 34, Color.WHITE, true, 6)
+	if extinct:
+		var hub := _hub_rect()
+		_frame(hub, Color("1d4a3a"), Color("7fd0a0"), 0, 4.0)
+		_text("BRUTSTÄTTE", hub.get_center() + Vector2(0, 12), 31, Color.WHITE, true, 6)
+	_text("R / ENTER  ·  H BRUTSTÄTTE" if extinct else "P / ESCAPE", center + Vector2(0, 360), 19, Color("b6d0bc"), true)
 
 # ---------------------------------------------------------------- helpers
 
@@ -606,6 +712,19 @@ func _ellipse(c: Vector2, rx: float, ry: float, color: Color) -> void:
 	draw_colored_polygon(points, color)
 
 func _mutation_color(id: String) -> Color:
+	match id:
+		"rudelbiss":
+			return Color("ff9a4a")
+		"sporenwolke":
+			return Color("c4dc5a")
+		"saeurespucker":
+			return Color("7eec5c")
+		"stachelruecken":
+			return Color("f0d28c")
+		"aetzflut":
+			return Color("a6ff4f")
+		"meute":
+			return Color("ff6f5a")
 	if id in ["jaws", "pack"]:
 		return Color("f58a4d")
 	if id in ["brood", "glutton"]:
@@ -615,6 +734,17 @@ func _mutation_color(id: String) -> Color:
 	return Color("b8d879")
 
 func _mutation_category(id: String) -> String:
+	match id:
+		"rudelbiss":
+			return "SPRUNG"
+		"sporenwolke":
+			return "AURA"
+		"saeurespucker":
+			return "FERNKAMPF"
+		"stachelruecken":
+			return "VERGELTUNG"
+		"aetzflut", "meute":
+			return "EVOLUTION"
 	if id in ["jaws", "pack"]:
 		return "ANGRIFF"
 	if id in ["brood", "glutton"]:
@@ -666,6 +796,35 @@ func _icon(id: String, c: Vector2, r: float, color: Color) -> void:
 		_mawling_head(c + Vector2(-0.38, -0.3) * r, 0.36 * r, color.darkened(0.25))
 		_mawling_head(c + Vector2(0.4, -0.22) * r, 0.34 * r, color.darkened(0.12))
 		_mawling_head(c + Vector2(0.0, 0.3) * r, 0.46 * r, color)
+	elif id in ["rudelbiss", "meute"]:
+		# Leaping head(s) with a motion arc.
+		draw_arc(c + Vector2(-0.15, 0.55) * r, 0.75 * r, PI * 1.05, PI * 1.6, 12, Color(color, 0.6), maxf(3.0, 0.1 * r), true)
+		if id == "meute":
+			_mawling_head(c + Vector2(-0.45, 0.25) * r, 0.36 * r, color.darkened(0.3))
+			_mawling_head(c + Vector2(0.5, 0.35) * r, 0.34 * r, color.darkened(0.2))
+		_mawling_head(c + Vector2(0.1, -0.2) * r, 0.52 * r, color)
+		for i in 3:
+			draw_line(c + Vector2(-0.95 + i * 0.12, -0.35 + i * 0.28) * r, c + Vector2(-0.6 + i * 0.12, -0.35 + i * 0.28) * r, Color(color, 0.7), maxf(2.0, 0.07 * r))
+	elif id == "sporenwolke":
+		for spore in [[Vector2(0, 0), 0.42], [Vector2(-0.48, 0.2), 0.3], [Vector2(0.5, 0.18), 0.32], [Vector2(-0.2, -0.45), 0.26], [Vector2(0.3, -0.42), 0.22]]:
+			draw_circle(c + spore[0] * r, spore[1] * r, Color(color, 0.85))
+			draw_circle(c + spore[0] * r + Vector2(-0.08, -0.08) * r, spore[1] * r * 0.35, Color(1, 1, 1, 0.35))
+		draw_arc(c, 0.95 * r, 0, TAU, 32, Color(color, 0.5), maxf(2.0, 0.06 * r), true)
+	elif id in ["saeurespucker", "aetzflut"]:
+		if id == "aetzflut":
+			_ellipse(c + Vector2(0, 0.62) * r, 0.85 * r, 0.26 * r, Color(color, 0.55))
+		_biomass_drop(c + Vector2(0.25, -0.05) * r, 0.42 * r, color)
+		draw_circle(c + Vector2(0.14, -0.1) * r, 0.1 * r, Color(1, 1, 1, 0.5))
+		for i in 3:
+			draw_circle(c + Vector2(-0.35 - i * 0.22, 0.2 + i * 0.16) * r, (0.13 - i * 0.03) * r, Color(color, 0.8 - i * 0.2))
+	elif id == "stachelruecken":
+		_ring_sector(c + Vector2(0, 0.35 * r), 0.2 * r, 0.55 * r, PI, TAU, color.darkened(0.35))
+		for i in 5:
+			var a := PI + 0.35 + i * 0.6
+			var dir := Vector2(cos(a), sin(a))
+			var base := c + Vector2(0, 0.35 * r) + dir * 0.5 * r
+			var side := Vector2(-dir.y, dir.x)
+			draw_colored_polygon(PackedVector2Array([base + side * 0.13 * r, base - side * 0.13 * r, base + dir * 0.55 * r]), color)
 	elif id == "scatter":
 		var origin := c + Vector2(0, 0.7 * r)
 		for angle in [-2.35, -PI * 0.5, -0.79]:
@@ -684,3 +843,93 @@ func _icon(id: String, c: Vector2, r: float, color: Color) -> void:
 		for y in [-0.2, 0.2]:
 			draw_line(c + Vector2(-0.55, y) * r, c + Vector2(0.55, y) * r, INK, maxf(2.0, 0.09 * r))
 		draw_line(c + Vector2(0, -0.8) * r, c + Vector2(0, 0.85) * r, INK, maxf(2.0, 0.08 * r))
+
+# ---------------------------------------------------------------- progression
+
+func _slot_text() -> String:
+	if evolution == null or not evolution.has_method("slots_used"):
+		return "WELT PAUSIERT"
+	return "Angriff %d/%d · Anlagen %d/%d" % [evolution.slots_used("attack"), evolution.slot_limit("attack"), evolution.slots_used("trait"), evolution.slot_limit("trait")]
+
+func _all_mutations() -> Array:
+	var result: Array = []
+	for group in ["ATTACKS", "EVOLVED", "TRAITS"]:
+		var entries: Variant = evolution.get(group) if evolution != null else null
+		if entries is Array:
+			result.append_array(entries)
+	return result
+
+# Per-rank description of an attack form from AttackForms.FORMS, "" if unknown.
+func _form_rank_text(id: String, owned_rank: int) -> String:
+	if not _forms_loaded:
+		_forms_loaded = true
+		if ResourceLoader.exists(FORMS_PATH):
+			var script: Script = load(FORMS_PATH)
+			if script != null:
+				var forms: Variant = script.get_script_constant_map().get("FORMS")
+				if forms is Dictionary:
+					_forms = forms
+	var entry: Variant = _forms.get(id)
+	var texts: Array = []
+	if entry is Dictionary:
+		texts = entry.get("ranks", [])
+	elif entry is Array and entry.size() > 1:
+		texts = entry[1] if entry[1] is Array else entry.slice(1)
+	if texts.is_empty():
+		return ""
+	return str(texts[clampi(owned_rank, 0, texts.size() - 1)])
+
+func _small_button(rect: Rect2, label: String, accent: Color) -> void:
+	_frame(rect, Color("10231ef0"), accent, 0, 3.0)
+	_text(label, rect.get_center() + Vector2(0, 9), 24, Color.WHITE, true, 4)
+
+# Amber core in a violet shell, as on the ground.
+func _alpha_gem(c: Vector2, r: float) -> void:
+	draw_circle(c, r * 1.35, Color(ALPHA_VIOLET, 0.25 + 0.15 * _pulse(4.0)))
+	var shell := PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.8, 0), c + Vector2(0, r), c + Vector2(-r * 0.8, 0)])
+	draw_colored_polygon(shell, ALPHA_VIOLET)
+	var core := PackedVector2Array([c + Vector2(0, -r * 0.55), c + Vector2(r * 0.42, 0), c + Vector2(0, r * 0.55), c + Vector2(-r * 0.42, 0)])
+	draw_colored_polygon(core, ALPHA_AMBER)
+	draw_circle(c + Vector2(-r * 0.12, -r * 0.2), r * 0.12, Color(1, 1, 1, 0.7))
+
+func _alpha_chip() -> void:
+	var text := "ALPHA-KERN ×%d" % alpha_cores
+	var w := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x + 56
+	var x := size.x - w - 16
+	draw_colored_polygon(_rounded_points(Rect2(x, 130, w, 34), 17, 4), Color("1d1330e0"))
+	_alpha_gem(Vector2(x + 22, 147), 11)
+	_text(text, Vector2(x + 40, 154), 20, Color("ffd9a0"))
+
+# Owned attack forms as medallions on the right edge: icon plus rank pips.
+func _draw_form_badges() -> void:
+	if evolution == null or not evolution.has_method("attack_ranks") or extinct:
+		return
+	var y := 214.0
+	for mutation in _all_mutations():
+		var id: String = mutation[0]
+		var rank: int = evolution.rank(id)
+		if rank <= 0 or evolution.kind_of(id) == "trait":
+			continue
+		var accent := _mutation_color(id)
+		var c := Vector2(size.x - 50, y)
+		draw_circle(c, 33, Color("0f231ed8"))
+		draw_arc(c, 31, 0, TAU, 32, accent, 3, true)
+		_icon(id, c, 22, accent)
+		if evolution.kind_of(id) == "evolved":
+			_alpha_gem(c + Vector2(-26, -24), 8)
+		else:
+			for i in 3:
+				var pc := c + Vector2(-16 + i * 16, 42)
+				var shape := PackedVector2Array([pc + Vector2(0, -6), pc + Vector2(5, 0), pc + Vector2(0, 6), pc + Vector2(-5, 0)])
+				draw_colored_polygon(shape, accent if i < rank else Color(accent, 0.25))
+		y += 96
+
+func _draw_evolve_banner() -> void:
+	var fade := clampf(evolve_flash / 0.6, 0.0, 1.0)
+	var cy := size.y * 0.5 - 250
+	var rect := Rect2(Vector2(size.x * 0.5 - 300, cy - 58), Vector2(600, 116))
+	_frame(rect.grow(10), Color(ALPHA_VIOLET, 0.16 * fade), Color(ALPHA_VIOLET, 0.0), 0)
+	_frame(rect, Color(0.07, 0.05, 0.12, 0.9 * fade), Color(ALPHA_AMBER, fade), 1 | 2, 4.0)
+	_alpha_gem(Vector2(rect.position.x + 56, cy), 26)
+	_text("EVOLUTION", Vector2(size.x * 0.5 + 30, cy - 12), 24, Color(ALPHA_AMBER, fade), true, 4)
+	_text(evolve_name.to_upper(), Vector2(size.x * 0.5 + 30, cy + 36), 44, Color(1, 1, 1, fade), true, 7)

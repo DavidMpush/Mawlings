@@ -7,6 +7,11 @@ extends Node3D
 @onready var arena: Node3D = $Arena
 
 const CAMERA_OFFSET := Vector3(0.0, 23.0, 15.0)
+# Parallel modules are loaded at runtime so the game still starts without them.
+const SESSION_PATH := "res://scripts/meta/session.gd"
+const SFX_PATH := "res://scripts/sfx.gd"
+const PROFILE_PATH := "res://scripts/meta/profile.gd"
+const MENU_SCENE := "res://scenes/menu.tscn"
 
 var shake := 0.0
 var zoom := 1.0
@@ -18,6 +23,15 @@ func _ready() -> void:
 	controls.restart_requested.connect(_restart)
 	controls.pause_requested.connect(world.toggle_pause)
 	controls.mutation_chosen.connect(world.choose_mutation)
+	for pair in [["hub_requested", _open_hub], ["reroll_requested", world.reroll_mutations], ["skip_requested", world.skip_mutation], ["banish_requested", world.banish_mutation]]:
+		if controls.has_signal(pair[0]):
+			controls.connect(pair[0], pair[1])
+	_create_sfx()
+	var config := _take_pending_config()
+	if not config.is_empty():
+		# The map is generated from the run seed before the world spawns into it.
+		arena.set_seed(int(config.get("seed", 0)))
+		world.apply_config(config)
 	_snap_camera()
 	DisplayServer.window_set_title("MAWLINGS — Godot Prototype")
 
@@ -46,7 +60,59 @@ func _process(delta: float) -> void:
 	camera.look_at(swarm.position + jitter * 0.5, Vector3.UP)
 
 
+# Reads and clears the RunConfig handed over by the menu ({} = prototype defaults).
+func _take_pending_config() -> Dictionary:
+	if not ResourceLoader.exists(SESSION_PATH):
+		return {}
+	var session: Script = load(SESSION_PATH)
+	if session == null:
+		return {}
+	var pending: Variant = session.get("pending_config")
+	session.set("pending_config", {})
+	return (pending as Dictionary).duplicate(true) if pending is Dictionary else {}
+
+
+func _create_sfx() -> void:
+	if has_node("Sfx") or not ResourceLoader.exists(SFX_PATH):
+		return
+	var script: Script = load(SFX_PATH)
+	if script == null or not script.can_instantiate():
+		return
+	var sfx: Node = script.new()
+	sfx.name = "Sfx"
+	add_child(sfx)
+	if sfx.has_method("play_ambience"):
+		sfx.play_ambience()
+
+
+# "NEUER RUN" skips the menu, so a menu-started run books its result into the
+# profile here; the menu only sees Session.last_result of the run that leads
+# back to it. Unconfigured runs (tests, editor F5) never touch the profile.
+func _bank_result_for_new_run() -> void:
+	if world.config.is_empty() or not world.model.extinct or not ResourceLoader.exists(SESSION_PATH) or not ResourceLoader.exists(PROFILE_PATH):
+		return
+	var session: Script = load(SESSION_PATH)
+	var result: Variant = session.get("last_result")
+	if not (result is Dictionary) or (result as Dictionary).is_empty():
+		return
+	var profile_script: Script = load(PROFILE_PATH)
+	var profile: RefCounted = profile_script.call("load_or_create")
+	if profile != null:
+		profile.call("record_run", result)
+		profile.call("save")
+	session.set("last_result", {})
+
+
+# Result screen "BRUTSTÄTTE": back to the menu, or a fresh run while no menu exists.
+func _open_hub() -> void:
+	if ResourceLoader.exists(MENU_SCENE):
+		get_tree().change_scene_to_file(MENU_SCENE)
+	else:
+		_restart()
+
+
 func _restart() -> void:
+	_bank_result_for_new_run()
 	world.reset_run()
 	shake = 0.0
 	_snap_camera()

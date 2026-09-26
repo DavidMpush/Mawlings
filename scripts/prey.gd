@@ -32,6 +32,8 @@ var last_health := MAX_HEALTH
 var flash := 0.0
 var twitch := 0.0
 var hit_cooldown := 0.0
+# Movement multiplier set by attack forms (e.g. Sporenwolke); 1.0 = normal.
+var slow_factor := 1.0
 
 
 func _ready() -> void:
@@ -95,7 +97,7 @@ func step(delta: float, swarm_position: Vector3) -> void:
 	var away := global_position - swarm_position
 	away.y = 0.0
 	if away.length() < 4.0 and away.length() > 0.01:
-		position = get_parent().get_parent().get_node("Arena").resolve_motion(position, away.normalized() * FLEE_SPEED * delta, 0.55)
+		position = get_parent().get_parent().get_node("Arena").resolve_motion(position, away.normalized() * FLEE_SPEED * slow_factor * delta, 0.55)
 	else:
 		position = get_parent().get_parent().get_node("Arena").resolve_motion(position, Vector3(sin(wander_phase * 1.3), 0.0, cos(wander_phase * 0.8)) * 0.25 * delta, 0.55)
 	_animate(delta)

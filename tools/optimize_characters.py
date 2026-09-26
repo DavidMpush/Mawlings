@@ -19,7 +19,17 @@ CHARACTERS = {
     "nibbler": ("Nibbler", 2500),
     "rock": ("Rock", 1500, "props"),
     "leaf": ("Leaf", 1500, "props"),
+    # Hunyuan deliveries with spaces in their file names: (output, triangles, folder, source).
+    "mire_reaper": ("MireReaper", 3000, "characters", "Mire Reaper"),
+    "root_arch": ("RootArch", 3000, "props", "root arch"),
+    "fallen_log": ("FallenLog", 2000, "props", "fallen log"),
+    "pond_seeds": ("PondSeeds", 1500, "props", "pond seeds"),
+    "flower": ("Flower", 1200, "props", "flower"),
 }
+# Hunyuan meshes split ~30 % of their vertices along UV seams. Unwelded, the
+# simplifier treats every seam as a border and leaves splinter-like shards, so
+# these models are welded by position first (colours averaged per point).
+WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower"}
 
 
 def read_glb(path):
@@ -63,12 +73,14 @@ def main():
 
 
 def optimize(character):
-    name, triangles, *folder = CHARACTERS[character]
-    source_path = ROOT / "assets" / "source" / character / f"{name}.glb"
+    name, triangles, *extra = CHARACTERS[character]
+    folder = extra[0] if extra else "characters"
+    source_name = extra[1] if len(extra) > 1 else name
+    source_path = ROOT / "assets" / "source" / character / f"{source_name}.glb"
     if not source_path.exists():
         # Freshly delivered models may still sit directly in assets/.
-        source_path = ROOT / "assets" / f"{name}.glb"
-    target_path = ROOT / "assets" / "gameplay" / (folder[0] if folder else "characters") / f"{name}_game.glb"
+        source_path = ROOT / "assets" / f"{source_name}.glb"
+    target_path = ROOT / "assets" / "gameplay" / folder / f"{name}_game.glb"
     target_path.parent.mkdir(parents=True, exist_ok=True)
     source, binary = read_glb(source_path)
     primitive = source["meshes"][0]["primitives"][0]
@@ -85,6 +97,16 @@ def optimize(character):
     y = np.clip(np.rint((1.0 - uv[:, 1]) * (image.height - 1)).astype(int), 0, image.height - 1)
     srgb = pixels[y, x].astype(np.float32) / 255.0
     original_colors = srgb
+    if character in WELD:
+        _, first, inverse = np.unique(np.round(positions, 6), axis=0, return_index=True, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        welded_colors = np.zeros((len(first), 3), dtype=np.float32)
+        np.add.at(welded_colors, inverse, original_colors)
+        welded_colors /= np.bincount(inverse, minlength=len(first))[:, None]
+        positions = positions[first]
+        original_colors = welded_colors
+        faces = inverse[faces].astype(np.int32)
+        faces = faces[(faces[:, 0] != faces[:, 1]) & (faces[:, 1] != faces[:, 2]) & (faces[:, 0] != faces[:, 2])]
 
     simplified, new_faces, collapses = fs.simplify(positions, faces, target_count=triangles, return_collapses=True)
     replayed, replay_faces, mapping = fs.replay_simplification(positions.astype(np.float32), faces, collapses)
