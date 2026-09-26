@@ -5,12 +5,9 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 ## Offen
 
 1. **07 Leistung umsetzen** – Empfehlungen aus `stages/06_perf_notes.md`: HUD nur bei Änderung neu zeichnen und Schriftgrößen fixieren, Schwarm als ein MultiMesh mit `INSTANCE_CUSTOM`, Kadaver/FX mit geteilten Meshes/Materialien, Menü-Hintergrund cachen; `scripts/quality.gd` einbauen (ohne Kampfergebnis zu verändern). Ziel: Desktop-Worst-Case ≤ 4 ms, Draw Calls ≤ 250, Menü ≤ 4 ms.
-2. ~~**06 Run-Inhalt: Brutnester & Schreine** – Brutnest (Zone mit dem Schwarm halten → Wachstumsschub), Fluch-Totem (stärkerer nächster Boss, doppelte Beute), Elite-Jäger mit Alpha-Kern-Garantie; seed-deterministisch platziert, bleiben bis zum Verbrauch (Ressourcenregel). Kriterium: Bot-Balance bleibt in der Zielkurve.~~ (erledigt in 06)
-2. **07 Apex-Boss & Migration** – eigener Apex-Boss für Verdant Maw (~8 min), Migrationsschlund nach Sieg, Wechsel ins nächste Biom mit Schwarm und Build, Run bleibt endlos. Glutsumpf als zweites Biom mit eigener Boden-/Farbwelt (Lava-Warnflächen) – Modelle soweit vorhanden, sonst Platzhalter.
-3. ~~**08 Einstieg & Onboarding** – erste 60 s ohne Text: 10 s erster Kill, 30 s erstes Wachstum, 60 s erste Mutation; kontextuelle Hinweise nur beim ersten Auftreten (im Profil gemerkt); Menü-Erststart direkt ins Spiel.~~ (erledigt in 06)
-4. **09 Teilen** – Teilen-Karte am Run-Ende (Zeit, Peak, Build, Seed-Code), lokale Bestenliste je Tages-Brut, Vorbereitung Clip-Export (letzte 15 s, 9:16) soweit ohne Plattform-SDK möglich.
-5. **10 Leistung & Qualitätsstufen** – Profiling-Szene (250 Tiere, Boss, alle Effekte), Qualitätsstufen (Schatten, Effektdichte, SubViewport im Menü, Deko-Dichte), Ziel 60 fps auf Mittelklasse; Messwerte dokumentieren.
-6. **11 UI-Politur 2** – Kartenkörper mit Zellstruktur, Verbannen-Knöpfe, Popups vs. Verlustlabel, kleine Texte ≥ 22 px, Menü-Einstellungen leichter; sobald Schrift da ist: vollständiger Typografie-Pass.
+2. **08 Apex-Boss & Migration** – eigener Apex-Boss für Verdant Maw (~8 min), Migrationsschlund nach Sieg, Wechsel ins nächste Biom mit Schwarm und Build, Run bleibt endlos. Glutsumpf als zweites Biom mit eigener Boden-/Farbwelt (Lava-Warnflächen) – Modelle soweit vorhanden, sonst Platzhalter.
+3. **09 Teilen** – Teilen-Karte am Run-Ende (Zeit, Peak, Build, Seed-Code), lokale Bestenliste je Tages-Brut, Vorbereitung Clip-Export (letzte 15 s, 9:16) soweit ohne Plattform-SDK möglich.
+4. **10 Typografie-Pass** – sobald die Schriften freigegeben sind: Display-/Textschrift überall, Größen und Abstände neu abstimmen, Boss-Balken zeigt Fluch, Tipp-Panel schmaler.
 
 ## Wartet auf Nutzer
 
