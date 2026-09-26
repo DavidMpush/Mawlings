@@ -1,0 +1,24 @@
+# Renders review frames from the real game camera (needs a window, never --headless).
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1 [-Only boss,hunt]
+# Output: preview_*.png in the project root (git-ignored).
+param([string[]]$Only = @())
+$godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
+$projectDir = Split-Path -Parent $PSScriptRoot
+$captures = Get-ChildItem (Join-Path $projectDir 'tests') -Filter 'capture_*.gd' | ForEach-Object { $_.BaseName -replace '^capture_', '' }
+$Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
+if ($Only.Count -gt 0) { $captures = $captures | Where-Object { $Only -contains $_ } }
+foreach ($name in $captures) {
+	$job = Start-Job -ScriptBlock {
+		param($exe, $dir, $n)
+		& $exe --path $dir --script "res://tests/capture_$n.gd" 2>&1 | Select-Object -Last 2
+	} -ArgumentList $godotExe, $projectDir, $name
+	if (Wait-Job $job -Timeout 90) {
+		Write-Output ("ok   $name :: " + ((Receive-Job $job) -join ' ').Trim())
+	} else {
+		Stop-Job $job
+		Get-Process -Name 'Godot_v4.7.2-stable_win64_console' -ErrorAction SilentlyContinue | Stop-Process -Force
+		Write-Output "FAIL $name :: timed out"
+	}
+	Remove-Job $job -Force
+}
+Get-ChildItem $projectDir -Filter 'preview*.png' | Sort-Object LastWriteTime -Descending | ForEach-Object { "  $($_.Name)" }

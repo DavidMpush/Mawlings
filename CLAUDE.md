@@ -33,6 +33,14 @@ foreach ($testName in @('smoke','run_model','hunt_flow','survival','evolution','
 
 Die `tests/capture_*.gd`-Skripte erzeugen Bilder aus der echten Spielkamera. **Ohne `--headless`** ausführen, da `frame_post_draw` sonst hängen kann. Vorschauen und `.godot/` sind regenerierbare, ignorierte Dateien. Im Editor F5 starten; WASD/Pfeiltasten bewegen, Leertaste aktiviert Rally. Für das erste Bossbild kann `tests/capture_boss.gd` ausgeführt werden.
 
+## Claude-Code-Workflow (Orchestrator + Subagenten)
+
+- Etappen stehen in `stages/NN_name.md` mit Abnahmekriterien; Ablauf in `stages/README.md`. Die Hauptsitzung plant, verteilt unabhängige Dateien parallel an Implementierungs-Agenten und legt Schnittstellen vorher fest.
+- Prüfagenten in `.claude/agents/`: `godot-tester` (Tests + Playthrough), `visual-reviewer` (rendert und bewertet Bilder), `rules-guard` (Diff gegen Regeln/Fehler). Nach jeder Umsetzungsrunde parallel starten, Mängel beheben, wiederholen.
+- Schnellbefehle: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1 [-Only boss,smoke]` und `... tools/capture.ps1 [-Only boss]`.
+- Hook `tools/hooks/check_gdscript.js` parst jede geänderte `.gd`-Datei mit Godot und meldet Fehler sofort.
+- Der Nutzer erlaubt Commits direkt auf `main` nach bestandener Prüfung; kein Push ohne Nachfrage.
+
 ## Orientierung
 
 - `DESIGN_BRIEF.md`: bestätigte Regeln.
