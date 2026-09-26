@@ -11,7 +11,7 @@ func _capture() -> void:
 	scene.get_node("HuntWorld").set_process(false)
 	swarm.set_process(false)
 	swarm.set_population(0)
-	var imported: PackedScene = load("res://assets/Mawling_game.glb")
+	var imported: PackedScene = load("res://assets/gameplay/characters/Mawling_game.glb")
 	for index in 16:
 		var unit: Node3D = imported.instantiate()
 		unit.position = Vector3((index % 4 - 1.5) * 0.9, 0, (index / 4 - 1.5) * 1.1)

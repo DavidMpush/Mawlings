@@ -16,6 +16,8 @@ var corpse_count := 0
 var kills := 0
 var hunters := 0
 var skitters := 0
+var boss_health := 0.0
+var boss_max_health := 0.0
 var hint := ""
 var elapsed := 0.0
 var pressure := 1.0
@@ -176,11 +178,18 @@ func _draw_top(font: Font) -> void:
 	_center_text(font, "DRUCK ×%.1f" % pressure, Vector2(size.x * 0.5, 179), 22, Color("f6c79f"))
 	if hunters + skitters > 0:
 		draw_string(font, Vector2(30, 188), "JÄGER %d   SKITTER %d" % [hunters, skitters], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, bone)
+	if boss_health > 0.0:
+		var boss_rect := Rect2(size.x * 0.5 - 305, 206, 610, 75)
+		_panel(boss_rect, Color("172921ed"), Color("e98e56"))
+		_center_text(font, "BOG KING", Vector2(size.x * 0.5, 236), 24, Color("ffe3ba"))
+		draw_rect(Rect2(size.x * 0.5 - 264, 251, 528, 12), Color("493833"))
+		draw_rect(Rect2(size.x * 0.5 - 264, 251, 528 * clampf(boss_health / boss_max_health, 0.0, 1.0), 12), Color("f09b63"))
 	if nearest_corpse != "":
-		_panel(Rect2(24, 216, minf(465, size.x - 48), 46), Color("102920d8"), Color("d9ad56"))
-		draw_string(font, Vector2(43, 246), nearest_corpse, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, bone)
+		var corpse_y := 296.0 if boss_health > 0.0 else 216.0
+		_panel(Rect2(24, corpse_y, minf(465, size.x - 48), 46), Color("102920d8"), Color("d9ad56"))
+		draw_string(font, Vector2(43, corpse_y + 30), nearest_corpse, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, bone)
 	if biomass_bank > 0.01:
-		draw_string(font, Vector2(35, 294), "BIOMASSE %.1f / 2" % biomass_bank, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("f6cc70"))
+		draw_string(font, Vector2(35, 374 if boss_health > 0.0 else 294), "BIOMASSE %.1f / 2" % biomass_bank, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("f6cc70"))
 
 func _draw_controls(font: Font) -> void:
 	if hint != "":

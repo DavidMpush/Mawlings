@@ -5,6 +5,7 @@ const RUN_MODEL = preload("res://scripts/run_model.gd")
 const PREY = preload("res://scripts/prey.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
 const SKITTER = preload("res://scripts/skitter.gd")
+const BOG_KING = preload("res://scripts/bog_king.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const CORPSE_BIOMASS := TUNING.CORPSE_BIOMASS
 
@@ -15,10 +16,12 @@ var model = RUN_MODEL.new()
 var prey: Array[Node3D] = []
 var hunters: Array[Node3D] = []
 var skitters: Array[Node3D] = []
+var boss: Node3D
 var corpse_visuals: Dictionary = {}
 var spawn_clock := 0.0
 var hunter_clock := TUNING.FIRST_HUNTER_SECONDS
 var skitter_clock := TUNING.FIRST_SKITTER_SECONDS
+var boss_clock := TUNING.FIRST_BOSS_SECONDS
 var spawn_number := 0
 var paused := false
 var hit_feedback := 0.0
@@ -43,12 +46,14 @@ func reset_run() -> void:
 	prey.clear()
 	hunters.clear()
 	skitters.clear()
+	boss = null
 	corpse_visuals.clear()
 	evolution = EVOLUTION.new()
 	model = RUN_MODEL.new()
 	spawn_clock = 0.0
 	hunter_clock = TUNING.FIRST_HUNTER_SECONDS
 	skitter_clock = TUNING.FIRST_SKITTER_SECONDS
+	boss_clock = TUNING.FIRST_BOSS_SECONDS
 	spawn_number = 0
 	paused = false
 	hit_feedback = 0.0
@@ -150,6 +155,31 @@ func step(delta: float) -> void:
 				return
 		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH]:
 			message = "SPRINT! SEITLICH AUSWEICHEN"
+	if boss != null:
+		if boss.state != BOG_KING.State.ARRIVING and boss.position.distance_to(swarm.position) < 3.5:
+			boss.take_damage(damage * delta)
+			message = "BOG KING · RALLY ZUM ANGRIFF"
+			if boss.health <= 0.0:
+				_create_corpse(boss.position, TUNING.BOSS_BIOMASS * evolution.biomass_multiplier())
+				boss.queue_free()
+				boss = null
+				boss_clock = TUNING.BOSS_RESPAWN_SECONDS
+				_award_dna(50)
+				if choosing():
+					return
+		if boss != null:
+			var loss: int = boss.step(delta, swarm.position, pressure)
+			if loss > 0:
+				last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
+				swarm.set_population(model.population)
+				hit_feedback = 1.2
+				if model.extinct:
+					swarm.set_controls(Vector2.ZERO, false)
+					hud.clear_pointers()
+					_update_hud("Ausgestorben")
+					return
+			if boss.state == BOG_KING.State.WARNING:
+				message = "BOG KING STAMPFT · AUS DEM ROTEN KREIS!"
 	for corpse in model.corpses.duplicate():
 		var id: int = corpse.id
 		if corpse.position.distance_to(swarm.position) > TUNING.HARVEST_RADIUS:
@@ -177,6 +207,10 @@ func step(delta: float) -> void:
 	if model.elapsed >= TUNING.FIRST_SKITTER_SECONDS and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
 		_spawn_skitter(_spawn_position(9.0))
 		skitter_clock = maxf(7.0, 28.0 / sqrt(pressure))
+	if boss == null:
+		boss_clock -= delta
+		if boss_clock <= 0.0:
+			_spawn_boss(_spawn_position(11.0))
 	_update_hud(message)
 
 
@@ -213,6 +247,17 @@ func _spawn_skitter(location: Vector3) -> Node3D:
 	target.max_health = target.health
 	add_child(target)
 	skitters.append(target)
+	return target
+
+
+func _spawn_boss(location: Vector3) -> Node3D:
+	var target = BOG_KING.new()
+	target.name = "Bog King"
+	target.position = get_parent().get_node("Arena").safe_spawn(location, 2.5)
+	target.health = TUNING.BOSS_HEALTH * sqrt(model.pressure())
+	target.max_health = target.health
+	add_child(target)
+	boss = target
 	return target
 
 
@@ -275,6 +320,8 @@ func _update_hud(message: String) -> void:
 	hud.kills = model.kills
 	hud.hunters = hunters.size()
 	hud.skitters = skitters.size()
+	hud.boss_health = boss.health if boss != null else 0.0
+	hud.boss_max_health = boss.max_health if boss != null else 0.0
 	hud.elapsed = model.elapsed
 	hud.pressure = model.pressure()
 	hud.extinct = model.extinct

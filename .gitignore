@@ -8,5 +8,5 @@ preview_*.png
 preview_*.png.import
 
 .tools/
-assets/Mawling_texture_*.png
-assets/Mawling_texture_*.png.import
+assets/source/*/*_texture_*.png
+assets/source/*/*_texture_*.png.import

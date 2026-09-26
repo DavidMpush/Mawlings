@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dhs74orai4vmw"
-path="res://.godot/imported/Mawling.glb-0a17685a73b7b6cc9a075efa2ea7d4c9.scn"
+uid="uid://jfwudiju3j5n"
+path="res://.godot/imported/BogKing.glb-5b32019574a9144576e1dc68c5ff017e.scn"
 
 [deps]
 
-source_file="res://assets/Mawling.glb"
-dest_files=["res://.godot/imported/Mawling.glb-0a17685a73b7b6cc9a075efa2ea7d4c9.scn"]
+source_file="res://assets/source/bog_king/BogKing.glb"
+dest_files=["res://.godot/imported/BogKing.glb-5b32019574a9144576e1dc68c5ff017e.scn"]
 
 [params]
 

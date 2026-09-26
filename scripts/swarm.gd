@@ -1,6 +1,6 @@
 extends Node3D
 
-const MAWLING_SCENE = preload("res://assets/Mawling_game.glb")
+const MAWLING_SCENE = preload("res://assets/gameplay/characters/Mawling_game.glb")
 
 const START_POPULATION := 25
 const MOVE_SPEED := 7.0

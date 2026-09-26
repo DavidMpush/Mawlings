@@ -1,10 +1,11 @@
-"""Create a lightweight, vertex-colored gameplay GLB from the supplied Mawling.glb.
+"""Create lightweight, vertex-colored gameplay GLBs from supplied character models.
 
 Requires numpy, Pillow and fast-simplification. The source GLB is never modified.
 """
 import io
 import json
 import struct
+import argparse
 from pathlib import Path
 
 import fast_simplification as fs
@@ -12,9 +13,10 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "assets" / "Mawling.glb"
-TARGET = ROOT / "assets" / "Mawling_game.glb"
-TRIANGLES = 3000
+CHARACTERS = {
+    "mawling": ("Mawling", 3000),
+    "bog_king": ("BogKing", 8000),
+}
 
 
 def read_glb(path):
@@ -50,7 +52,18 @@ def append_buffer(payload, views, values, target=None):
 
 
 def main():
-    source, binary = read_glb(SOURCE)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("character", choices=[*CHARACTERS, "all"], default="all", nargs="?")
+    arguments = parser.parse_args()
+    for character in CHARACTERS if arguments.character == "all" else [arguments.character]:
+        optimize(character)
+
+
+def optimize(character):
+    name, triangles = CHARACTERS[character]
+    source_path = ROOT / "assets" / "source" / character / f"{name}.glb"
+    target_path = ROOT / "assets" / "gameplay" / "characters" / f"{name}_game.glb"
+    source, binary = read_glb(source_path)
     primitive = source["meshes"][0]["primitives"][0]
     positions = accessor(source, binary, primitive["attributes"]["POSITION"]).astype(np.float64)
     uv = accessor(source, binary, primitive["attributes"]["TEXCOORD_0"]).astype(np.float64)
@@ -66,7 +79,7 @@ def main():
     srgb = pixels[y, x].astype(np.float32) / 255.0
     original_colors = srgb
 
-    simplified, new_faces, collapses = fs.simplify(positions, faces, target_count=TRIANGLES, return_collapses=True)
+    simplified, new_faces, collapses = fs.simplify(positions, faces, target_count=triangles, return_collapses=True)
     replayed, replay_faces, mapping = fs.replay_simplification(positions.astype(np.float32), faces, collapses)
     assert len(replayed) == len(simplified) and len(replay_faces) == len(new_faces)
     valid = mapping >= 0
@@ -97,9 +110,9 @@ def main():
         "asset": {"version": "2.0", "generator": "Mawlings gameplay mesh optimizer"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
-        "nodes": [{"name": "Mawling", "mesh": 0, "rotation": source["nodes"][0]["rotation"]}],
-        "meshes": [{"name": "Mawling game mesh", "primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "COLOR_0": 2}, "indices": 3, "material": 0}]}],
-        "materials": [{"name": "Mawling vertex colors", "pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0, "roughnessFactor": 0.9}, "doubleSided": True}],
+        "nodes": [{"name": name, "mesh": 0, "rotation": source["nodes"][0]["rotation"]}],
+        "meshes": [{"name": f"{name} game mesh", "primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "COLOR_0": 2}, "indices": 3, "material": 0}]}],
+        "materials": [{"name": f"{name} vertex colors", "pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0, "roughnessFactor": 0.9}, "doubleSided": True}],
         "accessors": [
             {"bufferView": position_view, "componentType": 5126, "count": len(simplified), "type": "VEC3", "min": simplified.min(axis=0).tolist(), "max": simplified.max(axis=0).tolist()},
             {"bufferView": normal_view, "componentType": 5126, "count": len(simplified), "type": "VEC3"},
@@ -112,13 +125,13 @@ def main():
     json_bytes = json.dumps(document, separators=(",", ":")).encode("utf-8")
     json_bytes += b" " * (-len(json_bytes) % 4)
     length = 12 + 8 + len(json_bytes) + 8 + len(payload)
-    with TARGET.open("wb") as output:
+    with target_path.open("wb") as output:
         output.write(struct.pack("<III", 0x46546C67, 2, length))
         output.write(struct.pack("<I4s", len(json_bytes), b"JSON"))
         output.write(json_bytes)
         output.write(struct.pack("<I4s", len(payload), b"BIN\x00"))
         output.write(payload)
-    print(f"{SOURCE.stat().st_size:,} -> {TARGET.stat().st_size:,} bytes; {len(faces):,} -> {len(new_faces):,} triangles")
+    print(f"{name}: {source_path.stat().st_size:,} -> {target_path.stat().st_size:,} bytes; {len(faces):,} -> {len(new_faces):,} triangles")
 
 
 if __name__ == "__main__":

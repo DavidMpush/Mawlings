@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://dxv7la0vm3vxg"
-path="res://.godot/imported/Mawling_game.glb-b33582083412509f14139c3acbf58999.scn"
+path="res://.godot/imported/Mawling_game.glb-648fd407e132adfb03256b69ab6ae4c1.scn"
 
 [deps]
 
-source_file="res://assets/Mawling_game.glb"
-dest_files=["res://.godot/imported/Mawling_game.glb-b33582083412509f14139c3acbf58999.scn"]
+source_file="res://assets/gameplay/characters/Mawling_game.glb"
+dest_files=["res://.godot/imported/Mawling_game.glb-648fd407e132adfb03256b69ab6ae4c1.scn"]
 
 [params]
 
