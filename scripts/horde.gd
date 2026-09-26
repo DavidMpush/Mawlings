@@ -65,8 +65,16 @@ const GAIT_RATE := 15.0
 const GAIT_WRAP := TAU * 8.0
 const HOP := 0.07
 const MAX_FX := 48
-const SNAP_FX_SECONDS := 0.2
-const DEATH_FX_SECONDS := 0.34
+# Etappe 08 Teil 2: Biss-Effekte klein, kurz und gebündelt (bei später Flut
+# verdeckten sie sonst den Schwarm): höchstens MAX_SNAP_FX gleichzeitig, ein neuer
+# Biss innerhalb SNAP_FX_MERGE eines jungen Effekts frischt diesen nur auf.
+const MAX_SNAP_FX := 10
+const SNAP_FX_MERGE := 0.9
+const SNAP_FX_SECONDS := 0.14
+const SNAP_FX_FROM := 0.1
+const SNAP_FX_TO := 0.26
+const MAX_DEATH_FX := 24
+const DEATH_FX_SECONDS := 0.3
 
 const STRIDE := 20   # 12 Transform + 4 Farbe + 4 Custom
 const SHADOW_STRIDE := 12
@@ -115,6 +123,10 @@ var last_hit_count := 0
 # Gesamtzahl der Tode und Bisse seit clear() (Tests/Statistik).
 var total_kills := 0
 var total_bites := 0
+# Leistung (tests/perf_bench.gd): Skriptzeit in Mikrosekunden seit dem letzten
+# Zurücksetzen – step() (inkl. Zeichnen) und alle übrigen Aufrufe (melee, Schaden).
+var usec_step := 0
+var usec_other := 0
 
 # Gitter
 var _anchor := Vector3.ZERO
@@ -217,6 +229,7 @@ func spawn_ring(center: Vector3, amount: int, radius: float, stats: Dictionary) 
 
 
 func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
+	var t0 := Time.get_ticks_usec()
 	_allocate()
 	_build()
 	_frame += 1
@@ -465,10 +478,18 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 	_bite_carry = carry
 	_step_fx(delta)
 	_draw()
+	usec_step += Time.get_ticks_usec() - t0
 	return {"bitten_indices": bitten, "losses": losses}
 
 
 func damage_circle(center: Vector3, radius: float, amount: float) -> int:
+	var t0 := Time.get_ticks_usec()
+	var killed := _damage_circle(center, radius, amount)
+	usec_other += Time.get_ticks_usec() - t0
+	return killed
+
+
+func _damage_circle(center: Vector3, radius: float, amount: float) -> int:
 	last_hit_count = 0
 	if _n == 0 or amount <= 0.0 or radius <= 0.0:
 		return 0
@@ -500,6 +521,13 @@ func damage_nearest(point: Vector3, max_range: float, amount: float) -> Vector3:
 
 
 func melee(swarm_points: PackedVector3Array, reach: float, dps: float, delta: float) -> int:
+	var t0 := Time.get_ticks_usec()
+	var killed := _melee(swarm_points, reach, dps, delta)
+	usec_other += Time.get_ticks_usec() - t0
+	return killed
+
+
+func _melee(swarm_points: PackedVector3Array, reach: float, dps: float, delta: float) -> int:
 	if _n == 0 or swarm_points.is_empty() or dps <= 0.0 or delta <= 0.0 or reach <= 0.0:
 		return 0
 	# Innerhalb eines Frames nach step() (oder direkt davor, mit den Abständen des
@@ -1006,7 +1034,24 @@ func _draw() -> void:
 
 
 func _add_fx(kind: int, at: Vector3) -> void:
-	if _fx.size() >= MAX_FX:
+	var same := 0
+	for entry in _fx:
+		if entry.kind != kind:
+			continue
+		same += 1
+		if kind == 0:
+			var old: Vector3 = entry.at
+			if (old.x - at.x) * (old.x - at.x) + (old.z - at.z) * (old.z - at.z) < SNAP_FX_MERGE * SNAP_FX_MERGE:
+				# Gebündelt: der nahe Effekt übernimmt den neuen Biss.
+				entry.age = minf(entry.age, SNAP_FX_SECONDS * 0.3)
+				return
+	if same >= (MAX_SNAP_FX if kind == 0 else MAX_DEATH_FX):
+		var oldest := -1
+		for index in _fx.size():
+			if _fx[index].kind == kind and (oldest < 0 or _fx[index].age > _fx[oldest].age):
+				oldest = index
+		_fx.remove_at(oldest)
+	elif _fx.size() >= MAX_FX:
 		var oldest := 0
 		for index in _fx.size():
 			if _fx[index].age > _fx[oldest].age:
@@ -1037,20 +1082,20 @@ func _draw_fx() -> void:
 		var at: Vector3 = entry.at
 		if entry.kind == 0:
 			var t: float = entry.age / SNAP_FX_SECONDS
-			var r := lerpf(0.18, 0.5, 1.0 - pow(1.0 - t, 2.0))
-			_snap_batch.add(Transform3D(Basis.from_scale(Vector3(r, 0.5, r)), Vector3(at.x, 0.3, at.z)),
-				Color(SNAP_COLOR.r, SNAP_COLOR.g, SNAP_COLOR.b, SNAP_COLOR.a * (1.0 - t)))
+			var r := lerpf(SNAP_FX_FROM, SNAP_FX_TO, 1.0 - (1.0 - t) * (1.0 - t))
+			_snap_batch.add(Transform3D(Basis.from_scale(Vector3(r, 0.35, r)), Vector3(at.x, 0.24, at.z)),
+				Color(SNAP_COLOR.r, SNAP_COLOR.g, SNAP_COLOR.b, SNAP_COLOR.a * 0.85 * (1.0 - t)))
 		else:
 			var t: float = entry.age / DEATH_FX_SECONDS
-			var puff := lerpf(0.35, 0.95, 1.0 - pow(1.0 - t, 3.0))
+			var puff := lerpf(0.25, 0.7, 1.0 - pow(1.0 - t, 3.0))
 			_death_batch.add(Transform3D(Basis.from_scale(Vector3(puff, puff * 0.55, puff)), Vector3(at.x, 0.18, at.z)),
 				Color(DEATH_COLOR.r, DEATH_COLOR.g, DEATH_COLOR.b, DEATH_COLOR.a * (1.0 - t) * (1.0 - t)))
 			var spark_seed: float = entry.seed
 			for k in 4:
 				var a := spark_seed * TAU + float(k) * TAU * 0.25
-				var reach := 0.2 + t * 0.75
-				var lift := 0.2 + sin(t * PI) * 0.45
-				var size := 1.0 - t * 0.7
+				var reach := 0.15 + t * 0.6
+				var lift := 0.2 + sin(t * PI) * 0.4
+				var size := 0.85 - t * 0.6
 				_spark_batch.add(Transform3D(Basis.from_scale(Vector3.ONE * size), Vector3(at.x + cos(a) * reach, lift, at.z + sin(a) * reach)),
 					Color(DEATH_SPARK.r, DEATH_SPARK.g, DEATH_SPARK.b, DEATH_SPARK.a * (1.0 - t)))
 	_snap_batch.finish()

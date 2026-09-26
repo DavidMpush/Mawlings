@@ -39,3 +39,22 @@ func clear() -> void
 - **Tests:** 25/25 grün (neu: horde, flood). Playthrough: 109 Tiere nach 120 s, 82 Verluste (vorher 250/50).
 
 Offen (Teil 2): Leistung – Worst Case ohne Flut 6,8 ms (vorher 3,97), volle Flut 9,9 ms, `horde.step` ~1,9 ms; blassrosa Biss-Effekte verdecken den Schwarm; Nibbler-Schnappkreis teils verdeckt; Früh-Tode auf Brutal/Apex beim greedy-Bot.
+
+## Ergebnis (27.09.2026, Teil 2 – Leistung und Lesbarkeit)
+
+Desktop (Ryzen 5 3600, RTX 5070, 540×1170, Vsync aus – keine Android-Werte), `tools/perf.ps1 -Only worst,flood,calm`:
+
+| Szene | Teil 1 (gemeldet) | Teil 2 vorher (Nachmessung) | Teil 2 nachher |
+|---|---|---|---|
+| Worst Case | 6,8 ms | 3,76–3,78 ms, 185 Draw Calls | **3,61 ms** (p95 4,8), 185 Draw Calls |
+| Flut (160 Brut) | 9,9 ms | 5,44–5,76 ms, 238–245 Draw Calls | **5,47 ms** (p95 6,8), 243 Draw Calls |
+| Ruhiger Start | – | 1,50 ms | 1,45 ms |
+| `horde.step` inkl. Zeichnen | ~1,9 ms | 0,77 ms (+0,16 ms melee/Flächenschaden) | **0,74 ms** (+0,16 ms) |
+
+- **„Rückschritt“ ohne Flut:** nicht reproduzierbar. Derselbe Bench auf dem exportierten Stand `a6bfca1` (Etappe 07) misst heute 4,21 ms, der aktuelle Stand 3,6–3,8 ms; Ablation `no_enemies` spart nur 0,13 ms, `world_ms` ist mit 1,0 ms gleich wie in Etappe 07. Die 6,8/9,9 ms aus Teil 1 stammen sehr wahrscheinlich aus einer Messung unter Last (parallel laufende Godot-Prozesse); Messungen künftig nur ohne parallele Läufe.
+- **Messung:** `perf_bench.gd` meldet jetzt `horde_ms` (horde.step inkl. Zeichnen) und `horde_other_ms` (melee/damage_circle); `horde.gd` zählt dafür `usec_step`/`usec_other`.
+- **Biss-Effekte:** Ursache des blassrosa Schleiers war der volle Treffer-Blitz des Schwarms (`flash_color` #ffd9c9) bei jedem einzelnen Brut-Biss – der Schwarm blieb dauerhaft aufgehellt. Brut-Bisse blitzen jetzt nur weich (0,5) und höchstens alle 0,6 s (`hunt_world._flood_bites`); Verlust, Schubs und fallende Tiere unverändert. Die gelben Schnapp-Ringe der Brut sind kleiner (0,1–0,26 m statt 0,18–0,5 m), kürzer (0,14 s), gebündelt (0,9 m) und auf 10 gleichzeitig gedeckelt; Todeswolken kleiner, max. 24.
+- **Nibbler-Schnappkreis:** heller Außenring mit dunkler Haarlinie, 0,2 m über dem Boden, ohne Tiefentest (über dem Schwarm), schließt sich während der Warnung von +0,45 m auf den Kreisrand (`prey.gd`).
+- **Tests:** `tools/test.ps1` alle grün; Playthrough unverändert (109 Tiere nach 120 s, 82 Verluste), Balance-Regress in Toleranz. Captures `flood`, `horde`, `combat`, `nibbler_game` geprüft: Schwarm bei später Flut wieder rot lesbar, Schnappkreis auch unter Mawlings sichtbar.
+
+Offen: fallende „Geister“-Tiere (swarm.gd) nutzen weiter den hellen Blitz-Ton; Flut-Draw-Calls knapp unter 250; Android-Messung; Früh-Tode auf Brutal/Apex beim greedy-Bot.

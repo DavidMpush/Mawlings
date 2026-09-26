@@ -22,6 +22,15 @@ static var shadow_mesh: PlaneMesh
 static var shadow_material: StandardMaterial3D
 static var bar_mesh: BoxMesh
 static var bar_material: StandardMaterial3D
+# Etappe 08 Teil 2: bright outer contour of the snap circle, drawn above the swarm
+# (no depth test) so the warning stays visible when Mawlings stand on the circle.
+static var snap_ring_mesh: TorusMesh
+static var snap_ring_material: StandardMaterial3D
+static var snap_ring_dark_mesh: TorusMesh
+static var snap_ring_dark_material: StandardMaterial3D
+const SNAP_RING_LIFT := 0.2
+const SNAP_RING_START := 0.45     # extra radius at the start; closes to SNAP_RING_END
+const SNAP_RING_END := 0.06
 
 var health := MAX_HEALTH
 var wander_phase := 0.0
@@ -54,6 +63,7 @@ var snap_power := 0
 var resolved_power := 0
 var provoked := 0.0
 var snap_zone: MeshInstance3D
+var snap_ring: Node3D
 var _provoke_health := MAX_HEALTH
 
 
@@ -139,7 +149,9 @@ func _step_snap(delta: float, swarm_position: Vector3, distance: float, pressure
 	provoked = maxf(0.0, provoked - delta)
 	if snap_state == 1:
 		snap_remaining -= delta
-		TG.set_progress(snap_zone, 1.0 - maxf(0.0, snap_remaining) / TUNING.NIBBLER_SNAP_WARNING)
+		var progress := 1.0 - maxf(0.0, snap_remaining) / TUNING.NIBBLER_SNAP_WARNING
+		TG.set_progress(snap_zone, progress)
+		_pose_snap_ring(progress)
 		twitch = maxf(twitch, 0.35)
 		# Pulsing white flash: the attacker is visible even when the swarm hides the circle.
 		flash = maxf(flash, 0.55 + 0.35 * sin(clock * 30.0))
@@ -172,6 +184,7 @@ func _lock_snap(swarm_position: Vector3, pressure: float) -> void:
 	snap_zone.global_position = snap_center + Vector3(0.0, 0.1, 0.0)
 	TG.set_armed(snap_zone, true)
 	TG.set_progress(snap_zone, 0.0)
+	_pose_snap_ring(0.0)
 	snap_zone.visible = true
 
 
@@ -204,6 +217,55 @@ func _ensure_snap_zone() -> void:
 		shader_material.set_shader_parameter("pattern_color", SNAP_PATTERN)
 		shader_material.set_shader_parameter("edge_color", SNAP_EDGE)
 		shader_material.set_shader_parameter("fill_alpha", 0.42)
+	_build_snap_ring()
+
+
+# Outer contour ring (child of the snap zone, so it shows and hides with it): a
+# bright band inside a dark hairline, closing in on the circle as the snap nears.
+func _build_snap_ring() -> void:
+	if snap_ring_mesh == null:
+		snap_ring_mesh = TorusMesh.new()
+		snap_ring_mesh.inner_radius = 0.9
+		snap_ring_mesh.outer_radius = 1.0
+		snap_ring_mesh.rings = 40
+		snap_ring_mesh.ring_segments = 4
+		snap_ring_material = _ring_material(Color("f4fffb", 0.95), 3)
+		snap_ring_dark_mesh = TorusMesh.new()
+		snap_ring_dark_mesh.inner_radius = 1.0
+		snap_ring_dark_mesh.outer_radius = 1.05
+		snap_ring_dark_mesh.rings = 40
+		snap_ring_dark_mesh.ring_segments = 4
+		snap_ring_dark_material = _ring_material(Color(0.02, 0.1, 0.09, 0.8), 2)
+	snap_ring = Node3D.new()
+	snap_ring.name = "Snap ring"
+	snap_zone.add_child(snap_ring)
+	snap_ring.position = Vector3(0.0, SNAP_RING_LIFT, 0.0)
+	for pair in [[snap_ring_dark_mesh, snap_ring_dark_material], [snap_ring_mesh, snap_ring_material]]:
+		var part := MeshInstance3D.new()
+		part.mesh = pair[0]
+		part.material_override = pair[1]
+		part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		snap_ring.add_child(part)
+	_pose_snap_ring(0.0)
+
+
+static func _ring_material(color: Color, priority: int) -> StandardMaterial3D:
+	var ring := StandardMaterial3D.new()
+	ring.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ring.no_depth_test = true
+	ring.cull_mode = BaseMaterial3D.CULL_DISABLED
+	ring.albedo_color = color
+	ring.render_priority = priority
+	return ring
+
+
+func _pose_snap_ring(progress: float) -> void:
+	if snap_ring == null:
+		return
+	var eased := 1.0 - (1.0 - progress) * (1.0 - progress)
+	var radius := TUNING.NIBBLER_SNAP_RADIUS + lerpf(SNAP_RING_START, SNAP_RING_END, eased)
+	snap_ring.scale = Vector3(radius, 0.2, radius)
 
 
 func _animate(delta: float) -> void:

@@ -18,6 +18,7 @@ extends SceneTree
 # Kennzahlen: avg/p95 = reale Frame-Zeit (Vsync aus); process_max_ms = Performance.TIME_PROCESS
 # (Godot meldet das Maximum der letzten Sekunde); world_ms/swarm_ms = selbst gemessene
 # Skriptzeit von HuntWorld.step / Swarm._process (der Bench ruft beide selbst auf);
+# horde_ms = horde.step() inkl. Zeichnen, horde_other_ms = melee()/damage_circle() (Etappe 08);
 # render_cpu_ms/gpu_ms = RenderingServer-Messung des Haupt-Viewports.
 # Ausgabe: eine Zeile "PERF scene=… avg_ms=… p95_ms=… …" plus "PERF_NODES …".
 # Sammeln aller Varianten: tools/perf.ps1.
@@ -49,6 +50,8 @@ var clock := 0.0
 var popup_clock := 0.0
 var last_world_us := 0
 var last_swarm_us := 0
+var last_horde_us := 0
+var last_horde_other_us := 0
 
 
 func _initialize() -> void:
@@ -205,9 +208,17 @@ func _drive(delta: float) -> void:
 
 # The bench steps HuntWorld and Swarm itself to time their script cost per frame.
 func _step_systems(delta: float) -> void:
+	var horde: Variant = world.get("horde")
+	var has_horde: bool = horde != null and is_instance_valid(horde) and "usec_step" in horde
+	if has_horde:
+		horde.usec_step = 0
+		horde.usec_other = 0
 	var t0 := Time.get_ticks_usec()
 	world.step(minf(delta, 0.05))
 	var t1 := Time.get_ticks_usec()
+	if has_horde:
+		last_horde_us = int(horde.usec_step)
+		last_horde_other_us = int(horde.usec_other)
 	if not _is_off("swarmcpu"):
 		swarm._process(delta)
 	var t2 := Time.get_ticks_usec()
@@ -350,6 +361,8 @@ func _measure() -> void:
 	var samples := 0
 	var world_ms := 0.0
 	var swarm_ms := 0.0
+	var horde_ms := 0.0
+	var horde_other_ms := 0.0
 	while elapsed < seconds:
 		await process_frame
 		var now := Time.get_ticks_usec()
@@ -371,6 +384,8 @@ func _measure() -> void:
 		render_cpu_ms += RenderingServer.viewport_get_measured_render_time_cpu(root.get_viewport_rid())
 		world_ms += float(last_world_us) / 1000.0
 		swarm_ms += float(last_swarm_us) / 1000.0
+		horde_ms += float(last_horde_us) / 1000.0
+		horde_other_ms += float(last_horde_other_us) / 1000.0
 		samples += 1
 	var n := float(maxi(1, samples))
 	var sorted := frames.duplicate()
@@ -389,8 +404,8 @@ func _measure() -> void:
 	for key in ["res", "cap", "scale3d", "msaa"]:
 		if args.has(key):
 			label += "-%s_%s" % [key, String(args[key])]
-	print("PERF scene=%s tier=%s avg_ms=%.2f p95_ms=%.2f fps=%.0f process_max_ms=%.2f world_ms=%.2f swarm_ms=%.2f render_cpu_ms=%.2f gpu_ms=%.2f draw_calls=%.0f objects=%.0f prims=%.0f objs=%d nodes=%d mem_mb=%.1f vram_mb=%.1f mem_start_mb=%.1f vram_start_mb=%.1f frames=%d res=%dx%d" % [
-		label, QUALITY.tier_id(QUALITY.current_tier()), total / n, p95, 1000.0 / maxf(0.001, total / n), process_ms / n, world_ms / n, swarm_ms / n, render_cpu_ms / n, gpu_ms / n,
+	print("PERF scene=%s tier=%s avg_ms=%.2f p95_ms=%.2f fps=%.0f process_max_ms=%.2f world_ms=%.2f swarm_ms=%.2f horde_ms=%.2f horde_other_ms=%.2f render_cpu_ms=%.2f gpu_ms=%.2f draw_calls=%.0f objects=%.0f prims=%.0f objs=%d nodes=%d mem_mb=%.1f vram_mb=%.1f mem_start_mb=%.1f vram_start_mb=%.1f frames=%d res=%dx%d" % [
+		label, QUALITY.tier_id(QUALITY.current_tier()), total / n, p95, 1000.0 / maxf(0.001, total / n), process_ms / n, world_ms / n, swarm_ms / n, horde_ms / n, horde_other_ms / n, render_cpu_ms / n, gpu_ms / n,
 		draws / n, objects / n, prims / n,
 		int(Performance.get_monitor(Performance.OBJECT_COUNT)), int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0, Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,

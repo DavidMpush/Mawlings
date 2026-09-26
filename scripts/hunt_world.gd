@@ -126,6 +126,10 @@ var flood_beep := -1
 # Horde kills waiting to become one corpse per cell: key -> {sum, n, biomass, dna}.
 var flood_bundles: Dictionary = {}
 var flood_bundle_clock := 0.0
+# Soft, rate-limited swarm flash for horde bites (see _flood_bites).
+const HORDE_FLASH := 0.5
+const HORDE_FLASH_SECONDS := 0.6
+var horde_flash_at := 0.0
 
 
 func _ready() -> void:
@@ -272,6 +276,7 @@ func _reset_flood() -> void:
 	flood_beep = -1
 	flood_bundles.clear()
 	flood_bundle_clock = 0.0
+	horde_flash_at = 0.0
 
 
 # Difficulty multipliers (enemy HP/damage) ramp in over the first
@@ -394,8 +399,22 @@ func _flood_bites(result: Dictionary, points: PackedVector3Array) -> bool:
 			swarm.prefer_removal(valid)
 	if loss <= 0:
 		return false
+	# Etappe 08 Teil 2: bites come in series; a full hit flash on every bite kept the
+	# whole swarm washed out in pale pink. Horde bites flash softly and at most every
+	# HORDE_FLASH_SECONDS (the loss, shove and ghosts stay unchanged).
+	var flash_before: float = float(swarm.get("flash")) if "flash" in swarm else 0.0
 	# No attacker: Stachelrücken answers the Moorbrut through the horde hook.
-	return _apply_hit(loss, impact, 0.08, null)
+	var ended := _apply_hit(loss, impact, 0.08, null)
+	if not ended and "flash" in swarm:
+		var soft := flash_before
+		if model.elapsed >= horde_flash_at:
+			horde_flash_at = model.elapsed + HORDE_FLASH_SECONDS
+			soft = maxf(flash_before, HORDE_FLASH)
+		swarm.set("flash", soft)
+		var material: Variant = swarm.get("game_material")
+		if material is ShaderMaterial:
+			(material as ShaderMaterial).set_shader_parameter("flash", soft * soft)
+	return ended
 
 
 # Collects horde kills into per-cell bundles; every FLOOD_BUNDLE_SECONDS each
