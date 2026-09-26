@@ -18,7 +18,24 @@ Nach 18 Sekunden kommt der erste violette **Jäger**. Ein blauer Ring kündigt s
 
 Der Zeitdruck verdoppelt sich alle 90 Spielsekunden und erhöht Angriffsleistung, neue Jägergesundheit und Spawnrate. Maximal zwölf Jäger und fünf Nibbler sind gleichzeitig aktiv. **Nur Aussterben beendet den Run**; es gibt kein Zeitlimit. Die Ergebnisanzeige zeigt Überlebenszeit, höchste Population, Kills und geerntete Biomasse. Mit **NEUER RUN**, **R** oder **Enter** neu starten. **P / Escape** oder der Pause-Button pausiert; bei Fokusverlust pausiert das Spiel ebenfalls. Die Kadaver bleiben innerhalb des aktiven Runs erhalten; Neustart setzt den gesamten Run zurück.
 
-Das ist ein spielbarer **Survival-Mechanik-Prototyp** mit vorläufigen Werten und Formen. Angriff, Ernte und Flächentreffer verwenden vorerst die Entfernung zum Schwarmzentrum; individuelle Mawlings haben keine eigene Kampf-KI. Mutationen, Bosse und endgültige Grafik sind noch nicht enthalten. Zentrale Survival-Werte stehen in `scripts/tuning.gd`.
+Das ist ein spielbarer **Survival-Mechanik-Prototyp** mit vorläufigen Werten und Formen. Angriff, Ernte und Flächentreffer verwenden vorerst die Entfernung zum Schwarmzentrum; individuelle Mawlings haben keine eigene Kampf-KI. Bosse und endgültige Grafik sind noch nicht enthalten. Zentrale Survival-Werte stehen in `scripts/tuning.gd`.
+
+## Evolution im Run
+
+Nibbler geben 10 DNA, Jäger 20 DNA. Ab 20 DNA öffnet sich eine Auswahl aus bis zu drei verschiedenen Mutationen. Antippen oder **1 / 2 / 3** wählt eine Verbesserung; währenddessen stehen Kampf, Ernte, Spawns und Run-Zeit still. Jede weitere Auswahl kostet 10 DNA mehr. Überschüsse bleiben erhalten. Es gibt sechs Mutationen mit jeweils maximal drei Rängen:
+
+| Mutation | Effekt je Rang |
+|---|---|
+| Reißzähne | +25 % Angriffsschaden |
+| Schnelle Brut | +30 % Erntetempo |
+| Vielfraß | +25 % Biomasse aus zukünftigen Kills |
+| Rudelinstinkt | +20 % Schaden während Rally |
+| Fluchtreflex | −10 Prozentpunkte Verluste ohne Rally |
+| Knochenpanzer | −10 Prozentpunkte Verluste |
+
+Ränge derselben Mutation addieren sich. Die zwei Angriffsboni multiplizieren sich; Schutz addiert sich bis maximal 60 %, Treffer kosten mindestens ein Tier. Alte Kadaver ändern ihren Biomassewert nicht. Pause und Ergebnis zeigen den gewählten Build. Neustart setzt DNA und Mutationen zurück. Nach allen 18 Rängen läuft der Survival-Run weiter.
+
+Prüfung dieser Etappe: [Evolution](EVOLUTION_VERIFICATION.md).
 
 ## Arbeitsweise ab dem Neustart
 

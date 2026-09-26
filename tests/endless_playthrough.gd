@@ -16,10 +16,13 @@ func _run() -> void:
 	var world: Variant = scene.get_node("HuntWorld")
 	var swarm: Variant = scene.get_node("Swarm")
 	var hud: Variant = scene.get_node("HUD/Controls")
+	world.evolution.rng.seed = 19
 	var frame_budget := 21600 if OS.get_cmdline_user_args().has("--long") else 7200
 	for frame in frame_budget:
 		if world.model.extinct:
 			break
+		if world.choosing():
+			world.choose_mutation(0)
 		var target: Vector3 = swarm.position
 		var best := INF
 		var harvesting := false
@@ -50,7 +53,8 @@ func _run() -> void:
 		hud.rally_pressed = best < 1.05 and not avoiding
 		await process_frame
 	print("PLAYTEST seconds=%.1f population=%d peak=%d kills=%d lost=%d corpses=%d hunters=%d extinct=%s" % [world.model.elapsed, world.model.population, world.model.peak_population, world.model.kills, world.model.lost_population, world.model.corpses.size(), world.hunters.size(), world.model.extinct])
-	if world.model.kills < 3 or world.model.peak_population <= 25 or world.model.elapsed < 60.0:
+	print("EVOLUTION level=%d build=%s" % [world.evolution.level, world.evolution.summary()])
+	if world.evolution.level < 1 or world.model.kills < 3 or world.model.peak_population <= 25 or world.model.elapsed < 60.0:
 		push_error("Automated food-and-dodge playtest could not establish the survival loop")
 		quit(1)
 		return

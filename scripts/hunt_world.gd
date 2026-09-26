@@ -1,5 +1,6 @@
 extends Node3D
 
+const EVOLUTION = preload("res://scripts/evolution.gd")
 const RUN_MODEL = preload("res://scripts/run_model.gd")
 const PREY = preload("res://scripts/prey.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
@@ -8,6 +9,7 @@ const CORPSE_BIOMASS := TUNING.CORPSE_BIOMASS
 
 @onready var swarm = get_parent().get_node("Swarm")
 @onready var hud = get_parent().get_node("HUD/Controls")
+var evolution = EVOLUTION.new()
 var model = RUN_MODEL.new()
 var prey: Array[Node3D] = []
 var hunters: Array[Node3D] = []
@@ -38,6 +40,7 @@ func reset_run() -> void:
 	prey.clear()
 	hunters.clear()
 	corpse_visuals.clear()
+	evolution = EVOLUTION.new()
 	model = RUN_MODEL.new()
 	spawn_clock = 0.0
 	hunter_clock = TUNING.FIRST_HUNTER_SECONDS
@@ -68,7 +71,7 @@ func _process(delta: float) -> void:
 
 
 func step(delta: float) -> void:
-	if paused or model.extinct:
+	if paused or model.extinct or choosing():
 		return
 	model.advance(delta)
 	hit_feedback = maxf(0.0, hit_feedback - delta)
@@ -76,6 +79,7 @@ func step(delta: float) -> void:
 	var pressure: float = model.pressure()
 	var attack_range := 1.15 if swarm.rally_pressed else 1.5
 	var damage := minf(32.0, 1.0 + float(model.population) * 0.12) * (1.55 if swarm.rally_pressed else 1.0)
+	damage *= evolution.damage_multiplier(swarm.rally_pressed)
 	for target in prey.duplicate():
 		# Living prey may be recycled at a distance; corpses never expire.
 		if target.position.distance_to(swarm.position) > 40.0:
@@ -89,19 +93,24 @@ func step(delta: float) -> void:
 			message = "Mawlings greifen automatisch an"
 			if health <= 0.0:
 				_kill_prey(target)
+				if choosing():
+					return
 	for hunter in hunters.duplicate():
 		if hunter.get("state") != HUNTER.State.ARRIVING and hunter.position.distance_to(swarm.position) < attack_range:
 			hunter.call("take_damage", damage * delta)
 			message = "Jäger angreifen · vor dem Ring ausweichen"
 			if hunter.get("health") <= 0.0:
 				hunters.erase(hunter)
-				_create_corpse(hunter.position, TUNING.HUNTER_BIOMASS)
+				_create_corpse(hunter.position, TUNING.HUNTER_BIOMASS * evolution.biomass_multiplier())
+				_award_dna(20)
 				hunter.queue_free()
+				if choosing():
+					return
 				continue
 		var velocity: Vector3 = Vector3(swarm.movement_vector.x, 0.0, swarm.movement_vector.y) * swarm.MOVE_SPEED
 		var loss: int = hunter.call("step", delta, swarm.position, pressure, velocity)
 		if loss > 0:
-			last_loss = model.apply_loss(loss)
+			last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
 			swarm.set_population(model.population)
 			hit_feedback = 1.2
 			if model.extinct:
@@ -116,7 +125,7 @@ func step(delta: float) -> void:
 		if corpse.position.distance_to(swarm.position) > TUNING.HARVEST_RADIUS:
 			continue
 		var rate := TUNING.HARVEST_RATE * (1.35 if swarm.rally_pressed else 1.0)
-		var consumed: float = model.harvest(id, rate * delta)
+		var consumed: float = model.harvest(id, rate * evolution.harvest_multiplier() * delta)
 		if consumed > 0.0:
 			swarm.set_population(model.population)
 			if not message.begins_with("RAUS"):
@@ -163,7 +172,8 @@ func _spawn_hunter(location: Vector3) -> Node3D:
 
 func _kill_prey(target: Node3D) -> void:
 	prey.erase(target)
-	_create_corpse(target.position, CORPSE_BIOMASS)
+	_create_corpse(target.position, CORPSE_BIOMASS * evolution.biomass_multiplier())
+	_award_dna(10)
 	target.queue_free()
 
 
@@ -212,6 +222,7 @@ func _piece(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -
 
 
 func _update_hud(message: String) -> void:
+	hud.evolution = evolution
 	hud.population = model.population
 	hud.biomass_bank = model.biomass_bank
 	hud.corpse_count = model.corpses.size()
@@ -237,3 +248,23 @@ func _update_hud(message: String) -> void:
 				direction = ("oben" if offset.z < 0 else "unten") if absf(offset.z) > absf(offset.x) else ("links" if offset.x < 0 else "rechts")
 			hud.nearest_corpse = "Kadaver: %dm · %s" % [int(distance), direction]
 	hud.queue_redraw()
+
+
+func choosing() -> bool:
+	return not evolution.offers.is_empty()
+
+
+func _award_dna(amount: int) -> void:
+	evolution.earn(amount)
+	if choosing():
+		hud.clear_pointers()
+		swarm.set_controls(Vector2.ZERO, false)
+	_update_hud("")
+
+
+func choose_mutation(slot: int) -> void:
+	if paused or model.extinct or not evolution.choose(slot):
+		return
+	hud.clear_pointers()
+	swarm.set_controls(Vector2.ZERO, false)
+	_update_hud("Mutation aktiv · weiter jagen!")

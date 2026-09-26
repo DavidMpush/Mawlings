@@ -13,6 +13,7 @@ func _ready() -> void:
 	_build_open_arena()
 	controls.restart_requested.connect(_restart)
 	controls.pause_requested.connect(world.toggle_pause)
+	controls.mutation_chosen.connect(world.choose_mutation)
 	camera.position = swarm.position + CAMERA_OFFSET
 	camera.look_at(swarm.position, Vector3.UP)
 	DisplayServer.window_set_title("MAWLINGS — Godot Prototype")
@@ -21,7 +22,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	var keyboard := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var movement: Vector2 = controls.movement_vector if controls.movement_vector.length() > 0.05 else keyboard
-	var active: bool = not world.paused and not world.model.extinct
+	var active: bool = not world.paused and not world.model.extinct and not world.choosing()
 	swarm.set_controls(movement if active else Vector2.ZERO, active and (controls.rally_pressed or Input.is_key_pressed(KEY_SPACE)))
 	get_node("Open ground").position = Vector3(swarm.position.x, 0, swarm.position.z)
 	var target := swarm.position + CAMERA_OFFSET

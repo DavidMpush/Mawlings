@@ -2,6 +2,9 @@ extends Control
 
 signal restart_requested
 signal pause_requested
+signal mutation_chosen(slot: int)
+
+var evolution: RefCounted
 
 var movement_vector := Vector2.ZERO
 var rally_pressed := false
@@ -49,6 +52,8 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode in [KEY_ESCAPE, KEY_P]:
 			pause_requested.emit()
+		elif not extinct and not paused and event.keycode in [KEY_1, KEY_2, KEY_3]:
+			mutation_chosen.emit(event.keycode - KEY_1)
 		elif extinct and event.keycode in [KEY_R, KEY_ENTER]:
 			restart_requested.emit()
 	if event is InputEventScreenTouch:
@@ -77,6 +82,12 @@ func _press(pointer: int, location: Vector2) -> void:
 		return
 	if _pause_rect().has_point(location):
 		pause_requested.emit()
+		return
+	if evolution != null and not evolution.offers.is_empty():
+		for slot in evolution.offers.size():
+			if _mutation_rect(slot).has_point(location):
+				mutation_chosen.emit(slot)
+				return
 		return
 	if movement_pointer == -1 and location.distance_to(_movement_center()) < 125.0:
 		movement_pointer = pointer
@@ -140,6 +151,21 @@ func _draw() -> void:
 	draw_circle(_movement_center() + movement_vector * 52.0, 31.0, Color("a7e2cf"))
 	draw_string(font, _rally_center() + Vector2(-42.0, 8.0), "RALLY", HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color.WHITE)
 	draw_string(font, _movement_center() + Vector2(-43.0, 114.0), "MOVE", HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color.WHITE)
+	if evolution != null:
+		var progress: String = "Evolution komplett" if evolution.complete() else "DNA %d / %d · Evolution %d" % [evolution.dna, evolution.threshold(), evolution.level]
+		draw_string(font, Vector2(38, 315), progress, HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color("e7aaff"))
+		if not evolution.offers.is_empty() and not extinct and not paused:
+			draw_rect(Rect2(Vector2.ZERO, size), Color(0.015, 0.04, 0.035, 0.94))
+			_center_text(font, "EVOLUTION", Vector2(size.x / 2, size.y / 2 - 365), 42)
+			_center_text(font, "Wähle eine Mutation · Welt pausiert", Vector2(size.x / 2, size.y / 2 - 315), 26)
+			for slot in evolution.offers.size():
+				var mutation: Array = evolution.offers[slot]
+				var card := _mutation_rect(slot)
+				draw_rect(card, Color("234b40"))
+				draw_rect(card, Color("84bb87"), false, 2)
+				draw_string(font, card.position + Vector2(24, 46), "%d  %s · Rang %d / 3" % [slot + 1, mutation[1], evolution.rank(mutation[0]) + 1], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Color("f6e6b5"))
+				draw_string(font, card.position + Vector2(24, 94), mutation[2], HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color("e4f2dc"))
+			_center_text(font, "Antippen oder Taste 1 / 2 / 3", Vector2(size.x / 2, size.y / 2 + 265), 23)
 	if extinct or paused:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.015, 0.04, 0.035, 0.94))
 		var center := Vector2(size.x * 0.5, size.y * 0.5)
@@ -147,11 +173,24 @@ func _draw() -> void:
 		_center_text(font, "Überlebt  %02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60], center + Vector2(0, -75), 28)
 		_center_text(font, "Größter Schwarm: %d   ·   Kills: %d" % [peak_population, kills], center + Vector2(0, -22), 24)
 		_center_text(font, "Geerntete Biomasse: %.1f" % consumed_biomass, center + Vector2(0, 24), 24)
+		if evolution != null:
+			_center_text(font, "Gewählte Mutationen: %d" % evolution.level, center + Vector2(0, 70), 24)
 		draw_rect(_action_rect(), Color("296454"))
 		_center_text(font, "NEUER RUN" if extinct else "WEITERSPIELEN", center + Vector2(0, 187), 28)
 		_center_text(font, "R / Enter" if extinct else "P / Escape", center + Vector2(0, 257), 20)
+		if evolution != null:
+			var row := 0
+			for mutation in evolution.TRAITS:
+				var rank: int = evolution.rank(mutation[0])
+				if rank > 0:
+					_center_text(font, "%s · Rang %d" % [mutation[1], rank], center + Vector2(0, 325 + row * 33), 22)
+					row += 1
 
 
 func _center_text(font: Font, text: String, position: Vector2, font_size: int) -> void:
 	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	draw_string(font, position - Vector2(width * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color("e4f2dc"))
+
+
+func _mutation_rect(slot: int) -> Rect2:
+	return Rect2(Vector2(50, size.y * 0.5 - 265 + slot * 160), Vector2(size.x - 100, 140))
