@@ -47,6 +47,8 @@ $variants = [ordered]@{
 	'worst_noaa'     = @('scene=worst', "secs=$half", 'msaa=0')
 	'worst_medium'   = @('scene=worst', "secs=$half", 'quality=medium')
 	'worst_low'      = @('scene=worst', "secs=$half", 'quality=low')
+	# Etappe 08: worst case plus a full flood (160 Moorbrut, stage ~3, bites and kills).
+	'flood'          = @('scene=flood', "secs=$Seconds")
 }
 if ($Quick) { $Only = @('worst', 'calm', 'menu') }
 $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
@@ -58,7 +60,7 @@ foreach ($name in $names) {
 	$benchArgs = $variants[$name]
 	$job = Start-Job -ScriptBlock {
 		param($exe, $dir, $extra, $scr)
-		& $exe --screen $scr --path $dir --script 'res://tests/perf_bench.gd' -- @extra 2>&1 | ForEach-Object { "$_" }
+		& $exe --screen $scr --audio-driver Dummy --path $dir --script 'res://tests/perf_bench.gd' -- @extra 2>&1 | ForEach-Object { "$_" }
 	} -ArgumentList $godotExe, $projectDir, $benchArgs, $screen
 	if (Wait-Job $job -Timeout ([int]($Seconds * 2 + 90))) {
 		$output = @(Receive-Job $job)

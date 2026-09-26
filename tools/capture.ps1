@@ -13,7 +13,7 @@ if ($Only.Count -gt 0) { $captures = $captures | Where-Object { $Only -contains 
 foreach ($name in $captures) {
 	$job = Start-Job -ScriptBlock {
 		param($exe, $dir, $n, $scr)
-		& $exe --screen $scr --path $dir --script "res://tests/capture_$n.gd" 2>&1 | Select-Object -Last 2
+		& $exe --screen $scr --audio-driver Dummy --path $dir --script "res://tests/capture_$n.gd" 2>&1 | Select-Object -Last 2
 	} -ArgumentList $godotExe, $projectDir, $name, $screen
 	if (Wait-Job $job -Timeout 90) {
 		Write-Output ("ok   $name :: " + ((Receive-Job $job) -join ' ').Trim())
