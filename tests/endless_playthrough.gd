@@ -50,6 +50,12 @@ func _run() -> void:
 					avoiding = true
 					break
 		if not avoiding:
+			for leaper in world.leapers:
+				if leaper.state in [leaper.State.WARNING, leaper.State.LEAP] and leaper.zone_margin(swarm.position) < 0.6:
+					direction = leaper.dodge_direction(swarm.position)
+					avoiding = true
+					break
+		if not avoiding:
 			for skitter in world.skitters:
 				if skitter.state in [skitter.State.WARNING, skitter.State.DASH] and skitter.warning_distance(swarm.position) < 1.8:
 					direction = skitter.dodge_direction(swarm.position)

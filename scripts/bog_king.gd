@@ -3,7 +3,7 @@ extends Node3D
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
 const MODEL = preload("res://assets/gameplay/characters/BogKing_game.glb")
-const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
+const CREATURE_SHADER = preload("res://shaders/creature_anim.gdshader")
 
 const ARRIVE_SECONDS := 1.4
 const EMERGE_DEPTH := 4.0
@@ -45,6 +45,10 @@ var _lift := 0.0
 var _lean := 0.0
 var _sway := 0.0
 var _stretch := 0.0
+# Limb uniforms for creature_anim.gdshader (smoothed like the body pose).
+var _walk := 0.0
+var _stomp_leg := 0.0
+var _jaw := 0.0
 
 
 func _ready() -> void:
@@ -66,6 +70,7 @@ func _ready() -> void:
 	skin.set_shader_parameter("rim_strength", 0.85)
 	skin.set_shader_parameter("rim_power", 2.0)
 	skin.set_shader_parameter("flash", 0.0)
+	_setup_limbs()
 	for mesh in model.find_children("*", "MeshInstance3D", true, false):
 		mesh.material_override = skin
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -167,6 +172,9 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 	_slam = maxf(0.0, _slam - delta)
 	emerge = clampf(1.0 - remaining / ARRIVE_SECONDS, 0.0, 1.0) if state == State.ARRIVING else 1.0
 	var lift := 0.0
+	var walk := 0.0
+	var stomp_leg := 0.0
+	var jaw := 0.0
 	var lean := 0.0
 	var sway := 0.0
 	var stretch := 0.0
@@ -186,6 +194,7 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 				FX.ring(_fx_parent(), global_position, DUST, 0.4, 1.6, 0.35)
 				_shake(0.05)
 			lift = absf(wave) * 0.28 * stride
+			walk = stride
 			sway = wave * 0.075 * stride
 			lean = 0.07 * stride
 		State.WARNING:
@@ -194,6 +203,8 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 			lift = 0.7 * rise
 			lean = -0.3 * rise
 			stretch = 0.06 * rise
+			stomp_leg = rise
+			jaw = 0.8 * rise
 			tremble = 0.09 * smoothstep(0.6, 1.0, progress)
 			rim_target = RIM_WARNING
 			fill_disc.scale = Vector3(lerpf(0.05, 1.0, progress), 1.0, lerpf(0.05, 1.0, progress))
@@ -206,6 +217,7 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 			lift = -0.12
 			lean = 0.2 + 0.03 * breath
 			stretch = 0.035 * breath
+			jaw = 0.35 + 0.15 * breath
 			rim_target = RIM_RECOVERY
 			rim_strength = 0.8 + 0.35 * (0.5 + 0.5 * sin(_time * 5.0))
 	if state != State.WARNING:
@@ -217,6 +229,7 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 		lean += 0.32 * slam
 		lift -= 0.12 * slam
 		stretch -= 0.2 * slam
+		stomp_leg = 0.0
 	var flash := 0.0
 	if hit_flash > 0.0:
 		flash = 0.18 + 0.12 * (0.5 + 0.5 * sin(_time * 55.0))
@@ -226,6 +239,10 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 	_lean = lerpf(_lean, lean, weight)
 	_sway = lerpf(_sway, sway, weight)
 	_stretch = lerpf(_stretch, stretch, weight)
+	_walk = lerpf(_walk, walk, weight)
+	_jaw = lerpf(_jaw, jaw, weight)
+	# The stomping foot slams down much faster than it rises.
+	_stomp_leg = stomp_leg if snap or stomp_leg < _stomp_leg else lerpf(_stomp_leg, stomp_leg, weight)
 	_rim = rim_target if snap else _rim.lerp(rim_target, minf(1.0, delta * 5.0))
 	var risen := 1.0 - pow(1.0 - emerge, 3.0)
 	var jitter := Vector3(sin(_time * 47.0), 0.0, sin(_time * 39.0 + 1.3)) * tremble
@@ -237,6 +254,43 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 	skin.set_shader_parameter("rim_color", _rim)
 	skin.set_shader_parameter("rim_strength", rim_strength)
 	skin.set_shader_parameter("flash", flash)
+	skin.set_shader_parameter("walk_amount", _walk)
+	# Footfall of each diagonal pair lands on a sign change of the body wave (dust ring).
+	skin.set_shader_parameter("walk_phase", _gait + PI * 0.5)
+	skin.set_shader_parameter("stomp_lift", _stomp_leg)
+	skin.set_shader_parameter("bite_amount", _jaw)
+	skin.set_shader_parameter("tail_phase", _time * 1.6)
+
+
+# Limb animation frame for BogKing_game.glb, measured in raw mesh space (Z-up
+# storage): soles at z = 0 (up = -Z), head towards +Y, low tail towards -Y,
+# lateral = +X. Feet centres (forward, lateral) from clustering the lowest 5 % of
+# vertices: hands close together in front, hind feet splayed wide at the sides.
+func _setup_limbs() -> void:
+	skin.set_shader_parameter("up_axis", Vector3(0.0, 0.0, -1.0))
+	skin.set_shader_parameter("forward_axis", Vector3(0.0, 1.0, 0.0))
+	skin.set_shader_parameter("ground_offset", 0.0)
+	skin.set_shader_parameter("foot_a_front", Vector2(0.325, -0.113))
+	skin.set_shader_parameter("foot_a_back", Vector2(0.024, 0.234))
+	skin.set_shader_parameter("foot_b_front", Vector2(0.294, 0.063))
+	skin.set_shader_parameter("foot_b_back", Vector2(0.045, -0.252))
+	skin.set_shader_parameter("foot_radius", 0.13)
+	skin.set_shader_parameter("leg_height", 0.2)
+	skin.set_shader_parameter("stride", 0.05)
+	skin.set_shader_parameter("lift", 0.05)
+	skin.set_shader_parameter("stride_centering", 1.0)
+	skin.set_shader_parameter("walk_speed", 0.0)
+	skin.set_shader_parameter("walk_scale", 1.0)
+	skin.set_shader_parameter("jaw_hinge_forward", 0.16)
+	skin.set_shader_parameter("jaw_hinge_height", 0.33)
+	skin.set_shader_parameter("jaw_floor", 0.2)
+	skin.set_shader_parameter("jaw_angle", 0.4)
+	skin.set_shader_parameter("tail_start", -0.3)
+	skin.set_shader_parameter("tail_length", 0.35)
+	skin.set_shader_parameter("tail_floor", 0.03)
+	skin.set_shader_parameter("tail_swing", 0.04)
+	skin.set_shader_parameter("tail_rate", 0.0)
+	skin.set_shader_parameter("stomp_height", 0.14)
 
 
 func _stomp() -> void:

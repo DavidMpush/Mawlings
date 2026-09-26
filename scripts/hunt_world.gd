@@ -6,6 +6,7 @@ const PREY = preload("res://scripts/prey.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
 const SKITTER = preload("res://scripts/skitter.gd")
 const BOG_KING = preload("res://scripts/bog_king.gd")
+const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
 const CORPSE_BIOMASS := TUNING.CORPSE_BIOMASS
@@ -17,11 +18,13 @@ var model = RUN_MODEL.new()
 var prey: Array[Node3D] = []
 var hunters: Array[Node3D] = []
 var skitters: Array[Node3D] = []
+var leapers: Array[Node3D] = []
 var boss: Node3D
 var corpse_visuals: Dictionary = {}
 var spawn_clock := 0.0
 var hunter_clock := TUNING.FIRST_HUNTER_SECONDS
 var skitter_clock := TUNING.FIRST_SKITTER_SECONDS
+var leaper_clock := TUNING.FIRST_LEAPER_SECONDS
 var boss_clock := TUNING.FIRST_BOSS_SECONDS
 var spawn_number := 0
 var paused := false
@@ -51,6 +54,7 @@ func reset_run() -> void:
 	prey.clear()
 	hunters.clear()
 	skitters.clear()
+	leapers.clear()
 	boss = null
 	corpse_visuals.clear()
 	evolution = EVOLUTION.new()
@@ -58,6 +62,7 @@ func reset_run() -> void:
 	spawn_clock = 0.0
 	hunter_clock = TUNING.FIRST_HUNTER_SECONDS
 	skitter_clock = TUNING.FIRST_SKITTER_SECONDS
+	leaper_clock = TUNING.FIRST_LEAPER_SECONDS
 	boss_clock = TUNING.FIRST_BOSS_SECONDS
 	spawn_number = 0
 	paused = false
@@ -155,6 +160,32 @@ func step(delta: float) -> void:
 			return
 		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH]:
 			message = "SPRINT! SEITLICH AUSWEICHEN"
+	for leaper in leapers.duplicate():
+		if leaper.can_be_hit():
+			_consider_focus(leaper.position, 3.4)
+			if leaper.position.distance_to(swarm.position) < attack_range:
+				leaper.take_damage(damage * delta)
+				if leaper.state == MIRE_LEAPER.State.EXHAUSTED:
+					message = "Leaper erschöpft · jetzt angreifen!"
+				elif not message.begins_with("RAUS"):
+					message = "Mire Leaper angreifen"
+				if leaper.health <= 0.0:
+					leapers.erase(leaper)
+					_kill_burst(leaper.position, Color("5fe0c8"), 2.4, 0.2)
+					_create_corpse(leaper.position, TUNING.LEAPER_BIOMASS * evolution.biomass_multiplier())
+					_award_dna(TUNING.LEAPER_DNA)
+					leaper.cleanup()
+					leaper.queue_free()
+					if choosing():
+						return
+					continue
+		var loss: int = leaper.step(delta, swarm.position, pressure)
+		if loss > 0 and _apply_hit(loss, leaper.landing_center, 0.35):
+			return
+		if leaper.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP]:
+			message = "RAUS AUS DER SPRUNGZONE!"
+		elif leaper.state == MIRE_LEAPER.State.EXHAUSTED and not message.begins_with("RAUS") and not message.begins_with("SPRINT"):
+			message = "Leaper erschöpft · jetzt angreifen!"
 	if boss != null:
 		if boss.state != BOG_KING.State.ARRIVING:
 			_consider_focus(boss.position, 6.0)
@@ -215,6 +246,11 @@ func step(delta: float) -> void:
 	if model.elapsed >= TUNING.FIRST_SKITTER_SECONDS and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
 		_spawn_skitter(_spawn_position(9.0))
 		skitter_clock = maxf(7.0, 28.0 / sqrt(pressure))
+	leaper_clock -= delta
+	var leaper_budget := mini(TUNING.MAX_LEAPERS, 1 + int(maxf(0.0, model.elapsed - TUNING.FIRST_LEAPER_SECONDS) / 80.0))
+	if model.elapsed >= TUNING.FIRST_LEAPER_SECONDS and leaper_clock <= 0.0 and leapers.size() < leaper_budget:
+		_spawn_leaper(_spawn_position(10.0))
+		leaper_clock = maxf(8.0, 30.0 / sqrt(pressure))
 	if boss == null:
 		boss_clock -= delta
 		if boss_clock <= 0.0:
@@ -255,6 +291,17 @@ func _spawn_skitter(location: Vector3) -> Node3D:
 	target.max_health = target.health
 	add_child(target)
 	skitters.append(target)
+	return target
+
+
+func _spawn_leaper(location: Vector3) -> Node3D:
+	var target = MIRE_LEAPER.new()
+	target.name = "Mire Leaper"
+	target.position = location
+	target.health = TUNING.LEAPER_HEALTH * sqrt(model.pressure())
+	target.max_health = target.health
+	add_child(target)
+	leapers.append(target)
 	return target
 
 
@@ -329,6 +376,8 @@ func _update_hud(message: String) -> void:
 	hud.kills = model.kills
 	hud.hunters = hunters.size()
 	hud.skitters = skitters.size()
+	if "leapers" in hud:
+		hud.set("leapers", leapers.size())
 	hud.boss_health = boss.health if boss != null else 0.0
 	hud.boss_max_health = boss.max_health if boss != null else 0.0
 	hud.boss_pointer = _boss_pointer()

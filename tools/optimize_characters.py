@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CHARACTERS = {
     "mawling": ("Mawling", 3000),
     "bog_king": ("BogKing", 8000),
+    "nibbler": ("Nibbler", 2500),
+    "rock": ("Rock", 1500, "props"),
+    "leaf": ("Leaf", 1500, "props"),
 }
 
 
@@ -60,9 +63,13 @@ def main():
 
 
 def optimize(character):
-    name, triangles = CHARACTERS[character]
+    name, triangles, *folder = CHARACTERS[character]
     source_path = ROOT / "assets" / "source" / character / f"{name}.glb"
-    target_path = ROOT / "assets" / "gameplay" / "characters" / f"{name}_game.glb"
+    if not source_path.exists():
+        # Freshly delivered models may still sit directly in assets/.
+        source_path = ROOT / "assets" / f"{name}.glb"
+    target_path = ROOT / "assets" / "gameplay" / (folder[0] if folder else "characters") / f"{name}_game.glb"
+    target_path.parent.mkdir(parents=True, exist_ok=True)
     source, binary = read_glb(source_path)
     primitive = source["meshes"][0]["primitives"][0]
     positions = accessor(source, binary, primitive["attributes"]["POSITION"]).astype(np.float64)

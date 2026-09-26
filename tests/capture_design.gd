@@ -23,6 +23,28 @@ func _capture() -> void:
 	world._update_hud("SCHWARM VOLL · BIOMASSE BLEIBT LIEGEN")
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_design_250.png")
+	# Busiest HUD state: boss bar, threats, corpse, biomass, hit flash, pointer, pressed input.
+	var hud: Variant = scene.get_node("HUD/Controls")
+	hud.elapsed = 347.0
+	hud.pressure = 24.0
+	hud.hunters = 3
+	hud.skitters = 2
+	hud.boss_health = 620.0
+	hud.boss_max_health = 1000.0
+	hud.boss_vulnerable = false
+	hud.boss_pointer = Vector2(hud.size.x - 56, 520)
+	hud.nearest_corpse = "Kadaver: 12m · links oben"
+	hud.biomass_bank = 1.4
+	hud.hit_feedback = 1.0
+	hud.last_loss = 7
+	hud.rally_pressed = true
+	hud.movement_vector = Vector2(0.7, -0.7)
+	hud.hint = ""
+	hud.queue_redraw()
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png("res://preview_design_busy.png")
+	hud.rally_pressed = false
+	hud.movement_vector = Vector2.ZERO
 	world.evolution.offers = [world.evolution.TRAITS[2], world.evolution.TRAITS[4], world.evolution.TRAITS[5]]
 	world._update_hud("")
 	await RenderingServer.frame_post_draw

@@ -20,6 +20,8 @@ func _capture() -> void:
 	world = scene.get_node("HuntWorld")
 	swarm = scene.get_node("Swarm")
 	controls = scene.get_node("HUD/Controls")
+	# Background capture windows lose focus; the auto-pause must not end up in the frames.
+	controls.pause_requested.disconnect(world.toggle_pause)
 	await create_timer(0.3).timeout
 	Input.action_press("move_right")
 	Input.action_press("move_up")

@@ -16,6 +16,7 @@ var corpse_count := 0
 var kills := 0
 var hunters := 0
 var skitters := 0
+var leapers := 0
 var boss_health := 0.0
 var boss_max_health := 0.0
 var hint := ""
@@ -31,10 +32,29 @@ var boss_pointer := Vector2.INF
 var boss_vulnerable := false
 var last_loss := 0
 
+# Palette shared by all HUD parts.
+const INK := Color("0a1a17")
+const PANEL := Color("0f231ee6")
+const BONE := Color("f5e4b7")
+const CLAW := Color("d9c79a")
+const WARM := Color("ff8a3d")
+const CYAN := Color("6ee4d4")
+const DANGER := Color("ff5a44")
+
+var _bold: FontVariation
+
 
 func _ready() -> void:
 	set_process_input(true)
+	_ensure_font()
 	queue_redraw()
+
+
+func _ensure_font() -> void:
+	if _bold == null:
+		_bold = FontVariation.new()
+		_bold.base_font = ThemeDB.fallback_font
+		_bold.variation_embolden = 0.85
 
 
 func _notification(what: int) -> void:
@@ -128,157 +148,462 @@ func _rally_center() -> Vector2:
 
 
 func _pause_rect() -> Rect2:
-	return Rect2(Vector2(size.x - 112, 146), Vector2(88, 64))
+	return Rect2(Vector2(size.x - 98, 18), Vector2(82, 100))
 
 func _action_rect() -> Rect2:
 	return Rect2(Vector2(size.x * 0.5 - 220, size.y * 0.5 + 235), Vector2(440, 88))
 
 func _mutation_rect(slot: int) -> Rect2:
-	return Rect2(Vector2(48, size.y * 0.5 - 300 + slot * 238), Vector2(size.x - 96, 214))
+	return Rect2(Vector2(36, size.y * 0.5 - 322 + slot * 246), Vector2(size.x - 72, 226))
+
+func _pulse(speed: float = 3.0) -> float:
+	return 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * speed)
+
+# ---------------------------------------------------------------- drawing
 
 func _draw() -> void:
-	var font := ThemeDB.fallback_font
-	_draw_top(font)
+	_ensure_font()
+	_draw_top()
 	if boss_pointer.is_finite() and not extinct and not paused:
-		_draw_boss_pointer(font)
+		_draw_boss_pointer()
 	if hit_feedback > 0.0 and not extinct:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.95, 0.24, 0.12, minf(0.11, hit_feedback * 0.11)))
-		_center_text(font, "−%d MAWLINGS" % last_loss, Vector2(size.x * 0.5, size.y * 0.5 - 170), 27, Color("ffe2c5"))
+		_text("−%d MAWLINGS" % last_loss, Vector2(size.x * 0.5, size.y * 0.5 - 170), 30, Color("ffe2c5"), true, 8)
 	if extinct or paused:
-		_draw_result(font)
+		_draw_result()
 	elif evolution != null and not evolution.offers.is_empty():
-		_draw_mutations(font)
+		_draw_mutations()
 	else:
-		_draw_controls(font)
+		_draw_controls()
 
-func _draw_top(font: Font) -> void:
-	var panel := Color("102920e8")
-	var bone := Color("f5e4b7")
-	var warm := Color("f4783e")
-	var cyan := Color("6ee4d4")
-	_panel(Rect2(24, 24, 248, 111), panel, warm)
-	_icon("jaws", Vector2(53, 78), 29, warm)
-	draw_string(font, Vector2(96, 65), "SCHWARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, bone)
-	draw_string(font, Vector2(96, 111), "%d" % population, HORIZONTAL_ALIGNMENT_LEFT, -1, 43, Color.WHITE)
-	_panel(Rect2(size.x * 0.5 - 136, 24, 272, 111), panel, Color("b6c58e"))
-	_center_text(font, "%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60], Vector2(size.x * 0.5, 83), 43, bone)
+func _draw_top() -> void:
+	# Swarm: Mawling head silhouette plus the survival number.
+	var swarm_rect := Rect2(16, 18, 282, 100)
+	_frame(swarm_rect, PANEL, WARM, 1)
+	_mawling_head(Vector2(70, 70), 36, WARM)
+	_text("SCHWARM", Vector2(124, 54), 18, Color("e9c9a0"))
+	_text("%d" % population, Vector2(122, 104), 50, Color.WHITE, false, 6)
+	# Time with pressure bar and danger skull.
+	var cx := size.x * 0.5
+	var time_rect := Rect2(cx - 134, 18, 268, 100)
 	var danger_fraction := clampf(log(maxf(1.0, pressure)) / log(256.0), 0.0, 1.0)
-	var pressure_rect := Rect2(size.x * 0.5 - 101, 99, 202, 12)
-	draw_rect(pressure_rect, Color("263b36"))
-	draw_rect(Rect2(pressure_rect.position, Vector2(pressure_rect.size.x * maxf(0.05, danger_fraction), 12)), Color("ef7453"))
-	_panel(Rect2(size.x - 272, 24, 248, 111), panel, cyan)
+	var danger_color := Color("f2b24a").lerp(DANGER, danger_fraction)
+	_frame(time_rect, PANEL, Color("b6c58e").lerp(DANGER, danger_fraction), 0)
+	_text("%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60], Vector2(cx - 12, 68), 46, BONE, true, 6)
+	_segment_bar(Rect2(cx - 112, 84, 186, 14), maxf(0.04, danger_fraction), danger_color, 8)
+	_skull(Vector2(cx + 100, 90), 17, danger_color)
+	# DNA: helix, level and progress.
+	var dna_rect := Rect2(size.x - 294, 18, 186, 100)
+	_frame(dna_rect, PANEL, CYAN, 0)
 	var level: int = 0 if evolution == null else evolution.level
 	var dna: int = 0 if evolution == null else evolution.dna
 	var needed: int = 20 if evolution == null else evolution.threshold()
-	draw_string(font, Vector2(size.x - 247, 65), "EVOLUTION  %d" % level, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, bone)
-	draw_string(font, Vector2(size.x - 247, 97), "%d / %d DNA" % [dna, needed] if evolution == null or not evolution.complete() else "MAXIMUM", HORIZONTAL_ALIGNMENT_LEFT, -1, 25, Color.WHITE)
-	draw_rect(Rect2(size.x - 247, 108, 198, 11), Color("254039"))
-	if evolution != null and not evolution.complete():
-		draw_rect(Rect2(size.x - 247, 108, 198.0 * clampf(float(dna) / float(needed), 0, 1), 11), cyan)
+	var maxed: bool = evolution != null and evolution.complete()
+	_helix(Vector2(dna_rect.position.x + 30, 68), 64, CYAN)
+	_text("LV %d" % level, Vector2(dna_rect.position.x + 58, 60), 32, Color.WHITE, false, 5)
+	var bar := Rect2(dna_rect.position.x + 58, 72, 110, 12)
+	_bar(bar, 1.0 if maxed else clampf(float(dna) / float(needed), 0, 1), CYAN)
+	_text("MAX" if maxed else "%d / %d DNA" % [dna, needed], Vector2(dna_rect.position.x + 58, 106), 18, Color("bfeee6"))
+	# Pause button.
 	var pause := _pause_rect()
-	_panel(pause, panel, bone)
-	draw_rect(Rect2(pause.position + Vector2(29, 17), Vector2(7, 29)), bone)
-	draw_rect(Rect2(pause.position + Vector2(49, 17), Vector2(7, 29)), bone)
-	_center_text(font, "DRUCK ×%.1f" % pressure, Vector2(size.x * 0.5, 179), 22, Color("f6c79f"))
-	if hunters + skitters > 0:
-		draw_string(font, Vector2(30, 188), "JÄGER %d   SKITTER %d" % [hunters, skitters], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, bone)
+	_frame(pause, PANEL, BONE, 4)
+	var pc := pause.get_center()
+	draw_rect(Rect2(pc + Vector2(-15, -18), Vector2(10, 36)), BONE)
+	draw_rect(Rect2(pc + Vector2(5, -18), Vector2(10, 36)), BONE)
+	# Context line below the top bar.
+	var pressure_text := "DRUCK ×%.1f" % pressure
+	var pressure_w := ThemeDB.fallback_font.get_string_size(pressure_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 21).x
+	draw_colored_polygon(_rounded_points(Rect2(cx - pressure_w * 0.5 - 16, 130, pressure_w + 32, 32), 16, 4), Color("0f231ecc"))
+	_text(pressure_text, Vector2(cx, 153), 21, danger_color.lerp(Color.WHITE, 0.45), true)
+	var chip_x := 16.0
+	if hunters > 0:
+		chip_x = _chip(chip_x, "JÄGER %d" % hunters, Color("b07ae8"), Color("e6d6fa")) + 8
+	if skitters > 0:
+		chip_x = _chip(chip_x, "SKITTER %d" % skitters, Color("e46ad0"), Color("fad6f2")) + 8
+	if leapers > 0:
+		_chip(chip_x, "LEAPER %d" % leapers, Color("5fc9c0"), Color("d2f4ef"))
+	var y := 176.0
 	if boss_health > 0.0:
-		var boss_rect := Rect2(size.x * 0.5 - 305, 206, 610, 75)
-		_panel(boss_rect, Color("172921ed"), Color("e98e56"))
-		_center_text(font, "BOG KING", Vector2(size.x * 0.5, 236), 24, Color("ffe3ba"))
-		draw_rect(Rect2(size.x * 0.5 - 264, 251, 528, 12), Color("493833"))
-		draw_rect(Rect2(size.x * 0.5 - 264, 251, 528 * clampf(boss_health / boss_max_health, 0.0, 1.0), 12), Color("f09b63"))
+		var boss_rect := Rect2(cx - 300, y, 600, 72)
+		var accent := Color("ffe07a") if boss_vulnerable else Color("e98e56")
+		_frame(boss_rect, Color("1a1d18ee"), accent, 2 | 1)
+		_crown(Vector2(boss_rect.position.x + 42, y + 38), 20, accent)
+		_text("BOG KING" + ("  ·  VERWUNDBAR" if boss_vulnerable else ""), Vector2(boss_rect.position.x + 80, y + 30), 21, Color("ffe3ba"))
+		_segment_bar(Rect2(boss_rect.position.x + 80, y + 42, 490, 14), clampf(boss_health / maxf(1.0, boss_max_health), 0.0, 1.0), Color("f09b63") if not boss_vulnerable else Color("ffe07a"), 12)
+		y += 86
 	if nearest_corpse != "":
-		var corpse_y := 296.0 if boss_health > 0.0 else 216.0
-		_panel(Rect2(24, corpse_y, minf(465, size.x - 48), 46), Color("102920d8"), Color("d9ad56"))
-		draw_string(font, Vector2(43, corpse_y + 30), nearest_corpse, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, bone)
+		var corpse_rect := Rect2(24, y, minf(470, size.x - 48), 48)
+		_frame(corpse_rect, Color("12201bd8"), Color("d9ad56"), 0)
+		_biomass_drop(Vector2(50, y + 24), 13, Color("f6cc70"))
+		_text(nearest_corpse, Vector2(72, y + 32), 21, BONE)
+		y += 58
 	if biomass_bank > 0.01:
-		draw_string(font, Vector2(35, 374 if boss_health > 0.0 else 294), "BIOMASSE %.1f / 2" % biomass_bank, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("f6cc70"))
+		var text := "BIOMASSE %.1f / 2" % biomass_bank
+		var w := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 21).x
+		draw_colored_polygon(_rounded_points(Rect2(24, y, w + 60, 36), 18, 4), Color("0f231ed8"))
+		_biomass_drop(Vector2(44, y + 19), 10, Color("f6cc70"))
+		_text(text, Vector2(62, y + 26), 21, Color("f6cc70"))
 
-func _draw_boss_pointer(font: Font) -> void:
+func _draw_boss_pointer() -> void:
 	var direction := (boss_pointer - size * 0.5).normalized()
 	var side := Vector2(-direction.y, direction.x)
 	var tip := boss_pointer + direction * 34.0
 	var accent := Color("ffe07a") if boss_vulnerable else Color("ff8a5c")
+	draw_circle(boss_pointer, 48, Color(accent, 0.14 + 0.1 * _pulse(5.0)))
 	draw_circle(boss_pointer, 40, Color("172921e6"))
 	draw_arc(boss_pointer, 40, 0, TAU, 40, accent, 4.0, true)
 	draw_colored_polygon(PackedVector2Array([tip + direction * 16.0, tip + side * 17.0, tip - side * 17.0]), accent)
-	# Crown: the boss marker must not reuse the player's jaws icon.
-	var c := boss_pointer
-	draw_colored_polygon(PackedVector2Array([c + Vector2(-20, 12), c + Vector2(-22, -12), c + Vector2(-10, 0), c + Vector2(0, -17), c + Vector2(10, 0), c + Vector2(22, -12), c + Vector2(20, 12)]), accent)
-	var label := boss_pointer - direction * 64.0
-	_center_text(font, "BOG KING", label + Vector2(0, 8), 20, Color("ffe3ba"))
+	# Crown: the boss marker must not reuse the player's Mawling head.
+	_crown(boss_pointer, 21, accent)
+	var label := boss_pointer - direction * 66.0
+	draw_colored_polygon(_rounded_points(Rect2(label - Vector2(58, 16), Vector2(116, 32)), 16, 4), Color("172921e0"))
+	_text("BOG KING", label + Vector2(0, 7), 20, Color("ffe3ba"), true)
 
 
-func _draw_controls(font: Font) -> void:
+func _draw_controls() -> void:
 	if hint != "":
-		_panel(Rect2(24, size.y - 336, size.x - 48, 65), Color("102920cd"), Color("8cae81"))
-		_center_text(font, hint, Vector2(size.x * 0.5, size.y - 294), 23, Color("f4e9cf"))
-	var left := _rally_center()
-	var right := _movement_center()
-	draw_circle(left, 96, Color("112720bc"))
-	draw_arc(left, 92, -PI, PI, 64, Color("fa9153"), 5)
-	draw_circle(left, 68, Color("b14428" if rally_pressed else "5b2c21"))
-	_icon("pack", left + Vector2(0, -7), 34, Color("ffe0b3"))
-	_center_text(font, "RALLY", left + Vector2(0, 50), 22, Color.WHITE)
-	draw_circle(right, 96, Color("102c2f98"))
-	draw_arc(right, 92, -PI, PI, 64, Color("a0d9ca"), 4)
-	draw_circle(right, 67, Color("183b3cc0"))
-	draw_circle(right + movement_vector * 52, 30, Color("d8eee0"))
-	_center_text(font, "BEWEGEN", right + Vector2(0, 131), 20, Color("f4e9cf"))
+		var hint_rect := Rect2(40, size.y - 348, size.x - 80, 60)
+		_frame(hint_rect, Color("0f231ed0"), Color("8cae81"), 0)
+		_text(hint, Vector2(size.x * 0.5, size.y - 309), 23, Color("f4e9cf"), true)
+	_draw_rally(_rally_center())
+	_draw_joystick(_movement_center())
 
-func _draw_mutations(font: Font) -> void:
-	draw_rect(Rect2(Vector2(0, 215), Vector2(size.x, size.y - 215)), Color("06120ddc"))
-	_center_text(font, "MUTATION WÄHLEN", Vector2(size.x * 0.5, size.y * 0.5 - 380), 43, Color("f5e6ba"))
-	_center_text(font, "STUFE %d  ·  WELT PAUSIERT" % (evolution.level + 1), Vector2(size.x * 0.5, size.y * 0.5 - 340), 22, Color("9ed5b3"))
+func _draw_rally(c: Vector2) -> void:
+	var glow := 0.55 + 0.45 * _pulse(2.4)
+	if rally_pressed:
+		glow = 1.3
+	for i in 4:
+		draw_circle(c, 110 + i * 7, Color(1.0, 0.45, 0.12, 0.07 * glow * (1.0 - i * 0.22)))
+	for angle in [-2.45, -1.75, -1.05, -0.35]:
+		var dir := Vector2(cos(angle), sin(angle))
+		_claw(c + dir * 102, dir, 30, 9, CLAW, 0.35)
+	draw_circle(c, 108, Color("1b120ce8"))
+	draw_arc(c, 103, 0, TAU, 64, WARM.lightened(0.25 if rally_pressed else 0.0), 7, true)
+	draw_arc(c, 94, 0, TAU, 64, Color("3a1a0e"), 3, true)
+	var core := Color("c2521f") if rally_pressed else Color("6e2a14")
+	draw_circle(c, 92, core)
+	draw_circle(c + Vector2(0, -10), 70, core.lightened(0.08))
+	draw_circle(c + Vector2(0, -20), 44, core.lightened(0.14))
+	var head := Color("4a1a0c") if rally_pressed else Color("ff9a4a")
+	_mawling_head(c + Vector2(-30, -34), 23, head.darkened(0.25))
+	_mawling_head(c + Vector2(26, -38), 22, head.darkened(0.15))
+	_mawling_head(c + Vector2(-2, -10), 31, head)
+	_text("RALLY", c + Vector2(0, 52), 29, Color.WHITE, true, 6)
+	_text("AKTIV" if rally_pressed else "HALTEN", c + Vector2(0, 76), 17, Color.WHITE if rally_pressed else Color("ffd6b0"), true, 4)
+
+func _draw_joystick(c: Vector2) -> void:
+	for angle in [-0.35, -1.05, -1.75, -2.45]:
+		var dir := Vector2(-cos(angle), sin(angle))
+		_claw(c + dir * 96, dir, 26, 8, Color(CLAW, 0.8), -0.35)
+	draw_circle(c, 102, Color("0c1d1a88"))
+	draw_arc(c, 99, 0, TAU, 64, Color(1, 1, 1, 0.42), 3, true)
+	draw_arc(c, 70, 0, TAU, 48, Color(1, 1, 1, 0.12), 2, true)
+	for i in 4:
+		var dir := Vector2.RIGHT.rotated(i * PI * 0.5)
+		var side := Vector2(-dir.y, dir.x)
+		var alpha := 0.35 + 0.5 * clampf(movement_vector.dot(dir), 0.0, 1.0)
+		var tip := c + dir * 90
+		draw_colored_polygon(PackedVector2Array([tip, tip - dir * 14 + side * 12, tip - dir * 14 - side * 12]), Color(1, 1, 1, alpha))
+	var knob := c + movement_vector * 52
+	draw_circle(knob + Vector2(0, 5), 38, Color(0, 0, 0, 0.3))
+	draw_circle(knob, 38, Color("9fb0aaee"))
+	draw_circle(knob + Vector2(0, -3), 32, Color("d8e6e0f0"))
+	draw_circle(knob + Vector2(-10, -13), 10, Color(1, 1, 1, 0.55))
+	draw_arc(knob, 38, 0, TAU, 40, Color("22403a"), 2, true)
+
+# ---------------------------------------------------------------- mutations
+
+func _draw_mutations() -> void:
+	draw_rect(Rect2(Vector2(0, 132), Vector2(size.x, size.y - 132)), Color("06120de0"))
+	draw_rect(Rect2(Vector2(0, 124), Vector2(size.x, 8)), Color("06120d80"))
+	var cy := size.y * 0.5
+	var title := "MUTATION WÄHLEN"
+	var title_y := cy - 388
+	_text(title, Vector2(size.x * 0.5, title_y), 52, Color("f5e6ba"), true, 8)
+	var half := _bold.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 52).x * 0.5
+	for s in [-1.0, 1.0]:
+		var inner := Vector2(size.x * 0.5 + s * (half + 18), title_y - 16)
+		var outer := Vector2(size.x * 0.5 + s * (half + 70), title_y - 44)
+		draw_line(inner, outer, Color("7fa86a"), 4, true)
+		_claw(outer, Vector2(s * 0.3, -1), 22, 6, Color("9fc47f"), s * 0.4)
+		_claw(inner + (outer - inner) * 0.5, Vector2(s * 0.6, 1), 14, 4, Color("7fa86a"), -s * 0.4)
+	var sub := "STUFE %d   ·   WELT PAUSIERT" % (evolution.level + 1)
+	_text(sub, Vector2(size.x * 0.5, cy - 346), 22, Color("9ed5b3"), true)
+	var sub_half := ThemeDB.fallback_font.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x * 0.5
+	for s in [-1.0, 1.0]:
+		draw_line(Vector2(size.x * 0.5 + s * (sub_half + 16), cy - 353), Vector2(size.x * 0.5 + s * (sub_half + 130), cy - 353), Color("4f7a5c"), 2, true)
 	for slot in evolution.offers.size():
-		var mutation: Array = evolution.offers[slot]
-		var id: String = mutation[0]
-		var rank: int = evolution.rank(id)
-		var accent := _mutation_color(id)
-		var card := _mutation_rect(slot)
-		_panel(card, Color("112c25f5"), accent)
-		draw_rect(Rect2(card.position.x + 20, card.position.y + 21, 118, card.size.y - 42), Color("091c19"))
-		_icon(id, card.position + Vector2(79, card.size.y * 0.5), 47, accent)
-		var x := card.position.x + 160
-		draw_string(font, Vector2(x, card.position.y + 58), "%d   %s" % [slot + 1, mutation[1]], HORIZONTAL_ALIGNMENT_LEFT, -1, 30, accent)
-		draw_string(font, Vector2(x, card.position.y + 103), mutation[2], HORIZONTAL_ALIGNMENT_LEFT, int(card.size.x - 176), 22, Color("f2eacb"))
-		draw_rect(Rect2(x, card.position.y + 128, card.size.x - 188, 2), accent.darkened(0.45))
-		draw_string(font, Vector2(x, card.position.y + 162), "RANG %d / 3" % (rank + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("b8d0bc"))
-		draw_string(font, Vector2(x, card.position.y + 189), "%d %%  →  %d %%" % [rank * _step_percent(id), (rank + 1) * _step_percent(id)], HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color.WHITE)
-	_center_text(font, "KARTE ANTIPPEN  ODER  1 / 2 / 3", Vector2(size.x * 0.5, size.y * 0.5 + 476), 21, Color("c5d4bb"))
+		_draw_card(slot, evolution.offers[slot])
+	_text("KARTE ANTIPPEN  ODER  1 / 2 / 3", Vector2(size.x * 0.5, cy + 440), 21, Color("c5d4bb"), true)
 
-func _draw_result(font: Font) -> void:
+func _draw_card(slot: int, mutation: Array) -> void:
+	var id: String = mutation[0]
+	var rank: int = evolution.rank(id)
+	var accent := _mutation_color(id)
+	var card := _mutation_rect(slot)
+	var p := card.position
+	_frame(card.grow(7), Color(accent, 0.12), Color(accent, 0.0), 0)
+	_frame(card, Color("0e211cf5"), accent, 2 | 8, 4.0)
+	# Pores echo the bone-plate texture of the concept frames.
+	for pore in [Vector2(-44, 30), Vector2(-26, 22), Vector2(-30, 42)]:
+		draw_circle(Vector2(card.end.x, p.y) + pore, 6, Color(accent, 0.35))
+	# Icon medallion with number badge.
+	var mc := p + Vector2(116, card.size.y * 0.5)
+	draw_circle(mc, 84, Color(accent, 0.10))
+	draw_circle(mc, 76, INK)
+	draw_arc(mc, 76, 0, TAU, 56, accent, 4, true)
+	draw_circle(mc, 58, Color(accent, 0.08))
+	_icon(id, mc, 50, accent)
+	var badge := p + Vector2(44, 40)
+	draw_circle(badge, 23, accent)
+	draw_circle(badge, 19, INK)
+	_text("%d" % (slot + 1), badge + Vector2(0, 9), 25, accent, true)
+	# Text column.
+	var x := p.x + 222
+	var width := card.end.x - x - 28
+	_text(_mutation_category(id), Vector2(x, p.y + 42), 17, Color(accent, 0.8))
+	_text(mutation[1], Vector2(x, p.y + 86), 38, accent, false, 6)
+	draw_string(ThemeDB.fallback_font, Vector2(x, p.y + 124), mutation[2], HORIZONTAL_ALIGNMENT_LEFT, width, 21, Color("f2eacb"))
+	draw_line(Vector2(x, p.y + 144), Vector2(card.end.x - 28, p.y + 144), Color(accent, 0.45), 2)
+	# Rank pips: owned ranks filled, the offered rank glows.
+	for i in 3:
+		var pc := Vector2(x + 14 + i * 32, p.y + 186)
+		var shape := PackedVector2Array([pc + Vector2(0, -13), pc + Vector2(10, 0), pc + Vector2(0, 13), pc + Vector2(-10, 0)])
+		if i < rank:
+			draw_colored_polygon(shape, accent)
+		elif i == rank:
+			draw_colored_polygon(shape, Color(accent, 0.45 + 0.45 * _pulse(4.0)))
+			shape.append(shape[0])
+			draw_polyline(shape, Color.WHITE, 2, true)
+		else:
+			shape.append(shape[0])
+			draw_polyline(shape, Color(accent, 0.5), 2, true)
+	_text("RANG %d" % (rank + 1), Vector2(x + 104, p.y + 194), 19, Color("b8d0bc"))
+	# Before → after, right aligned.
+	var prefix := _mutation_sign(id)
+	var before := "0 %" if rank == 0 else "%s%d %%" % [prefix, rank * _step_percent(id)]
+	var after := "%s%d %%" % [prefix, (rank + 1) * _step_percent(id)]
+	var font := _bold
+	var after_w := font.get_string_size(after, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
+	var before_w := font.get_string_size(before, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+	var right := card.end.x - 30
+	_text(after, Vector2(right - after_w, p.y + 197), 30, Color.WHITE, false, 5)
+	var arrow_x := right - after_w - 40
+	draw_line(Vector2(arrow_x, p.y + 186), Vector2(arrow_x + 26, p.y + 186), accent, 4)
+	draw_colored_polygon(PackedVector2Array([Vector2(arrow_x + 32, p.y + 186), Vector2(arrow_x + 22, p.y + 178), Vector2(arrow_x + 22, p.y + 194)]), accent)
+	_text(before, Vector2(arrow_x - 10 - before_w, p.y + 194), 22, Color("9fb6a6"))
+
+# ---------------------------------------------------------------- result / pause
+
+func _draw_result() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color("06120ef0"))
 	var center := Vector2(size.x * 0.5, size.y * 0.5)
-	_panel(Rect2(center.x - 355, center.y - 427, 710, 810), Color("142d24"), Color("e4ad62"))
-	_center_text(font, "AUSGESTORBEN" if extinct else "PAUSE", center + Vector2(0, -318), 47, Color("f5e6ba"))
-	_center_text(font, "ÜBERLEBT  %02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60], center + Vector2(0, -239), 28, Color.WHITE)
-	_center_text(font, "GRÖSSTER SCHWARM  %d" % peak_population, center + Vector2(0, -190), 23, Color("d5e8cc"))
-	_center_text(font, "KILLS  %d    ·    BIOMASSE  %.1f" % [kills, consumed_biomass], center + Vector2(0, -149), 22, Color("d5e8cc"))
-	_center_text(font, "MUTATIONEN  %d" % (0 if evolution == null else evolution.level), center + Vector2(0, -91), 24, Color("f4c48c"))
+	var accent := Color("e4ad62") if not extinct else Color("f07a4f")
+	var panel := Rect2(center.x - 360, center.y - 440, 720, 836)
+	_frame(panel, Color("10231ef8"), accent, 1 | 2 | 4 | 8, 4.0)
+	if extinct:
+		_skull(center + Vector2(0, -366), 40, accent)
+	else:
+		draw_rect(Rect2(center + Vector2(-26, -396), Vector2(18, 60)), accent)
+		draw_rect(Rect2(center + Vector2(8, -396), Vector2(18, 60)), accent)
+	_text("AUSGESTORBEN" if extinct else "PAUSE", center + Vector2(0, -276), 54, Color("f5e6ba"), true, 8)
+	_text("ÜBERLEBT", center + Vector2(0, -228), 20, Color("b6d0bc"), true)
+	_text("%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60], center + Vector2(0, -180), 50, Color.WHITE, true, 6)
+	var stats := [["MAX. SCHWARM", "%d" % peak_population, WARM], ["KILLS", "%d" % kills, CYAN], ["BIOMASSE", "%.1f" % consumed_biomass, Color("f6cc70")]]
+	for i in stats.size():
+		var tile := Rect2(center.x - 320 + i * 220, center.y - 150, 200, 100)
+		_frame(tile, Color("0a1a16"), Color(stats[i][2], 0.7), 0)
+		_text(stats[i][0], Vector2(tile.get_center().x, tile.position.y + 32), 17, Color("b6d0bc"), true)
+		_text(stats[i][1], Vector2(tile.get_center().x, tile.position.y + 80), 38, stats[i][2], true)
+	var level: int = 0 if evolution == null else evolution.level
+	_text("MUTATIONEN  %d" % level, center + Vector2(0, -12), 24, Color("f4c48c"), true)
+	var row := 0
 	if evolution != null:
-		var row := 0
 		for mutation in evolution.TRAITS:
 			var rank: int = evolution.rank(mutation[0])
-			if rank > 0:
-				_center_text(font, "%s   %d / 3" % [mutation[1], rank], center + Vector2(0, -46 + row * 38), 22, _mutation_color(mutation[0]))
-				row += 1
+			if rank <= 0:
+				continue
+			var color := _mutation_color(mutation[0])
+			var cell := center + Vector2(-322 + (row % 2) * 330, 30 + int(row / 2.0) * 60)
+			draw_circle(cell + Vector2(24, 0), 24, INK)
+			draw_arc(cell + Vector2(24, 0), 24, 0, TAU, 32, color, 2, true)
+			_icon(mutation[0], cell + Vector2(24, 0), 16, color)
+			_text(mutation[1], cell + Vector2(58, 7), 21, color)
+			for i in 3:
+				var pc := cell + Vector2(252 + i * 22, 0)
+				var shape := PackedVector2Array([pc + Vector2(0, -9), pc + Vector2(7, 0), pc + Vector2(0, 9), pc + Vector2(-7, 0)])
+				if i < rank:
+					draw_colored_polygon(shape, color)
+				else:
+					shape.append(shape[0])
+					draw_polyline(shape, Color(color, 0.45), 2, true)
+			row += 1
+	if row == 0:
+		_text("Keine Mutationen gewählt", center + Vector2(0, 36), 21, Color("8fa597"), true)
 	var button := _action_rect()
-	_panel(button, Color("295e4b"), Color("a7ddab"))
-	_center_text(font, "NEUER RUN" if extinct else "WEITERSPIELEN", center + Vector2(0, 291), 29, Color.WHITE)
-	_center_text(font, "R / ENTER" if extinct else "P / ESCAPE", center + Vector2(0, 355), 20, Color("b6d0bc"))
+	var button_color := WARM if extinct else Color("7fd0a0")
+	_frame(button.grow(8), Color(button_color, 0.10 + 0.08 * _pulse(2.5)), Color(button_color, 0.0), 0)
+	_frame(button, Color("8a3a18") if extinct else Color("235a45"), button_color, 0, 4.0)
+	_text("NEUER RUN" if extinct else "WEITERSPIELEN", button.get_center() + Vector2(0, 12), 34, Color.WHITE, true, 6)
+	_text("R / ENTER" if extinct else "P / ESCAPE", center + Vector2(0, 360), 19, Color("b6d0bc"), true)
 
-func _panel(rect: Rect2, fill: Color, edge: Color) -> void:
-	var x := rect.position.x
-	var y := rect.position.y
-	var w := rect.size.x
-	var h := rect.size.y
-	var cut := minf(18, minf(w, h) * 0.18)
-	var points := PackedVector2Array([Vector2(x + cut, y), Vector2(x + w - cut, y), Vector2(x + w, y + cut), Vector2(x + w, y + h - cut), Vector2(x + w - cut, y + h), Vector2(x + cut, y + h), Vector2(x, y + h - cut), Vector2(x, y + cut)])
+# ---------------------------------------------------------------- helpers
+
+func _text(value: String, point: Vector2, font_size: int, color: Color = Color.WHITE, centered: bool = false, outline: int = 0) -> void:
+	var font: Font = _bold if font_size >= 24 else ThemeDB.fallback_font
+	var origin := point
+	if centered:
+		origin.x -= font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x * 0.5
+	if outline > 0:
+		draw_string_outline(font, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, outline, Color(0.02, 0.07, 0.06, 0.85))
+	draw_string(font, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+
+func _rounded_points(rect: Rect2, radius: float, steps: int = 6) -> PackedVector2Array:
+	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.5)
+	var centers := [Vector2(rect.end.x - r, rect.position.y + r), rect.end - Vector2(r, r), Vector2(rect.position.x + r, rect.end.y - r), rect.position + Vector2(r, r)]
+	var points := PackedVector2Array()
+	for i in 4:
+		var start := -PI * 0.5 + i * PI * 0.5
+		for s in steps + 1:
+			var angle := start + PI * 0.5 * float(s) / float(steps)
+			points.append(centers[i] + Vector2(cos(angle), sin(angle)) * r)
+	return points
+
+# Organic panel: soft rounded body, double rim and optional claws.
+# claws bitmask: 1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left.
+func _frame(rect: Rect2, fill: Color, edge: Color, claws: int = 0, width: float = 3.0) -> void:
+	var radius := minf(26.0, minf(rect.size.x, rect.size.y) * 0.32)
+	var points := _rounded_points(rect, radius)
 	draw_colored_polygon(points, fill)
+	if edge.a <= 0.0:
+		return
+	var inner := _rounded_points(rect.grow(-6), radius - 5)
+	inner.append(inner[0])
+	draw_polyline(inner, Color(edge, 0.22), 2.0, true)
 	points.append(points[0])
-	draw_polyline(points, edge, 2.0, true)
+	draw_polyline(points, edge, width, true)
+	var corners := [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]
+	var outward := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
+	for i in 4:
+		if claws & (1 << i):
+			var dir: Vector2 = outward[i].normalized()
+			var base: Vector2 = corners[i] - dir * radius * 0.28
+			_claw(base, dir, 22, 7, CLAW, 0.45 if i % 2 == 0 else -0.45)
+
+func _claw(base: Vector2, direction: Vector2, length: float, width: float, color: Color, bend: float = 0.35) -> void:
+	var d := direction.normalized()
+	var side := Vector2(-d.y, d.x)
+	var points := PackedVector2Array()
+	var steps := 6
+	for i in steps + 1:
+		var t := float(i) / steps
+		points.append(base + d * length * t + side * (bend * length * t * t) + side * width * (1.0 - t))
+	for i in range(steps - 1, -1, -1):
+		var t := float(i) / steps
+		points.append(base + d * length * t + side * (bend * length * t * t) - side * width * (1.0 - t))
+	draw_colored_polygon(points, color)
+
+func _bar(rect: Rect2, fraction: float, color: Color) -> void:
+	var back := _rounded_points(rect, rect.size.y * 0.5, 4)
+	draw_colored_polygon(back, Color("2a4a44"))
+	if fraction > 0.0:
+		var fill := Rect2(rect.position, Vector2(maxf(rect.size.y, rect.size.x * fraction), rect.size.y))
+		draw_colored_polygon(_rounded_points(fill, rect.size.y * 0.5, 4), color)
+
+func _segment_bar(rect: Rect2, fraction: float, color: Color, segments: int) -> void:
+	var gap := 3.0
+	var seg := (rect.size.x - gap * (segments - 1)) / segments
+	for i in segments:
+		var cell := Rect2(rect.position + Vector2(i * (seg + gap), 0), Vector2(seg, rect.size.y))
+		draw_rect(cell, Color("3a3c33"))
+		var amount := clampf(fraction * segments - i, 0.0, 1.0)
+		if amount > 0.0:
+			draw_rect(Rect2(cell.position, Vector2(seg * amount, rect.size.y)), color)
+			draw_rect(Rect2(cell.position, Vector2(seg * amount, 3)), color.lightened(0.35))
+
+# Small dark pill with a coloured diamond; returns the right edge.
+func _chip(x: float, text: String, accent: Color, color: Color) -> float:
+	var w := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x + 50
+	draw_colored_polygon(_rounded_points(Rect2(x, 130, w, 34), 17, 4), Color("0f231ed8"))
+	_threat_dot(Vector2(x + 20, 147), accent)
+	_text(text, Vector2(x + 36, 154), 20, color)
+	return x + w
+
+func _threat_dot(center: Vector2, color: Color) -> void:
+	draw_colored_polygon(PackedVector2Array([center + Vector2(0, -9), center + Vector2(8, 0), center + Vector2(0, 9), center + Vector2(-8, 0)]), color)
+
+func _mawling_head(center: Vector2, r: float, color: Color, facing: float = 1.0) -> void:
+	var s := Vector2(r * facing, r)
+	var outline := PackedVector2Array()
+	for v in [Vector2(-0.95, 0.15), Vector2(-0.85, -0.4), Vector2(-0.5, -0.72), Vector2(-0.05, -0.82), Vector2(0.45, -0.66), Vector2(0.9, -0.42), Vector2(1.05, -0.2), Vector2(1.0, -0.08), Vector2(0.12, 0.06), Vector2(0.86, 0.3), Vector2(0.9, 0.42), Vector2(0.6, 0.6), Vector2(0.05, 0.64), Vector2(-0.5, 0.62), Vector2(-0.86, 0.45)]:
+		outline.append(center + v * s)
+	for spike in [[Vector2(-0.93, -0.05), Vector2(-0.8, -0.48), Vector2(-1.28, -0.5)], [Vector2(-0.72, -0.56), Vector2(-0.34, -0.78), Vector2(-0.78, -1.02)], [Vector2(-0.22, -0.8), Vector2(0.14, -0.78), Vector2(-0.2, -1.1)]]:
+		draw_colored_polygon(PackedVector2Array([center + spike[0] * s, center + spike[1] * s, center + spike[2] * s]), color.darkened(0.2))
+	draw_colored_polygon(outline, color)
+	var tooth := Color("fff1d0")
+	for t in [0.18, 0.46, 0.74]:
+		var a: Vector2 = Vector2(0.95, -0.07).lerp(Vector2(0.2, 0.05), t)
+		draw_colored_polygon(PackedVector2Array([center + (a + Vector2(-0.08, 0)) * s, center + (a + Vector2(0.08, 0)) * s, center + (a + Vector2(0, 0.2)) * s]), tooth)
+	for t in [0.3, 0.65]:
+		var b: Vector2 = Vector2(0.2, 0.1).lerp(Vector2(0.84, 0.31), t)
+		draw_colored_polygon(PackedVector2Array([center + (b + Vector2(-0.07, 0.02)) * s, center + (b + Vector2(0.07, 0.02)) * s, center + (b + Vector2(0, -0.17)) * s]), tooth)
+	draw_circle(center + Vector2(0.36, -0.36) * s, r * 0.13, INK)
+	draw_circle(center + Vector2(0.39, -0.39) * s, r * 0.05, Color("ffe07a"))
+
+func _helix(center: Vector2, height: float, color: Color) -> void:
+	var a := PackedVector2Array()
+	var b := PackedVector2Array()
+	var steps := 18
+	for i in steps + 1:
+		var t := float(i) / steps
+		var y := center.y - height * 0.5 + height * t
+		var phase := t * TAU * 1.25
+		a.append(Vector2(center.x + sin(phase) * 11, y))
+		b.append(Vector2(center.x + sin(phase + PI) * 11, y))
+		if i % 3 == 1:
+			draw_line(a[i], b[i], Color(color, 0.5), 2)
+	draw_polyline(a, color, 4, true)
+	draw_polyline(b, color.darkened(0.2), 4, true)
+
+func _skull(center: Vector2, r: float, color: Color) -> void:
+	draw_circle(center + Vector2(0, -0.18 * r), 0.82 * r, color)
+	draw_rect(Rect2(center + Vector2(-0.46, 0.25) * r, Vector2(0.92, 0.55) * r), color)
+	for side in [-1.0, 1.0]:
+		draw_circle(center + Vector2(side * 0.32, -0.16) * r, 0.23 * r, INK)
+	draw_colored_polygon(PackedVector2Array([center + Vector2(0, 0.12) * r, center + Vector2(0.1, 0.32) * r, center + Vector2(-0.1, 0.32) * r]), INK)
+	for i in 3:
+		var x := (-0.2 + i * 0.2) * r
+		draw_line(center + Vector2(x, 0.5 * r), center + Vector2(x, 0.8 * r), INK, maxf(1.5, r * 0.08))
+
+func _crown(c: Vector2, r: float, color: Color) -> void:
+	var k := r / 20.0
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-20, 12) * k, c + Vector2(-22, -12) * k, c + Vector2(-10, 0) * k, c + Vector2(0, -17) * k, c + Vector2(10, 0) * k, c + Vector2(22, -12) * k, c + Vector2(20, 12) * k]), color)
+
+func _biomass_drop(c: Vector2, r: float, color: Color) -> void:
+	var points := PackedVector2Array()
+	for i in 17:
+		var angle := -PI * 0.2 + (PI * 1.4) * i / 16.0
+		points.append(c + Vector2(cos(angle), sin(angle)) * r + Vector2(0, r * 0.25))
+	points.append(c + Vector2(0, -r * 1.35))
+	draw_colored_polygon(points, color)
+
+func _ring_sector(c: Vector2, r_in: float, r_out: float, a0: float, a1: float, color: Color) -> void:
+	var points := PackedVector2Array()
+	var steps := 14
+	for i in steps + 1:
+		var a := lerpf(a0, a1, float(i) / steps)
+		points.append(c + Vector2(cos(a), sin(a)) * r_out)
+	for i in range(steps, -1, -1):
+		var a := lerpf(a0, a1, float(i) / steps)
+		points.append(c + Vector2(cos(a), sin(a)) * r_in)
+	draw_colored_polygon(points, color)
+
+func _ellipse(c: Vector2, rx: float, ry: float, color: Color) -> void:
+	var points := PackedVector2Array()
+	for i in 20:
+		var a := TAU * i / 20.0
+		points.append(c + Vector2(cos(a) * rx, sin(a) * ry))
+	draw_colored_polygon(points, color)
 
 func _mutation_color(id: String) -> Color:
 	if id in ["jaws", "pack"]:
@@ -289,6 +614,18 @@ func _mutation_color(id: String) -> Color:
 		return Color("b798ec")
 	return Color("b8d879")
 
+func _mutation_category(id: String) -> String:
+	if id in ["jaws", "pack"]:
+		return "ANGRIFF"
+	if id in ["brood", "glutton"]:
+		return "WACHSTUM"
+	if id == "scatter":
+		return "REFLEX"
+	return "SCHUTZ"
+
+func _mutation_sign(id: String) -> String:
+	return "−" if id in ["scatter", "armor"] else "+"
+
 func _step_percent(id: String) -> int:
 	if id in ["jaws", "glutton"]:
 		return 25
@@ -296,35 +633,54 @@ func _step_percent(id: String) -> int:
 		return 30 if id == "brood" else 10
 	return 20
 
-func _icon(id: String, center: Vector2, radius: float, color: Color) -> void:
-	var dark := Color("102a25")
+func _icon(id: String, c: Vector2, r: float, color: Color) -> void:
+	var tooth := Color("fff1d0")
 	if id == "jaws":
-		draw_arc(center, radius * 0.80, 0.2, PI - 0.2, 18, color, 7)
-		draw_arc(center, radius * 0.80, PI + 0.2, TAU - 0.2, 18, color, 7)
-		for side in [-1.0, 1.0]:
-			draw_colored_polygon(PackedVector2Array([center + Vector2(side * 15, -8), center + Vector2(side * 30, 5), center + Vector2(side * 7, 11)]), color)
+		_ring_sector(c + Vector2(0, -0.08 * r), 0.5 * r, 0.9 * r, PI + 0.35, TAU - 0.35, color)
+		_ring_sector(c + Vector2(0, 0.08 * r), 0.5 * r, 0.85 * r, 0.45, PI - 0.45, color.darkened(0.12))
+		for i in 4:
+			var a := PI + 0.62 + i * 0.62
+			var base := c + Vector2(0, -0.08 * r) + Vector2(cos(a), sin(a)) * 0.52 * r
+			var tangent := Vector2(-sin(a), cos(a))
+			draw_colored_polygon(PackedVector2Array([base + tangent * 0.12 * r, base - tangent * 0.12 * r, base.lerp(c, 0.55)]), tooth)
+		for i in 3:
+			var a := 0.95 + i * 0.6
+			var base := c + Vector2(0, 0.08 * r) + Vector2(cos(a), sin(a)) * 0.52 * r
+			var tangent := Vector2(-sin(a), cos(a))
+			draw_colored_polygon(PackedVector2Array([base + tangent * 0.11 * r, base - tangent * 0.11 * r, base.lerp(c, 0.5)]), tooth)
 	elif id == "brood":
-		for offset in [Vector2(-19, 7), Vector2(19, 7), Vector2(0, -16)]:
-			draw_circle(center + offset, radius * 0.30, color)
-			draw_circle(center + offset + Vector2(-4, -4), radius * 0.08, dark)
+		_ring_sector(c + Vector2(0, 0.2 * r), 0.62 * r, 0.9 * r, 0.25, PI - 0.25, color.darkened(0.45))
+		for offset in [Vector2(-0.36, 0.18), Vector2(0.36, 0.18), Vector2(0, -0.26)]:
+			var e: Vector2 = c + offset * r
+			_ellipse(e, 0.3 * r, 0.4 * r, color)
+			draw_circle(e + Vector2(-0.1, -0.14) * r, 0.07 * r, Color(1, 1, 1, 0.55))
+			draw_circle(e + Vector2(0.1, 0.1) * r, 0.06 * r, color.darkened(0.45))
+			draw_circle(e + Vector2(-0.05, 0.2) * r, 0.045 * r, color.darkened(0.45))
 	elif id == "glutton":
-		draw_arc(center, radius * 0.72, -PI * 0.78, PI * 0.75, 24, color, 8)
-		draw_circle(center + Vector2(0, 7), radius * 0.18, color)
-		draw_colored_polygon(PackedVector2Array([center + Vector2(25, -29), center + Vector2(41, -19), center + Vector2(20, -13)]), color)
+		_biomass_drop(c + Vector2(0, 0.08 * r), 0.62 * r, color)
+		draw_circle(c + Vector2(0.52, -0.02) * r, 0.3 * r, INK)
+		draw_circle(c + Vector2(-0.18, 0.14) * r, 0.12 * r, Color(1, 1, 1, 0.45))
+		for p in [Vector2(0.62, 0.52), Vector2(0.86, 0.3)]:
+			draw_circle(c + p * r, 0.09 * r, color)
 	elif id == "pack":
-		for offset in [Vector2(-23, 14), Vector2(23, 14), Vector2(0, -17)]:
-			draw_circle(center + offset, radius * 0.25, color)
-		for side in [-1.0, 1.0]:
-			draw_line(center + Vector2(0, -8), center + Vector2(side * 18, 8), color, 6)
+		_mawling_head(c + Vector2(-0.38, -0.3) * r, 0.36 * r, color.darkened(0.25))
+		_mawling_head(c + Vector2(0.4, -0.22) * r, 0.34 * r, color.darkened(0.12))
+		_mawling_head(c + Vector2(0.0, 0.3) * r, 0.46 * r, color)
 	elif id == "scatter":
-		for side in [-1.0, 1.0]:
-			draw_line(center + Vector2(0, 8), center + Vector2(side * 32, -18), color, 8)
-			draw_colored_polygon(PackedVector2Array([center + Vector2(side * 36, -28), center + Vector2(side * 35, -9), center + Vector2(side * 17, -19)]), color)
+		var origin := c + Vector2(0, 0.7 * r)
+		for angle in [-2.35, -PI * 0.5, -0.79]:
+			var dir := Vector2(cos(angle), sin(angle))
+			var tip := origin + dir * 1.25 * r
+			draw_line(origin, tip - dir * 0.2 * r, color, maxf(3.0, 0.14 * r))
+			var side := Vector2(-dir.y, dir.x)
+			draw_colored_polygon(PackedVector2Array([tip, tip - dir * 0.36 * r + side * 0.22 * r, tip - dir * 0.36 * r - side * 0.22 * r]), color)
+		draw_circle(origin, 0.16 * r, color)
 	else:
-		var shield := PackedVector2Array([center + Vector2(0, -radius), center + Vector2(radius * 0.7, -radius * 0.5), center + Vector2(radius * 0.55, radius * 0.55), center + Vector2(0, radius), center + Vector2(-radius * 0.55, radius * 0.55), center + Vector2(-radius * 0.7, -radius * 0.5)])
+		var shield := PackedVector2Array([c + Vector2(0, -0.95) * r, c + Vector2(0.72, -0.55) * r, c + Vector2(0.6, 0.45) * r, c + Vector2(0, 0.98) * r, c + Vector2(-0.6, 0.45) * r, c + Vector2(-0.72, -0.55) * r])
+		for side in [-1.0, 0.0, 1.0]:
+			var base := c + Vector2(side * 0.4, -0.72 + absf(side) * 0.1) * r
+			draw_colored_polygon(PackedVector2Array([base + Vector2(-0.14, 0.1) * r, base + Vector2(0.14, 0.1) * r, base + Vector2(0, -0.34) * r]), tooth)
 		draw_colored_polygon(shield, color)
-		draw_line(center + Vector2(0, -radius * 0.7), center + Vector2(0, radius * 0.65), dark, 5)
-
-func _center_text(font: Font, value: String, point: Vector2, font_size: int, color: Color = Color.WHITE) -> void:
-	var width := font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	draw_string(font, point - Vector2(width * 0.5, 0), value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+		for y in [-0.2, 0.2]:
+			draw_line(c + Vector2(-0.55, y) * r, c + Vector2(0.55, y) * r, INK, maxf(2.0, 0.09 * r))
+		draw_line(c + Vector2(0, -0.8) * r, c + Vector2(0, 0.85) * r, INK, maxf(2.0, 0.08 * r))

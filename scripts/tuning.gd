@@ -38,3 +38,20 @@ const BOSS_RECOVERY_SECONDS := 2.5
 const BOSS_ATTACK_RADIUS := 3.6
 const BOSS_DAMAGE := 12.0
 const BOSS_BIOMASS := 110.0
+
+# Mire Leaper: ambush jumper that lands on a locked, announced zone.
+const FIRST_LEAPER_SECONDS := 60.0
+const LEAPER_HEALTH := 18.0
+const LEAPER_DAMAGE := 4.0
+const LEAPER_SPEED := 2.2
+const LEAPER_RANGE := 9.0
+const LEAPER_ZONE_RADIUS := 2.6
+const LEAPER_LURK_SECONDS := 2.5
+const LEAPER_WARNING_SECONDS := 1.1
+const LEAPER_FLIGHT_SECONDS := 0.55
+const LEAPER_EXHAUST_SECONDS := 2.0
+const LEAPER_RETREAT_SECONDS := 0.7
+const LEAPER_RETREAT_DISTANCE := 5.0
+const LEAPER_BIOMASS := 20.0
+const LEAPER_DNA := 15
+const MAX_LEAPERS := 3

@@ -1,35 +1,34 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene format=3 uid="uid://jy2f7vnym36u"]
 
-[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
-[ext_resource type="Script" path="res://scripts/swarm.gd" id="2_swarm"]
-[ext_resource type="Script" path="res://scripts/touch_controls.gd" id="3_touch"]
-[ext_resource type="Script" path="res://scripts/hunt_world.gd" id="4_hunt"]
-[ext_resource type="Script" path="res://scripts/arena.gd" id="5_arena"]
+[ext_resource type="Script" uid="uid://dtlur7hwnxypu" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://bpfboxjsc7c65" path="res://scripts/swarm.gd" id="2_swarm"]
+[ext_resource type="Script" uid="uid://bc8uok1djkigy" path="res://scripts/touch_controls.gd" id="3_touch"]
+[ext_resource type="Script" uid="uid://j53j42qobgmp" path="res://scripts/hunt_world.gd" id="4_hunt"]
+[ext_resource type="Script" uid="uid://jwe04cdd3noj" path="res://scripts/arena.gd" id="5_arena"]
 
-[node name="Main" type="Node3D"]
+[node name="Main" type="Node3D" unique_id=1678691872]
 script = ExtResource("1_main")
 
-[node name="Arena" type="Node3D" parent="."]
+[node name="Arena" type="Node3D" parent="." unique_id=752923736]
 script = ExtResource("5_arena")
 
-[node name="Swarm" type="Node3D" parent="."]
+[node name="Swarm" type="Node3D" parent="." unique_id=119764737]
 script = ExtResource("2_swarm")
 
-[node name="HuntWorld" type="Node3D" parent="."]
+[node name="HuntWorld" type="Node3D" parent="." unique_id=549803244]
 script = ExtResource("4_hunt")
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1436578829]
 current = true
 fov = 58.0
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
-rotation_degrees = Vector3(-55, -35, 0)
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=701133366]
+transform = Transform3D(0.81915206, 0.46984634, -0.32898995, 0, 0.57357645, 0.81915206, 0.57357645, -0.6710101, 0.46984634, 0, 0, 0)
 light_energy = 1.15
-shadow_enabled = false
 
-[node name="HUD" type="CanvasLayer" parent="."]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=1792303735]
 
-[node name="Controls" type="Control" parent="HUD"]
+[node name="Controls" type="Control" parent="HUD" unique_id=441580016]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0

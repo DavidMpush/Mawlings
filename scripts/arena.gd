@@ -5,22 +5,62 @@ extends Node3D
 const CELL := 28.0
 const VISIBLE_RADIUS := 1
 const OBSTACLE_RADIUS := 1.85
+const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
+const ROCK_SCENE = preload("res://assets/gameplay/props/Rock_game.glb")
+const LEAF_SCENE = preload("res://assets/gameplay/props/Leaf_game.glb")
+const TRAIL_HALF_WIDTH := 3.6
+const TRAIL_EDGE_WIDTH := 4.5
 var chunks: Dictionary = {}
 var ground_material: StandardMaterial3D
 var path_material: StandardMaterial3D
-var stone_material: StandardMaterial3D
-var moss_material: StandardMaterial3D
-var leaf_material: StandardMaterial3D
+var path_edge_material: StandardMaterial3D
+var moss_materials: Array[StandardMaterial3D] = []
+var sand_material: StandardMaterial3D
+var earth_material: StandardMaterial3D
+var plinth_material: StandardMaterial3D
 var water_material: StandardMaterial3D
+var shore_material: StandardMaterial3D
+var rock_material: ShaderMaterial
+var leaf_material: ShaderMaterial
+# Shared geometry: every chunk only adds instances of these.
+var rock_mesh: Mesh
+var rock_base: Transform3D
+var leaf_mesh: Mesh
+var leaf_base: Transform3D
+var ground_mesh: PlaneMesh
+var patch_mesh: CylinderMesh
+var plinth_mesh: CylinderMesh
+var pool_mesh: CylinderMesh
+var shore_mesh: CylinderMesh
 
 func _ready() -> void:
-	ground_material = _material(Color("647c56"))
-	path_material = _material(Color("ac9866"))
+	ground_material = _material(Color("80a04c"))
+	path_material = _material(Color("d4b377"))
 	path_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	stone_material = _material(Color("7b8879"))
-	moss_material = _material(Color("456e4c"))
-	leaf_material = _material(Color("59a358"))
-	water_material = _material(Color("3e91a0"))
+	path_edge_material = _material(Color("aeaa62"))
+	path_edge_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for tint in [Color("88a852"), Color("718f40"), Color("7a9844")]:
+		moss_materials.append(_material(tint))
+	sand_material = _material(Color("c8ab6e"))
+	earth_material = _material(Color("b39862"))
+	plinth_material = _material(Color("62883a"))
+	water_material = _material(Color("3fc0c4"))
+	water_material.roughness = 0.35
+	shore_material = _material(Color("dcd296"))
+	rock_material = _prop_material(1.15, 1.0, 0.45, 0.12)
+	leaf_material = _prop_material(1.1, 1.2, 0.4, 0.08)
+	var rock_parts := _extract_mesh(ROCK_SCENE)
+	rock_mesh = rock_parts[0]
+	rock_base = rock_parts[1]
+	var leaf_parts := _extract_mesh(LEAF_SCENE)
+	leaf_mesh = leaf_parts[0]
+	leaf_base = leaf_parts[1]
+	ground_mesh = PlaneMesh.new()
+	ground_mesh.size = Vector2(CELL, CELL)
+	patch_mesh = _disc(0.5, 0.5, 0.018)
+	plinth_mesh = _disc(OBSTACLE_RADIUS + 0.1, OBSTACLE_RADIUS + 0.45, 0.06)
+	pool_mesh = _disc(1.1, 1.1, 0.025)
+	shore_mesh = _disc(1.45, 1.55, 0.02)
 	sync(Vector3.ZERO)
 
 func sync(position: Vector3) -> void:
@@ -121,72 +161,134 @@ func _make_chunk(key: Vector2i) -> Node3D:
 	chunk.name = "Jungle %d %d" % [key.x, key.y]
 	chunk.position = Vector3(key.x * CELL, 0, key.y * CELL)
 	add_child(chunk)
-	var ground := PlaneMesh.new()
-	ground.size = Vector2(CELL, CELL)
-	_part(chunk, "Open ground", ground, ground_material, Vector3(CELL * 0.5, -0.02, CELL * 0.5))
-	var lane := _part(chunk, "Broad trail", _trail_mesh(key), path_material, Vector3.ZERO)
-	lane.transparency = 0.0
+	_part(chunk, "Open ground", ground_mesh, ground_material, Vector3(CELL * 0.5, -0.02, CELL * 0.5))
+	_part(chunk, "Trail edge", _trail_mesh(key, TRAIL_EDGE_WIDTH, 0.003), path_edge_material, Vector3.ZERO)
+	_part(chunk, "Broad trail", _trail_mesh(key, TRAIL_HALF_WIDTH, 0.007), path_material, Vector3.ZERO)
+	# Calm ground variation: soft moss tints, a few sand/earth spots, small pebbles.
 	for index in 6:
-		var x := 2.0 + float(_hash(key.x, key.y, index + 30) % 24)
-		var z := 2.0 + float(_hash(key.x, key.y, index + 60) % 24)
-		var patch := CylinderMesh.new()
-		patch.top_radius = 0.5
-		patch.bottom_radius = 0.5
-		patch.height = 0.018
-		var mark := _part(chunk, "Low leaf cover", patch, moss_material, Vector3(x, 0.003, z))
-		mark.scale = Vector3(1.4, 1, 0.65)
+		var spot := Vector3(2.0 + float(_hash(key.x, key.y, index + 30) % 24), 0.001, 2.0 + float(_hash(key.x, key.y, index + 60) % 24))
+		if _near_trail(chunk.position + spot, 1.0):
+			continue
+		var tint := moss_materials[_hash(key.x, key.y, index + 90) % moss_materials.size()]
+		var moss := _part(chunk, "Low leaf cover", patch_mesh, tint, spot)
+		var size := 1.3 + float(_hash(key.x, key.y, index + 120) % 5) * 0.3
+		moss.scale = Vector3(size * 1.5, 1, size)
+		moss.rotation.y = float(_hash(key.x, key.y, index + 150) % 628) * 0.01
+	for index in 3:
+		var spot := Vector3(2.0 + float(_hash(key.x, key.y, index + 180) % 24), 0.002, 2.0 + float(_hash(key.x, key.y, index + 210) % 24))
+		if _near_trail(chunk.position + spot, 1.5):
+			continue
+		var dirt := _part(chunk, "Sand patch", patch_mesh, sand_material if index != 2 else earth_material, spot)
+		var size := 1.2 + float(_hash(key.x, key.y, index + 240) % 4) * 0.3
+		dirt.scale = Vector3(size * 1.4, 1, size)
+		dirt.rotation.y = float(_hash(key.x, key.y, index + 270) % 628) * 0.01
+	for index in 5:
+		var spot := Vector3(1.0 + float(_hash(key.x, key.y, index + 300) % 26), 0, 1.0 + float(_hash(key.x, key.y, index + 330) % 26))
+		var size := 0.32 + float(_hash(key.x, key.y, index + 360) % 4) * 0.07
+		_prop(chunk, "Pebble", rock_mesh, rock_base, rock_material, spot, Vector3(size, size * 0.8, size), float(_hash(key.x, key.y, index + 390) % 628) * 0.01)
 	for center in obstacle_centers(key):
-		var local := center - chunk.position
-		_boulder(chunk, local)
+		_boulder(chunk, center)
+	# Scattered leaf clumps at the edges of the open ground: never on the trail,
+	# never in the middle of the chunk, never inside a stone footprint.
+	var placed := 0
+	var wanted := 3 + _hash(key.x, key.y, 400) % 3
+	for index in 14:
+		if placed >= wanted:
+			break
+		var local := Vector3(1.0 + float(_hash(key.x, key.y, index + 410) % 26), 0, 1.0 + float(_hash(key.x, key.y, index + 440) % 26))
+		var world := chunk.position + local
+		if local.distance_to(Vector3(CELL * 0.5, 0, CELL * 0.5)) < 7.0 or _near_trail(world, 1.2) or not is_open(world, 0.6):
+			continue
+		var size := 1.05 + float(_hash(key.x, key.y, index + 470) % 5) * 0.1
+		_prop(chunk, "Leaf clump", leaf_mesh, leaf_base, leaf_material, local, Vector3.ONE * size, float(_hash(key.x, key.y, index + 500) % 628) * 0.01)
+		placed += 1
 	# A rare water landmark is flat and traversable; the route stays open.
 	if _hash(key.x, key.y, 13) % 5 == 0:
-		var pool := CylinderMesh.new()
-		pool.top_radius = 1.1
-		pool.bottom_radius = 1.1
-		pool.height = 0.025
-		var water := _part(chunk, "Shallow pool", pool, water_material, Vector3(4, 0.015, 22))
+		var shore := _part(chunk, "Pool shore", shore_mesh, shore_material, Vector3(4, 0.01, 22))
+		shore.scale = Vector3(1.8, 1, 1.1)
+		var water := _part(chunk, "Shallow pool", pool_mesh, water_material, Vector3(4, 0.02, 22))
 		water.scale = Vector3(1.8, 1, 1.1)
 	return chunk
 
-func _trail_mesh(key: Vector2i) -> ArrayMesh:
+func _trail_center(key: Vector2i, local_z: float) -> float:
+	return 14.0 + 3.2 * sin((key.y * CELL + local_z) * 0.09 + key.x * 0.7)
+
+func _near_trail(world: Vector3, margin: float) -> bool:
+	var key := _cell(world)
+	var local_x := world.x - key.x * CELL
+	return absf(local_x - _trail_center(key, world.z - key.y * CELL)) < TRAIL_HALF_WIDTH + margin
+
+func _trail_mesh(key: Vector2i, half_width: float, height: float) -> ArrayMesh:
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for step_index in 8:
 		var z0 := float(step_index) * CELL / 8.0
 		var z1 := float(step_index + 1) * CELL / 8.0
-		var center0 := 14.0 + 3.2 * sin((key.y * CELL + z0) * 0.09 + key.x * 0.7)
-		var center1 := 14.0 + 3.2 * sin((key.y * CELL + z1) * 0.09 + key.x * 0.7)
-		var left0 := Vector3(center0 - 3.6, 0.006, z0)
-		var right0 := Vector3(center0 + 3.6, 0.006, z0)
-		var left1 := Vector3(center1 - 3.6, 0.006, z1)
-		var right1 := Vector3(center1 + 3.6, 0.006, z1)
+		var center0 := _trail_center(key, z0)
+		var center1 := _trail_center(key, z1)
+		var left0 := Vector3(center0 - half_width, height, z0)
+		var right0 := Vector3(center0 + half_width, height, z0)
+		var left1 := Vector3(center1 - half_width, height, z1)
+		var right1 := Vector3(center1 + half_width, height, z1)
 		for point in [left0, right0, left1, right0, right1, left1]:
 			surface.set_normal(Vector3.UP)
 			surface.add_vertex(point)
 	return surface.commit()
 
-func _boulder(chunk: Node3D, location: Vector3) -> void:
-	var foot := CylinderMesh.new()
-	foot.top_radius = OBSTACLE_RADIUS
-	foot.bottom_radius = OBSTACLE_RADIUS + 0.25
-	foot.height = 0.35
-	_part(chunk, "Stone footprint", foot, moss_material, location + Vector3(0, 0.16, 0))
-	var rock := SphereMesh.new()
-	rock.radius = 1.65
-	rock.height = 2.2
-	var body := _part(chunk, "Low stone", rock, stone_material, location + Vector3(0, 0.53, 0))
-	body.scale = Vector3(1.0, 0.55, 0.95)
-	for side in [-1.0, 1.0]:
-		var frond := SphereMesh.new()
-		frond.radius = 0.75
-		frond.height = 0.28
-		var leaf := _part(chunk, "Broad leaf", frond, leaf_material, location + Vector3(side * 1.05, 0.48, 0.45))
-		leaf.rotation.y = side * 0.4
-	var bright := SphereMesh.new()
-	bright.radius = 0.22
-	bright.height = 0.25
-	for offset in [Vector3(-1.0, 0.68, -0.55), Vector3(0.85, 0.75, 0.6)]:
-		_part(chunk, "Leaf tip", bright, leaf_material, location + offset)
+func _boulder(chunk: Node3D, center: Vector3) -> void:
+	var location := center - chunk.position
+	var roll := _hash(roundi(center.x * 10.0), roundi(center.z * 10.0), 7)
+	_part(chunk, "Stone footprint", plinth_mesh, plinth_material, location + Vector3(0, 0.02, 0))
+	var size := 0.92 + float(roll % 9) * 0.02
+	var yaw := float((roll >> 4) % 628) * 0.01
+	_prop(chunk, "Low stone", rock_mesh, rock_base, rock_material, location, Vector3(3.9, 3.2, 3.6) * size, yaw)
+	var count := 2 + (roll >> 8) % 2
+	for index in count:
+		var angle := yaw + float(index) * TAU / float(count) + float((roll >> (10 + index * 3)) % 7) * 0.12
+		var foot := location + Vector3(cos(angle), 0, sin(angle)) * (OBSTACLE_RADIUS + 0.1)
+		if _near_trail(chunk.position + foot, 0.3):
+			continue
+		var leaf_size := 1.15 + float((roll >> (14 + index)) % 4) * 0.1
+		_prop(chunk, "Broad leaf", leaf_mesh, leaf_base, leaf_material, foot, Vector3.ONE * leaf_size, angle)
+
+func _prop(parent: Node3D, label: String, mesh: Mesh, base: Transform3D, material: Material, location: Vector3, size: Vector3, yaw: float) -> MeshInstance3D:
+	var part := _part(parent, label, mesh, material, location)
+	var shape := Basis(Vector3.UP, yaw) * Basis.from_scale(size) * base.basis
+	# Rest the model on the ground and centre it over its footprint.
+	var bounds: AABB = Transform3D(shape, Vector3.ZERO) * mesh.get_aabb()
+	part.transform = Transform3D(shape, location + Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z))
+	return part
+
+func _extract_mesh(scene: PackedScene) -> Array:
+	var root := scene.instantiate()
+	var model: MeshInstance3D = root.find_children("*", "MeshInstance3D", true, false)[0]
+	var base := Transform3D.IDENTITY
+	var node: Node = model
+	while node != root and node is Node3D:
+		base = (node as Node3D).transform * base
+		node = node.get_parent()
+	var result := [model.mesh, base]
+	root.free()
+	return result
+
+func _disc(top: float, bottom: float, height: float) -> CylinderMesh:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = top
+	mesh.bottom_radius = bottom
+	mesh.height = height
+	mesh.radial_segments = 24
+	mesh.rings = 1
+	return mesh
+
+func _prop_material(brightness: float, saturation: float, shape_light: float, rim: float) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = CREATURE_SHADER
+	material.set_shader_parameter("brightness", brightness)
+	material.set_shader_parameter("saturation", saturation)
+	material.set_shader_parameter("shape_light", shape_light)
+	material.set_shader_parameter("rim_color", Color("f2f0c8"))
+	material.set_shader_parameter("rim_strength", rim)
+	return material
 
 func _material(color: Color) -> StandardMaterial3D:
 	var result := StandardMaterial3D.new()

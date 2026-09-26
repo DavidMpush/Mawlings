@@ -1,7 +1,7 @@
 extends Node3D
 
 const MAWLING_SCENE = preload("res://assets/gameplay/characters/Mawling_game.glb")
-const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
+const CREATURE_SHADER = preload("res://shaders/creature_anim.gdshader")
 const FX = preload("res://scripts/fx.gd")
 
 const START_POPULATION := 25
@@ -181,7 +181,9 @@ func _process(delta: float) -> void:
 		if flash > 0.0:
 			flash = maxf(0.0, flash - delta / FLASH_SECONDS)
 			game_material.set_shader_parameter("flash", flash * flash)
+		game_material.set_shader_parameter("idle_motion", 0.0)
 		return
+	game_material.set_shader_parameter("idle_motion", 1.0)
 	var before := position
 	var motion := Vector3(movement_vector.x, 0.0, movement_vector.y) * MOVE_SPEED * delta
 	position = get_parent().get_node("Arena").resolve_motion(position, motion, 0.75)
@@ -210,6 +212,8 @@ func _animate_units(delta: float) -> void:
 	var count := units.size()
 	var damping := exp(-PUSH_DAMPING * delta)
 	var multimesh := shadows.multimesh
+	# Jaw values only need refreshing while (or just after) attacking or harvesting.
+	var bite_active := attack_blend + harvest_blend > 0.002
 	for index in count:
 		var unit := units[index]
 		var phase := unit_phase[index]
@@ -255,11 +259,13 @@ func _animate_units(delta: float) -> void:
 		var hop := absf(sin(gait)) * HOP_HEIGHT * speed_share
 		var roll := sin(gait) * 0.16 * speed_share
 		var pitch := 0.12 * speed_share
+		var jaw := 0.0
 		if pull > 0.05:
 			var bite := pow(maxf(0.0, sin(clock * 14.0 + phase * 3.0)), 3.0) * 0.5
 			var peck := pow(0.5 + 0.5 * sin(clock * 4.5 + phase * 2.0), 2.0) * 0.55
 			var weight := clampf(pull / 0.3, 0.0, 1.0)
 			pitch += (bite * attack_blend + peck * harvest_blend) * weight
+			jaw = clampf((bite * 2.0 * attack_blend + peck * harvest_blend) * weight, 0.0, 1.0)
 		var breath := sin(clock * 2.2 + phase) * 0.035 * (1.0 - speed_share)
 		var hatch := unit_hatch[index]
 		if hatch < 1.0:
@@ -267,10 +273,20 @@ func _animate_units(delta: float) -> void:
 			unit_hatch[index] = hatch
 		var grown := _back_out(hatch)
 		_pose_model(unit, hop, roll, pitch, grown, breath)
+		# Leg cycle (creature_anim.gdshader) locked to the hop: feet land as the hop ends.
+		var mesh := _unit_mesh(unit)
+		mesh.set_instance_shader_parameter("instance_walk", speed_share)
+		mesh.set_instance_shader_parameter("instance_phase", fmod(gait, TAU) + PI * 0.5)
+		if bite_active:
+			mesh.set_instance_shader_parameter("instance_bite", jaw)
 		var shadow_size := display_scale * 1.05 * grown * (1.0 - hop * 1.4)
 		multimesh.set_instance_transform(index, Transform3D(Basis.from_scale(Vector3(shadow_size, 1.0, shadow_size)), Vector3(next.x, SHADOW_Y, next.z)))
 	multimesh.visible_instance_count = count
 	_update_ground_marks(radius)
+
+
+func _unit_mesh(unit: Node3D) -> GeometryInstance3D:
+	return unit.get_child(0).get_child(0)
 
 
 func _pose_model(unit: Node3D, hop: float, roll: float, pitch: float, grown: float, breath: float) -> void:
@@ -418,6 +434,36 @@ func _creature_material(base_flash: float) -> ShaderMaterial:
 	material.set_shader_parameter("rim_strength", 0.45)
 	material.set_shader_parameter("flash_color", Color("ffd9c9"))
 	material.set_shader_parameter("flash", base_flash)
+	# Limb animation frame for Mawling_game.glb, measured in raw mesh space (Z-up
+	# storage): soles at z = +0.0008 (up = -Z), head/jaw towards -X, tail towards +X,
+	# lateral = +Y. Feet centres (forward, lateral) from clustering the lowest 5 %
+	# of vertices; the rest pose is already mid-stride (pair A spread, pair B tucked).
+	material.set_shader_parameter("up_axis", Vector3(0.0, 0.0, -1.0))
+	material.set_shader_parameter("forward_axis", Vector3(-1.0, 0.0, 0.0))
+	material.set_shader_parameter("ground_offset", -0.0008)
+	material.set_shader_parameter("foot_a_front", Vector2(0.239, -0.287))
+	material.set_shader_parameter("foot_a_back", Vector2(-0.286, 0.205))
+	material.set_shader_parameter("foot_b_front", Vector2(0.063, 0.239))
+	material.set_shader_parameter("foot_b_back", Vector2(-0.052, -0.191))
+	material.set_shader_parameter("foot_radius", 0.15)
+	material.set_shader_parameter("leg_height", 0.22)
+	material.set_shader_parameter("stride", 0.09)
+	material.set_shader_parameter("lift", 0.09)
+	material.set_shader_parameter("stride_centering", 0.5)
+	# Script drives the cycle per instance (instance_phase / instance_walk); ghosts stay still.
+	material.set_shader_parameter("walk_speed", 0.0)
+	material.set_shader_parameter("walk_amount", 0.0)
+	material.set_shader_parameter("walk_scale", 1.0 if base_flash <= 0.0 else 0.0)
+	material.set_shader_parameter("jaw_hinge_forward", 0.12)
+	material.set_shader_parameter("jaw_hinge_height", 0.47)
+	material.set_shader_parameter("jaw_floor", 0.22)
+	material.set_shader_parameter("jaw_angle", 0.45)
+	material.set_shader_parameter("bite_amount", 0.0)
+	material.set_shader_parameter("tail_start", -0.34)
+	material.set_shader_parameter("tail_length", 0.26)
+	material.set_shader_parameter("tail_floor", 0.1)
+	material.set_shader_parameter("tail_swing", 0.06)
+	material.set_shader_parameter("tail_rate", 3.0)
 	return material
 
 
