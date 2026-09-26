@@ -24,6 +24,14 @@ var bonus_banishes: int = 0
 var bonus_skips: int = 0
 ## Karten-Seed des nächsten Runs (≠ 0); wird gespeichert und nach jedem Run neu gewürfelt.
 var next_seed: int = 1
+## Tagesrekorde der TAGES-BRUT: "JJJJ-MM-TT" (UTC) -> {seconds, peak, runs}.
+var daily_records: Dictionary = {}
+## Einstellungen (Ton, Vibration, Farbenblind-Modus); fehlende Schlüssel = DEFAULT_SETTINGS.
+var settings: Dictionary = {}
+
+const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false}
+## So viele Tage bleiben in daily_records erhalten (älteste fallen heraus).
+const DAILY_KEEP := 30
 
 func _init() -> void:
 	_reset_defaults()
@@ -50,6 +58,8 @@ func _reset_defaults() -> void:
 	bonus_banishes = 0
 	bonus_skips = 0
 	next_seed = random_seed()
+	daily_records = {}
+	settings = DEFAULT_SETTINGS.duplicate()
 
 static func _default_records() -> Dictionary:
 	return {
@@ -90,6 +100,7 @@ func to_dict() -> Dictionary:
 		"unlocked_difficulties": unlocked_difficulties, "unlocked_upgrades": unlocked_upgrades,
 		"unlocked_mutations": unlocked_mutations, "bonus_rerolls": bonus_rerolls,
 		"bonus_banishes": bonus_banishes, "bonus_skips": bonus_skips, "next_seed": next_seed,
+		"daily_records": daily_records, "settings": settings,
 	}
 
 func _apply(d: Dictionary) -> void:
@@ -102,6 +113,22 @@ func _apply(d: Dictionary) -> void:
 	var saved_seed := _int(d.get("next_seed"), 0)
 	if saved_seed > 0 and saved_seed <= SEED_MAX:
 		next_seed = saved_seed
+	var saved_settings: Variant = d.get("settings")
+	if saved_settings is Dictionary:
+		for key in DEFAULT_SETTINGS:
+			if saved_settings.get(key) is bool:
+				settings[key] = saved_settings[key]
+	var saved_daily: Variant = d.get("daily_records")
+	if saved_daily is Dictionary:
+		for key in saved_daily:
+			var entry: Variant = saved_daily[key]
+			if key is String and entry is Dictionary:
+				daily_records[key] = {
+					"seconds": maxf(0.0, float(entry.get("seconds", 0.0)) if (entry.get("seconds") is float or entry.get("seconds") is int) else 0.0),
+					"peak": maxi(0, _int(entry.get("peak"), 0)),
+					"runs": maxi(0, _int(entry.get("runs"), 0)),
+				}
+		_trim_daily()
 	var saved_upgrades: Variant = d.get("upgrades")
 	if saved_upgrades is Dictionary:
 		for id in DATA.UPGRADES:
@@ -244,6 +271,43 @@ static func daily_seed(date: Dictionary = {}) -> int:
 
 func reroll_seed() -> void:
 	next_seed = random_seed()
+
+## Datumsschlüssel der Tages-Brut (UTC, wie daily_seed), z. B. "2026-09-26".
+static func today_key(date: Dictionary = {}) -> String:
+	if date.is_empty():
+		date = Time.get_date_dict_from_system(true)
+	return "%04d-%02d-%02d" % [int(date.year), int(date.month), int(date.day)]
+
+# --- Tagesrekord / Einstellungen -------------------------------------------------
+
+## Bucht einen Tageslauf; true, wenn Zeit oder Peak einen neuen Tagesrekord setzen.
+func record_daily(date_key: String, seconds: float, peak: int) -> bool:
+	var entry: Dictionary = daily_records.get(date_key, {"seconds": 0.0, "peak": 0, "runs": 0})
+	var first: bool = int(entry.runs) == 0
+	var better: bool = seconds > float(entry.seconds) or peak > int(entry.peak)
+	entry.seconds = maxf(float(entry.seconds), maxf(0.0, seconds))
+	entry.peak = maxi(int(entry.peak), maxi(0, peak))
+	entry.runs = int(entry.runs) + 1
+	daily_records[date_key] = entry
+	_trim_daily()
+	return first or better
+
+## {seconds, peak, runs} des Tages oder {} ohne Lauf.
+func daily_record(date_key: String) -> Dictionary:
+	return daily_records.get(date_key, {})
+
+func _trim_daily() -> void:
+	var keys := daily_records.keys()
+	keys.sort()
+	while keys.size() > DAILY_KEEP:
+		daily_records.erase(keys.pop_front())
+
+func get_setting(key: String) -> bool:
+	return bool(settings.get(key, DEFAULT_SETTINGS.get(key, false)))
+
+func set_setting(key: String, value: bool) -> void:
+	if DEFAULT_SETTINGS.has(key):
+		settings[key] = value
 
 # --- Run-Konfiguration ---------------------------------------------------------
 

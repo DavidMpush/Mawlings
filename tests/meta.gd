@@ -56,7 +56,7 @@ func _run() -> void:
 		check(config.mods.has(key), "Mods key %s" % key)
 	check(config.start_population == 25 and config.tint is Color and config.signature_attack == "rudelbiss", "Glutmaw base")
 	check(config.slots.attack == 2 and config.slots.trait == 3, "Base slots")
-	check(is_equal_approx(config.pressure_doubling, 90.0) and is_equal_approx(config.enemy_hp, 1.0), "Wild difficulty")
+	check(is_equal_approx(config.pressure_doubling, float(DATA.DIFFICULTIES[0].pressure_doubling)) and is_equal_approx(config.enemy_hp, float(DATA.DIFFICULTIES[0].enemy_hp)), "Wild difficulty")
 	for id in ["jaws", "brood", "glutton", "pack", "scatter", "armor", "rudelbiss", "sporenwolke"]:
 		check(config.pool.has(id), "Start pool has %s" % id)
 	check(not config.pool.has("saeurespucker") and not config.pool.has("stachelruecken"), "Locked forms not in pool")
@@ -117,7 +117,7 @@ func _run() -> void:
 	result = p.record_run(_stats({"seconds": 320.0}))
 	check(result.new_quests.has("survive_5") and p.is_difficulty_unlocked(1), "Brutal unlocked")
 	var brutal: Dictionary = p.build_run_config("glutmaw", "verdant_maw", 1)
-	check(brutal.difficulty == 1 and is_equal_approx(brutal.enemy_hp, 3.0) and is_equal_approx(brutal.pressure_doubling, 75.0), "Brutal config")
+	check(brutal.difficulty == 1 and is_equal_approx(brutal.enemy_hp, float(DATA.DIFFICULTIES[1].enemy_hp)) and is_equal_approx(brutal.enemy_damage, float(DATA.DIFFICULTIES[1].enemy_damage)) and is_equal_approx(brutal.pressure_doubling, float(DATA.DIFFICULTIES[1].pressure_doubling)), "Brutal config")
 	result = p.record_run(_stats({"seconds": 10.0, "difficulty": 1, "bosses": 1, "kills_by_type": {"boss": 1}}))
 	check(result.run_crowns == 2 and result.run_essence == int((10 * 0.4 + 40) * 2.0), "Brutal rewards")
 	check(not p.is_difficulty_unlocked(2), "Apex still locked")

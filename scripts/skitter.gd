@@ -1,6 +1,7 @@
 extends Node3D
 
 const TUNING = preload("res://scripts/tuning.gd")
+const TG = preload("res://scripts/telegraph_style.gd")
 enum State { ARRIVING, CHASE, WARNING, DASH, RECOVERY }
 var state := State.ARRIVING
 var remaining := 0.8
@@ -9,6 +10,8 @@ var max_health := TUNING.SKITTER_HEALTH
 var dash_start := Vector3.ZERO
 var dash_end := Vector3.ZERO
 var damage := 0
+# Base loss of the dash resolved during the last step() (0 = none).
+var resolved_power := 0
 var hit_flash := 0.0
 var body: MeshInstance3D
 var health_fill: MeshInstance3D
@@ -37,9 +40,9 @@ func _ready() -> void:
 	var bar := BoxMesh.new()
 	bar.size = Vector3(1.25, 0.07, 0.12)
 	health_fill = _part(self, bar, _material(Color("ffb36b"), true), Vector3(0, 1.14, 0))
-	var strip := BoxMesh.new()
-	strip.size = Vector3(TUNING.SKITTER_WIDTH * 2.0, 0.035, 1.0)
-	warning = _part(get_parent(), strip, _material(Color("ffc268"), true), Vector3.ZERO)
+	# Patterned lane (telegraph_style.gd "skitter"): chevrons along local +Z.
+	warning = TG.build("skitter", TUNING.SKITTER_WIDTH * 2.0)
+	get_parent().add_child(warning)
 	warning.top_level = true
 	warning.visible = false
 	warning.name = "Locked dash lane"
@@ -49,6 +52,7 @@ func take_damage(amount: float) -> void:
 	hit_flash = 0.12
 
 func step(delta: float, swarm_position: Vector3, pressure: float) -> int:
+	resolved_power = 0
 	hit_flash = maxf(0.0, hit_flash - delta)
 	body.scale = Vector3.ONE * (1.16 if hit_flash > 0.0 else 1.0)
 	health_fill.scale.x = clampf(health / max_health, 0, 1)
@@ -63,6 +67,11 @@ func step(delta: float, swarm_position: Vector3, pressure: float) -> int:
 			position = _arena().resolve_motion(position, direction * minf(9, TUNING.SKITTER_SPEED + 0.6 * log(pressure)) * slow_factor * delta, 0.6)
 		return 0
 	remaining -= delta
+	# Presentation only: lane fills over the wind-up and stays full during the dash.
+	if state == State.WARNING:
+		TG.set_progress(warning, 1.0 - maxf(0, remaining) / TUNING.SKITTER_WARNING_SECONDS)
+	elif state == State.DASH:
+		TG.set_progress(warning, 1.0)
 	if state == State.ARRIVING and remaining <= 0:
 		state = State.CHASE
 	elif state == State.WARNING and remaining <= 0:
@@ -76,6 +85,7 @@ func step(delta: float, swarm_position: Vector3, pressure: float) -> int:
 			state = State.RECOVERY
 			remaining = TUNING.SKITTER_RECOVERY_SECONDS
 			warning.visible = false
+			resolved_power = damage
 			if warning_distance(swarm_position) <= TUNING.SKITTER_WIDTH:
 				return damage
 	elif state == State.RECOVERY and remaining <= 0:
@@ -95,6 +105,7 @@ func _lock_dash(swarm_position: Vector3, pressure: float) -> void:
 		remaining = TUNING.SKITTER_RECOVERY_SECONDS
 		warning.visible = false
 		return
+	TG.set_progress(warning, 0.0)
 	warning.global_position = (dash_start + dash_end) * 0.5 + Vector3(0, 0.09, 0)
 	warning.rotation.y = atan2(line.x, line.z)
 	warning.scale = Vector3(1, 1, line.length())
@@ -108,6 +119,20 @@ func warning_distance(location: Vector3) -> float:
 	if segment.length_squared() < 0.001:
 		return point.distance_to(start)
 	return point.distance_to(start + segment * clampf((point - start).dot(segment) / segment.length_squared(), 0, 1))
+
+# Locked dash lane footprint: capsule of half-width SKITTER_WIDTH along the lane.
+func contains(point: Vector3) -> bool:
+	return warning_distance(point) <= TUNING.SKITTER_WIDTH
+
+# Share of the given world points inside the locked attack area (0..1).
+func hit_fraction(points: PackedVector3Array) -> float:
+	if points.is_empty():
+		return 0.0
+	var inside := 0
+	for point in points:
+		if contains(point):
+			inside += 1
+	return float(inside) / float(points.size())
 
 func dodge_direction(location: Vector3) -> Vector3:
 	var line := dash_end - dash_start

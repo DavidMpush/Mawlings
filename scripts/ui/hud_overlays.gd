@@ -15,6 +15,7 @@ const KILL_TYPES := [
 ]
 const EVOLVE_TIME := 3.0      # hunt_world sets evolve_flash to this on evolution
 const LOSS_WINDOW := 0.9      # hits closer than this are bundled into one number
+const KING_TIME := 2.4        # real seconds of the "KÖNIG VERSCHLUNGEN" moment
 
 var _icons: Script
 var _frames: Script
@@ -27,6 +28,9 @@ var _loss_total := 0
 var _loss_age := 99.0
 var _last_feedback := 0.0
 var _clock := 0.0
+# Königsmoment: HuntWorld counts Bog King kills in the HUD meta "king_moments".
+var _king_seen := 0
+var _king_time := -1.0
 
 
 func _ready() -> void:
@@ -63,6 +67,15 @@ func _process(delta: float) -> void:
 	elif not hud.paused:
 		_loss_age += delta
 	_last_feedback = feedback
+	# The moment runs in real time, unaffected by its own slow motion.
+	var moments: int = int(hud.get_meta("king_moments", 0))
+	if moments > _king_seen:
+		_king_time = 0.0
+	_king_seen = moments
+	if _king_time >= 0.0:
+		_king_time += delta / maxf(0.01, Engine.time_scale)
+		if _king_time > KING_TIME or hud.extinct:
+			_king_time = -1.0
 	queue_redraw()
 
 
@@ -76,7 +89,10 @@ func _draw() -> void:
 	if hud.paused:
 		_draw_pause(hud)
 		return
+	_draw_popups(hud)
 	_draw_loss(hud)
+	if _king_time >= 0.0 and not _choosing(hud):
+		_draw_king(hud)
 	if hud.boss_pointer.is_finite():
 		_draw_boss_pointer(hud)
 	if float(hud.evolve_flash) > 0.0 and not _choosing(hud):
@@ -266,6 +282,70 @@ func _draw_loss(hud: Control) -> void:
 	_icon("mawling", Rect2(x0, c.y - head * 0.5 - 14 * pop, head, head), Color(UiStyle.DANGER, a))
 	UiStyle.text(self, number, Vector2(x0 + head + 10, c.y + 8 * pop), fs, Color(Color("ffd9cc"), a), false, 9)
 	_label("MAWLINGS", Vector2(c.x, c.y + 44 * pop), UiStyle.SIZE_LABEL, Color(UiStyle.DANGER.lightened(0.35), a), true)
+
+
+# ---------------------------------------------------------------- kill popups
+
+# "+DNA" and "+biomass" rise from the kill spot (screen positions from HuntWorld).
+func _draw_popups(hud: Control) -> void:
+	var popups: Array = hud.get_meta("kill_popups", [])
+	var font := UiStyle.display_font()
+	for popup in popups:
+		var t: float = popup.get("t", 1.0)
+		if t >= 1.0:
+			continue
+		var a := 1.0 - clampf((t - 0.6) / 0.4, 0.0, 1.0)
+		var pop := 1.0 + 0.35 * (1.0 - _ease_out(clampf(t / 0.2, 0.0, 1.0)))
+		var c: Vector2 = popup.get("screen", Vector2.ZERO) - Vector2(0, 70.0 * _ease_out(t))
+		var parts: Array = []
+		if int(popup.get("dna", 0)) > 0:
+			parts.append(["dna", "+%d" % int(popup.dna), UiStyle.CYAN])
+		if int(popup.get("biomass", 0)) > 0:
+			parts.append(["biomass", "+%d" % int(popup.biomass), UiStyle.AMBER])
+		if parts.is_empty():
+			continue
+		var fs := int(34 * pop)
+		var icon := 34.0 * pop
+		var gap := 16.0 * pop
+		var widths: Array = []
+		var total := 0.0
+		for part in parts:
+			var w := icon + 4.0 + font.get_string_size(part[1], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			widths.append(w)
+			total += w
+		total += gap * (parts.size() - 1)
+		var pill := Rect2(c.x - total * 0.5 - 14.0, c.y - 26.0 * pop, total + 28.0, 44.0 * pop)
+		draw_colored_polygon(_chamfer(pill, 12.0 * pop, 0.0), Color(UiStyle.OUTLINE, 0.55 * a))
+		var x := c.x - total * 0.5
+		for index in parts.size():
+			var part: Array = parts[index]
+			_icon(part[0], Rect2(Vector2(x, c.y - icon * 0.5 - 4.0 * pop), Vector2(icon, icon)), Color(part[2], a))
+			UiStyle.text(self, part[1], Vector2(x + icon + 4.0, c.y + 10.0 * pop), fs, Color(part[2].lightened(0.35), a), false, 7)
+			x += widths[index] + gap
+
+
+# ---------------------------------------------------------------- Königsmoment
+
+# Gold flash, rays and a crowned ribbon; it holds centre stage, then fades.
+func _draw_king(hud: Control) -> void:
+	var t := _king_time
+	var burst := _ease_out(clampf(t / 0.25, 0.0, 1.0))
+	var fade := burst * (1.0 - clampf((t - (KING_TIME - 0.5)) / 0.5, 0.0, 1.0))
+	var flash := 1.0 - clampf(t / 0.35, 0.0, 1.0)
+	if flash > 0.0:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(UiStyle.GOLD, 0.35 * flash))
+	_vignette(Color(UiStyle.GOLD, 0.28 * fade), 150.0)
+	var scale := lerpf(1.6, 1.0, burst)
+	var c := Vector2(size.x * 0.5, size.y * 0.5 - 420)
+	_rays(c, 420.0 * scale, 22, _clock * 0.8, Color(UiStyle.GOLD, 0.34 * fade), Color(UiStyle.EMBER_GLOW, 0.22 * fade))
+	draw_circle(c, 230.0 * scale, Color(UiStyle.GOLD, 0.10 * fade))
+	var ribbon := Rect2(c - Vector2(430, 76) * scale, Vector2(860, 152) * scale)
+	_ribbon(ribbon, fade)
+	var crown_c := c + Vector2(0, -112) * scale
+	_medallion(crown_c, 62.0 * scale, UiStyle.GOLD, fade)
+	_icon("crown", Rect2(crown_c - Vector2(40, 40) * scale, Vector2(80, 80) * scale), Color(UiStyle.GOLD, fade))
+	_label("BOG KING", c + Vector2(0, -26) * scale, maxi(UiStyle.SIZE_LABEL, int(UiStyle.SIZE_LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
+	_title("KÖNIG VERSCHLUNGEN", c + Vector2(0, 50) * scale, int(58 * scale), Color(1, 1, 1, fade), UiStyle.GOLD)
 
 
 # ---------------------------------------------------------------- boss pointer

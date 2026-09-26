@@ -29,6 +29,39 @@ const AMBER := Color("efb642")           # biomass, Alpha-Kern core
 
 const CATEGORY := {"attack": EMBER, "growth": CYAN, "special": VIOLET, "protect": TOXIC, "reflex": VIOLET}
 
+# Colour-blind palette (stage 05), after Okabe & Ito: stays apart under
+# deuteranopia and protanopia because it pairs blue with orange/yellow and adds
+# white/black instead of relying on red against green. Meaning must never rest
+# on colour alone: telegraphs also carry patterns (scripts/telegraph_style.gd).
+const CB_ORANGE := Color("e69f00")
+const CB_SKY := Color("56b4e9")
+const CB_GREEN := Color("009e73")        # bluish green, not grass green
+const CB_YELLOW := Color("f0e442")
+const CB_BLUE := Color("0072b2")
+const CB_VERMILLION := Color("d55e00")
+const CB_PURPLE := Color("cc79a7")
+const CB_WHITE := Color("f7f7f2")
+const CB_BLACK := Color("111014")
+# Colour-blind equivalents of the accent tokens above (same keys as `accent()`).
+const CB_ACCENT := {
+	"ember": CB_ORANGE, "cyan": CB_SKY, "violet": CB_PURPLE, "toxic": CB_YELLOW,
+	"danger": CB_VERMILLION, "gold": CB_YELLOW, "amber": CB_ORANGE,
+}
+const ACCENT := {
+	"ember": EMBER, "cyan": CYAN, "violet": VIOLET, "toxic": TOXIC,
+	"danger": DANGER, "gold": GOLD, "amber": AMBER,
+}
+
+# Colour-blind mode switch. Persisting it in the settings is the menu's job;
+# readers call `accent()` or check the flag when they build their visuals.
+static var colorblind := false
+
+
+# Accent colour by token name, honouring the colour-blind switch.
+static func accent(token: String) -> Color:
+	var table: Dictionary = CB_ACCENT if colorblind else ACCENT
+	return table.get(token, TEXT)
+
 # Type scale in base-viewport pixels (900 x 1600). Nothing readable below 20.
 const SIZE_HERO := 72
 const SIZE_TITLE := 48

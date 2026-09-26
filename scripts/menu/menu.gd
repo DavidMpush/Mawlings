@@ -17,11 +17,24 @@ const TABS := ["upgrades", "trophies", "instinct"]
 const TAB_NAMES := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT"}
 const DIFFICULTY_COLORS := [Color("8fd46a"), Color("f2a04a"), Color("ff5a44")]
 const UPGRADE_COLORS := {"brood_size": Color("68d8c7"), "rending": Color("f58a4d"), "chitin": Color("b8d879"), "sprinter": Color("7cc3f0"), "digestion": Color("f6cc70"), "geneflow": Color("6ee4d4"), "attack_slot": Color("ff8a3d"), "trait_slot": Color("b798ec")}
+const UI_STYLE_PATH := "res://scripts/ui/ui_style.gd"
+## Einstellungen im Panel: [Profil-Schlüssel, Titel, Erklärung].
+const SETTINGS := [
+	["sound", "TON", "Geräusche und Musik"],
+	["vibration", "VIBRATION", "Kurzes Rütteln bei Treffern"],
+	["colorblind", "FARBENBLIND-MODUS", "Warnflächen mit Mustern und Kontur"],
+]
+## Seed-Code: 6 Zeichen Base36 decken 1..2^31-1 eindeutig ab (36^6 > 2^31).
+const SEED_ALPHABET := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const SEED_CODE_LENGTH := 6
 const TAP_SLOP := 26.0
 const SWIPE_DISTANCE := 90.0
 
 ## Remembered between menu visits within one process.
 static var last_choice: Dictionary = {}
+## Die zuletzt gestartete TAGES-BRUT ({date, seed, strain}); wird beim Auswerten des
+## Run-Ergebnisses verbraucht, damit der Tagesrekord gebucht wird.
+static var daily_pending: Dictionary = {}
 
 ## Tests may point this at a scratch file before the node enters the tree.
 var profile_path := "user://mawlings_profile.json"
@@ -43,6 +56,7 @@ var reward_stats: Dictionary = {}
 var trophy_scroll := 0.0
 var toast := ""
 var toast_time := 0.0
+var settings_open := false
 
 var _press_pos := Vector2.INF
 var _drag_mode := ""
@@ -65,7 +79,7 @@ func _ready() -> void:
 # Stage 04 components draw the hub; this script keeps state and input.
 const COMPONENTS := [
 	["res://scripts/ui/menu/menu_main.gd", ["background", "logo", "resources", "strain", "biomes", "difficulties", "play", "tabs"]],
-	["res://scripts/ui/menu/menu_sheets.gd", ["sheet", "reward", "toast"]],
+	["res://scripts/ui/menu/menu_sheets.gd", ["sheet", "reward", "toast", "settings"]],
 ]
 
 
@@ -118,6 +132,7 @@ func _load_meta() -> void:
 	difficulty = int(last_choice.get("difficulty", 0))
 	if not _difficulty_unlocked(difficulty):
 		difficulty = 0
+	_apply_settings()
 
 
 func _consume_last_result() -> void:
@@ -127,12 +142,33 @@ func _consume_last_result() -> void:
 	if result.is_empty():
 		return
 	reward_stats = result.duplicate(true)
+	var daily := _result_is_daily(reward_stats)
+	var keep_seed: int = profile.next_seed
 	reward = profile.record_run(reward_stats)
 	if reward == null:
 		reward = {}
+	if daily:
+		# The daily map is fixed; the player's own next map stays as it was.
+		profile.next_seed = keep_seed
+		var date: String = daily_pending.get("date", load(PROFILE_PATH).today_key())
+		var seconds := float(reward_stats.get("seconds", 0.0))
+		var peak := int(reward_stats.get("peak_population", 0))
+		var best: bool = profile.record_daily(date, seconds, peak)
+		reward["daily"] = {"date": date, "new_best": best, "record": profile.daily_record(date).duplicate()}
+	daily_pending = {}
 	reward["_shown"] = true
 	session.last_result = {}
 	profile.save()
+
+
+## A result belongs to the daily brood when it says so, or when it matches the
+## daily run the menu started last (Main/HuntWorld do not pass the flag on).
+func _result_is_daily(result: Dictionary) -> bool:
+	if result.has("daily"):
+		return bool(result.daily)
+	if daily_pending.is_empty():
+		return false
+	return String(result.get("strain_id", "")) == String(daily_pending.get("strain", "")) and int(result.get("difficulty", 0)) == 0
 
 
 func current_strain() -> String:
@@ -280,12 +316,120 @@ func play() -> Dictionary:
 		_toast("Diesen Stamm besitzt du noch nicht")
 		return {}
 	var config: Dictionary = profile.build_run_config(current_strain(), biome_id, difficulty)
-	session.pending_config = config
+	daily_pending = {}
 	_remember()
+	return _start(config)
+
+
+## TAGES-BRUT: same map for everyone today (Profile.daily_seed), always Wild,
+## first biome, the selected strain. Rewards are booked like any run.
+func can_play_daily() -> bool:
+	return profile != null and _strain_owned(current_strain())
+
+
+func play_daily() -> Dictionary:
+	if not can_play_daily():
+		_toast("Diesen Stamm besitzt du noch nicht")
+		return {}
+	var profile_script: Variant = load(PROFILE_PATH)
+	var day_seed: int = profile_script.daily_seed()
+	var config: Dictionary = profile.build_run_config(current_strain(), meta.BIOME_ORDER[0], 0, day_seed)
+	config["daily"] = true
+	config["daily_date"] = profile_script.today_key()
+	daily_pending = {"date": config.daily_date, "seed": day_seed, "strain": config.strain_id}
+	_remember()
+	return _start(config)
+
+
+func _start(config: Dictionary) -> Dictionary:
+	config["settings"] = profile.settings.duplicate()
+	session.pending_config = config
 	play_requested.emit(config)
 	if change_scene_on_play and is_inside_tree():
 		get_tree().change_scene_to_file.call_deferred(GAME_SCENE)
 	return config
+
+
+## Today's daily record {seconds, peak, runs} or {}.
+func daily_today() -> Dictionary:
+	if profile == null:
+		return {}
+	return profile.daily_record(load(PROFILE_PATH).today_key())
+
+# ---------------------------------------------------------------- map seed
+
+static func seed_code(value: int) -> String:
+	var n := maxi(0, value)
+	var code := ""
+	for i in SEED_CODE_LENGTH:
+		code = SEED_ALPHABET[n % 36] + code
+		n = floori(n / 36.0)
+	return code
+
+
+## Inverse of seed_code; 0 for an invalid code.
+static func seed_from_code(code: String) -> int:
+	var clean := code.strip_edges().to_upper()
+	if clean.is_empty():
+		return 0
+	var n := 0
+	for ch in clean:
+		var digit := SEED_ALPHABET.find(ch)
+		if digit < 0:
+			return 0
+		n = n * 36 + digit
+	return n
+
+
+func next_seed_code() -> String:
+	return seed_code(int(profile.next_seed)) if profile != null else ""
+
+
+func reroll_seed() -> void:
+	if profile == null:
+		return
+	profile.reroll_seed()
+	profile.save()
+	_toast("Neue Karte · %s" % next_seed_code())
+
+# ---------------------------------------------------------------- settings
+
+func open_settings() -> void:
+	settings_open = true
+	queue_redraw()
+
+
+func close_settings() -> void:
+	settings_open = false
+	queue_redraw()
+
+
+func setting(key: String) -> bool:
+	return profile != null and profile.get_setting(key)
+
+
+func toggle_setting(key: String) -> void:
+	if profile == null:
+		return
+	profile.set_setting(key, not profile.get_setting(key))
+	profile.save()
+	_apply_settings()
+	queue_redraw()
+
+
+## Pushes the stored settings to engine-wide places: master bus mute and
+## UiStyle.colorblind (when the style script has that flag). The game's Sfx
+## node and HUD read the same profile values.
+func _apply_settings() -> void:
+	if profile == null:
+		return
+	var bus := AudioServer.get_bus_index("Master")
+	if bus >= 0:
+		AudioServer.set_bus_mute(bus, not profile.get_setting("sound"))
+	if ResourceLoader.exists(UI_STYLE_PATH):
+		var style: Script = load(UI_STYLE_PATH)
+		if style.get("colorblind") != null:
+			style.set("colorblind", profile.get_setting("colorblind"))
 
 
 ## The big button plays an owned strain, buys an unlocked one, or explains the lock.
@@ -343,7 +487,7 @@ func _gui_input(event: InputEvent) -> void:
 		if _drag_mode == "" and moved.length() > TAP_SLOP:
 			if tab == "trophies" and reward.is_empty() and absf(moved.y) > absf(moved.x):
 				_drag_mode = "scroll"
-			elif tab == "" and reward.is_empty() and strain_card_rect().has_point(_press_pos) and absf(moved.x) > absf(moved.y):
+			elif tab == "" and reward.is_empty() and not settings_open and strain_card_rect().has_point(_press_pos) and absf(moved.x) > absf(moved.y):
 				_drag_mode = "swipe"
 			else:
 				_drag_mode = "none"
@@ -362,6 +506,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if not reward.is_empty():
 		if event.keycode in [KEY_ENTER, KEY_SPACE, KEY_ESCAPE]:
 			close_reward()
+		return
+	if settings_open:
+		if event.keycode in [KEY_ESCAPE, KEY_ENTER]:
+			close_settings()
 		return
 	if event.keycode == KEY_ESCAPE and tab != "":
 		open_tab(tab)
@@ -386,6 +534,12 @@ func tap(location: Vector2) -> void:
 		if reward_button_rect().has_point(location):
 			close_reward()
 		return
+	if settings_open:
+		_tap_settings(location)
+		return
+	if settings_button_rect().has_point(location):
+		open_settings()
+		return
 	for i in TABS.size():
 		if tab_rect(i).has_point(location):
 			open_tab(TABS[i])
@@ -399,6 +553,10 @@ func tap(location: Vector2) -> void:
 		select_strain(1)
 	elif play_rect().has_point(location):
 		_press_main_button()
+	elif daily_rect().has_point(location):
+		play_daily()
+	elif seed_reroll_rect().has_point(location):
+		reroll_seed()
 	else:
 		for i in meta.BIOME_ORDER.size():
 			if biome_rect(i).has_point(location):
@@ -408,6 +566,56 @@ func tap(location: Vector2) -> void:
 			if difficulty_rect(i).has_point(location):
 				select_difficulty(i)
 				return
+
+
+func _tap_settings(location: Vector2) -> void:
+	if settings_close_rect().has_point(location) or not settings_panel_rect().has_point(location):
+		close_settings()
+		return
+	for i in SETTINGS.size():
+		if settings_row_rect(i).has_point(location):
+			toggle_setting(SETTINGS[i][0])
+			return
+
+
+## True while a finger/mouse is held on `rect` without dragging (buttons draw
+## their pressed state from this).
+func is_pressed(rect: Rect2) -> bool:
+	return _press_pos.is_finite() and _drag_mode == "" and rect.has_point(_press_pos)
+
+
+## The tappable rectangle currently held down, or an empty Rect2.
+func pressed_rect() -> Rect2:
+	if not _press_pos.is_finite() or _drag_mode != "":
+		return Rect2()
+	for rect in _button_rects():
+		if rect.has_point(_press_pos):
+			return rect
+	return Rect2()
+
+
+func _button_rects() -> Array:
+	if not reward.is_empty():
+		return [reward_button_rect()]
+	var rects: Array = []
+	if settings_open:
+		rects.append(settings_close_rect())
+		for i in SETTINGS.size():
+			rects.append(settings_row_rect(i))
+		return rects
+	rects.append(settings_button_rect())
+	for i in TABS.size():
+		rects.append(tab_rect(i))
+	if tab == "upgrades" and meta != null:
+		for i in meta.UPGRADE_ORDER.size():
+			rects.append(upgrade_buy_rect(i))
+	elif tab == "instinct":
+		rects.append(instinct_buy_rect())
+	if tab != "":
+		rects.append(sheet_close_rect())
+	else:
+		rects.append_array([strain_prev_rect(), strain_next_rect(), play_rect(), daily_rect(), seed_reroll_rect()])
+	return rects
 
 
 func _tap_sheet(location: Vector2) -> void:
@@ -434,11 +642,16 @@ func strain_card_rect() -> Rect2:
 
 
 func strain_prev_rect() -> Rect2:
-	return Rect2(12, 420, 104, 150)
+	return Rect2(10, 420, 80, 150)
 
 
 func strain_next_rect() -> Rect2:
-	return Rect2(size.x - 116, 420, 104, 150)
+	return Rect2(size.x - 90, 420, 80, 150)
+
+
+## Gear next to the crown counter, opens the settings panel.
+func settings_button_rect() -> Rect2:
+	return Rect2(size.x - 286 - 94, 18, 80, 78)
 
 
 ## Buying a strain uses the main button (it turns into KAUFEN).
@@ -448,16 +661,46 @@ func strain_buy_rect() -> Rect2:
 
 func biome_rect(i: int) -> Rect2:
 	var w := (size.x - 56 - 16) * 0.5
-	return Rect2(28 + i * (w + 16), 872, w, 112)
+	return Rect2(28 + i * (w + 16), 886, w, 106)
 
 
 func difficulty_rect(i: int) -> Rect2:
 	var w := (size.x - 56 - 32) / 3.0
-	return Rect2(28 + i * (w + 16), 1046, w, 110)
+	return Rect2(28 + i * (w + 16), 1050, w, 104)
 
 
 func play_rect() -> Rect2:
-	return Rect2(_cx() - 330, 1190, 660, 128)
+	return Rect2(_cx() - 330, 1180, 660, 120)
+
+
+## Next-map code card below SPIELEN (left half) with its NEU WÜRFELN mini button.
+func seed_card_rect() -> Rect2:
+	return Rect2(28, 1318, 470, 94)
+
+
+func seed_reroll_rect() -> Rect2:
+	var card := seed_card_rect()
+	return Rect2(card.end.x - 146, card.position.y + 8, 138, card.size.y - 16)
+
+
+## TAGES-BRUT, secondary button beside the seed card.
+func daily_rect() -> Rect2:
+	var card := seed_card_rect()
+	return Rect2(card.end.x + 14, card.position.y, size.x - 28 - card.end.x - 14, card.size.y)
+
+
+func settings_panel_rect() -> Rect2:
+	return Rect2(46, 380, size.x - 92, 700)
+
+
+func settings_close_rect() -> Rect2:
+	var p := settings_panel_rect()
+	return Rect2(p.end.x - 116, p.position.y + 14, 100, 100)
+
+
+func settings_row_rect(i: int) -> Rect2:
+	var p := settings_panel_rect()
+	return Rect2(p.position.x + 28, p.position.y + 172 + i * 146, p.size.x - 56, 126)
 
 
 func tab_rect(i: int) -> Rect2:
@@ -494,7 +737,7 @@ func instinct_buy_rect() -> Rect2:
 
 
 func reward_button_rect() -> Rect2:
-	return Rect2(_cx() - 250, size.y * 0.5 + 520, 500, 120)
+	return Rect2(_cx() - 250, size.y * 0.5 + 540, 500, 120)
 
 
 func _trophy_row_height() -> float:
@@ -510,7 +753,7 @@ func _trophy_scroll_max() -> float:
 # ---------------------------------------------------------------- drawing
 
 # UI pass (stage 04): legacy blocks can be replaced by components in scripts/ui/menu/.
-var legacy := {"background": true, "logo": true, "resources": true, "strain": true, "biomes": true, "difficulties": true, "play": true, "sheet": true, "tabs": true, "reward": true, "toast": true}
+var legacy := {"background": true, "logo": true, "resources": true, "strain": true, "biomes": true, "difficulties": true, "play": true, "sheet": true, "tabs": true, "reward": true, "toast": true, "settings": true}
 
 
 func _draw() -> void:
@@ -518,7 +761,8 @@ func _draw() -> void:
 	if legacy.background:
 		_draw_background()
 	if profile == null:
-		_draw_logo()
+		if legacy.logo:
+			_draw_logo()
 		_text(load_error if load_error != "" else "Lade …", Vector2(_cx(), size.y * 0.5), 32, BONE, true, 5)
 		return
 	if legacy.resources:

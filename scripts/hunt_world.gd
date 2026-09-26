@@ -16,6 +16,18 @@ const SESSION_PATH := "res://scripts/meta/session.gd"
 const ALPHA_AMBER := Color("ffb347")
 const ALPHA_VIOLET := Color("a86bff")
 const ALPHA_PICKUP_RADIUS := 1.7
+# Melee per animal: an animal bites when it stands within MELEE_REACH of the
+# target's body edge. Damage = full swarm damage x clamp(share / FULL_SHARE, 0, 1),
+# share = biting animals / visible animals. A target inside the swarm (centre
+# within the old contact range) always takes at least MIN_ENGAGE.
+const MELEE_REACH := 1.2
+const MELEE_FULL_SHARE := 0.6
+const MELEE_MIN_ENGAGE := 0.5
+const BODY_RADIUS := {"prey": 0.45, "hunter": 0.72, "skitter": 0.55, "leaper": 0.7, "boss": 2.3}
+const POPUP_SECONDS := 0.9
+const POPUP_MAX := 6
+const POPUP_MERGE_SECONDS := 0.3
+const POPUP_MERGE_DISTANCE := 2.5
 
 @onready var swarm = get_parent().get_node("Swarm")
 @onready var hud = get_parent().get_node("HUD/Controls")
@@ -56,6 +68,14 @@ var last_loss := 0
 var focus_point := Vector3.ZERO
 var focus_mode := 0
 var focus_distance := INF
+# Visible unit world positions, rebuilt lazily once per step and after each hit.
+var unit_points := PackedVector3Array()
+var unit_points_valid := false
+# Floating kill rewards: {"at": Vector3, "dna": int, "biomass": int, "age": float}.
+var kill_popups: Array[Dictionary] = []
+# Counts Bog King kills this run; HUD and Main react to changes (Königsmoment).
+var king_moments := 0
+var last_hit_share := 1.0
 
 
 func _ready() -> void:
@@ -105,6 +125,8 @@ func reset_run() -> void:
 	paused = false
 	hit_feedback = 0.0
 	last_loss = 0
+	kill_popups.clear()
+	unit_points_valid = false
 	result_stored = false
 	evolve_flash = 0.0
 	evolve_name = ""
@@ -168,6 +190,8 @@ func step(delta: float) -> void:
 		swarm.clear_focus()
 		return
 	model.advance(delta)
+	unit_points_valid = false
+	_age_popups(delta)
 	hit_feedback = maxf(0.0, hit_feedback - delta)
 	evolve_flash = maxf(0.0, evolve_flash - delta)
 	if swarm.rally_pressed:
@@ -198,8 +222,9 @@ func step(delta: float) -> void:
 			continue
 		target.call("step", delta, swarm.position)
 		_consider_focus(target.position, 3.2)
-		if target.position.distance_to(swarm.position) < attack_range:
-			var health: float = target.get("health") - damage * delta
+		var bite := melee_factor(target.position, "prey", attack_range)
+		if bite > 0.0:
+			var health: float = target.get("health") - damage * bite * delta
 			target.set("health", health)
 			melee_contact = true
 			message = "Mawlings greifen automatisch an"
@@ -213,8 +238,9 @@ func step(delta: float) -> void:
 				return
 			continue
 		_consider_focus(hunter.position, 3.4)
-		if hunter.get("state") != HUNTER.State.ARRIVING and hunter.position.distance_to(swarm.position) < attack_range:
-			hunter.call("take_damage", damage * delta)
+		var hunter_bite := 0.0 if hunter.get("state") == HUNTER.State.ARRIVING else melee_factor(hunter.position, "hunter", attack_range)
+		if hunter_bite > 0.0:
+			hunter.call("take_damage", damage * hunter_bite * delta)
 			melee_contact = true
 			message = "Jäger angreifen · vor dem Ring ausweichen"
 			if _resolve_death(hunter, "hunter"):
@@ -222,8 +248,8 @@ func step(delta: float) -> void:
 					return
 				continue
 		var velocity: Vector3 = Vector3(swarm.movement_vector.x, 0.0, swarm.movement_vector.y) * swarm.move_speed()
-		var loss: int = hunter.call("step", delta, swarm.position, pressure, velocity)
-		if loss > 0 and _apply_hit(loss, hunter.attack_center, 0.35, hunter):
+		hunter.call("step", delta, swarm.position, pressure, velocity)
+		if _resolve_area_hit(hunter, hunter.attack_center, 0.35):
 			return
 		if hunter.get("state") == HUNTER.State.WARNING:
 			message = "RAUS AUS DEM ROTEN RING!"
@@ -233,16 +259,17 @@ func step(delta: float) -> void:
 				return
 			continue
 		_consider_focus(skitter.position, 3.4)
-		if skitter.get("state") != SKITTER.State.ARRIVING and skitter.position.distance_to(swarm.position) < attack_range:
-			skitter.take_damage(damage * delta)
+		var skitter_bite := 0.0 if skitter.get("state") == SKITTER.State.ARRIVING else melee_factor(skitter.position, "skitter", attack_range)
+		if skitter_bite > 0.0:
+			skitter.take_damage(damage * skitter_bite * delta)
 			melee_contact = true
 			message = "Skitter angreifen · seitlich ausweichen"
 			if _resolve_death(skitter, "skitter"):
 				if choosing():
 					return
 				continue
-		var loss: int = skitter.step(delta, swarm.position, pressure)
-		if loss > 0 and _apply_hit(loss, swarm.position, 0.3, skitter):
+		skitter.step(delta, swarm.position, pressure)
+		if _resolve_area_hit(skitter, skitter.position, 0.3):
 			return
 		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH]:
 			message = "SPRINT! SEITLICH AUSWEICHEN"
@@ -253,8 +280,9 @@ func step(delta: float) -> void:
 			continue
 		if leaper.can_be_hit():
 			_consider_focus(leaper.position, 3.4)
-			if leaper.position.distance_to(swarm.position) < attack_range:
-				leaper.take_damage(damage * delta)
+			var leaper_bite := melee_factor(leaper.position, "leaper", attack_range)
+			if leaper_bite > 0.0:
+				leaper.take_damage(damage * leaper_bite * delta)
 				melee_contact = true
 				if leaper.state == MIRE_LEAPER.State.EXHAUSTED:
 					message = "Leaper erschöpft · jetzt angreifen!"
@@ -264,8 +292,8 @@ func step(delta: float) -> void:
 					if choosing():
 						return
 					continue
-		var loss: int = leaper.step(delta, swarm.position, pressure)
-		if loss > 0 and _apply_hit(loss, leaper.landing_center, 0.35, leaper):
+		leaper.step(delta, swarm.position, pressure)
+		if _resolve_area_hit(leaper, leaper.landing_center, 0.35):
 			return
 		if leaper.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP]:
 			message = "RAUS AUS DER SPRUNGZONE!"
@@ -276,18 +304,19 @@ func step(delta: float) -> void:
 	if boss != null:
 		if boss.state != BOG_KING.State.ARRIVING:
 			_consider_focus(boss.position, 6.0)
-		if boss.state != BOG_KING.State.ARRIVING and boss.position.distance_to(swarm.position) < 3.5:
-			boss.take_damage(damage * delta)
+		var boss_bite := 0.0 if boss.state == BOG_KING.State.ARRIVING else melee_factor(boss.position, "boss", 3.5)
+		if boss_bite > 0.0:
+			boss.take_damage(damage * boss_bite * delta)
 			melee_contact = true
 			message = "BOG KING · RALLY ZUM ANGRIFF"
 			if _resolve_death(boss, "boss") and choosing():
 				return
 		if boss != null:
-			var loss: int = boss.step(delta, swarm.position, pressure)
-			if loss > 0 and _apply_hit(loss, boss.attack_center, 0.45, boss):
+			boss.step(delta, swarm.position, pressure)
+			if _resolve_area_hit(boss, boss.attack_center, 0.45):
 				return
 			if boss.state == BOG_KING.State.WARNING:
-				message = "BOG KING STAMPFT · AUS DEM ROTEN KREIS!"
+				message = "BOG KING STAMPFT · RAUS AUS DEM KREIS!"
 			elif boss.state == BOG_KING.State.RECOVERY and not message.begins_with("RAUS"):
 				message = "BOG KING ERSCHÖPFT · JETZT ANGREIFEN!"
 			elif boss.state == BOG_KING.State.ARRIVING:
@@ -366,6 +395,7 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 	if enemy == null or enemy.health > 0.0:
 		return false
 	var location: Vector3 = enemy.position
+	var corpses_before: int = model.corpses.size()
 	match kind:
 		"hunter":
 			if not hunters.has(enemy):
@@ -404,7 +434,11 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			return false
 	model.record_kill(kind)
 	enemy.queue_free()
-	_award_dna({"hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50}[kind])
+	var dna: int = {"hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50}[kind]
+	_add_popup(location, dna, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
+	if kind == "boss":
+		_king_moment(location)
+	_award_dna(dna)
 	return true
 
 
@@ -471,9 +505,11 @@ func _kill_prey(target: Node3D) -> void:
 		return
 	prey.erase(target)
 	_kill_burst(target.position, Color("7de6d2"), 1.8, 0.0)
+	var corpses_before: int = model.corpses.size()
 	_create_corpse(target.position, CORPSE_BIOMASS * evolution.biomass_multiplier())
 	model.record_kill("prey")
 	target.queue_free()
+	_add_popup(target.position, 10, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
 	_award_dna(10)
 
 
@@ -644,6 +680,8 @@ func _update_hud(message: String) -> void:
 	hud.hit_feedback = hit_feedback
 	hud.last_loss = last_loss
 	hud.hint = message
+	hud.set_meta("kill_popups", _popup_screen())
+	hud.set_meta("king_moments", king_moments)
 	hud.nearest_corpse = ""
 	var nearest := INF
 	for corpse in model.corpses:
@@ -682,10 +720,119 @@ func _boss_pointer() -> Vector2:
 	return area.get_center() + direction * reach
 
 
+# ---------------------------------------------------------------- per-animal combat
+
+# Visible Mawlings in world space; the share of them stands for the whole
+# logical population when it exceeds the visual limit.
+func _unit_points() -> PackedVector3Array:
+	if not unit_points_valid:
+		unit_points = swarm.unit_world_points()
+		unit_points_valid = true
+	return unit_points
+
+
+# Share of the swarm's bite that reaches a target (0 = out of reach, 1 = full).
+func melee_factor(location: Vector3, kind: String, contact_range: float) -> float:
+	var centre_distance := Vector2(location.x - swarm.position.x, location.z - swarm.position.z).length()
+	var points := _unit_points()
+	if points.is_empty():
+		return 1.0 if centre_distance < contact_range else 0.0
+	var reach: float = MELEE_REACH + float(BODY_RADIUS.get(kind, 0.5))
+	var reach_squared := reach * reach
+	var biting := 0
+	for point in points:
+		var dx := point.x - location.x
+		var dz := point.z - location.z
+		if dx * dx + dz * dz <= reach_squared:
+			biting += 1
+	var factor := clampf(float(biting) / float(points.size()) / MELEE_FULL_SHARE, 0.0, 1.0)
+	if centre_distance < contact_range:
+		factor = maxf(factor, MELEE_MIN_ENGAGE)
+	return factor
+
+
+# Scales an enemy's resolved area attack by the share of visible animals inside
+# its locked area; only those animals fall. True when the run ended.
+func _resolve_area_hit(enemy: Node3D, fallback_impact: Vector3, shake_amount: float) -> bool:
+	var power: int = enemy.get("resolved_power")
+	if power <= 0:
+		return false
+	var points := _unit_points()
+	var inside := PackedInt32Array()
+	var impact := Vector3.ZERO
+	var share := 0.0
+	if points.is_empty():
+		share = 1.0 if enemy.contains(swarm.position) else 0.0
+		impact = fallback_impact
+	else:
+		for index in points.size():
+			if enemy.contains(points[index]):
+				inside.append(index)
+				impact += points[index]
+		share = float(inside.size()) / float(points.size())
+		impact = impact / float(inside.size()) if not inside.is_empty() else fallback_impact
+	last_hit_share = share
+	var loss := ceili(float(power) * share - 0.0001)
+	if loss <= 0:
+		return false
+	if swarm.has_method("prefer_removal"):
+		swarm.prefer_removal(inside)
+	return _apply_hit(loss, impact, shake_amount, enemy)
+
+
+# ---------------------------------------------------------------- kill popups
+
+# Bundles DNA and biomass of one kill into a floating reward at the kill spot;
+# kills close in time and space merge into one popup.
+func _add_popup(location: Vector3, dna: int, biomass: float) -> void:
+	var amount := int(round(biomass))
+	for popup in kill_popups:
+		if popup.age < POPUP_MERGE_SECONDS and Vector2(popup.at.x - location.x, popup.at.z - location.z).length() < POPUP_MERGE_DISTANCE:
+			popup.dna += dna
+			popup.biomass += amount
+			popup.age = 0.0
+			popup.at = (popup.at + location) * 0.5
+			return
+	kill_popups.append({"at": location, "dna": dna, "biomass": amount, "age": 0.0})
+	while kill_popups.size() > POPUP_MAX:
+		kill_popups.pop_front()
+
+
+func _age_popups(delta: float) -> void:
+	for index in range(kill_popups.size() - 1, -1, -1):
+		kill_popups[index].age += delta
+		if kill_popups[index].age >= POPUP_SECONDS:
+			kill_popups.remove_at(index)
+
+
+# Screen positions for the HUD (same projection as the boss pointer).
+func _popup_screen() -> Array:
+	var result: Array = []
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if camera == null:
+		return result
+	for popup in kill_popups:
+		var point: Vector3 = popup.at + Vector3.UP * 1.4
+		if camera.is_position_behind(point):
+			continue
+		result.append({"screen": camera.unproject_position(point), "dna": popup.dna, "biomass": popup.biomass, "t": popup.age / POPUP_SECONDS})
+	return result
+
+
+# Bog King eaten: big HUD moment, sound and vibration; Main adds slow motion and zoom.
+func _king_moment(location: Vector3) -> void:
+	king_moments += 1
+	_sfx("evolve", 120)
+	var main := get_parent()
+	if main != null and main.has_method("king_moment"):
+		main.king_moment(location)
+
+
 # Resolves one announced hit. Returns true when the run ended by extinction.
 func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3D = null) -> bool:
 	if enemy_damage != 1.0:
 		loss = maxi(1, ceili(float(loss) * enemy_damage))
+	unit_points_valid = false
 	var before: int = model.population
 	last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
 	swarm.set_population(model.population)
@@ -732,6 +879,9 @@ func run_stats() -> Dictionary:
 		"evolutions": Array(evolution.evolutions),
 		"mutations": mutations,
 		"used_rally": model.used_rally,
+		"seed": int(config.get("seed", 0)),
+		"daily": bool(config.get("daily", false)),
+		"daily_date": str(config.get("daily_date", "")),
 	}
 
 

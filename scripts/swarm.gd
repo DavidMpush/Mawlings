@@ -64,6 +64,8 @@ var fresh_ghost_from := 0
 var removed_since_frame := 0
 var pending_loss := 0
 var pending_impact := Vector3.ZERO
+# Units moved to the back by prefer_removal(); the next hit flings these first.
+var hit_tail := 0
 
 var focus_position := Vector3.ZERO
 var focus_mode := 0
@@ -135,6 +137,57 @@ func set_population(value: int, animate: bool = true) -> void:
 		unit.scale = Vector3.ONE * display_scale
 	if shadows != null:
 		shadows.multimesh.visible_instance_count = count
+
+
+# World positions of the visible units (flat), index-aligned with `units`.
+func unit_world_points() -> PackedVector3Array:
+	var points := PackedVector3Array()
+	points.resize(units.size())
+	var origin := global_transform if is_inside_tree() else transform
+	for index in units.size():
+		var point: Vector3 = origin * units[index].position
+		point.y = 0.0
+		points[index] = point
+	return points
+
+
+# Moves the given unit indices to the back of the formation, so the next
+# set_population() drop removes exactly those animals (the ones inside a hit
+# area) and the survivors close ranks by re-taking the freed formation slots.
+func prefer_removal(indices: PackedInt32Array) -> void:
+	var count := units.size()
+	if indices.is_empty() or count == 0:
+		return
+	var marked := {}
+	for index in indices:
+		if index >= 0 and index < count:
+			marked[index] = true
+	if marked.is_empty():
+		return
+	var order := PackedInt32Array()
+	for index in count:
+		if not marked.has(index):
+			order.append(index)
+	for index in count:
+		if marked.has(index):
+			order.append(index)
+	var old_units := units.duplicate()
+	var old_phase := unit_phase.duplicate()
+	var old_follow := unit_follow.duplicate()
+	var old_gait := unit_gait.duplicate()
+	var old_speed := unit_speed.duplicate()
+	var old_hatch := unit_hatch.duplicate()
+	var old_push := unit_push.duplicate()
+	for slot in count:
+		var source := order[slot]
+		units[slot] = old_units[source]
+		unit_phase[slot] = old_phase[source]
+		unit_follow[slot] = old_follow[source]
+		unit_gait[slot] = old_gait[source]
+		unit_speed[slot] = old_speed[source]
+		unit_hatch[slot] = old_hatch[source]
+		unit_push[slot] = old_push[source]
+	hit_tail = marked.size()
 
 
 func move_speed() -> float:
@@ -354,10 +407,13 @@ func _resolve_pending_hit() -> void:
 		for index in range(fresh_ghost_from, ghosts.size()):
 			ghost_velocity[index] = _fling_velocity(ghosts[index].global_position - global_position, pending_impact, ghost_spin[index])
 		var copies := mini(pending_loss - removed_since_frame, MAX_HIT_COPIES)
+		# Hit animals still in the list (population above the visual limit) are
+		# at the back; their copies fly from where the hit actually landed.
+		var tail := mini(hit_tail - removed_since_frame, units.size())
 		for copy in copies:
 			if units.is_empty() or ghosts.size() >= MAX_GHOSTS:
 				break
-			var source := units[(copy * 37 + pending_loss) % units.size()]
+			var source := units[units.size() - 1 - copy % tail] if tail > 0 else units[(copy * 37 + pending_loss) % units.size()]
 			var ghost := _make_unit()
 			add_child(ghost)
 			ghost.transform = source.transform
@@ -365,6 +421,7 @@ func _resolve_pending_hit() -> void:
 			_launch_ghost(ghost, pending_impact)
 	pending_loss = 0
 	removed_since_frame = 0
+	hit_tail = 0
 	fresh_ghost_from = ghosts.size()
 
 
@@ -440,6 +497,7 @@ func _clear_ghosts() -> void:
 	fresh_ghost_from = 0
 	removed_since_frame = 0
 	pending_loss = 0
+	hit_tail = 0
 
 
 func _flow_radius() -> float:

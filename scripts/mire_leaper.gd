@@ -6,6 +6,7 @@ extends Node3D
 
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
+const TG = preload("res://scripts/telegraph_style.gd")
 
 const ARRIVE_SECONDS := 0.8
 const BODY_RADIUS := 0.7
@@ -24,9 +25,6 @@ const LIME := Color("c8ff5a")
 const RIM_STALK := Color("b89cff")
 const RIM_WARNING := Color("ff5ad9")
 const RIM_EXHAUSTED := Color("ffe07a")
-const ZONE_RING := Color("ff4fd8")
-const ZONE_BRIGHT := Color("ffe3fa")
-const ZONE_FILL := Color(0.62, 0.22, 0.95, 0.2)
 const ARC_COLOR := Color("ff8ae6")
 
 enum State { ARRIVING, STALK, WARNING, LEAP, EXHAUSTED, RETREAT }
@@ -39,6 +37,8 @@ var max_health := TUNING.LEAPER_HEALTH
 var jump_start := Vector3.ZERO
 var landing_center := Vector3.ZERO
 var damage := 0
+# Base loss of the landing resolved during the last step() (0 = none).
+var resolved_power := 0
 var hit_flash := 0.0
 var warning: Node3D
 var arc: Node3D
@@ -49,11 +49,9 @@ var skins: Array[ShaderMaterial] = []
 var shadow: MeshInstance3D
 var health_bar: Node3D
 var health_fill: MeshInstance3D
-var zone_fill: MeshInstance3D
-var zone_ring: MeshInstance3D
-var closing_ring: MeshInstance3D
+# Patterned landing zone (telegraph_style.gd "leaper") inside `warning`.
+var zone: MeshInstance3D
 var arrow: MeshInstance3D
-var ring_material: StandardMaterial3D
 var arc_dots: Array[MeshInstance3D] = []
 var hop_start := Vector3.ZERO
 var hop_end := Vector3.ZERO
@@ -96,6 +94,7 @@ func can_be_hit() -> bool:
 
 # Returns the loss of exactly one resolved landing, otherwise 0.
 func step(delta: float, swarm_position: Vector3, pressure: float) -> int:
+	resolved_power = 0
 	var previous_state := state
 	var previous_position := position
 	var result := _logic(delta, swarm_position, pressure)
@@ -148,6 +147,7 @@ func _logic(delta: float, swarm_position: Vector3, pressure: float) -> int:
 			remaining = TUNING.LEAPER_EXHAUST_SECONDS
 			warning.visible = false
 			arc.visible = false
+			resolved_power = damage
 			if _flat_distance(swarm_position, landing_center) <= TUNING.LEAPER_ZONE_RADIUS:
 				return damage
 		State.EXHAUSTED:
@@ -199,6 +199,22 @@ func _start_retreat(swarm_position: Vector3) -> void:
 # Distance from the locked landing zone edge; negative means inside the zone.
 func zone_margin(location: Vector3) -> float:
 	return _flat_distance(location, landing_center) - TUNING.LEAPER_ZONE_RADIUS
+
+
+# Locked landing zone footprint.
+func contains(point: Vector3) -> bool:
+	return _flat_distance(point, landing_center) <= TUNING.LEAPER_ZONE_RADIUS
+
+
+# Share of the given world points inside the locked attack area (0..1).
+func hit_fraction(points: PackedVector3Array) -> float:
+	if points.is_empty():
+		return 0.0
+	var inside := 0
+	for point in points:
+		if contains(point):
+			inside += 1
+	return float(inside) / float(points.size())
 
 
 func dodge_direction(location: Vector3) -> Vector3:
@@ -266,37 +282,17 @@ func _build_warning() -> void:
 	warning.name = "Leaper landing zone"
 	add_child(warning)
 	warning.top_level = true
-	var disc := CylinderMesh.new()
-	disc.top_radius = TUNING.LEAPER_ZONE_RADIUS
-	disc.bottom_radius = TUNING.LEAPER_ZONE_RADIUS
-	disc.height = 0.02
-	disc.radial_segments = 48
-	var fill_material := _flat(ZONE_FILL)
-	fill_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	zone_fill = _part(warning, disc, fill_material, Vector3(0.0, 0.1, 0.0))
-	var ring := TorusMesh.new()
-	ring.inner_radius = TUNING.LEAPER_ZONE_RADIUS - 0.2
-	ring.outer_radius = TUNING.LEAPER_ZONE_RADIUS
-	ring.rings = 56
-	ring.ring_segments = 6
-	ring_material = _flat(ZONE_RING)
-	zone_ring = _part(warning, ring, ring_material, Vector3(0.0, 0.13, 0.0))
-	# Reticle that closes in on the fixed zone edge: remaining warning time.
-	var thin := TorusMesh.new()
-	thin.inner_radius = TUNING.LEAPER_ZONE_RADIUS - 0.08
-	thin.outer_radius = TUNING.LEAPER_ZONE_RADIUS
-	thin.rings = 56
-	thin.ring_segments = 6
-	var closing_material := _flat(Color(1.0, 0.72, 0.96, 0.85))
-	closing_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	closing_ring = _part(warning, thin, closing_material, Vector3(0.0, 0.14, 0.0))
+	zone = TG.build("leaper", TUNING.LEAPER_ZONE_RADIUS)
+	zone.position = Vector3(0.0, 0.1, 0.0)
+	warning.add_child(zone)
 	# Downward arrow over the centre: "something lands here".
 	var cone := CylinderMesh.new()
 	cone.top_radius = 0.42
 	cone.bottom_radius = 0.0
 	cone.height = 0.7
 	cone.radial_segments = 4
-	arrow = _part(warning, cone, _flat(ZONE_RING), Vector3(0.0, 1.2, 0.0))
+	var palette: Dictionary = TG.PALETTE_COLORBLIND if TG.UI_STYLE.colorblind else TG.PALETTE
+	arrow = _part(warning, cone, _flat(palette["leaper"]["pattern"]), Vector3(0.0, 1.2, 0.0))
 	warning.visible = false
 	arc = Node3D.new()
 	arc.name = "Leaper jump arc"
@@ -417,10 +413,7 @@ func _pose_warning() -> void:
 			progress = clampf(1.0 - remaining / TUNING.LEAPER_WARNING_SECONDS, 0.0, 1.0)
 		else:
 			progress = 1.0
-		var closing := lerpf(1.8, 1.0, progress)
-		closing_ring.scale = Vector3(closing, 1.0, closing)
-		var pulse := 0.5 + 0.5 * sin(_time * lerpf(9.0, 26.0, progress))
-		ring_material.albedo_color = ZONE_RING.lerp(ZONE_BRIGHT, pulse * (0.3 + 0.6 * progress))
+		TG.set_progress(zone, progress)
 		arrow.position.y = 1.3 - 0.35 * fposmod(_time * 1.6, 1.0)
 		arrow.rotation.y = _time * 1.5
 	if state == State.WARNING or state == State.LEAP:

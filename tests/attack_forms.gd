@@ -146,7 +146,7 @@ func _test_spores() -> void:
 	var outside := _dummy(Vector3(0, 0, 3.5), true)
 	var targets := [inside, outside]
 	_run_for(forms, 1.0, targets, false)
-	_check(absf(_lost(inside) - 2.0) < 0.05, "Sporenwolke R1 sollte ~2 Schaden/s machen, war %s" % _lost(inside))
+	_check(absf(_lost(inside) - FORMS_SCRIPT.SPORE_DPS[0]) < 0.05, "Sporenwolke R1 sollte ~%s Schaden/s machen, war %s" % [FORMS_SCRIPT.SPORE_DPS[0], _lost(inside)])
 	_check(_lost(outside) == 0.0, "Sporenwolke traf außerhalb von 3 m")
 	_check(is_equal_approx(inside.slow_factor, 0.6), "Sporenwolke verlangsamt nicht")
 	_check(is_equal_approx(outside.slow_factor, 1.0), "Außerhalb darf nicht verlangsamt werden")
@@ -155,7 +155,7 @@ func _test_spores() -> void:
 	_check(is_equal_approx(inside.slow_factor, 1.0), "Verlangsamung wird beim Verlassen nicht aufgehoben")
 	forms.set_ranks({"sporenwolke": 3})
 	_run_for(forms, 1.0, targets, false)
-	_check(absf(_lost(outside) - 5.0) < 0.05, "Sporenwolke R3 (4,2 m, 5/s) greift nicht, war %s" % _lost(outside))
+	_check(absf(_lost(outside) - FORMS_SCRIPT.SPORE_DPS[2]) < 0.05, "Sporenwolke R3 (4,2 m, %s/s) greift nicht, war %s" % [FORMS_SCRIPT.SPORE_DPS[2], _lost(outside)])
 	forms.clear()
 	_check(is_equal_approx(outside.slow_factor, 1.0), "clear() hebt Verlangsamung nicht auf")
 	forms.free()
@@ -170,15 +170,16 @@ func _test_spit() -> void:
 	forms.step(DT, targets, false, 1.0)
 	_check(forms.active_projectiles() == 1, "Säurespucker feuert kein Projektil")
 	_run_for(forms, 1.0, targets, false)
-	_check(is_equal_approx(_lost(near), 6.0), "Säurespucker R1 sollte 6 Schaden machen, war %s" % _lost(near))
+	_check(is_equal_approx(_lost(near), FORMS_SCRIPT.SPIT_DAMAGE[0]), "Säurespucker R1 sollte %s Schaden machen, war %s" % [FORMS_SCRIPT.SPIT_DAMAGE[0], _lost(near)])
 	_check(_lost(far) == 0.0, "Säurespucker traf außerhalb von 9 m")
 	_check(forms.active_puddles() == 0, "Ohne Ätzflut darf keine Pfütze entstehen")
 	forms.free()
 	var fast := _forms({"saeurespucker": 3})
 	var victim := _dummy(Vector3(3, 0, 0))
 	_run_for(fast, 2.9, [victim], false)
-	# R3: Schüsse bei 0 / 0,7 / 1,4 / 2,1 / 2,8 s, Flugzeit ~0,2 s -> 4 Treffer à 12.
-	_check(is_equal_approx(_lost(victim), 48.0), "Säurespucker R3 skaliert nicht, war %s" % _lost(victim))
+	# R3: Schüsse alle SPIT_INTERVAL[2] s ab 0, Flugzeit 3 m / SPIT_SPEED -> nur Treffer bis 2,9 s zählen.
+	var shots := int(floor((2.9 - 3.0 / FORMS_SCRIPT.SPIT_SPEED) / FORMS_SCRIPT.SPIT_INTERVAL[2])) + 1
+	_check(is_equal_approx(_lost(victim), shots * FORMS_SCRIPT.SPIT_DAMAGE[2]), "Säurespucker R3 skaliert nicht, war %s" % _lost(victim))
 	fast.free()
 	_dispose([near, far, victim])
 
@@ -208,16 +209,17 @@ func _test_spines() -> void:
 	idle.free()
 	var forms := _forms({"stachelruecken": 2})
 	forms.on_swarm_hit(attacker, 3)
-	_check(is_equal_approx(_lost(attacker), 24.0), "Stachelrücken R2 + 3 Verluste sollte 24 sein, war %s" % _lost(attacker))
+	var spine_r2: float = FORMS_SCRIPT.SPINE_DAMAGE[1] + 3.0 * FORMS_SCRIPT.SPINE_PER_LOSS
+	_check(is_equal_approx(_lost(attacker), spine_r2), "Stachelrücken R2 + 3 Verluste sollte %s sein, war %s" % [spine_r2, _lost(attacker)])
 	forms.step(DT, [], false, 1.5)
 	forms.on_swarm_hit(attacker, 0)
-	_check(is_equal_approx(_lost(attacker), 24.0 + 27.0), "Stachelrücken nutzt enemy_scale nicht")
+	_check(is_equal_approx(_lost(attacker), spine_r2 + FORMS_SCRIPT.SPINE_DAMAGE[1] * 1.5), "Stachelrücken nutzt enemy_scale nicht")
 	forms.on_swarm_hit(null, 5)
 	forms.free()
 	var top := _forms({"stachelruecken": 3})
 	var second := _dummy(Vector3(-1, 0, 0))
 	top.on_swarm_hit(second, 1)
-	_check(is_equal_approx(_lost(second), 28.0), "Stachelrücken R3 sollte 26 + 2 sein")
+	_check(is_equal_approx(_lost(second), FORMS_SCRIPT.SPINE_DAMAGE[2] + FORMS_SCRIPT.SPINE_PER_LOSS), "Stachelrücken R3 sollte SPINE_DAMAGE[2] + SPINE_PER_LOSS sein")
 	top.free()
 	_dispose([attacker, second])
 

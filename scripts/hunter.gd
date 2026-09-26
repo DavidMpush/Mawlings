@@ -1,6 +1,7 @@
 extends Node3D
 
 const TUNING = preload("res://scripts/tuning.gd")
+const TG = preload("res://scripts/telegraph_style.gd")
 enum State { ARRIVING, CHASE, WARNING, RECOVERY }
 var state := State.ARRIVING
 var remaining := 1.0
@@ -8,11 +9,17 @@ var health := TUNING.HUNTER_HEALTH
 var max_health := TUNING.HUNTER_HEALTH
 var attack_center := Vector3.ZERO
 var attack_power := 6
+# Base loss of the attack resolved during the last step() (0 = none), whether or
+# not the swarm centre was inside; HuntWorld scales it by the share of animals hit.
+var resolved_power := 0
 var hit_flash := 0.0
 var warning: Node3D
 var body: MeshInstance3D
 var health_fill: MeshInstance3D
-var warning_material: StandardMaterial3D
+# Patterned ground telegraph (telegraph_style.gd "hunter") inside `warning`.
+var warning_zone: MeshInstance3D
+# Legacy handle (tests/capture_combat.gd sets its colour); no longer rendered.
+var warning_material := StandardMaterial3D.new()
 # Movement multiplier set by attack forms (e.g. Sporenwolke); 1.0 = normal.
 var slow_factor := 1.0
 
@@ -53,16 +60,11 @@ func _ready() -> void:
 	warning = Node3D.new()
 	add_child(warning)
 	warning.top_level = true
-	var ring := TorusMesh.new()
-	ring.inner_radius = TUNING.HUNTER_ATTACK_RADIUS - 0.08
-	ring.outer_radius = TUNING.HUNTER_ATTACK_RADIUS
-	ring.rings = 40
-	ring.ring_segments = 8
-	var danger := StandardMaterial3D.new()
-	danger.albedo_color = Color("73d8e7")
-	danger.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	warning_material = danger
-	_part(warning, ring, danger, Vector3(0, 0.10, 0))
+	warning_zone = TG.build("hunter", TUNING.HUNTER_ATTACK_RADIUS)
+	warning_zone.position = Vector3(0, 0.10, 0)
+	warning.add_child(warning_zone)
+	# Approach preview: faint contour only until the attack is locked.
+	TG.set_armed(warning_zone, false)
 	warning.global_position = global_position
 	warning.scale = Vector3.ONE * 0.45
 
@@ -74,6 +76,7 @@ func take_damage(amount: float) -> void:
 
 # Returns one resolved hit, once per completed wind-up. Its location is locked.
 func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity: Vector3 = Vector3.ZERO) -> int:
+	resolved_power = 0
 	hit_flash = maxf(0.0, hit_flash - delta)
 	body.scale = Vector3.ONE * (1.12 if hit_flash > 0.0 else 1.0)
 	health_fill.scale.x = clampf(health / max_health, 0.0, 1.0)
@@ -92,7 +95,8 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 			attack_power = int(ceil(minf(1000000.0, TUNING.HUNTER_DAMAGE * pressure)))
 			warning.global_position = attack_center
 			warning.scale = Vector3.ONE
-			warning_material.albedo_color = Color("ff674b")
+			TG.set_armed(warning_zone, true)
+			TG.set_progress(warning_zone, 0.0)
 			warning.visible = true
 		else:
 			var direction: Vector3 = arena.steer_direction(position, swarm_position, 0.8)
@@ -100,7 +104,9 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 		return 0
 	remaining -= delta
 	if state == State.WARNING:
-		# Ring keeps its full footprint throughout the telegraph.
+		# Area keeps its full footprint; the pattern fills with the wind-up.
+		TG.set_armed(warning_zone, true)
+		TG.set_progress(warning_zone, 1.0 - remaining / TUNING.HUNTER_WARNING_SECONDS)
 		body.position.y = 0.6 + 0.14 * sin((1.0 - remaining / TUNING.HUNTER_WARNING_SECONDS) * PI)
 	if remaining > 0.0:
 		return 0
@@ -112,11 +118,28 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 		remaining = TUNING.HUNTER_RECOVERY_SECONDS
 		warning.visible = false
 		body.position.y = 0.6
+		resolved_power = attack_power
 		if swarm_position.distance_to(attack_center) <= TUNING.HUNTER_ATTACK_RADIUS:
 			return attack_power
 	elif state == State.RECOVERY:
 		state = State.CHASE
 	return 0
+
+
+# Locked ring footprint (flat), valid from the warning until the hit resolves.
+func contains(point: Vector3) -> bool:
+	return Vector2(point.x - attack_center.x, point.z - attack_center.z).length() <= TUNING.HUNTER_ATTACK_RADIUS
+
+
+# Share of the given world points inside the locked attack area (0..1).
+func hit_fraction(points: PackedVector3Array) -> float:
+	if points.is_empty():
+		return 0.0
+	var inside := 0
+	for point in points:
+		if contains(point):
+			inside += 1
+	return float(inside) / float(points.size())
 
 
 func _part(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -> MeshInstance3D:

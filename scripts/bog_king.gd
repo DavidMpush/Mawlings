@@ -2,6 +2,7 @@ extends Node3D
 
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
+const TG = preload("res://scripts/telegraph_style.gd")
 const MODEL = preload("res://assets/gameplay/characters/BogKing_game.glb")
 const CREATURE_SHADER = preload("res://shaders/creature_anim.gdshader")
 
@@ -13,9 +14,6 @@ const RIM_RECOVERY := Color("ffe07a")
 const DUST := Color(0.56, 0.42, 0.28, 0.6)
 const SLAM_SECONDS := 0.4
 
-const RING_HOT := Color("ff6a40")
-const RING_BRIGHT := Color("fff1c8")
-
 enum State { ARRIVING, CHASE, WARNING, RECOVERY }
 
 var state := State.ARRIVING
@@ -24,22 +22,21 @@ var health := TUNING.BOSS_HEALTH
 var max_health := TUNING.BOSS_HEALTH
 var attack_center := Vector3.ZERO
 var attack_power := 0
+# Base loss of the stomp resolved during the last step() (0 = none).
+var resolved_power := 0
 var hit_flash := 0.0
 var model: Node3D
 var warning: Node3D
-var danger_material: StandardMaterial3D
 # Presentation only: nothing below feeds back into game logic.
 var emerge := 0.0
 var body: Node3D
 var skin: ShaderMaterial
 var shadow: MeshInstance3D
-var fill_disc: MeshInstance3D
-var warning_ring: MeshInstance3D
-var ring_material: StandardMaterial3D
+# Patterned stomp area (telegraph_style.gd "boss") inside `warning`.
+var zone: MeshInstance3D
 var _time := 0.0
 var _gait := 0.0
 var _slam := 0.0
-var _ring_phase := 0.0
 var _rim := RIM_CHASE
 var _lift := 0.0
 var _lean := 0.0
@@ -79,26 +76,9 @@ func _ready() -> void:
 	warning.name = "Bog King stomp warning"
 	add_child(warning)
 	warning.top_level = true
-	var disc := CylinderMesh.new()
-	disc.top_radius = TUNING.BOSS_ATTACK_RADIUS
-	disc.bottom_radius = TUNING.BOSS_ATTACK_RADIUS
-	disc.height = 0.025
-	danger_material = _material(Color(1.0, 0.25, 0.12, 0.14), true)
-	danger_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_part(warning, disc, danger_material, Vector3(0, 0.11, 0))
-	# Fill disc grows from the centre to the rim: remaining warning time.
-	var fill_material := _material(Color(1.0, 0.3, 0.08, 0.35), true)
-	fill_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	fill_material.render_priority = 1
-	fill_disc = _part(warning, disc, fill_material, Vector3(0, 0.125, 0))
-	fill_disc.scale = Vector3(0.05, 1.0, 0.05)
-	var ring := TorusMesh.new()
-	ring.inner_radius = TUNING.BOSS_ATTACK_RADIUS - 0.3
-	ring.outer_radius = TUNING.BOSS_ATTACK_RADIUS
-	ring.rings = 56
-	ring.ring_segments = 8
-	ring_material = _material(Color("ff7250"), true)
-	warning_ring = _part(warning, ring, ring_material, Vector3(0, 0.15, 0))
+	zone = TG.build("boss", TUNING.BOSS_ATTACK_RADIUS)
+	zone.position = Vector3(0, 0.11, 0)
+	warning.add_child(zone)
 	warning.visible = false
 	warning.global_position = global_position
 	FX.ring(self, global_position, Color(0.48, 0.34, 0.2, 0.85), 0.8, 4.2, 0.9)
@@ -113,6 +93,7 @@ func take_damage(amount: float) -> void:
 
 
 func step(delta: float, swarm_position: Vector3, pressure: float) -> int:
+	resolved_power = 0
 	var previous_state := state
 	var previous_position := position
 	var result := _logic(delta, swarm_position, pressure)
@@ -153,11 +134,28 @@ func _logic(delta: float, swarm_position: Vector3, pressure: float) -> int:
 		state = State.RECOVERY
 		remaining = TUNING.BOSS_RECOVERY_SECONDS
 		warning.visible = false
+		resolved_power = attack_power
 		if swarm_position.distance_to(attack_center) <= TUNING.BOSS_ATTACK_RADIUS:
 			return attack_power
 	elif state == State.RECOVERY:
 		state = State.CHASE
 	return 0
+
+
+# Locked stomp circle footprint.
+func contains(point: Vector3) -> bool:
+	return Vector2(point.x - attack_center.x, point.z - attack_center.z).length() <= TUNING.BOSS_ATTACK_RADIUS
+
+
+# Share of the given world points inside the locked attack area (0..1).
+func hit_fraction(points: PackedVector3Array) -> float:
+	if points.is_empty():
+		return 0.0
+	var inside := 0
+	for point in points:
+		if contains(point):
+			inside += 1
+	return float(inside) / float(points.size())
 
 
 # Updates body pose, rim, shadow and warning visuals. Model faces local -X:
@@ -207,11 +205,7 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 			jaw = 0.8 * rise
 			tremble = 0.09 * smoothstep(0.6, 1.0, progress)
 			rim_target = RIM_WARNING
-			fill_disc.scale = Vector3(lerpf(0.05, 1.0, progress), 1.0, lerpf(0.05, 1.0, progress))
-			_ring_phase += delta * lerpf(7.0, 30.0, progress * progress)
-			var pulse := 0.5 + 0.5 * sin(_ring_phase)
-			warning_ring.scale = Vector3(1.0 + 0.035 * pulse, 1.0, 1.0 + 0.035 * pulse)
-			ring_material.albedo_color = RING_HOT.lerp(RING_BRIGHT, pulse * (0.4 + 0.6 * progress))
+			TG.set_progress(zone, progress)
 		State.RECOVERY:
 			var breath := sin(_time * 2.1)
 			lift = -0.12
@@ -221,9 +215,7 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 			rim_target = RIM_RECOVERY
 			rim_strength = 0.8 + 0.35 * (0.5 + 0.5 * sin(_time * 5.0))
 	if state != State.WARNING:
-		fill_disc.scale = Vector3(0.05, 1.0, 0.05)
-		warning_ring.scale = Vector3.ONE
-		_ring_phase = 0.0
+		TG.set_progress(zone, 0.0)
 	if _slam > 0.0:
 		var slam := _slam / SLAM_SECONDS
 		lean += 0.32 * slam
@@ -332,15 +324,6 @@ func _make_shadow() -> MeshInstance3D:
 	var part := _part(self, plane, material, Vector3(0, 0.06, 0))
 	part.name = "Bog King shadow"
 	return part
-
-
-func _material(color: Color, unshaded: bool = false) -> StandardMaterial3D:
-	var value := StandardMaterial3D.new()
-	value.albedo_color = color
-	value.roughness = 0.8
-	if unshaded:
-		value.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	return value
 
 
 func _part(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -> MeshInstance3D:

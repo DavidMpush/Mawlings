@@ -1,6 +1,16 @@
 extends RefCounted
 
 # Shared prototype balance, expressed in seconds and world units.
+#
+# Balance (Etappe 05): gemessen mit tests/balance_sim.gd / tools/balance.ps1 (Bot mit
+# 0,45 s Reaktionszeit, übersieht 12 % der Warnungen; 3 Stämme x 3 Seeds x 2 Strategien).
+# Ziel-Kurve (Median-Tod): Wild 6-12 min, Brutal 4-7 min, Apex 2,5-5 min; Wild nie < 2 min.
+# Stand nach Treffer-pro-Tier: Wild ~9:07, Brutal ~4:53, Apex ~3:26 (alle im Ziel).
+# Druck = 2^(Zeit / pressure_doubling) bleibt exponentiell; die Schwierigkeit setzt nur
+# pressure_doubling sowie Gegner-HP/-Schaden-Multiplikatoren (scripts/meta/meta_data.gd).
+# Tod entsteht praktisch immer, sobald ein übersehener Treffer (Basis x Druck) die
+# Population übersteigt – daher bestimmt pressure_doubling die Lauflänge am stärksten.
+# Formen-Zahlen (Schaden/Cooldowns) stehen in scripts/attack_forms.gd.
 const PRESSURE_DOUBLING_SECONDS := 90.0
 const FIRST_HUNTER_SECONDS := 18.0
 const HUNTER_HEALTH := 22.0

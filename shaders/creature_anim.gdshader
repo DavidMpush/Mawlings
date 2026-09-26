@@ -1,4 +1,4 @@
-// Creature look of creature.gdshader (fragment() is identical) plus procedural limb
+// Creature look of creature.gdshader (shared creature_look.gdshaderinc) plus procedural limb
 // animation in the vertex stage, for the rig-less Mawling and Bog King meshes.
 //
 // All region uniforms are in the RAW mesh space the vertex shader sees (the glb
@@ -11,16 +11,9 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 
-uniform float brightness = 1.0;
-uniform float saturation = 1.0;
-uniform float shape_light = 0.35;
-uniform vec4 rim_color : source_color = vec4(1.0, 0.85, 0.7, 1.0);
-uniform float rim_strength = 0.0;
-uniform float rim_power = 2.5;
-uniform vec4 flash_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
-uniform float flash = 0.0;
-// Strain recolour: keeps the model's light/dark pattern, replaces its hue (alpha = amount).
-uniform vec4 body_tint : source_color = vec4(1.0, 1.0, 1.0, 0.0);
+// Mawlings (and the Bog King, the menu Mawling) get the dark contour by default.
+#define OUTLINE_DEFAULT 0.85
+#include "res://shaders/creature_look.gdshaderinc"
 
 group_uniforms frame;
 uniform vec3 up_axis = vec3(0.0, 0.0, -1.0);
@@ -152,20 +145,5 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 base = COLOR.rgb * brightness;
-	float grey = dot(base, vec3(0.299, 0.587, 0.114));
-	base = mix(vec3(grey), base, saturation);
-	float luma = dot(base, vec3(0.299, 0.587, 0.114));
-	base = mix(base, body_tint.rgb * clamp(luma * 2.4, 0.0, 1.4), body_tint.a);
-	vec3 normal = normalize(NORMAL);
-	if (!FRONT_FACING) {
-		normal = -normal;
-	}
-	// View-space key light from upper left, facing the camera.
-	float key = clamp(dot(normal, normalize(vec3(-0.35, 0.75, 0.55))) * 0.5 + 0.5, 0.0, 1.0);
-	base *= mix(1.0 - shape_light, 1.0 + shape_light * 0.45, key);
-	float rim = pow(1.0 - clamp(abs(dot(normal, VIEW)), 0.0, 1.0), rim_power) * rim_strength;
-	base = mix(base, rim_color.rgb, clamp(rim, 0.0, 1.0));
-	base = mix(base, flash_color.rgb, clamp(flash, 0.0, 1.0));
-	ALBEDO = base;
+	ALBEDO = creature_look(COLOR.rgb, NORMAL, VIEW, FRONT_FACING);
 }

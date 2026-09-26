@@ -92,6 +92,9 @@ func _run() -> void:
 	hunter = world._spawn_hunter(Vector3.ZERO)
 	hunter.state = hunter.State.RECOVERY
 	hunter.remaining = 10
+	# Melee counts biting animals: the whole swarm surrounds the hunter.
+	for unit in swarm.units:
+		unit.position = Vector3.ZERO
 	var health: float = hunter.health
 	world.step(0.1)
 	check(is_equal_approx(health - hunter.health, 4.0 * 1.55 * 2.8 * 0.1), "Damage modifier wired into combat")
@@ -103,6 +106,9 @@ func _run() -> void:
 	hunter.remaining = 0.01
 	hunter.attack_center = Vector3.ZERO
 	hunter.attack_power = 20
+	# Hits count per animal: gather the whole swarm inside the ring.
+	for unit in swarm.units:
+		unit.position = Vector3.ZERO
 	world.step(0.02)
 	check(world.model.population == 17, "Armor modifier wired into incoming hit")
 	if not failures.is_empty():

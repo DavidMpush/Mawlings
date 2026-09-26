@@ -96,6 +96,8 @@ func _draw() -> void:
 		return
 	if menu.tab != "" and not menu.legacy.get("sheet", true):
 		_draw_sheet()
+	if menu.get("settings_open") and not menu.legacy.get("settings", true) and menu.reward.is_empty():
+		_draw_settings()
 	if not menu.legacy.get("reward", true):
 		if not menu.reward.is_empty():
 			_draw_reward()
@@ -221,21 +223,26 @@ func _medallion(c: Vector2, r: float, accent: Color, glow: float = 1.0) -> void:
 	draw_arc(c, r - 6, 0, TAU, 48, Color(accent, 0.25), 1.5, true)
 
 
-## kind: "ember" (primary), "gold", "cyan", "off", "max".
-func _button(rect: Rect2, kind: String, glow: float = 0.0) -> void:
+## kind: "ember" (primary), "gold", "cyan", "off", "max". `pressed` sinks the
+## button (labels use _press_offset with the same flag).
+func _button(rect: Rect2, kind: String, glow: float = 0.0, pressed: bool = false) -> void:
+	if pressed:
+		glow *= 0.4
 	if _frames != null:
 		if kind == "ember":
 			if glow > 0.0:
 				for i in 3:
 					draw_colored_polygon(_shape(rect.grow(6 + i * 6), 20 + i * 3), Color(S.EMBER_GLOW, glow * (0.10 - i * 0.03)))
-			_frames.button(self, rect, "primary")
+			_frames.button(self, rect, "primary", pressed)
 		else:
-			_frames.button(self, rect, "secondary")
+			_frames.button(self, rect, "secondary", pressed)
 			if kind == "max" or kind == "gold" or kind == "cyan":
 				var tint: Color = {"max": S.TOXIC, "gold": S.GOLD, "cyan": S.CYAN}[kind]
 				var inner := rect.grow(-7)
 				_gradient_fill(_rounded_points(inner, 14, 5), inner, Color(tint, 0.26), Color(tint, 0.06))
 		return
+	if pressed:
+		rect = Rect2(rect.position + Vector2(0, 3), rect.size).grow(-2)
 	var base: Color = {"ember": Color("c4521f"), "gold": Color("a8791f"), "cyan": Color("1d8a80"), "off": Color("1c2621"), "max": Color("2c5a2c")}.get(kind, Color("1c2621"))
 	var edge: Color = {"ember": S.EMBER_GLOW, "gold": S.GOLD, "cyan": S.CYAN, "off": Color("46524a"), "max": S.TOXIC}.get(kind, Color("46524a"))
 	if glow > 0.0:
@@ -249,6 +256,11 @@ func _button(rect: Rect2, kind: String, glow: float = 0.0) -> void:
 		_gradient_fill(_shape(gloss, 10), gloss, Color(1, 1, 1, 0.20), Color(1, 1, 1, 0.02))
 	_outline(shape, edge, 3.0)
 	_outline(_shape(rect.grow(-5), 12), Color(edge, 0.2), 1.5)
+
+
+## Label shift that goes with a pressed button.
+func _press_offset(pressed: bool) -> Vector2:
+	return Vector2(0, 3) if pressed else Vector2.ZERO
 
 
 func _bar_fill(rect: Rect2, fraction: float, color: Color) -> void:
@@ -335,8 +347,9 @@ func _draw_sheet() -> void:
 	_body(sub, Vector2(s.position.x + 42, top + 124), 22, Color(accent, 0.95).lerp(S.TEXT, 0.35))
 	# Close button (hit area from menu.gd).
 	var close: Rect2 = menu.sheet_close_rect()
-	_button(close.grow(-6), "off")
-	var cc := close.get_center()
+	var close_down: bool = menu.is_pressed(close)
+	_button(close.grow(-6), "off", 0.0, close_down)
+	var cc := close.get_center() + _press_offset(close_down)
 	for d in [Vector2(1, 1), Vector2(1, -1)]:
 		draw_line(cc - d * 17, cc + d * 17, S.OUTLINE, 11, true)
 		draw_line(cc - d * 17, cc + d * 17, S.BONE, 6, true)
@@ -460,14 +473,16 @@ func _draw_upgrades() -> void:
 			_txt("GESPERRT", buy.get_center() + Vector2(0, 34), 21, Color("8d998f"), 1, 4)
 		else:
 			var pulse := 0.6 + 0.4 * sin(now * 3.0 + i * 0.7)
-			_button(buy, "ember" if affordable else "off", pulse if affordable else 0.0)
+			var down: bool = menu.is_pressed(buy)
+			var po := _press_offset(down)
+			_button(buy, "ember" if affordable else "off", pulse if affordable else 0.0, down)
 			var label_color := S.TEXT if affordable else Color("9aa39c")
-			_txt("KAUFEN", Vector2(buy.get_center().x, buy.position.y + 38), 24, label_color, 1, 5)
+			_txt("KAUFEN", Vector2(buy.get_center().x, buy.position.y + 38) + po, 24, label_color, 1, 5)
 			var cost_text := "%d" % cost
 			var cw := _w(cost_text, 34)
 			var cx := buy.get_center().x - (cw + 34) * 0.5
-			_essence_icon(Vector2(cx + 11, buy.position.y + 70), 12, affordable)
-			_txt(cost_text, Vector2(cx + 32, buy.position.y + 83), 34, Color.WHITE if affordable else Color("8d998f"), 0, 6)
+			_essence_icon(Vector2(cx + 11, buy.position.y + 70) + po, 12, affordable)
+			_txt(cost_text, Vector2(cx + 32, buy.position.y + 83) + po, 34, Color.WHITE if affordable else Color("8d998f"), 0, 6)
 
 
 func _upgrade_glyph(id: String, c: Vector2, r: float, color: Color) -> void:
@@ -748,14 +763,16 @@ func _draw_instinct() -> void:
 	var cost := int(menu._instinct_cost())
 	var buy: Rect2 = menu.instinct_buy_rect()
 	var affordable: bool = menu.profile.essence >= cost
-	_button(buy, "ember" if affordable else "off", (0.6 + 0.4 * breathe) if affordable else 0.0)
+	var down: bool = menu.is_pressed(buy)
+	var po := _press_offset(down)
+	_button(buy, "ember" if affordable else "off", (0.6 + 0.4 * breathe) if affordable else 0.0, down)
 	var col := Color.WHITE if affordable else Color("9aa39c")
-	_txt("STÄRKEN", Vector2(buy.get_center().x, buy.position.y + 58), 46, col, 1, 7)
+	_txt("STÄRKEN", Vector2(buy.get_center().x, buy.position.y + 58) + po, 46, col, 1, 7)
 	var cost_text := "%d" % cost
 	var cw := _w(cost_text, 32)
 	var cx := buy.get_center().x - (cw + 34) * 0.5
-	_essence_icon(Vector2(cx + 11, buy.position.y + 90), 12, affordable)
-	_txt(cost_text, Vector2(cx + 32, buy.position.y + 103), 32, col, 0, 5)
+	_essence_icon(Vector2(cx + 11, buy.position.y + 90) + po, 12, affordable)
+	_txt(cost_text, Vector2(cx + 32, buy.position.y + 103) + po, 32, col, 0, 5)
 	if not affordable:
 		_body("Noch %d Essenz" % (cost - int(menu.profile.essence)), Vector2(buy.get_center().x, buy.end.y + 40), 22, S.DANGER.lightened(0.3), 1)
 	var note_y := buy.end.y + (84 if not affordable else 56)
@@ -813,6 +830,9 @@ func _draw_reward() -> void:
 	var strain: Dictionary = meta.STRAINS.get(String(stats.get("strain_id", "")), {})
 	var diff_index := clampi(int(stats.get("difficulty", 0)), 0, meta.DIFFICULTIES.size() - 1)
 	var sub := "%s  ·  %s" % [String(strain.get("name", "")).to_upper(), String(meta.DIFFICULTIES[diff_index].name).to_upper()]
+	var daily: Dictionary = reward.get("daily", {})
+	if not daily.is_empty():
+		sub = "TAGES-BRUT  ·  " + sub + ("  ·  TAGESREKORD" if daily.get("new_best", false) else "")
 	_txt(sub, Vector2(cx, 314), 24, Color(strain.get("tint", "#9ed5b3")).lightened(0.4), 1, 5)
 	# Survival time counts up.
 	var seconds := float(stats.get("seconds", 0.0)) * _ease(0.25, 1.0)
@@ -926,8 +946,9 @@ func _draw_reward() -> void:
 			_body("+ %d weitere in TROPHÄEN" % (total - shown), Vector2(cx, cy + 22), 21, Color(S.VIOLET.lightened(0.35), a), 1)
 	# WEITER on the menu rectangle.
 	var pulse := 0.5 + 0.5 * sin(_now() * 2.5)
-	_button(button, "ember", 0.6 + 0.4 * pulse)
-	_txt("WEITER", button.get_center() + Vector2(0, 17), 50, Color.WHITE, 1, 8)
+	var down: bool = menu.is_pressed(button)
+	_button(button, "ember", 0.6 + 0.4 * pulse, down)
+	_txt("WEITER", button.get_center() + Vector2(0, 17) + _press_offset(down), 50, Color.WHITE, 1, 8)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -1009,6 +1030,97 @@ func _trophy_chip(rect: Rect2, q: Dictionary, index: int) -> void:
 		_essence_icon(Vector2(right - 12, r.position.y + 27), 9)
 
 # ================================================================ Toast
+
+# ================================================================ Einstellungen
+
+func _draw_settings() -> void:
+	var p: Rect2 = menu.settings_panel_rect()
+	draw_rect(Rect2(Vector2.ZERO, size), Color(S.DIM, 0.8))
+	if _frames != null:
+		_frames.panel(self, p, S.BONE, true)
+	else:
+		_card(p, S.BONE, "normal", 36, true)
+	_txt("EINSTELLUNGEN", Vector2(p.position.x + 40, p.position.y + 84), 48, S.TEXT, 0, 8)
+	_body("Wird im Profil gespeichert", Vector2(p.position.x + 42, p.position.y + 124), 22, S.TEXT_DIM)
+	var close: Rect2 = menu.settings_close_rect()
+	var close_down: bool = menu.is_pressed(close)
+	_button(close.grow(-6), "off", 0.0, close_down)
+	var cc := close.get_center() + _press_offset(close_down)
+	for d in [Vector2(1, 1), Vector2(1, -1)]:
+		draw_line(cc - d * 17, cc + d * 17, S.OUTLINE, 11, true)
+		draw_line(cc - d * 17, cc + d * 17, S.BONE, 6, true)
+	draw_line(Vector2(p.position.x + 30, p.position.y + 150), Vector2(p.end.x - 30, p.position.y + 150), Color(S.BONE, 0.3), 2, true)
+	var accents := [S.CYAN, S.EMBER, S.VIOLET]
+	for i in menu.SETTINGS.size():
+		var entry: Array = menu.SETTINGS[i]
+		var row: Rect2 = menu.settings_row_rect(i)
+		var on: bool = menu.setting(entry[0])
+		var accent: Color = accents[i % accents.size()]
+		var down: bool = menu.is_pressed(row)
+		var po := _press_offset(down)
+		_card(row, accent if on else Color("5b675f"), "normal" if on else "dim", 20, false)
+		var ic := row.position + Vector2(62, row.size.y * 0.5) + po
+		_medallion(ic, 40, accent if on else Color("56625a"), 1.0 if on else 0.0)
+		_setting_glyph(String(entry[0]), ic, accent.lightened(0.2) if on else Color("7d8a80"), on)
+		_txt(String(entry[1]), row.position + Vector2(124, 54) + po, 32, S.TEXT if on else S.TEXT_DIM, 0, 6)
+		_body(String(entry[2]), row.position + Vector2(124, 92) + po, 22, Color(S.TEXT_DIM, 0.95))
+		_switch(Rect2(Vector2(row.end.x - 150, row.get_center().y - 28) + po, Vector2(124, 56)), on, accent)
+	var note_y: float = menu.settings_row_rect(menu.SETTINGS.size() - 1).end.y + 50
+	_body("Farbenblind-Modus: Gefahren tragen zusätzlich Muster und Kontur.", Vector2(p.get_center().x, note_y), 21, Color(S.TEXT_DIM, 0.85), 1)
+
+
+## Toggle switch: capsule track, sliding knob, AN/AUS written inside.
+func _switch(rect: Rect2, on: bool, accent: Color) -> void:
+	var r := rect.size.y * 0.5
+	draw_colored_polygon(_rounded_points(rect.grow(3), r + 3, 6), S.OUTLINE)
+	var track := _rounded_points(rect, r, 6)
+	_gradient_fill(track, rect, (accent.darkened(0.25) if on else Color("1c2621")), (accent.darkened(0.6) if on else Color("0c1410")))
+	_outline(track, Color(accent, 0.8) if on else Color("46524a"), 2.0)
+	var knob := Vector2(rect.end.x - r if on else rect.position.x + r, rect.get_center().y)
+	draw_circle(knob + Vector2(0, 3), r - 5, Color(0, 0, 0, 0.4))
+	draw_circle(knob, r - 5, S.BONE if on else Color("8d998f"))
+	draw_circle(knob + Vector2(-5, -6), 6, Color(1, 1, 1, 0.4))
+	var label := "AN" if on else "AUS"
+	var free := rect.size.x - 2.0 * r
+	var lx := rect.position.x + free * 0.5 + (0.0 if on else 2.0 * r)
+	_txt(label, Vector2(lx, rect.get_center().y + 8), 21, S.TEXT if on else S.TEXT_DIM, 1, 4)
+
+
+func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
+	match key:
+		"sound":
+			# Speaker with sound waves (crossed out when off).
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-18, -8), c + Vector2(-8, -8), c + Vector2(4, -19), c + Vector2(4, 19), c + Vector2(-8, 8), c + Vector2(-18, 8)]), color)
+			if on:
+				draw_arc(c + Vector2(6, 0), 10, -0.9, 0.9, 12, color, 3.5, true)
+				draw_arc(c + Vector2(6, 0), 18, -0.9, 0.9, 16, color, 3.5, true)
+			else:
+				draw_line(c + Vector2(10, -9), c + Vector2(24, 9), color, 4, true)
+				draw_line(c + Vector2(24, -9), c + Vector2(10, 9), color, 4, true)
+		"vibration":
+			# Phone with shake marks.
+			var body := Rect2(c + Vector2(-10, -18), Vector2(20, 36))
+			draw_colored_polygon(_rounded_points(body, 5, 3), color)
+			draw_rect(Rect2(body.position + Vector2(4, 5), Vector2(12, 22)), S.OUTLINE)
+			if on:
+				for sgn in [-1.0, 1.0]:
+					draw_line(c + Vector2(sgn * 17, -10), c + Vector2(sgn * 21, -4), color, 3, true)
+					draw_line(c + Vector2(sgn * 21, -4), c + Vector2(sgn * 17, 2), color, 3, true)
+					draw_line(c + Vector2(sgn * 17, 2), c + Vector2(sgn * 21, 8), color, 3, true)
+		_:
+			# Eye with a striped iris (pattern, not only colour).
+			var pts := PackedVector2Array()
+			for i in 17:
+				var t := float(i) / 16.0
+				pts.append(c + Vector2(lerpf(-22, 22, t), -sin(t * PI) * 13))
+			for i in range(15, 0, -1):
+				var t := float(i) / 16.0
+				pts.append(c + Vector2(lerpf(-22, 22, t), sin(t * PI) * 13))
+			draw_colored_polygon(pts, color)
+			draw_circle(c, 9, S.OUTLINE)
+			for k in 3:
+				draw_line(c + Vector2(-6 + k * 5, -7), c + Vector2(-9 + k * 5, 7), color, 2, true)
+
 
 func _draw_toast() -> void:
 	var text: String = menu.toast

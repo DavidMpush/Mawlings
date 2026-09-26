@@ -65,6 +65,10 @@ func _run() -> void:
 	world.reset_run()
 	world._create_corpse(Vector3(30, 0, 0), 12.0)
 	world._spawn_hunter(Vector3(2.5, 0, 0))
+	# Hits count per animal and swarm processing is off, so the formation never
+	# closes ranks by itself: gather it inside the ring.
+	for unit in swarm.units:
+		unit.position = Vector3.ZERO
 	for tick in 1500:
 		world.step(1.0 / 60.0)
 		if world.model.extinct:

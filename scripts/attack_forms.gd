@@ -20,27 +20,27 @@ const FORMS := {
 		"name": "Sporenwolke",
 		"icon_hint": "spore_cloud",
 		"ranks": [
-			"Sporen-Aura (3 m): 2 Schaden/s, Gegner werden verlangsamt.",
-			"Sporen-Aura (3,6 m): 3,5 Schaden/s, Gegner werden verlangsamt.",
-			"Sporen-Aura (4,2 m): 5 Schaden/s, Gegner werden verlangsamt.",
+			"Sporen-Aura (3 m): 3,5 Schaden/s, Gegner werden verlangsamt.",
+			"Sporen-Aura (3,6 m): 6 Schaden/s, Gegner werden verlangsamt.",
+			"Sporen-Aura (4,2 m): 9 Schaden/s, Gegner werden verlangsamt.",
 		],
 	},
 	"saeurespucker": {
 		"name": "Säurespucker",
 		"icon_hint": "acid_drop",
 		"ranks": [
-			"Alle 1,2 s ein Säureschuss auf den nächsten Gegner (9 m), 6 Schaden.",
-			"Alle 0,9 s ein Säureschuss, 9 Schaden.",
-			"Alle 0,7 s ein Säureschuss, 12 Schaden.",
+			"Alle 1,3 s ein Säureschuss auf den nächsten Gegner (9 m), 5 Schaden.",
+			"Alle 1,1 s ein Säureschuss, 7,5 Schaden.",
+			"Alle 0,9 s ein Säureschuss, 10 Schaden.",
 		],
 	},
 	"stachelruecken": {
 		"name": "Stachelrücken",
 		"icon_hint": "spikes",
 		"ranks": [
-			"Wer den Schwarm trifft, erleidet 10 Schaden + 2 je verlorenem Mawling.",
-			"Rückstoß-Stacheln: 18 Schaden + 2 je verlorenem Mawling.",
-			"Rückstoß-Stacheln: 26 Schaden + 2 je verlorenem Mawling.",
+			"Wer den Schwarm trifft, erleidet 20 Schaden + 3 je verlorenem Mawling.",
+			"Rückstoß-Stacheln: 34 Schaden + 3 je verlorenem Mawling.",
+			"Rückstoß-Stacheln: 48 Schaden + 3 je verlorenem Mawling.",
 		],
 	},
 	"meute": {
@@ -75,13 +75,15 @@ const MEUTE_RADIUS := 2.4
 const MEUTE_RALLY_MULTIPLIER := 2.0
 
 const SPORE_RADIUS := [3.0, 3.6, 4.2]
-const SPORE_DPS := [2.0, 3.5, 5.0]
+# Etappe 05 Balance: Aura war mit Abstand die schwächste Form (Brutal-Median −45 % ggü. Säure).
+const SPORE_DPS := [3.5, 6.0, 9.0]
 const SPORE_SLOW := 0.6
 
-const SPIT_INTERVAL := [1.2, 0.9, 0.7]
+# Etappe 05 Balance: Säure dominierte (9 m Reichweite, 17 Schaden/s auf Rang 3) – leicht gedämpft.
+const SPIT_INTERVAL := [1.3, 1.1, 0.9]
 const SPIT_REACH := 9.0
 const SPIT_SPEED := 14.0
-const SPIT_DAMAGE := [6.0, 9.0, 12.0]
+const SPIT_DAMAGE := [5.0, 7.5, 10.0]
 const SPIT_MAX_FLIGHT := 1.2
 const SPIT_HEIGHT := 0.75
 
@@ -89,8 +91,9 @@ const PUDDLE_SECONDS := 2.0
 const PUDDLE_RADIUS := 1.2
 const PUDDLE_DPS := 4.0
 
-const SPINE_DAMAGE := [10.0, 18.0, 26.0]
-const SPINE_PER_LOSS := 2.0
+# Etappe 05 Balance: Rückstoß greift nur bei Treffern und blieb zu schwach.
+const SPINE_DAMAGE := [20.0, 34.0, 48.0]
+const SPINE_PER_LOSS := 3.0
 const SPINE_SECONDS := 0.42
 const SPINE_COUNT := 12
 

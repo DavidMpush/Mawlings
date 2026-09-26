@@ -31,7 +31,7 @@ func _capture() -> void:
 	boss.step(0.01, swarm.position, 1.0)
 	for i in range(12):
 		boss.step(1.0 / 60.0, swarm.position, 1.0)
-	world._update_hud("BOG KING STAMPFT · AUS DEM ROTEN KREIS!")
+	world._update_hud("BOG KING STAMPFT · RAUS AUS DEM KREIS!")
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_boss_warning.png")
 	# Advance to ~80 % of the warning to show the growing fill disc and rearing pose.

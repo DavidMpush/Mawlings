@@ -32,27 +32,27 @@ const STRAINS := {
 		"mods": {"damage": 1.0, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"sporling": {
 		"name": "Sporling", "description": "Wächst rasant und vernebelt Gegner, beißt aber schwächer.",
-		"unlock_quest": "", "price": 0, "tint": "#9fbf2f", "start_population": 18,
+		"unlock_quest": "", "price": 0, "tint": "#f06aa8", "start_population": 18,
 		"signature": "sporenwolke",
 		"mods": {"damage": 0.85, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.3}},
 	"knochenkiefer": {
 		"name": "Knochenkiefer", "description": "Gepanzert und stachelig, dafür schwerfällig.",
-		"unlock_quest": "boss_1", "price": 3, "tint": "#8f8a7a", "start_population": 20,
+		"unlock_quest": "boss_1", "price": 3, "tint": "#e9f0f8", "start_population": 20,
 		"signature": "stachelruecken",
 		"mods": {"damage": 1.0, "armor": 0.2, "speed": 0.85, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"flinkzahn": {
 		"name": "Flinkzahn", "description": "Blitzschnelles Rudel mit dünner Haut.",
-		"unlock_quest": "leaper_10", "price": 3, "tint": "#2f8fd1", "start_population": 22,
+		"unlock_quest": "leaper_10", "price": 3, "tint": "#3f5cf0", "start_population": 22,
 		"signature": "rudelbiss",
 		"mods": {"damage": 1.0, "armor": -0.1, "speed": 1.25, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"aetzmaul": {
 		"name": "Ätzmaul", "description": "Spuckt Säure aus der Distanz, im Nahkampf etwas schwächer.",
-		"unlock_quest": "evo_aetzflut", "price": 5, "tint": "#6fb93c", "start_population": 20,
+		"unlock_quest": "evo_aetzflut", "price": 5, "tint": "#f2e02a", "start_population": 20,
 		"signature": "saeurespucker",
 		"mods": {"damage": 0.9, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"nachtmaul": {
 		"name": "Nachtmaul", "description": "Expertenstamm: klein und zerbrechlich, mutiert aber schneller.",
-		"unlock_quest": "apex_3", "price": 8, "tint": "#4b2f63", "start_population": 15,
+		"unlock_quest": "apex_3", "price": 8, "tint": "#2c2848", "start_population": 15,
 		"signature": "sporenwolke",
 		"mods": {"damage": 1.0, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.25, "growth": 1.0}},
 }
@@ -67,10 +67,10 @@ const BIOME_ORDER := ["verdant_maw", "glutsumpf"]
 const DIFFICULTIES := [
 	{"name": "Wild", "description": "Der normale Kreislauf der Jagd.", "enemy_hp": 1.0, "enemy_damage": 1.0,
 		"pressure_doubling": 90.0, "reward": 1.0, "crowns": 1, "unlock_quest": ""},
-	{"name": "Brutal", "description": "Zähere, härter zuschlagende Gegner.", "enemy_hp": 3.0, "enemy_damage": 2.0,
+	{"name": "Brutal", "description": "Zähere, härter zuschlagende Gegner.", "enemy_hp": 2.5, "enemy_damage": 2.0,
 		"pressure_doubling": 75.0, "reward": 2.0, "crowns": 2, "unlock_quest": "survive_5"},
-	{"name": "Apex", "description": "Nur für die stärksten Schwärme.", "enemy_hp": 7.0, "enemy_damage": 3.0,
-		"pressure_doubling": 60.0, "reward": 3.5, "crowns": 3, "unlock_quest": "brutal_3"},
+	{"name": "Apex", "description": "Nur für die stärksten Schwärme.", "enemy_hp": 1.8, "enemy_damage": 1.5,
+		"pressure_doubling": 48.0, "reward": 3.5, "crowns": 3, "unlock_quest": "brutal_3"},
 ]
 
 ## Kosten eines Rangs r (0-basiert, also der nächste Kauf) = round(base * growth^r).

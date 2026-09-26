@@ -41,6 +41,9 @@ const MIN_PASSAGE := 3.0
 # Upper bound for the collision area owned by one chunk.
 const MAX_COLLISION_SHARE := 0.12
 const GROUND_COLOR := Color("80a04c")
+# Flower petal ramp (dark -> light); see creature_look.gdshaderinc recolour.
+const FLOWER_DARK := Color("6a5a8e")
+const FLOWER_LIGHT := Color("c3b3de")
 # Positive neighbour offsets; every trail edge is owned by its lower node.
 const EDGE_OFFSETS := [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(1, -1)]
 const NEIGHBOURS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1)]
@@ -122,7 +125,12 @@ func _ready() -> void:
 	arch_material = _prop_material(1.2, 1.05, 0.45, 0.12)
 	log_material = _prop_material(1.2, 1.05, 0.45, 0.1)
 	reed_material = _prop_material(1.2, 1.15, 0.4, 0.1)
-	flower_material = _prop_material(1.3, 1.2, 0.3, 0.1)
+	flower_material = _prop_material(1.05, 1.2, 0.3, 0.1)
+	# Stage 05: petals move off the Mawling red/orange (and off the prey
+	# turquoise) to a muted lavender that matches no strain; green leaves stay.
+	flower_material.set_shader_parameter("recolor_dark", FLOWER_DARK)
+	flower_material.set_shader_parameter("recolor_light", FLOWER_LIGHT)
+	flower_material.set_shader_parameter("recolor_amount", 0.92)
 	var arch_parts := _extract_mesh(ROOT_ARCH_SCENE)
 	arch_mesh = arch_parts[0]
 	arch_base = arch_parts[1]

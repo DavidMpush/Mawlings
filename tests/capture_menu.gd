@@ -27,6 +27,8 @@ func _capture() -> void:
 	profile.records.best_peak = 88
 	profile.records.total_kills = 340
 	profile.records.total_leapers = 6
+	profile.next_seed = 1234567
+	profile.record_daily(profile.today_key(), 261.0, 180)
 	profile.save()
 	session.last_result = {}
 	var menu: Control = load("res://scenes/menu.tscn").instantiate()
@@ -34,6 +36,28 @@ func _capture() -> void:
 	menu.change_scene_on_play = false
 	root.add_child(menu)
 	await _shot("res://preview_menu_main.png")
+	# TAGES-BRUT held down (pressed state) with today's record.
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = menu.daily_rect().get_center()
+	menu._gui_input(press)
+	await _shot("res://preview_menu_daily.png")
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.pressed = false
+	release.position = press.position + Vector2(0, -200)
+	var drag := InputEventMouseMotion.new()
+	drag.position = release.position
+	menu._gui_input(drag)
+	menu._gui_input(release)
+	menu.open_settings()
+	menu.toggle_setting("colorblind")
+	menu.toggle_setting("vibration")
+	await _shot("res://preview_menu_settings.png")
+	menu.toggle_setting("colorblind")
+	menu.toggle_setting("vibration")
+	menu.close_settings()
 	menu.strain_index = menu.strain_ids.find("knochenkiefer")
 	await _shot("res://preview_menu_locked.png")
 	menu.profile.unlocked_strains.append("knochenkiefer")
@@ -55,6 +79,20 @@ func _capture() -> void:
 	menu.profile_path = TEST_PROFILE
 	root.add_child(menu)
 	await _shot("res://preview_menu_rewards.png")
+	menu.queue_free()
+	await process_frame
+	# Result of a daily brood: subtitle names TAGES-BRUT and the new day record.
+	load("res://scripts/menu/menu.gd").daily_pending = {"date": profile.today_key(), "seed": profile.daily_seed(), "strain": "glutmaw"}
+	session.last_result = {"strain_id": "glutmaw", "biome_id": "verdant_maw", "difficulty": 0, "seconds": 402.0,
+		"peak_population": 196, "final_population": 0, "kills": 260,
+		"kills_by_type": {"prey": 200, "hunter": 50, "skitter": 10}, "biomass": 500.0,
+		"lost": 200, "bosses": 0, "evolutions": [], "mutations": {"jaws": 3}, "used_rally": true}
+	menu = load("res://scenes/menu.tscn").instantiate()
+	menu.profile_path = TEST_PROFILE
+	root.add_child(menu)
+	await _shot("res://preview_menu_daily_reward.png")
+	menu.close_reward()
+	await _shot("res://preview_menu_after_daily.png")
 	menu.queue_free()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROFILE))
 	print("Saved menu review frames")

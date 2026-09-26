@@ -12,3 +12,4 @@ assets/source/*/*_texture_*.png
 assets/source/*/*_texture_*.png.import
 
 __pycache__/
+build/

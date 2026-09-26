@@ -72,6 +72,9 @@ func _run() -> void:
 	skitter.dash_start = Vector3(-4, 0, 0)
 	skitter.dash_end = Vector3(3, 0, 0)
 	skitter.damage = 4
+	# Hits count per animal: gather the whole swarm inside the lane.
+	for unit in swarm.units:
+		unit.position = Vector3.ZERO
 	world.step(0.05)
 	check(world.model.population == 21 and hud.last_loss == 4, "Sprint damage reaches world and HUD")
 	world.step(0.05)

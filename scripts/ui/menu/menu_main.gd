@@ -450,23 +450,51 @@ func _draw() -> void:
 		return
 	_draw_background()
 	if menu.profile == null:
+		# Loading / error state: only the new logo, menu.gd writes the status line.
+		_draw_logo()
 		return
 	_draw_resources()
 	if menu.tab == "":
 		_draw_logo()
 		_draw_strain()
-		_draw_section("BIOM", 858)
+		_draw_section("BIOM", menu.biome_rect(0).position.y - 16)
 		_draw_biomes()
-		_draw_section("SCHWIERIGKEIT", 1032)
+		_draw_section("SCHWIERIGKEIT", menu.difficulty_rect(0).position.y - 16)
 		_draw_difficulties()
 		_draw_play()
+		_draw_seed_card()
+		_draw_daily()
 	_draw_tabs()
 
 
 func _draw_resources() -> void:
 	_resource_pill(Rect2(16, 18, 270, 76), S.VIOLET, "ESSENZ", int(menu.profile.essence), true)
 	_resource_pill(Rect2(size.x - 286, 18, 270, 76), S.GOLD, "KÖNIGSZÄHNE", int(menu.profile.crowns), false)
+	_draw_gear_button()
 
+
+## Settings gear beside the crown counter (hit area: menu.settings_button_rect()).
+func _draw_gear_button() -> void:
+	var rect: Rect2 = menu.settings_button_rect()
+	var pressed: bool = menu.is_pressed(rect) or menu.settings_open
+	var c := rect.get_center() + (Vector2(0, 3) if pressed else Vector2.ZERO)
+	var r := minf(rect.size.x, rect.size.y) * 0.5 - 4.0
+	draw_circle(c + Vector2(0, 5), r, S.SHADOW)
+	_socket(c, r, S.BONE if not pressed else S.EMBER_GLOW, 0.5 if pressed else 0.25)
+	_gear(c, r * 0.62, S.OUTLINE, 1.12)
+	_gear(c, r * 0.62, S.BONE.darkened(0.08) if not pressed else S.EMBER_GLOW.lerp(S.TEXT, 0.4), 1.0)
+
+
+## Eight-tooth gear with a hole; `k` > 1 draws a slightly larger outline pass.
+func _gear(c: Vector2, r: float, color: Color, k: float) -> void:
+	var points := PackedVector2Array()
+	var teeth := 8
+	for i in teeth * 4:
+		var a := TAU * i / (teeth * 4.0) + 0.2
+		var outer := i % 4 == 1 or i % 4 == 2
+		points.append(c + Vector2(cos(a), sin(a)) * r * k * (1.0 if outer else 0.74))
+	draw_colored_polygon(points, color)
+	draw_circle(c, r * 0.3 * (2.0 - k), S.PANEL.darkened(0.35) if k <= 1.0 else color)
 
 func _resource_pill(rect: Rect2, accent: Color, label: String, value: int, essence: bool) -> void:
 	var body := Rect2(rect.position + Vector2(26, 6), rect.size - Vector2(26, 12))
@@ -756,10 +784,11 @@ func _draw_arrows(accent: Color) -> void:
 	for i in 2:
 		var rect: Rect2 = menu.strain_prev_rect() if i == 0 else menu.strain_next_rect()
 		var dir := -1.0 if i == 0 else 1.0
-		var tab := rect.grow_individual(-18, -6, -18, -6)
-		var c := tab.get_center()
+		var pressed: bool = menu.is_pressed(rect)
+		var tab := rect.grow_individual(-4, -6, -4, -6)
+		var c := tab.get_center() + (Vector2(0, 3) if pressed else Vector2.ZERO)
 		if _frames != null:
-			_frames.button(self, tab, "secondary")
+			_frames.button(self, tab, "secondary", pressed)
 		else:
 			_panel(tab, Color(S.BONE, 0.75), S.PANEL.darkened(0.2), 0.0, 16.0, 0.0, 0, 2.5)
 		_glow(c, Vector2(44, 60), Color(accent, 0.18))
@@ -892,29 +921,32 @@ func _draw_difficulties() -> void:
 			var n: int = i + 1
 			if selected:
 				_glow(Vector2(c.x, rect.position.y + 32), Vector2(30 + n * 20, 30), Color(accent, 0.45))
-			if not _icon([["diff_wild", "diff_brutal", "diff_apex"][i]], Rect2(c.x - 30, rect.position.y + 2, 60, 60)):
+			if not _icon([["diff_wild", "diff_brutal", "diff_apex"][i]], Rect2(c.x - 29, rect.position.y + 2, 58, 58)):
 				for k in n:
 					var p := Vector2(c.x + (k - (n - 1) * 0.5) * 34.0, rect.position.y + 32)
 					_skull(p + Vector2(0, 2), 15, S.OUTLINE)
 					_skull(p, 14, accent.lerp(S.BONE, 0.25))
-			_txt(name, Vector2(c.x, rect.position.y + 78), 30, S.TEXT if selected else S.TEXT.darkened(0.15), true, 6)
+			_txt(name, Vector2(c.x, rect.position.y + 75), 30, S.TEXT if selected else S.TEXT.darkened(0.15), true, 6)
 			var reward := "×%.1f ESSENZ" % float(d.get("reward", 1.0))
 			var rw := _tw(reward, S.SIZE_LABEL - 1) + 26.0
-			var ec := Vector2(c.x - rw * 0.5 + 10, rect.position.y + 94)
+			var ec := Vector2(c.x - rw * 0.5 + 10, rect.position.y + 90)
 			if not _icon(["essence"], Rect2(ec - Vector2(12, 12), Vector2(24, 24))):
 				_essence_drop(ec, 8, S.VIOLET)
-			_txt(reward, Vector2(c.x - rw * 0.5 + 26, rect.position.y + 101), S.SIZE_LABEL - 1, S.VIOLET.lerp(S.TEXT, 0.45), false, 4)
+			_txt(reward, Vector2(c.x - rw * 0.5 + 26, rect.position.y + 97), S.SIZE_LABEL - 1, S.VIOLET.lerp(S.TEXT, 0.45), false, 4)
 		else:
 			draw_colored_polygon(_shape(rect.grow(-4), 12.0), Color(S.OUTLINE, 0.35))
 			_lock(Vector2(c.x, rect.position.y + 30), 15, S.TEXT_DIM)
-			_txt(name, Vector2(c.x, rect.position.y + 76), 28, S.TEXT_DIM, true, 5)
+			_txt(name, Vector2(c.x, rect.position.y + 72), 28, S.TEXT_DIM, true, 5)
 			var q: Dictionary = menu.meta.quest(d.get("unlock_quest", ""))
-			_txt(String(q.get("name", "")), Vector2(c.x, rect.position.y + 101), S.SIZE_LABEL - 1, S.GOLD.darkened(0.1), true, 4)
+			_txt(String(q.get("name", "")), Vector2(c.x, rect.position.y + 96), S.SIZE_LABEL - 1, S.GOLD.darkened(0.1), true, 4)
 
 # ---------------------------------------------------------------- main button
 
 func _draw_play() -> void:
 	var rect: Rect2 = menu.play_rect()
+	# Pressed: the button sinks a little and loses some of its glow.
+	if menu.is_pressed(rect):
+		rect = Rect2(rect.position + Vector2(0, 4), rect.size).grow(-3)
 	var id: String = menu.current_strain()
 	var owned: bool = menu._strain_owned(id)
 	var unlocked: bool = menu._strain_unlocked(id)
@@ -950,10 +982,10 @@ func _draw_play() -> void:
 		_txt("GESPERRT", c + Vector2(22, 8), fs, S.TEXT_DIM, true, 8)
 		var q: Dictionary = menu.meta.quest(menu._strain(id).get("unlock_quest", ""))
 		_txt("Trophäe: " + String(q.get("name", "")), c + Vector2(0, 46), S.SIZE_LABEL, S.GOLD, true, 5)
-	# Record line and the closest open trophy.
+	# All-time record line under the seed / daily row (the next trophy lives in TROPHÄEN).
 	var best := float(menu.profile.records.get("best_seconds", 0.0))
 	var peak := int(menu.profile.records.get("best_peak", 0))
-	var ry := rect.end.y + 38
+	var ry: float = menu.seed_card_rect().end.y + 32
 	var part_a := "REKORD %02d:%02d" % [int(best) / 60, int(best) % 60]
 	var part_b := "MAX. SCHWARM %d" % peak
 	var wa := _tw(part_a, S.SIZE_LABEL)
@@ -967,7 +999,68 @@ func _draw_play() -> void:
 	_gem(Vector2(x + 26 + wa + 23, ry - 8), 4, S.TEXT_DIM)
 	_mawling_head(Vector2(x + 26 + wa + 46 + 10, ry - 8), 11, S.EMBER_GLOW)
 	_txt(part_b, Vector2(x + 26 + wa + 46 + 26, ry), S.SIZE_LABEL, S.TEXT.darkened(0.12), false, 4)
-	_draw_next_trophy(Rect2(28, rect.end.y + 54, size.x - 56, 82))
+
+
+## Next map code with NEU WÜRFELN (hit area: menu.seed_reroll_rect()).
+func _draw_seed_card() -> void:
+	var card: Rect2 = menu.seed_card_rect()
+	_panel(card, Color(S.CYAN, 0.6), S.PANEL, 0.0, 16.0, 0.0, 0, 2.0)
+	var x := card.position.x + 22
+	var label_w := _txt("KARTE", Vector2(x, card.position.y + 44), S.SIZE_LABEL, S.CYAN.lerp(S.TEXT, 0.35), false, 4)
+	var code: String = menu.next_seed_code()
+	_txt(code, Vector2(x + label_w + 14, card.position.y + 46), 38, S.TEXT, false, 6)
+	_txt("Gleicher Code = gleiche Karte", Vector2(x, card.position.y + 78), S.SIZE_LABEL - 1, S.TEXT_DIM, false, 4, true)
+	var roll: Rect2 = menu.seed_reroll_rect()
+	var pressed: bool = menu.is_pressed(roll)
+	if _frames != null:
+		_frames.button(self, roll, "secondary", pressed)
+	else:
+		_panel(roll, Color(S.BONE, 0.7), S.PANEL.darkened(0.2), 0.0, 12.0, 0.0, 0, 2.0)
+	var off := Vector2(0, 3) if pressed else Vector2.ZERO
+	var ic := roll.position + Vector2(26, roll.size.y * 0.5) + off
+	if not _icon(["reroll"], Rect2(ic - Vector2(16, 16), Vector2(32, 32)), S.CYAN.lerp(S.TEXT, 0.3)):
+		draw_arc(ic, 12, 0.4, TAU - 0.4, 20, S.CYAN, 4.0, true)
+	_txt("NEU", roll.position + Vector2(46, 34) + off, S.SIZE_LABEL - 1, S.TEXT, false, 4)
+	_txt("WÜRFELN", roll.position + Vector2(46, 58) + off, S.SIZE_LABEL - 1, S.TEXT, false, 4)
+
+
+## TAGES-BRUT: secondary gold button with a sun glyph and today's record.
+func _draw_daily() -> void:
+	var rect: Rect2 = menu.daily_rect()
+	var ok: bool = menu.can_play_daily()
+	var pressed: bool = ok and menu.is_pressed(rect)
+	if _frames != null:
+		_frames.button(self, rect, "secondary", pressed)
+		var inner := rect.grow(-8)
+		if pressed:
+			inner.position.y += 3
+		_fill_gradient(_rounded_points(inner, 14, 4), Color(S.GOLD, (0.4 if pressed else 0.22) if ok else 0.06), Color(S.GOLD, 0.03))
+	else:
+		_panel(rect, S.GOLD if ok else S.TEXT_DIM, S.PANEL, 0.4 if ok else 0.0, 16.0, 0.0, 0, 2.5)
+	var off := Vector2(0, 3) if pressed else Vector2.ZERO
+	var sun := rect.position + Vector2(46, rect.size.y * 0.5) + off
+	var sun_c: Color = S.GOLD if ok else S.TEXT_DIM
+	if ok:
+		_glow(sun, Vector2(40, 40), Color(S.GOLD, 0.25 + 0.1 * _pulse(1.4)))
+	for i in 10:
+		var a := TAU * i / 10.0 + _time * 0.2
+		var d := Vector2(cos(a), sin(a))
+		var tip := sun + d * 27.0
+		var side := d.orthogonal() * 4.5
+		draw_colored_polygon(PackedVector2Array([sun + d * 15.0 + side, tip, sun + d * 15.0 - side]), sun_c.darkened(0.1))
+	draw_circle(sun, 16, S.OUTLINE)
+	draw_circle(sun, 13, sun_c)
+	draw_circle(sun + Vector2(-4, -4), 4, Color(1, 1, 1, 0.45))
+	var x := rect.position.x + 84
+	_txt("TAGES-BRUT", Vector2(x, rect.position.y + 44) + off, 32, S.TEXT if ok else S.TEXT_DIM, false, 6)
+	var today: Dictionary = menu.daily_today()
+	var line := "Heute noch offen · Wild"
+	var color: Color = S.GOLD.lerp(S.TEXT, 0.35)
+	if not today.is_empty():
+		var t := float(today.get("seconds", 0.0))
+		line = "Heute: %02d:%02d · Peak %d" % [int(t) / 60, int(t) % 60, int(today.get("peak", 0))]
+		color = S.GOLD
+	_txt(line, Vector2(x, rect.position.y + 76) + off, S.SIZE_LABEL - 1, color if ok else S.TEXT_DIM, false, 4)
 
 
 ## Dominant glowing button with fang tips, gradient body, bevel and a moving shine.
@@ -1021,25 +1114,6 @@ func _button_shape(rect: Rect2, tip: float) -> PackedVector2Array:
 		p.append(Vector2(lerpf(rect.end.x - tip, rect.position.x + tip, i / 8.0), rect.end.y))
 	return p
 
-
-func _draw_next_trophy(rect: Rect2) -> void:
-	var q: Dictionary = menu._next_quest()
-	if q.is_empty():
-		return
-	var accent := S.VIOLET
-	_panel(rect, Color(accent, 0.6), S.PANEL, 0.0, 16.0, 0.0, 0, 2.0)
-	var ic := rect.position + Vector2(46, rect.size.y * 0.5)
-	_socket(ic, 28, accent, 0.7)
-	if not _icon(["trophy"], Rect2(ic - Vector2(22, 22), Vector2(44, 44))):
-		_skull(ic + Vector2(0, 4), 13, accent.lerp(S.BONE, 0.3))
-		_crown(ic + Vector2(0, -14), 9, S.GOLD)
-	_txt("NÄCHSTE TROPHÄE", rect.position + Vector2(90, 32), S.SIZE_LABEL - 1, accent.lerp(S.TEXT, 0.35), false, 4)
-	_txt(String(q.name), rect.position + Vector2(90, 66), 28, S.TEXT, false, 5)
-	var progress: Vector2 = menu.profile.quest_progress(q.id)
-	var bar := Rect2(rect.end.x - 262, rect.position.y + 48, 232, 16)
-	_progress_bar(bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), accent)
-	var ptxt: String = menu._progress_text(q, progress)
-	_txt(ptxt, Vector2(bar.end.x - _tw(ptxt, S.SIZE_LABEL), rect.position.y + 36), S.SIZE_LABEL, S.TEXT, false, 4)
 
 # ---------------------------------------------------------------- tabs
 
