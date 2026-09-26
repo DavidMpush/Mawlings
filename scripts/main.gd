@@ -105,6 +105,9 @@ func _bank_result_for_new_run() -> void:
 
 # Result screen "BRUTSTÄTTE": back to the menu, or a fresh run while no menu exists.
 func _open_hub() -> void:
+	# Leaving from the pause menu forfeits the run; its rewards still count.
+	if not world.model.extinct and world.has_method("_store_result"):
+		world._store_result()
 	if ResourceLoader.exists(MENU_SCENE):
 		get_tree().change_scene_to_file(MENU_SCENE)
 	else:

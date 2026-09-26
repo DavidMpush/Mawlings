@@ -13,7 +13,12 @@ func _capture() -> void:
 	scene.set_process(false)
 	world.set_process(false)
 	swarm.set_process(false)
+	var hud_node: Node = scene.get_node("HUD/Controls")
+	for connection in hud_node.pause_requested.get_connections():
+		hud_node.pause_requested.disconnect(connection.callable)
 	world._update_hud("JAGE · WACHSE · ÜBERLEBE")
+	# UI components animate in; give them time before each frame.
+	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_design_active.png")
 	world.model.population = 250
@@ -21,6 +26,8 @@ func _capture() -> void:
 	for frame in 120:
 		swarm._process(0.05)
 	world._update_hud("SCHWARM VOLL · BIOMASSE BLEIBT LIEGEN")
+	# UI components animate in; give them time before each frame.
+	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_design_250.png")
 	# Busiest HUD state: boss bar, threats, corpse, biomass, hit flash, pointer, pressed input.
@@ -43,6 +50,8 @@ func _capture() -> void:
 	hud.alpha_cores = 1
 	world.evolution.ranks = {"saeurespucker": 2, "sporenwolke": 1, "jaws": 1}
 	hud.queue_redraw()
+	# UI components animate in; give them time before each frame.
+	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_design_busy.png")
 	hud.rally_pressed = false
@@ -52,12 +61,16 @@ func _capture() -> void:
 	world.evolution.skips = 1
 	world.evolution.banishes = 1
 	world._update_hud("")
+	# UI components animate in; give them time before each frame.
+	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_design_cards.png")
 	world.evolution.offers.clear()
 	world.model.apply_loss(250)
 	swarm.set_population(0)
 	world._update_hud("")
+	# UI components animate in; give them time before each frame.
+	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_design_result.png")
 	print("Saved four design review frames")

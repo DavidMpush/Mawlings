@@ -310,8 +310,6 @@ func step(delta: float) -> void:
 			message = "Schwarm voll — Biomasse bleibt liegen"
 	_step_alpha_pickups(delta)
 	_audio_step(delta, population_before)
-	if evolve_flash > 0.0 and not message.begins_with("RAUS"):
-		message = "EVOLUTION · %s!" % evolve_name.to_upper()
 	if focus_mode == 0:
 		swarm.clear_focus()
 	else:

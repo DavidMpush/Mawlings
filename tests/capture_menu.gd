@@ -63,5 +63,7 @@ func _capture() -> void:
 
 func _shot(path: String) -> void:
 	await process_frame
+	# Components animate in (count-ups, fades); wait before each frame.
+	await create_timer(2.2).timeout
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(path)

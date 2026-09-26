@@ -58,9 +58,26 @@ var _forms_loaded := false
 var _bold: FontVariation
 
 
+# Stage 04 components; order matters: overlays and the mutation dimmer sit on top.
+const COMPONENTS := [
+	["res://scripts/ui/hud_top.gd", ["top", "badges"]],
+	["res://scripts/ui/hud_controls.gd", ["controls"]],
+	["res://scripts/ui/mutation_screen.gd", ["mutations"]],
+	["res://scripts/ui/hud_overlays.gd", ["result", "banner", "feedback", "pointer"]],
+]
+
+
 func _ready() -> void:
 	set_process_input(true)
 	_ensure_font()
+	for entry in COMPONENTS:
+		if not ResourceLoader.exists(entry[0]):
+			continue
+		var component: Control = load(entry[0]).new()
+		component.name = String(entry[0]).get_file().get_basename()
+		add_child(component)
+		for key in entry[1]:
+			legacy[key] = false
 	queue_redraw()
 
 
@@ -125,7 +142,7 @@ func _press(pointer: int, location: Vector2) -> void:
 				restart_requested.emit()
 			else:
 				pause_requested.emit()
-		elif extinct and _hub_rect().has_point(location):
+		elif (extinct or paused) and _hub_rect().has_point(location):
 			hub_requested.emit()
 		return
 	if _pause_rect().has_point(location):
@@ -180,7 +197,7 @@ func _pause_rect() -> Rect2:
 	return Rect2(Vector2(size.x - 98, 18), Vector2(82, 100))
 
 func _action_rect() -> Rect2:
-	if extinct:
+	if extinct or paused:
 		return Rect2(Vector2(size.x * 0.5 - 340, size.y * 0.5 + 235), Vector2(330, 88))
 	return Rect2(Vector2(size.x * 0.5 - 220, size.y * 0.5 + 235), Vector2(440, 88))
 
@@ -211,7 +228,10 @@ func _count(counter: String) -> int:
 	return int(value) if value != null else 0
 
 func _mutation_rect(slot: int) -> Rect2:
-	return Rect2(Vector2(36, size.y * 0.5 - 322 + slot * 246), Vector2(size.x - 72, 226))
+	# One or two offers stay vertically centred instead of hanging at the top.
+	var count := 3 if evolution == null or evolution.offers.is_empty() else mini(3, evolution.offers.size())
+	var top := size.y * 0.5 - 322 + float(3 - count) * 123.0
+	return Rect2(Vector2(36, top + slot * 246), Vector2(size.x - 72, 226))
 
 func _pulse(speed: float = 3.0) -> float:
 	return 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * speed)

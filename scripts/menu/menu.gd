@@ -58,7 +58,26 @@ func _ready() -> void:
 	_build_decor()
 	_load_meta()
 	_consume_last_result()
+	_add_components()
 	queue_redraw()
+
+
+# Stage 04 components draw the hub; this script keeps state and input.
+const COMPONENTS := [
+	["res://scripts/ui/menu/menu_main.gd", ["background", "logo", "resources", "strain", "biomes", "difficulties", "play", "tabs"]],
+	["res://scripts/ui/menu/menu_sheets.gd", ["sheet", "reward", "toast"]],
+]
+
+
+func _add_components() -> void:
+	for entry in COMPONENTS:
+		if not ResourceLoader.exists(entry[0]):
+			continue
+		var component: Control = load(entry[0]).new()
+		component.name = String(entry[0]).get_file().get_basename()
+		add_child(component)
+		for key in entry[1]:
+			legacy[key] = false
 
 
 func _process(delta: float) -> void:
@@ -471,7 +490,7 @@ func upgrade_buy_rect(i: int) -> Rect2:
 
 func instinct_buy_rect() -> Rect2:
 	var s := sheet_rect()
-	return Rect2(_cx() - 250, s.position.y + 820, 500, 124)
+	return Rect2(_cx() - 250, s.position.y + 890, 500, 124)
 
 
 func reward_button_rect() -> Rect2:
@@ -491,7 +510,7 @@ func _trophy_scroll_max() -> float:
 # ---------------------------------------------------------------- drawing
 
 # UI pass (stage 04): legacy blocks can be replaced by components in scripts/ui/menu/.
-var legacy := {"background": true, "logo": true, "resources": true, "strain": true, "biomes": true, "difficulties": true, "play": true, "sheet": true, "tabs": true, "reward": true}
+var legacy := {"background": true, "logo": true, "resources": true, "strain": true, "biomes": true, "difficulties": true, "play": true, "sheet": true, "tabs": true, "reward": true, "toast": true}
 
 
 func _draw() -> void:
@@ -521,7 +540,7 @@ func _draw() -> void:
 		_draw_tabs()
 	if legacy.reward and not reward.is_empty():
 		_draw_reward()
-	if toast_time > 0.0 and toast != "":
+	if legacy.toast and toast_time > 0.0 and toast != "":
 		_draw_toast()
 
 

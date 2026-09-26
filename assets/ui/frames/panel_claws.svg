@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
+<defs>
+<linearGradient id="bone" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff7e2"/><stop offset="0.45" stop-color="#efe2c0"/><stop offset="1" stop-color="#a8916a"/></linearGradient>
+</defs>
+<path d="M 14,34 C 10,24 8,14 2,4 C 12,10 20,16 26,22 C 22,24 18,28 14,34 Z" fill="url(#bone)" stroke="#2a1f12" stroke-width="1.4" stroke-linejoin="round"/>
+<path d="M 32,14 C 28,10 24,8 16,6 C 26,4 36,6 42,12 Z" fill="url(#bone)" stroke="#2a1f12" stroke-width="1.4" stroke-linejoin="round"/>
+<path d="M 186,34 C 190,24 192,14 198,4 C 188,10 180,16 174,22 C 178,24 182,28 186,34 Z" fill="url(#bone)" stroke="#2a1f12" stroke-width="1.4" stroke-linejoin="round"/>
+<path d="M 168,14 C 172,10 176,8 184,6 C 174,4 164,6 158,12 Z" fill="url(#bone)" stroke="#2a1f12" stroke-width="1.4" stroke-linejoin="round"/>
+<path d="M 14,86 C 10,96 8,106 2,116 C 12,110 20,104 26,98 C 22,96 18,92 14,86 Z" fill="url(#bone)" stroke="#2a1f12" stroke-width="1.4" stroke-linejoin="round"/>
+<path d="M 186,86 C 190,96 192,106 198,116 C 188,110 180,104 174,98 C 178,96 182,92 186,86 Z" fill="url(#bone)" stroke="#2a1f12" stroke-width="1.4" stroke-linejoin="round"/>
+</svg>

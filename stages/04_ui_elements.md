@@ -30,6 +30,15 @@ Referenzen (nur lesen): `C:\Users\vrxby\Documents\Codex\Swarm\Design\MAWLINGS_AC
 | MENU_MAIN | Brutstätte-Hauptansicht: Hintergrund, Logo, Ressourcen, Stammkarte, Biome, Schwierigkeit, SPIELEN, Tabs | `scripts/ui/menu/menu_main.gd`, `tests/capture_ui_menu_main.gd` |
 | MENU_SHEETS | Brutkammer, Trophäen, Urinstinkt, Belohnungs-Overlay, Toast | `scripts/ui/menu/menu_sheets.gd`, `tests/capture_ui_menu_sheets.gd` |
 
-## Ergebnis
+## Ergebnis (26.09.2026)
 
-(wird nach Abschluss ausgefüllt)
+Acht UI-Agenten parallel, Einbindung und Prüfung durch den Orchestrator. Das UI besteht jetzt aus Komponenten mit echten SVG-Grafiken; `touch_controls.gd` und `menu.gd` behalten Zustand und Eingabe, ihre alten Zeichenblöcke sind über `legacy` abgeschaltet.
+
+- **Grundlage:** 49 gemalte SVG-Icons (`assets/ui/icons`, Generator `generate_icons.py`, API `UiIcons`), Rahmen-Kit mit 20 SVGs (organische Karte mit Adern, Kerben und Hakenhörnern, Panels mit Klauen, Pill, primärer/sekundärer/runder Knopf, Segmentleisten, Ranken; `generate_frames.py`, API `UiFrames`, 9-Slice).
+- **HUD:** obere Leiste mit Mawling-Kopf, Populations-Puls (+/−), Gefahren-Segmentleiste mit Schädel, DNA/Level, Chips, Boss-Leiste mit Krone, Alpha-Kern, Medaillons; Rally mit drei Köpfen und Zusammenzieh-Ringen, Glas-Joystick, Warn-Banner mit Schädel.
+- **Mutationswahl:** Titel mit Ranken, drei Konzept-nahe Karten (Kategorie-Farbe, Icon-Medaillon, Effekt groß, Rang-Rauten, Evolutionshinweis, NEU-Plakette), gestaffeltes Einblenden, Aufblitzen bei Wahl; 1–2 Karten jetzt vertikal zentriert.
+- **Overlays:** Ergebnis mit hochzählenden Werten, Kill-Chips und Build; Pause mit BRUTSTÄTTE (Aufgeben bucht Belohnungen); Evolutions-Banner; gebündelte Verlustanzeige; Boss-Zeiger.
+- **Menü:** 3D-Rudel des Stamms (SubViewport, `body_tint`), Logo mit Kiefern, gemalte Biom-Kacheln, SPIELEN mit Zähnen, Brutkammer/Trophäen/Urinstinkt als Karten, Belohnungs-Overlay mit Zählern und Freischalt-Karten. Essenz einheitlich Violett.
+- **Tests:** 17/17 grün; Captures warten jetzt auf Einblend-Animationen.
+
+Offen: echte Display-Schrift (Freigabe zum Laden von OFL-Schriften ausstehend), Gerätetest auf S25 (SubViewport-Kosten, Lesbarkeit kleiner Texte), Rahmenkörper noch ruhiger als im Konzept, Verbannen-Knöpfe eng an der Kartenkante, Menü-Rechtecke (Pfeile schmaler, mehr Abstand) noch nicht angepasst.

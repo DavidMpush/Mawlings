@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs>
+<radialGradient id="c" cx="128" cy="100" r="140" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#9a3a14"/><stop offset="0.45" stop-color="#5e200c"/><stop offset="0.8" stop-color="#2a0e06"/><stop offset="1" stop-color="#140603"/></radialGradient>
+<linearGradient id="ring" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd08a"/><stop offset="0.5" stop-color="#ff7a2e"/><stop offset="1" stop-color="#c2441a"/></linearGradient>
+<radialGradient id="sh" cx="128" cy="40" r="120" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+</defs>
+<circle cx="128" cy="128" r="124" fill="url(#c)"/>
+<circle cx="128" cy="128" r="118" fill="none" stroke="url(#ring)" stroke-width="9"/>
+<circle cx="128" cy="128" r="111" fill="none" stroke="#2a0c04" stroke-width="3"/>
+<circle cx="128" cy="128" r="124" fill="none" stroke="#1a0803" stroke-width="3"/>
+<ellipse cx="128" cy="78" rx="86" ry="52" fill="url(#sh)"/>
+</svg>
