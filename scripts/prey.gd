@@ -23,6 +23,18 @@ func _ready() -> void:
 	spot.height = 0.16
 	_piece(spot, eye, Vector3(-0.25, 0.68, 0.34), Vector3.ONE)
 	_piece(spot, eye, Vector3(0.25, 0.68, 0.34), Vector3.ONE)
+	var shell_back := StandardMaterial3D.new()
+	shell_back.albedo_color = Color("278e80")
+	var cap := SphereMesh.new()
+	cap.radius = 0.45
+	cap.height = 0.18
+	_piece(cap, shell_back, Vector3(0, 0.80, -0.10), Vector3.ONE)
+	var fin := SphereMesh.new()
+	fin.radius = 0.35
+	fin.height = 0.12
+	for side in [-1.0, 1.0]:
+		var leaf := _piece(fin, shell, Vector3(side * 0.46, 0.45, -0.27), Vector3(0.72, 1, 1.25))
+		leaf.rotation.y = side * 0.5
 	var bar := BoxMesh.new()
 	bar.size = Vector3(0.95, 0.06, 0.1)
 	var fill := StandardMaterial3D.new()
@@ -42,12 +54,12 @@ func step(delta: float, swarm_position: Vector3) -> void:
 	var away := global_position - swarm_position
 	away.y = 0.0
 	if away.length() < 4.0 and away.length() > 0.01:
-		position += away.normalized() * FLEE_SPEED * delta
+		position = get_parent().get_parent().get_node("Arena").resolve_motion(position, away.normalized() * FLEE_SPEED * delta, 0.55)
 	else:
-		position += Vector3(sin(wander_phase * 1.3), 0.0, cos(wander_phase * 0.8)) * 0.25 * delta
+		position = get_parent().get_parent().get_node("Arena").resolve_motion(position, Vector3(sin(wander_phase * 1.3), 0.0, cos(wander_phase * 0.8)) * 0.25 * delta, 0.55)
 
 
-func _piece(mesh: Mesh, material: Material, location: Vector3, mesh_scale: Vector3) -> void:
+func _piece(mesh: Mesh, material: Material, location: Vector3, mesh_scale: Vector3) -> MeshInstance3D:
 	var part := MeshInstance3D.new()
 	part.mesh = mesh
 	part.material_override = material
@@ -55,3 +67,4 @@ func _piece(mesh: Mesh, material: Material, location: Vector3, mesh_scale: Vecto
 	part.scale = mesh_scale
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(part)
+	return part

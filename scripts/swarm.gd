@@ -13,12 +13,14 @@ var population := START_POPULATION
 var body_material: Material
 var head_material: Material
 var jaw_material: Material
+var crest_material: Material
 
 
 func _ready() -> void:
 	body_material = _material(Color("a92c1a"))
 	head_material = _material(Color("f26927"))
 	jaw_material = _material(Color("451b20"))
+	crest_material = _material(Color("f8b75b"))
 	set_population(START_POPULATION)
 	for index in units.size():
 		var angle := float(index) * GOLDEN_ANGLE
@@ -46,7 +48,8 @@ func set_controls(direction: Vector2, rally: bool) -> void:
 
 func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
-	position += Vector3(movement_vector.x, 0.0, movement_vector.y) * MOVE_SPEED * delta
+	var motion := Vector3(movement_vector.x, 0.0, movement_vector.y) * MOVE_SPEED * delta
+	position = get_parent().get_node("Arena").resolve_motion(position, motion, 0.75)
 	var flow_radius := 2.15 + maxf(0.0, sqrt(float(population) / 25.0) - 1.0) * 0.45
 	var radius := flow_radius * 0.42 if rally_pressed else flow_radius
 	var response := 1.0 - exp(-FOLLOW_SPEED * delta)
@@ -75,6 +78,16 @@ func _make_unit(body: Material, head: Material, jaw: Material) -> Node3D:
 	var jaw_mesh := BoxMesh.new()
 	jaw_mesh.size = Vector3(0.48, 0.08, 0.20)
 	_piece(unit, jaw_mesh, jaw, Vector3(0.0, 0.12, 0.40), Vector3.ONE)
+	var crest := CylinderMesh.new()
+	crest.top_radius = 0.0
+	crest.bottom_radius = 0.11
+	crest.height = 0.3
+	_piece(unit, crest, crest_material, Vector3(0.0, 0.62, -0.12), Vector3.ONE)
+	var eyes := SphereMesh.new()
+	eyes.radius = 0.055
+	eyes.height = 0.08
+	for side in [-1.0, 1.0]:
+		_piece(unit, eyes, jaw, Vector3(side * 0.19, 0.34, 0.40), Vector3.ONE)
 	return unit
 
 

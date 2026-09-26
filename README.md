@@ -10,7 +10,7 @@ In Godot diesen Ordner als Projekt importieren und **F6** für die Hauptszene od
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64.exe' --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings'
 ```
 
-Der aktuelle Stand enthält eine offene 3D-Testfläche und 25 Mawlings zum Start. **WASD/Pfeiltasten** bewegen den Schwarm, **Leertaste** hält Rally. Für Touch liegen Bewegung rechts und Rally links. Die Inseln sind Orientierungspunkte ohne Kollision.
+Der aktuelle Stand enthält eine endlos nachladende, offene 3D-Arena und 25 Mawlings zum Start. **WASD/Pfeiltasten** bewegen den Schwarm, **Leertaste** hält Rally. Für Touch liegen Bewegung rechts und Rally links. Breite sandige Laufwege und wenige Steinformationen geben Orientierung. Die Steine begrenzen die Bewegung des Schwarms, der Beute und der Jäger; zwischen ihnen bleibt viel freier Raum. Flache Wasserstellen und Blätter sind begehbare Dekoration. Die Arena wiederholt keine feste Karte: Ihre Abschnitte entstehen an festen Koordinaten und werden in der Nähe des Spielers sichtbar gehalten.
 
 Die drei türkisfarbenen Nibbler fliehen vor dem Schwarm. In Nähe greift er automatisch an; Rally verstärkt den Angriff und verdichtet die Formation. Besiegte Beute hinterlässt einen goldenen Kadaver mit 12 Biomasse. In Kadavernähe wird Biomasse nach und nach geerntet; je 2 Biomasse entsteht ein Mawling. Weggehen pausiert die Ernte, der Rest bleibt an Ort und Stelle. Bei 250 Population bleibt übrige Biomasse ebenfalls liegen. Bis zu 120 Mawlings werden als einzelne Modelle dargestellt; die Population ist davon getrennt. Nach einer Jagd erscheinen wieder Nibbler.
 
@@ -48,9 +48,11 @@ Automatisierte Prüfungen mit der installierten Godot-Konsole:
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/run_model.gd'
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/hunt_flow.gd'
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/survival.gd'
+& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/evolution.gd'
+& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/arena.gd'
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --fixed-fps 60 --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/endless_playthrough.gd'
 ```
 
-Prüfstand und Grenzen: [Survival-Prüfung](SURVIVAL_VERIFICATION.md).
+Prüfstand und Grenzen: [Survival-Prüfung](SURVIVAL_VERIFICATION.md), [Evolution](EVOLUTION_VERIFICATION.md) und [Arena](ARENA_VERIFICATION.md).
 
 Projektdateien liegen unter `scenes/` und `scripts/`; `.godot/` wird nicht versioniert. Das Projekt besitzt ein eigenes Git-Repository, damit Dateien außerhalb dieses Ordners nicht dazugehören.

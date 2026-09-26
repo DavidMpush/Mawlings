@@ -148,7 +148,7 @@ func step(delta: float) -> void:
 func _spawn_position(radius: float) -> Vector3:
 	spawn_number += 1
 	var angle := float(spawn_number) * 2.39996323
-	return swarm.position + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+	return get_parent().get_node("Arena").safe_spawn(swarm.position + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius), 0.9)
 
 
 func _spawn_prey(location: Vector3) -> void:

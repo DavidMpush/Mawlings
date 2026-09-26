@@ -29,6 +29,19 @@ func _ready() -> void:
 		horn.bottom_radius = 0.24
 		horn.height = 0.75
 		_part(self, horn, shell, Vector3(side * 0.5, 1.0, -0.2))
+	var mask := StandardMaterial3D.new()
+	mask.albedo_color = Color("4d345f")
+	var face := BoxMesh.new()
+	face.size = Vector3(0.9, 0.25, 0.3)
+	_part(self, face, mask, Vector3(0, 0.65, 0.56))
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = Color("ff9a55")
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var eye := SphereMesh.new()
+	eye.radius = 0.10
+	eye.height = 0.12
+	for side in [-1.0, 1.0]:
+		_part(self, eye, glow, Vector3(side * 0.24, 0.76, 0.73))
 	var bar := BoxMesh.new()
 	bar.size = Vector3(1.4, 0.07, 0.13)
 	var red := StandardMaterial3D.new()
@@ -78,7 +91,7 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 			warning_material.albedo_color = Color("ff674b")
 			warning.visible = true
 		else:
-			position += offset.normalized() * minf(8.2, TUNING.HUNTER_SPEED + log(pressure) * 0.9) * delta
+			position = get_parent().get_parent().get_node("Arena").resolve_motion(position, offset.normalized() * minf(8.2, TUNING.HUNTER_SPEED + log(pressure) * 0.9) * delta, 0.8)
 		return 0
 	remaining -= delta
 	if state == State.WARNING:
