@@ -5,9 +5,9 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 ## Offen
 
 1. ~~**07 Leistung umsetzen** – Empfehlungen aus `stages/06_perf_notes.md`: HUD nur bei Änderung neu zeichnen und Schriftgrößen fixieren, Schwarm als ein MultiMesh mit `INSTANCE_CUSTOM`, Kadaver/FX mit geteilten Meshes/Materialien, Menü-Hintergrund cachen; `scripts/quality.gd` einbauen (ohne Kampfergebnis zu verändern). Ziel: Desktop-Worst-Case ≤ 4 ms, Draw Calls ≤ 250, Menü ≤ 4 ms.~~ (erledigt: 3,97 ms / 196 / Menü 1,1 ms)
-2. **08 Apex-Boss & Migration einbinden** – Bausteine aus 07 (`apex_boss.gd`, `biomes.gd`, `arena.set_biome`) in HuntWorld: Apex nach ~8 min, Migrationsschlund nach Sieg, Wechsel ins nächste Biom mit Schwarm und Build, Run bleibt endlos. Glutsumpf als zweites Biom mit eigener Boden-/Farbwelt (Lava-Warnflächen) – Modelle soweit vorhanden, sonst Platzhalter.
-3. **09 Teilen** – Teilen-Karte am Run-Ende (Zeit, Peak, Build, Seed-Code), lokale Bestenliste je Tages-Brut, Vorbereitung Clip-Export (letzte 15 s, 9:16) soweit ohne Plattform-SDK möglich.
-4. **10 Typografie-Pass** – sobald die Schriften freigegeben sind: Display-/Textschrift überall, Größen und Abstände neu abstimmen, Boss-Balken zeigt Fluch, Tipp-Panel schmaler.
+2. **09 Apex-Boss & Migration einbinden** (vor der Flut platzieren, z. B. Wild ~3:30; Flut läuft im neuen Biom weiter) – Bausteine aus 07 (`apex_boss.gd`, `biomes.gd`, `arena.set_biome`) in HuntWorld: Apex nach ~8 min, Migrationsschlund nach Sieg, Wechsel ins nächste Biom mit Schwarm und Build, Run bleibt endlos. Glutsumpf als zweites Biom mit eigener Boden-/Farbwelt (Lava-Warnflächen) – Modelle soweit vorhanden, sonst Platzhalter.
+3. **10 Teilen** – Teilen-Karte am Run-Ende (Zeit, Peak, Build, Seed-Code), lokale Bestenliste je Tages-Brut, Vorbereitung Clip-Export (letzte 15 s, 9:16) soweit ohne Plattform-SDK möglich.
+4. **11 Typografie-Pass** – sobald die Schriften freigegeben sind: Display-/Textschrift überall, Größen und Abstände neu abstimmen, Boss-Balken zeigt Fluch, Tipp-Panel schmaler.
 
 ## Wartet auf Nutzer
 
@@ -18,4 +18,4 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 - **Handtest:** 5–10 Minuten Spielgefühl (Treffer pro Tier, Königsmoment, Balance Wild/Brutal, Lesbarkeit der Farben).
 
 ## Erledigt
-- 01 Bewegung & Lesbarkeit · 02 Welt & Assets · 03 Progression · 04 UI-Komponenten · 05 Spielgefühl, Balance, Lesbarkeit · 06 Ziele, Einstieg, UI-Politur, Leistungsmessung · 07 Leistung
+- 01 Bewegung & Lesbarkeit · 02 Welt & Assets · 03 Progression · 04 UI-Komponenten · 05 Spielgefühl, Balance, Lesbarkeit · 06 Ziele, Einstieg, UI-Politur, Leistungsmessung · 07 Leistung · 08 Die Flut & Schwierigkeit
