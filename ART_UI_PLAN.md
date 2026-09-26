@@ -17,10 +17,14 @@ Das vom Nutzer gelieferte `assets/source/mawling/Mawling.glb` bleibt als Roh-Ass
 
 Der Bog King nutzt dieselbe Formensprache und sein eigenes geliefertes Modell. Die 8.000-Dreieck-Spielversion ist siebenfach skaliert und erscheint nach 90 Sekunden mit eigenem Lebensbalken und großem, angekündigtem Stampfkreis. Damit bleibt er im Hochformat gegenüber dem Schwarm klar erkennbar. Die Originaldatei liegt unter `assets/source/bog_king/`, die Spielversion unter `assets/gameplay/characters/`.
 
+## Bewegungs- und Feedback-Pass (Etappe 01)
+
+Beide gelieferten Modelle nutzen jetzt `shaders/creature.gdshader`: Scheitelpunktfarbe mit Helligkeit/Sättigung, weiches Formlicht, farbige Randkontur gegen den grünen Boden und Treffer-Blitz. Mawlings bewegen sich prozedural (Blickrichtung, Hüpfgang, Atmen, Beißen, Picken, Schlüpfen, Wegschleudern), der Bog King mit schwerem Gang, Aufbäumen, Stampfen und Erschöpfungspose. Warnflächen zeigen die Restzeit durch eine wachsende Füllscheibe. Prüfbilder: `tests/capture_motion.gd`, `tests/capture_boss.gd`. Das Bog-King-GLB blickt lokal nach +Z, das Mawling-GLB nach +X; der Boss wird deshalb im Code um −90° gedreht. Neue Modelle sollten einheitlich nach +Z blicken (siehe `assets/README.md`).
+
 ## Nächste Schritte im Stil
 
 1. **Weltmaterial:** ruhiger, leicht strukturierter Sand-/Moosboden und seltene klare Landmarken. Die bestehenden Laufwege und Steine bleiben offen; keine Randwände aus Laub.
 2. **Weitere Figuren:** Nibbler, Jäger und Skitter in derselben vereinfachten Formensprache modellieren oder vorhandene passende Assets aufbereiten. Ihre Warnflächen müssen in der Spielansicht stärker auffallen als Oberflächendetails.
-3. **Bewegung und Treffer:** kurze Dreh-, Lauf- und Reaktionsbewegungen am Mawling-Modell; gebündelte statt dutzender Schadenszahlen. Das Roh-Asset hat kein Skelett/keine Animation, daher zunächst sparsame prozedurale Bewegung.
+3. **Bewegung und Treffer:** prozeduraler Erst-Pass erledigt (Etappe 01). Offen: echte Skelettanimationen, falls Modelle mit Rig geliefert werden; Sicht aus steiler Kamera macht Aufbäumen des Bosses nur mäßig sichtbar.
 4. **Geräteprüfung:** Touchabstände und Leistung auf dem Samsung S25 prüfen. Bei hohen Populationen zuerst Modellanzahl, Material-/Draw-Calls und Deckung durch Dekoration messen und anpassen.
 

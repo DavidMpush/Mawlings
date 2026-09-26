@@ -7,6 +7,7 @@ const HUNTER = preload("res://scripts/hunter.gd")
 const SKITTER = preload("res://scripts/skitter.gd")
 const BOG_KING = preload("res://scripts/bog_king.gd")
 const TUNING = preload("res://scripts/tuning.gd")
+const FX = preload("res://scripts/fx.gd")
 const CORPSE_BIOMASS := TUNING.CORPSE_BIOMASS
 
 @onready var swarm = get_parent().get_node("Swarm")
@@ -26,6 +27,10 @@ var spawn_number := 0
 var paused := false
 var hit_feedback := 0.0
 var last_loss := 0
+# Visual-only: where the swarm leans in (attack target or corpse being eaten).
+var focus_point := Vector3.ZERO
+var focus_mode := 0
+var focus_distance := INF
 
 
 func _ready() -> void:
@@ -59,7 +64,8 @@ func reset_run() -> void:
 	hit_feedback = 0.0
 	last_loss = 0
 	swarm.position = Vector3.ZERO
-	swarm.set_population(model.population)
+	swarm.set_population(model.population, false)
+	swarm.clear_focus()
 	swarm.set_controls(Vector2.ZERO, false)
 	hud.clear_pointers()
 	_starting_prey()
@@ -82,6 +88,7 @@ func _process(delta: float) -> void:
 
 func step(delta: float) -> void:
 	if paused or model.extinct or choosing():
+		swarm.clear_focus()
 		return
 	model.advance(delta)
 	hit_feedback = maxf(0.0, hit_feedback - delta)
@@ -90,6 +97,8 @@ func step(delta: float) -> void:
 	var attack_range := 1.15 if swarm.rally_pressed else 1.5
 	var damage := minf(32.0, 1.0 + float(model.population) * 0.12) * (1.55 if swarm.rally_pressed else 1.0)
 	damage *= evolution.damage_multiplier(swarm.rally_pressed)
+	focus_mode = 0
+	focus_distance = INF
 	for target in prey.duplicate():
 		# Living prey may be recycled at a distance; corpses never expire.
 		if target.position.distance_to(swarm.position) > 40.0:
@@ -97,6 +106,7 @@ func step(delta: float) -> void:
 			target.queue_free()
 			continue
 		target.call("step", delta, swarm.position)
+		_consider_focus(target.position, 3.2)
 		if target.position.distance_to(swarm.position) < attack_range:
 			var health: float = target.get("health") - damage * delta
 			target.set("health", health)
@@ -106,11 +116,13 @@ func step(delta: float) -> void:
 				if choosing():
 					return
 	for hunter in hunters.duplicate():
+		_consider_focus(hunter.position, 3.4)
 		if hunter.get("state") != HUNTER.State.ARRIVING and hunter.position.distance_to(swarm.position) < attack_range:
 			hunter.call("take_damage", damage * delta)
 			message = "Jäger angreifen · vor dem Ring ausweichen"
 			if hunter.get("health") <= 0.0:
 				hunters.erase(hunter)
+				_kill_burst(hunter.position, Color("c58be0"), 2.6, 0.25)
 				_create_corpse(hunter.position, TUNING.HUNTER_BIOMASS * evolution.biomass_multiplier())
 				_award_dna(20)
 				hunter.queue_free()
@@ -119,23 +131,18 @@ func step(delta: float) -> void:
 				continue
 		var velocity: Vector3 = Vector3(swarm.movement_vector.x, 0.0, swarm.movement_vector.y) * swarm.MOVE_SPEED
 		var loss: int = hunter.call("step", delta, swarm.position, pressure, velocity)
-		if loss > 0:
-			last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
-			swarm.set_population(model.population)
-			hit_feedback = 1.2
-			if model.extinct:
-				swarm.set_controls(Vector2.ZERO, false)
-				hud.clear_pointers()
-				_update_hud("Ausgestorben")
-				return
+		if loss > 0 and _apply_hit(loss, hunter.attack_center, 0.35):
+			return
 		if hunter.get("state") == HUNTER.State.WARNING:
 			message = "RAUS AUS DEM ROTEN RING!"
 	for skitter in skitters.duplicate():
+		_consider_focus(skitter.position, 3.4)
 		if skitter.get("state") != SKITTER.State.ARRIVING and skitter.position.distance_to(swarm.position) < attack_range:
 			skitter.take_damage(damage * delta)
 			message = "Skitter angreifen · seitlich ausweichen"
 			if skitter.health <= 0:
 				skitters.erase(skitter)
+				_kill_burst(skitter.position, Color("7fb4ff"), 2.4, 0.2)
 				_create_corpse(skitter.position, TUNING.SKITTER_BIOMASS * evolution.biomass_multiplier())
 				_award_dna(15)
 				skitter.cleanup()
@@ -144,22 +151,19 @@ func step(delta: float) -> void:
 					return
 				continue
 		var loss: int = skitter.step(delta, swarm.position, pressure)
-		if loss > 0:
-			last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
-			swarm.set_population(model.population)
-			hit_feedback = 1.2
-			if model.extinct:
-				swarm.set_controls(Vector2.ZERO, false)
-				hud.clear_pointers()
-				_update_hud("Ausgestorben")
-				return
+		if loss > 0 and _apply_hit(loss, swarm.position, 0.3):
+			return
 		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH]:
 			message = "SPRINT! SEITLICH AUSWEICHEN"
 	if boss != null:
+		if boss.state != BOG_KING.State.ARRIVING:
+			_consider_focus(boss.position, 6.0)
 		if boss.state != BOG_KING.State.ARRIVING and boss.position.distance_to(swarm.position) < 3.5:
 			boss.take_damage(damage * delta)
 			message = "BOG KING · RALLY ZUM ANGRIFF"
 			if boss.health <= 0.0:
+				_kill_burst(boss.position, Color("ffe07a"), 7.5, 0.7)
+				_kill_burst(boss.position, Color("d8b8ff"), 5.0, 0.0)
 				_create_corpse(boss.position, TUNING.BOSS_BIOMASS * evolution.biomass_multiplier())
 				boss.queue_free()
 				boss = null
@@ -169,17 +173,14 @@ func step(delta: float) -> void:
 					return
 		if boss != null:
 			var loss: int = boss.step(delta, swarm.position, pressure)
-			if loss > 0:
-				last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
-				swarm.set_population(model.population)
-				hit_feedback = 1.2
-				if model.extinct:
-					swarm.set_controls(Vector2.ZERO, false)
-					hud.clear_pointers()
-					_update_hud("Ausgestorben")
-					return
+			if loss > 0 and _apply_hit(loss, boss.attack_center, 0.45):
+				return
 			if boss.state == BOG_KING.State.WARNING:
 				message = "BOG KING STAMPFT · AUS DEM ROTEN KREIS!"
+			elif boss.state == BOG_KING.State.RECOVERY and not message.begins_with("RAUS"):
+				message = "BOG KING ERSCHÖPFT · JETZT ANGREIFEN!"
+			elif boss.state == BOG_KING.State.ARRIVING:
+				message = "DER BOG KING TAUCHT AUF!"
 	for corpse in model.corpses.duplicate():
 		var id: int = corpse.id
 		if corpse.position.distance_to(swarm.position) > TUNING.HARVEST_RADIUS:
@@ -188,11 +189,18 @@ func step(delta: float) -> void:
 		var consumed: float = model.harvest(id, rate * evolution.harvest_multiplier() * delta)
 		if consumed > 0.0:
 			swarm.set_population(model.population)
+			if focus_mode == 0:
+				focus_mode = 2
+				focus_point = corpse.position
 			if not message.begins_with("RAUS"):
 				message = "Biomasse ernten · Rally beschleunigt"
 			_update_corpse(id, corpse.initial)
 		elif model.population >= RUN_MODEL.MAX_POPULATION:
 			message = "Schwarm voll — Biomasse bleibt liegen"
+	if focus_mode == 0:
+		swarm.clear_focus()
+	else:
+		swarm.set_focus(focus_point, focus_mode)
 	spawn_clock += delta
 	if spawn_clock >= TUNING.PREY_RESPAWN_SECONDS and prey.size() < TUNING.MAX_PREY:
 		spawn_clock = 0.0
@@ -263,6 +271,7 @@ func _spawn_boss(location: Vector3) -> Node3D:
 
 func _kill_prey(target: Node3D) -> void:
 	prey.erase(target)
+	_kill_burst(target.position, Color("7de6d2"), 1.8, 0.0)
 	_create_corpse(target.position, CORPSE_BIOMASS * evolution.biomass_multiplier())
 	_award_dna(10)
 	target.queue_free()
@@ -322,6 +331,8 @@ func _update_hud(message: String) -> void:
 	hud.skitters = skitters.size()
 	hud.boss_health = boss.health if boss != null else 0.0
 	hud.boss_max_health = boss.max_health if boss != null else 0.0
+	hud.boss_pointer = _boss_pointer()
+	hud.boss_vulnerable = boss != null and boss.state == BOG_KING.State.RECOVERY
 	hud.elapsed = model.elapsed
 	hud.pressure = model.pressure()
 	hud.extinct = model.extinct
@@ -343,6 +354,66 @@ func _update_hud(message: String) -> void:
 				direction = ("oben" if offset.z < 0 else "unten") if absf(offset.z) > absf(offset.x) else ("links" if offset.x < 0 else "rechts")
 			hud.nearest_corpse = "Kadaver: %dm · %s" % [int(distance), direction]
 	hud.queue_redraw()
+
+
+# Edge-of-screen position pointing at an off-screen Bog King, or INF when visible.
+func _boss_pointer() -> Vector2:
+	var camera := get_viewport().get_camera_3d()
+	if boss == null or camera == null:
+		return Vector2.INF
+	var view: Vector2 = hud.size
+	var point: Vector3 = boss.position + Vector3.UP * 2.0
+	var screen := camera.unproject_position(point)
+	var behind := camera.is_position_behind(point)
+	if not behind and Rect2(Vector2(20, 20), view - Vector2(40, 40)).has_point(screen):
+		return Vector2.INF
+	var center := view * 0.5
+	var direction := screen - center
+	if behind:
+		direction = -direction
+	if direction.length_squared() < 1.0:
+		return Vector2.INF
+	# Keep the marker clear of the top panels and the thumb controls.
+	var area := Rect2(Vector2(56, 330), view - Vector2(112, 700))
+	var half := area.size * 0.5
+	var reach := minf(half.x / maxf(0.001, absf(direction.x)), half.y / maxf(0.001, absf(direction.y)))
+	return area.get_center() + direction * reach
+
+
+# Resolves one announced hit. Returns true when the run ended by extinction.
+func _apply_hit(loss: int, impact: Vector3, shake_amount: float) -> bool:
+	var before: int = model.population
+	last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
+	swarm.set_population(model.population)
+	swarm.react_to_hit(before - model.population, impact)
+	hit_feedback = 1.2
+	_shake(shake_amount)
+	if model.extinct:
+		swarm.clear_focus()
+		swarm.set_controls(Vector2.ZERO, false)
+		hud.clear_pointers()
+		_update_hud("Ausgestorben")
+		return true
+	return false
+
+
+# The nearest living threat or prey within reach pulls the swarm visually.
+func _consider_focus(location: Vector3, reach: float) -> void:
+	var distance := location.distance_to(swarm.position)
+	if distance < reach and distance < focus_distance:
+		focus_distance = distance
+		focus_point = location
+		focus_mode = 1
+
+
+func _kill_burst(location: Vector3, tint: Color, size: float, shake_amount: float) -> void:
+	FX.ring(self, location, tint, 0.4, size, 0.5)
+	_shake(shake_amount)
+
+
+func _shake(amount: float) -> void:
+	if amount > 0.0 and get_parent().has_method("add_shake"):
+		get_parent().add_shake(amount)
 
 
 func choosing() -> bool:

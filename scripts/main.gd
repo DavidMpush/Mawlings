@@ -8,31 +8,54 @@ extends Node3D
 
 const CAMERA_OFFSET := Vector3(0.0, 23.0, 15.0)
 
+var shake := 0.0
+var zoom := 1.0
+var camera_base := Vector3.ZERO
+
 
 func _ready() -> void:
 	_register_keyboard_input()
 	controls.restart_requested.connect(_restart)
 	controls.pause_requested.connect(world.toggle_pause)
 	controls.mutation_chosen.connect(world.choose_mutation)
-	camera.position = swarm.position + CAMERA_OFFSET
-	camera.look_at(swarm.position, Vector3.UP)
+	_snap_camera()
 	DisplayServer.window_set_title("MAWLINGS — Godot Prototype")
+
+
+# Purely visual camera kick; stacks but saturates so big hits stay readable.
+func add_shake(amount: float) -> void:
+	shake = minf(1.0, shake + amount)
 
 
 func _process(delta: float) -> void:
 	var keyboard := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var movement: Vector2 = controls.movement_vector if controls.movement_vector.length() > 0.05 else keyboard
 	var active: bool = not world.paused and not world.model.extinct and not world.choosing()
+	swarm.frozen = not active
 	swarm.set_controls(movement if active else Vector2.ZERO, active and (controls.rally_pressed or Input.is_key_pressed(KEY_SPACE)))
 	arena.sync(swarm.position)
-	var target := swarm.position + CAMERA_OFFSET
-	camera.position = camera.position.lerp(target, 1.0 - exp(-5.0 * delta))
-	camera.look_at(swarm.position, Vector3.UP)
+	# Pull back for a large swarm and a nearby boss so both fit the portrait frame.
+	var wanted := 1.0 + clampf(float(swarm.population - 25) / 225.0, 0.0, 1.0) * 0.12
+	if world.boss != null and world.boss.position.distance_to(swarm.position) < 16.0:
+		wanted += 0.14
+	zoom = lerpf(zoom, wanted, 1.0 - exp(-1.5 * delta))
+	camera_base = camera_base.lerp(swarm.position + CAMERA_OFFSET * zoom, 1.0 - exp(-5.0 * delta))
+	shake = maxf(0.0, shake - delta * 2.4)
+	var jitter := Vector3(randf_range(-1.0, 1.0), randf_range(-0.4, 0.4), randf_range(-1.0, 1.0)) * shake * shake * 0.8
+	camera.position = camera_base + jitter
+	camera.look_at(swarm.position + jitter * 0.5, Vector3.UP)
 
 
 func _restart() -> void:
 	world.reset_run()
-	camera.position = swarm.position + CAMERA_OFFSET
+	shake = 0.0
+	_snap_camera()
+
+
+func _snap_camera() -> void:
+	zoom = 1.0
+	camera_base = swarm.position + CAMERA_OFFSET
+	camera.position = camera_base
 	camera.look_at(swarm.position, Vector3.UP)
 
 

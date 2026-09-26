@@ -27,6 +27,8 @@ var peak_population := 25
 var consumed_biomass := 0.0
 var nearest_corpse := ""
 var hit_feedback := 0.0
+var boss_pointer := Vector2.INF
+var boss_vulnerable := false
 var last_loss := 0
 
 
@@ -137,6 +139,8 @@ func _mutation_rect(slot: int) -> Rect2:
 func _draw() -> void:
 	var font := ThemeDB.fallback_font
 	_draw_top(font)
+	if boss_pointer.is_finite() and not extinct and not paused:
+		_draw_boss_pointer(font)
 	if hit_feedback > 0.0 and not extinct:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.95, 0.24, 0.12, minf(0.11, hit_feedback * 0.11)))
 		_center_text(font, "−%d MAWLINGS" % last_loss, Vector2(size.x * 0.5, size.y * 0.5 - 170), 27, Color("ffe2c5"))
@@ -190,6 +194,21 @@ func _draw_top(font: Font) -> void:
 		draw_string(font, Vector2(43, corpse_y + 30), nearest_corpse, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, bone)
 	if biomass_bank > 0.01:
 		draw_string(font, Vector2(35, 374 if boss_health > 0.0 else 294), "BIOMASSE %.1f / 2" % biomass_bank, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("f6cc70"))
+
+func _draw_boss_pointer(font: Font) -> void:
+	var direction := (boss_pointer - size * 0.5).normalized()
+	var side := Vector2(-direction.y, direction.x)
+	var tip := boss_pointer + direction * 34.0
+	var accent := Color("ffe07a") if boss_vulnerable else Color("ff8a5c")
+	draw_circle(boss_pointer, 40, Color("172921e6"))
+	draw_arc(boss_pointer, 40, 0, TAU, 40, accent, 4.0, true)
+	draw_colored_polygon(PackedVector2Array([tip + direction * 16.0, tip + side * 17.0, tip - side * 17.0]), accent)
+	# Crown: the boss marker must not reuse the player's jaws icon.
+	var c := boss_pointer
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-20, 12), c + Vector2(-22, -12), c + Vector2(-10, 0), c + Vector2(0, -17), c + Vector2(10, 0), c + Vector2(22, -12), c + Vector2(20, 12)]), accent)
+	var label := boss_pointer - direction * 64.0
+	_center_text(font, "BOG KING", label + Vector2(0, 8), 20, Color("ffe3ba"))
+
 
 func _draw_controls(font: Font) -> void:
 	if hint != "":

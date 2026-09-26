@@ -20,6 +20,8 @@ Ab etwa 45 Sekunden kommt der blau-pinke **Skitter** hinzu. Er markiert eine ger
 
 Nach etwa **90 Sekunden** erscheint der große **Bog King**. Seine eigene Lebensleiste steht unter der oberen HUD-Zeile. Bei Nähe markiert er einen roten Kreis an seiner Position und stampft nach 1,8 Sekunden; aus dem Kreis herauslaufen, danach während seiner Erholung angreifen. Ein besiegter Bog King gibt 50 DNA und hinterlässt 110 dauerhafte Biomasse. Nach 180 weiteren Spielsekunden kann der nächste erscheinen. Die Spielversion des vom Nutzer gelieferten Modells hat 8.000 statt 50.000 Dreiecke und liegt getrennt vom Original unter `assets/gameplay/characters/`. Das Original und seine Texturdateien liegen unter `assets/source/bog_king/`; die Ordnerstruktur steht in [assets/README.md](assets/README.md).
 
+**Bewegung und Rückmeldung (Etappe 01):** Jedes Mawling dreht sich in seine eigene Laufrichtung, hüpft und watschelt abhängig vom Tempo, atmet im Stand und folgt der Formation mit eigener Trägheit, sodass sich der Schwarm beim Laufen streckt. Weiche Schatten (eine MultiMesh) und ein korallfarbener Bodenhalo zeigen, wo der Schwarm steht; Rally verdichtet ihn sichtbar mit hellerem Ring. Beim Angriff drängen die Tiere zur Beute und beißen, beim Ernten picken sie am Kadaver. Neue Mawlings schlüpfen aus der Mitte; bei Treffern werden verlorene Tiere weggeschleudert, Überlebende weggestoßen, der Schwarm blitzt und die Kamera wackelt. Der Bog King hat eine helle, zustandsabhängige Randkontur (lila jagend, orange warnend, gold erschöpft), taucht aus dem Boden auf, stapft mit Schrittstaub, bäumt sich während der Warnung auf und stampft mit Schockwelle. Sein Warnkreis füllt sich von innen bis zum Rand und zeigt so die Restzeit. Danach ist er erschöpft („JETZT ANGREIFEN“). Außerhalb des Bildes zeigt ein Kronenpfeil am Rand zu ihm. Die Kamera zoomt bei großem Schwarm und nahem Boss etwas heraus. Alle Effekte sind rein visuell; Trefferbereiche, Zeiten und Schaden sind unverändert.
+
 Der Zeitdruck verdoppelt sich alle 90 Spielsekunden und erhöht Angriffsleistung, neue Gegnergesundheit und Spawnrate. Maximal zwölf Jäger, drei Skitter und fünf Nibbler sind gleichzeitig aktiv. **Nur Aussterben beendet den Run**; es gibt kein Zeitlimit. Die Ergebnisanzeige zeigt Überlebenszeit, höchste Population, Kills und geerntete Biomasse. Mit **NEUER RUN**, **R** oder **Enter** neu starten. **P / Escape** oder der Pause-Button pausiert; bei Fokusverlust pausiert das Spiel ebenfalls. Die Kadaver bleiben innerhalb des aktiven Runs erhalten; Neustart setzt den gesamten Run zurück.
 
 Das ist ein spielbarer **Survival-Mechanik-Prototyp** mit vorläufigen Werten und Gegner-/Weltformen. Das Mawling- und Bog-King-Modell sowie das HUD haben einen ersten Design-Pass. Angriff, Ernte und Flächentreffer verwenden vorerst die Entfernung zum Schwarmzentrum; individuelle Mawlings haben keine eigene Kampf-KI. Endgültige Animationen und Grafik fehlen noch. Zentrale Survival-Werte stehen in `scripts/tuning.gd`.
@@ -47,7 +49,14 @@ Prüfung dieser Etappe: [Evolution](EVOLUTION_VERIFICATION.md).
 
 Wir arbeiten ausdrücklich in **größeren, zusammenhängenden Etappen**. Eine Etappe umfasst den spielbaren Ablauf, notwendiges HUD und Bedienung, Fehlerkorrekturen sowie Funktions- und Sichtprüfung. Keine Übergabe nach jeder kleinen Funktion und keine wiederholten Freigaben für bereits vereinbarte Arbeit. Diese Vorgabe ist auch in `AGENTS.md` für die weitere Zusammenarbeit festgehalten. Die [Spielregeln](DESIGN_BRIEF.md) bleiben stabil.
 
-Automatisierte Prüfungen mit der installierten Godot-Konsole:
+Alle automatisierten Prüfungen auf einmal (kompakte Ausgabe, Exit-Code ≠ 0 bei Fehlern) und alle Prüfbilder aus der echten Kamera:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1
+```
+
+Einzelne Prüfungen mit der installierten Godot-Konsole (zusätzlich `tests/motion.gd` für Etappe 01):
 
 ```powershell
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/smoke.gd'
@@ -62,6 +71,6 @@ Automatisierte Prüfungen mit der installierten Godot-Konsole:
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --fixed-fps 60 --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/endless_playthrough.gd'
 ```
 
-Prüfstand und Grenzen: [Survival-Prüfung](SURVIVAL_VERIFICATION.md), [Evolution](EVOLUTION_VERIFICATION.md), [Arena](ARENA_VERIFICATION.md) und [Skitter](SKITTER_VERIFICATION.md).
+Prüfstand und Grenzen: [Survival-Prüfung](SURVIVAL_VERIFICATION.md), [Evolution](EVOLUTION_VERIFICATION.md), [Arena](ARENA_VERIFICATION.md) , [Skitter](SKITTER_VERIFICATION.md) und [Etappe 01 – Bewegung und Lesbarkeit](stages/01_motion_readability.md). Der Arbeitsablauf mit Claude Code steht in [stages/README.md](stages/README.md).
 
 Projektdateien liegen unter `scenes/` und `scripts/`; `.godot/` wird nicht versioniert. Das Projekt besitzt ein eigenes Git-Repository, damit Dateien außerhalb dieses Ordners nicht dazugehören.
