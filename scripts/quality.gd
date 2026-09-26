@@ -1,8 +1,10 @@
 extends RefCounted
 
-# Qualitätsstufen (Etappe 06, LEISTUNG). Reine Daten- und Auswahl-API – noch von
-# keinem System gelesen; der Einbau in Swarm/Arena/HUD/Menü folgt laut
-# stages/06_perf_notes.md. Nutzung (statisch, ohne Instanz):
+# Qualitätsstufen (Etappe 06, LEISTUNG). Daten- und Auswahl-API. Etappe 07:
+# main.gd wählt die Stufe beim Start (Einstellung "quality" oder Heuristik) und
+# wendet Viewport und Schwarm-Schatten an; fx.gd/attack_forms.gd lesen
+# effect_density, hunt_world.gd corpse_segments; decor_density ist über
+# main.quality_value() abfragbar (Arena liest es später). Nutzung (statisch):
 #
 #   const Quality := preload("res://scripts/quality.gd")
 #   var tier: int = Quality.current_tier()        # Override oder Heuristik

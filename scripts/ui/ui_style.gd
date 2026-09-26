@@ -132,3 +132,44 @@ static func text(canvas: CanvasItem, value: String, at: Vector2, size: int, colo
 		canvas.draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, outline, OUTLINE)
 	canvas.draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
 	return width
+
+
+# Stage 07: every rasterised font size costs a glyph cache (~0.8 MB RAM and
+# ~0.3 MB VRAM per size with outline). Animated or fitted sizes (pop, zoom,
+# shrink-to-fit) therefore never rasterise their own size: they pick the next
+# larger size of this palette and scale it down with draw_set_transform.
+const SIZE_STEPS := [22, 26, 30, 34, 38, 44, 48, 54, 64, 72, 84, 96, 110]
+
+
+# Palette size a fractional size is drawn from (the next larger one).
+static func size_step(px: float) -> int:
+	for step in SIZE_STEPS:
+		if step >= px - 0.01:
+			return step
+	return int(ceil(px))
+
+
+# Width of `value` at a fractional size (same measure text_px() draws with).
+static func width_px(value: String, px: float, font: Font = null) -> float:
+	var face: Font = font if font != null else display_font()
+	var step := size_step(px)
+	return face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, step).x * px / step
+
+
+# Outlined text at a fractional size: drawn at a palette size and scaled, so a
+# pulsing or fitted label adds no new glyph cache. Palette sizes draw exactly
+# like text(). Returns the drawn width.
+static func text_px(canvas: CanvasItem, value: String, at: Vector2, px: float, color: Color = TEXT, centered: bool = false, outline: int = 6, font: Font = null) -> float:
+	var step := size_step(px)
+	if absf(px - step) < 0.01:
+		return text(canvas, value, at, step, color, centered, outline, font)
+	var face: Font = font if font != null else display_font()
+	var k := px / step
+	var width := face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, step).x * k
+	var origin := at - Vector2(width * 0.5, 0.0) if centered else at
+	canvas.draw_set_transform(origin, 0.0, Vector2(k, k))
+	if outline > 0:
+		canvas.draw_string_outline(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, outline, OUTLINE)
+	canvas.draw_string(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, color)
+	canvas.draw_set_transform(Vector2.ZERO)
+	return width

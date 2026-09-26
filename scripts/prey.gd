@@ -13,6 +13,8 @@ const WANDER_HOP := 0.035
 # Built once and shared by every Nibbler.
 static var shadow_mesh: PlaneMesh
 static var shadow_material: StandardMaterial3D
+static var bar_mesh: BoxMesh
+static var bar_material: StandardMaterial3D
 
 var health := MAX_HEALTH
 var wander_phase := 0.0
@@ -69,14 +71,16 @@ func _ready() -> void:
 	model.scale = Vector3.ONE * model_scale
 	model.position = Vector3(-center.x, -bounds.position.y, -center.z) * model_scale
 
-	var bar := BoxMesh.new()
-	bar.size = Vector3(0.95, 0.06, 0.1)
-	var fill := StandardMaterial3D.new()
-	fill.albedo_color = Color("9ef1cf")
-	fill.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	# Etappe 07: health bar mesh and material are shared by every Nibbler.
+	if bar_mesh == null:
+		bar_mesh = BoxMesh.new()
+		bar_mesh.size = Vector3(0.95, 0.06, 0.1)
+		bar_material = StandardMaterial3D.new()
+		bar_material.albedo_color = Color("9ef1cf")
+		bar_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	health_fill = MeshInstance3D.new()
-	health_fill.mesh = bar
-	health_fill.material_override = fill
+	health_fill.mesh = bar_mesh
+	health_fill.material_override = bar_material
 	health_fill.position = Vector3(0, MODEL_HEIGHT + 0.3, 0)
 	health_fill.visible = false
 	health_fill.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

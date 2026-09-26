@@ -42,6 +42,10 @@ var coral_light := CORAL_LIGHT
 var rim_tint := DEFAULT_RIM
 var rim_amount := 0.45
 var rally_pressed := false
+# Logical Mawlings: lightweight Node3D data holders OUTSIDE the scene tree (no mesh).
+# `position`/`rotation.y`/`scale` place a unit in swarm-local space, its child
+# "Game model" carries the hop/roll/breath pose. All visible units are drawn by
+# one MultiMeshInstance3D (`bodies`), fallen ghosts by `ghost_bodies`.
 var units: Array[Node3D] = []
 var population := START_POPULATION
 var game_material: ShaderMaterial
@@ -54,6 +58,7 @@ var unit_gait := PackedFloat32Array()
 var unit_speed := PackedFloat32Array()
 var unit_hatch := PackedFloat32Array()
 var unit_push := PackedVector3Array()
+var unit_bite := PackedFloat32Array()
 
 # Falling-away ghosts of removed units; they are no longer part of `units`.
 var ghosts: Array[Node3D] = []
@@ -78,6 +83,12 @@ var swarm_velocity := Vector3.ZERO
 var display_scale := 0.91
 
 var shadows: MultiMeshInstance3D
+# One draw call for all visible Mawlings; INSTANCE_CUSTOM = (walk, leg phase, bite, 0).
+var bodies: MultiMeshInstance3D
+var ghost_bodies: MultiMeshInstance3D
+var mawling_mesh: Mesh
+# Transform of the glb's mesh node inside the model root (Z-up storage -> upright).
+var mesh_local := Transform3D.IDENTITY
 var halo: MeshInstance3D
 var halo_material: StandardMaterial3D
 var ring: MeshInstance3D
@@ -88,12 +99,27 @@ func _ready() -> void:
 	game_material = _creature_material(0.0)
 	ghost_material = _creature_material(0.4)
 	_build_ground_marks()
+	_build_bodies()
 	set_population(START_POPULATION, false)
 	for index in units.size():
 		var angle := float(index) * GOLDEN_ANGLE
 		var radius := sqrt((float(index) + 0.5) / float(units.size())) * 2.65
 		units[index].position = Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
 	_update_ground_marks(2.65)
+	_refresh_bodies()
+
+
+func _notification(what: int) -> void:
+	# Unit and ghost holders live outside the tree and are not freed with the swarm.
+	if what == NOTIFICATION_PREDELETE:
+		for unit in units:
+			if is_instance_valid(unit):
+				unit.free()
+		units.clear()
+		for ghost in ghosts:
+			if is_instance_valid(ghost):
+				ghost.free()
+		ghosts.clear()
 
 
 func set_population(value: int, animate: bool = true) -> void:
@@ -107,7 +133,6 @@ func set_population(value: int, animate: bool = true) -> void:
 		unit.rotation.y = float(index) * GOLDEN_ANGLE
 		if animate:
 			unit.position = Vector3(cos(float(index)) * 0.25, 0.0, sin(float(index)) * 0.25)
-		add_child(unit)
 		units.append(unit)
 		unit_phase.append(fposmod(float(index) * 0.7548777, 1.0) * TAU)
 		unit_follow.append(0.7 + 0.6 * fposmod(float(index) * 0.618034 + 0.31, 1.0))
@@ -115,6 +140,7 @@ func set_population(value: int, animate: bool = true) -> void:
 		unit_speed.append(0.0)
 		unit_hatch.append(0.0 if animate else 1.0)
 		unit_push.append(Vector3.ZERO)
+		unit_bite.append(0.0)
 		_pose_model(unit, 0.0, 0.0, 0.0, 0.0 if animate else 1.0, 0.0)
 	while units.size() > target:
 		var unit: Node3D = units.pop_back()
@@ -122,7 +148,7 @@ func set_population(value: int, animate: bool = true) -> void:
 			_launch_ghost(unit, Vector3.ZERO)
 			removed_since_frame += 1
 		else:
-			unit.queue_free()
+			unit.free()
 	var count := units.size()
 	unit_phase.resize(count)
 	unit_follow.resize(count)
@@ -130,13 +156,13 @@ func set_population(value: int, animate: bool = true) -> void:
 	unit_speed.resize(count)
 	unit_hatch.resize(count)
 	unit_push.resize(count)
+	unit_bite.resize(count)
 	if not animate:
 		_clear_ghosts()
 	display_scale = lerpf(0.91, 0.58, clampf(float(population - 25) / 225.0, 0.0, 1.0))
 	for unit in units:
 		unit.scale = Vector3.ONE * display_scale
-	if shadows != null:
-		shadows.multimesh.visible_instance_count = count
+	_refresh_bodies()
 
 
 # World positions of the visible units (flat), index-aligned with `units`.
@@ -178,6 +204,7 @@ func prefer_removal(indices: PackedInt32Array) -> void:
 	var old_speed := unit_speed.duplicate()
 	var old_hatch := unit_hatch.duplicate()
 	var old_push := unit_push.duplicate()
+	var old_bite := unit_bite.duplicate()
 	for slot in count:
 		var source := order[slot]
 		units[slot] = old_units[source]
@@ -187,6 +214,7 @@ func prefer_removal(indices: PackedInt32Array) -> void:
 		unit_speed[slot] = old_speed[source]
 		unit_hatch[slot] = old_hatch[source]
 		unit_push[slot] = old_push[source]
+		unit_bite[slot] = old_bite[source]
 	hit_tail = marked.size()
 
 
@@ -305,7 +333,11 @@ func _animate_units(delta: float) -> void:
 	var reach := radius * 2.2 + 1.0
 	var count := units.size()
 	var damping := exp(-PUSH_DAMPING * delta)
-	var multimesh := shadows.multimesh
+	var body_mesh := bodies.multimesh
+	var shadow_mesh := shadows.multimesh
+	var top_speed := move_speed()
+	var speed_follow := 1.0 - exp(-8.0 * delta)
+	var turn := 1.0 - exp(-10.0 * delta)
 	# Jaw values only need refreshing while (or just after) attacking or harvesting.
 	var bite_active := attack_blend + harvest_blend > 0.002
 	for index in count:
@@ -338,9 +370,8 @@ func _animate_units(delta: float) -> void:
 		var velocity := (next - old) / maxf(delta, 0.001) + swarm_velocity
 		velocity.y = 0.0
 		var speed := velocity.length()
-		var speed_share := lerpf(unit_speed[index], clampf(speed / move_speed(), 0.0, 1.0), 1.0 - exp(-8.0 * delta))
+		var speed_share := lerpf(unit_speed[index], clampf(speed / top_speed, 0.0, 1.0), speed_follow)
 		unit_speed[index] = speed_share
-		var turn := 1.0 - exp(-10.0 * delta)
 		if speed > 0.45:
 			unit.rotation.y = lerp_angle(unit.rotation.y, atan2(velocity.x, velocity.z) + PI * 0.5, turn)
 		elif pull > 0.05:
@@ -366,27 +397,62 @@ func _animate_units(delta: float) -> void:
 			hatch = minf(1.0, hatch + delta / HATCH_SECONDS)
 			unit_hatch[index] = hatch
 		var grown := _back_out(hatch)
-		_pose_model(unit, hop, roll, pitch, grown, breath)
+		var pose := _pose_model(unit, hop, roll, pitch, grown, breath)
 		# Leg cycle (creature_anim.gdshader) locked to the hop: feet land as the hop ends.
-		var mesh := _unit_mesh(unit)
-		mesh.set_instance_shader_parameter("instance_walk", speed_share)
-		mesh.set_instance_shader_parameter("instance_phase", fmod(gait, TAU) + PI * 0.5)
 		if bite_active:
-			mesh.set_instance_shader_parameter("instance_bite", jaw)
+			unit_bite[index] = jaw
+		body_mesh.set_instance_transform(index, unit.transform * pose * mesh_local)
+		body_mesh.set_instance_custom_data(index, Color(speed_share, fmod(gait, TAU) + PI * 0.5, unit_bite[index], 0.0))
 		var shadow_size := display_scale * 1.05 * grown * (1.0 - hop * 1.4)
-		multimesh.set_instance_transform(index, Transform3D(Basis.from_scale(Vector3(shadow_size, 1.0, shadow_size)), Vector3(next.x, SHADOW_Y, next.z)))
-	multimesh.visible_instance_count = count
+		shadow_mesh.set_instance_transform(index, Transform3D(Basis.from_scale(Vector3(shadow_size, 1.0, shadow_size)), Vector3(next.x, SHADOW_Y, next.z)))
+	body_mesh.visible_instance_count = count
+	shadow_mesh.visible_instance_count = count
 	_update_ground_marks(radius)
 
 
-func _unit_mesh(unit: Node3D) -> GeometryInstance3D:
-	return unit.get_child(0).get_child(0)
+# Compatibility shim: units have no own mesh any more; the shared MultiMesh draws
+# them (per-unit leg/bite values travel in INSTANCE_CUSTOM, not instance uniforms).
+func _unit_mesh(_unit: Node3D) -> GeometryInstance3D:
+	return bodies
 
 
-func _pose_model(unit: Node3D, hop: float, roll: float, pitch: float, grown: float, breath: float) -> void:
+func _pose_model(unit: Node3D, hop: float, roll: float, pitch: float, grown: float, breath: float) -> Transform3D:
 	var model: Node3D = unit.get_child(0)
 	var size := Vector3(grown * (1.0 - breath * 0.5), grown * (1.0 + breath), grown * (1.0 - breath * 0.5))
-	model.transform = Transform3D(Basis.from_euler(Vector3(roll, 0.0, pitch)).scaled(size), Vector3(0.0, hop, 0.0))
+	var pose := Transform3D(Basis.from_euler(Vector3(roll, 0.0, pitch)).scaled(size), Vector3(0.0, hop, 0.0))
+	model.transform = pose
+	return pose
+
+
+# Rewrites both MultiMeshes from the unit holders (population change, reset, or
+# edits while the swarm does not process); _animate_units() does the same inline.
+func _refresh_bodies() -> void:
+	if bodies == null:
+		return
+	var body_mesh := bodies.multimesh
+	var shadow_mesh := shadows.multimesh
+	for index in units.size():
+		var unit := units[index]
+		var pose: Transform3D = (unit.get_child(0) as Node3D).transform
+		body_mesh.set_instance_transform(index, unit.transform * pose * mesh_local)
+		body_mesh.set_instance_custom_data(index, Color(unit_speed[index], fmod(unit_gait[index], TAU) + PI * 0.5, unit_bite[index], 0.0))
+		var shadow_size := display_scale * 1.05 * _back_out(unit_hatch[index]) * (1.0 - pose.origin.y * 1.4)
+		var place := unit.position
+		shadow_mesh.set_instance_transform(index, Transform3D(Basis.from_scale(Vector3(shadow_size, 1.0, shadow_size)), Vector3(place.x, SHADOW_Y, place.z)))
+	body_mesh.visible_instance_count = units.size()
+	shadow_mesh.visible_instance_count = units.size()
+
+
+# Ghost holders store WORLD transforms; the ghost MultiMesh is top-level.
+func _refresh_ghost_bodies() -> void:
+	if ghost_bodies == null:
+		return
+	var ghost_mesh := ghost_bodies.multimesh
+	var count := ghosts.size()
+	for index in count:
+		var ghost := ghosts[index]
+		ghost_mesh.set_instance_transform(index, ghost.transform * (ghost.get_child(0) as Node3D).transform * mesh_local)
+	ghost_mesh.visible_instance_count = count
 
 
 func _update_ground_marks(radius: float) -> void:
@@ -405,7 +471,7 @@ func _resolve_pending_hit() -> void:
 	if pending_loss > 0:
 		# Aim this frame's fallen units away from the impact.
 		for index in range(fresh_ghost_from, ghosts.size()):
-			ghost_velocity[index] = _fling_velocity(ghosts[index].global_position - global_position, pending_impact, ghost_spin[index])
+			ghost_velocity[index] = _fling_velocity(ghosts[index].position - _origin().origin, pending_impact, ghost_spin[index])
 		var copies := mini(pending_loss - removed_since_frame, MAX_HIT_COPIES)
 		# Hit animals still in the list (population above the visual limit) are
 		# at the back; their copies fly from where the hit actually landed.
@@ -415,7 +481,6 @@ func _resolve_pending_hit() -> void:
 				break
 			var source := units[units.size() - 1 - copy % tail] if tail > 0 else units[(copy * 37 + pending_loss) % units.size()]
 			var ghost := _make_unit()
-			add_child(ghost)
 			ghost.transform = source.transform
 			_pose_model(ghost, 0.0, 0.0, 0.0, 1.0, 0.0)
 			_launch_ghost(ghost, pending_impact)
@@ -427,14 +492,11 @@ func _resolve_pending_hit() -> void:
 
 func _launch_ghost(unit: Node3D, impact: Vector3) -> void:
 	if ghosts.size() >= MAX_GHOSTS:
-		unit.queue_free()
+		unit.free()
 		return
+	# From here on the holder keeps its WORLD transform (drawn by ghost_bodies).
 	var local := unit.position
-	var world := unit.global_transform
-	unit.top_level = true
-	unit.global_transform = world
-	for mesh in unit.find_children("*", "MeshInstance3D", true, false):
-		mesh.material_override = ghost_material
+	unit.transform = _origin() * unit.transform
 	var spin := (fposmod(float(ghosts.size() + unit.get_instance_id()) * 0.618034, 1.0) - 0.5) * 16.0
 	ghosts.append(unit)
 	ghost_velocity.append(_fling_velocity(local, impact, spin))
@@ -457,24 +519,25 @@ func _update_ghosts(delta: float) -> void:
 		var age := ghost_age[index] + delta
 		if age >= GHOST_FLIGHT + GHOST_SHRINK or not is_instance_valid(ghost):
 			if is_instance_valid(ghost):
-				ghost.queue_free()
+				ghost.free()
 			_remove_ghost(index)
 			index -= 1
 			continue
 		ghost_age[index] = age
 		var velocity := ghost_velocity[index]
 		velocity.y -= GHOST_GRAVITY * delta
-		var next := ghost.global_position + velocity * delta
+		var next := ghost.position + velocity * delta
 		if next.y < 0.0:
 			next.y = 0.0
 			velocity = Vector3(velocity.x * 0.4, -velocity.y * 0.25, velocity.z * 0.4)
 		ghost_velocity[index] = velocity
-		ghost.global_position = next
+		ghost.position = next
 		ghost.rotate_object_local(GHOST_AXIS, ghost_spin[index] * delta)
 		var shrink := clampf((age - GHOST_FLIGHT) / GHOST_SHRINK, 0.0, 1.0)
 		var size := display_scale * (1.0 - shrink * shrink)
 		ghost.scale = Vector3.ONE * maxf(size, 0.001)
 		index -= 1
+	_refresh_ghost_bodies()
 
 
 func _remove_ghost(index: int) -> void:
@@ -489,7 +552,7 @@ func _remove_ghost(index: int) -> void:
 func _clear_ghosts() -> void:
 	for ghost in ghosts:
 		if is_instance_valid(ghost):
-			ghost.queue_free()
+			ghost.free()
 	ghosts.clear()
 	ghost_velocity.resize(0)
 	ghost_age.resize(0)
@@ -498,6 +561,11 @@ func _clear_ghosts() -> void:
 	removed_since_frame = 0
 	pending_loss = 0
 	hit_tail = 0
+	_refresh_ghost_bodies()
+
+
+func _origin() -> Transform3D:
+	return global_transform if is_inside_tree() else transform
 
 
 func _flow_radius() -> float:
@@ -513,14 +581,54 @@ func _back_out(t: float) -> float:
 func _make_unit() -> Node3D:
 	var unit := Node3D.new()
 	unit.name = "Mawling"
-	var model: Node3D = MAWLING_SCENE.instantiate()
+	var model := Node3D.new()
 	model.name = "Game model"
-	model.scale = Vector3.ONE
 	unit.add_child(model)
-	for mesh in model.find_children("*", "MeshInstance3D", true, false):
-		mesh.material_override = game_material
-		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return unit
+
+
+# The Mawling glb is read once: its single mesh plus the mesh node's placement
+# inside the model root. Bodies and ghosts draw that mesh via MultiMesh.
+func _build_bodies() -> void:
+	var sample: Node3D = MAWLING_SCENE.instantiate()
+	var piece: MeshInstance3D = sample.find_children("*", "MeshInstance3D", true, false)[0]
+	mawling_mesh = piece.mesh
+	mesh_local = Transform3D.IDENTITY
+	var node: Node = piece
+	while node != sample:
+		mesh_local = (node as Node3D).transform * mesh_local
+		node = node.get_parent()
+	sample.free()
+	game_material.set_shader_parameter("use_instance_custom", true)
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	# GL Compatibility reads custom data as instance colour unless colours are on
+	# too, so every instance carries a white colour (COLOR = vertex colour).
+	multimesh.use_colors = true
+	multimesh.use_custom_data = true
+	multimesh.mesh = mawling_mesh
+	multimesh.instance_count = VISUAL_LIMIT
+	multimesh.visible_instance_count = 0
+	for index in VISUAL_LIMIT:
+		multimesh.set_instance_color(index, Color.WHITE)
+	bodies = MultiMeshInstance3D.new()
+	bodies.name = "Mawlings"
+	bodies.multimesh = multimesh
+	bodies.material_override = game_material
+	bodies.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(bodies)
+	var ghost_multimesh := MultiMesh.new()
+	ghost_multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	ghost_multimesh.mesh = mawling_mesh
+	ghost_multimesh.instance_count = MAX_GHOSTS
+	ghost_multimesh.visible_instance_count = 0
+	ghost_bodies = MultiMeshInstance3D.new()
+	ghost_bodies.name = "Fallen Mawlings"
+	ghost_bodies.multimesh = ghost_multimesh
+	ghost_bodies.material_override = ghost_material
+	ghost_bodies.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ghost_bodies.top_level = true
+	add_child(ghost_bodies)
 
 
 func _creature_material(base_flash: float) -> ShaderMaterial:
@@ -549,7 +657,7 @@ func _creature_material(base_flash: float) -> ShaderMaterial:
 	material.set_shader_parameter("stride", 0.09)
 	material.set_shader_parameter("lift", 0.09)
 	material.set_shader_parameter("stride_centering", 0.5)
-	# Script drives the cycle per instance (instance_phase / instance_walk); ghosts stay still.
+	# Script drives the cycle per instance (INSTANCE_CUSTOM of the body MultiMesh); ghosts stay still.
 	material.set_shader_parameter("walk_speed", 0.0)
 	material.set_shader_parameter("walk_amount", 0.0)
 	material.set_shader_parameter("walk_scale", 1.0 if base_flash <= 0.0 else 0.0)

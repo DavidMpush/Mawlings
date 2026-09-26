@@ -2,6 +2,9 @@ extends Node3D
 
 const TUNING = preload("res://scripts/tuning.gd")
 const TG = preload("res://scripts/telegraph_style.gd")
+const FX_BATCH = preload("res://scripts/fx_batch.gd")
+# Shared meshes/materials of every hunter (built once, see _shared_parts()).
+static var _parts := {}
 enum State { ARRIVING, CHASE, WARNING, RECOVERY }
 var state := State.ARRIVING
 var remaining := 1.0
@@ -29,38 +32,15 @@ var crown: Node3D
 
 
 func _ready() -> void:
-	var shell := StandardMaterial3D.new()
-	shell.albedo_color = Color("834c9f")
-	shell.roughness = 0.85
-	var armor := SphereMesh.new()
-	armor.radius = 0.72
-	armor.height = 1.05
-	body = _part(self, armor, shell, Vector3(0, 0.6, 0))
-	for side in [-1.0, 1.0]:
-		var horn := CylinderMesh.new()
-		horn.top_radius = 0.0
-		horn.bottom_radius = 0.24
-		horn.height = 0.75
-		_part(self, horn, shell, Vector3(side * 0.5, 1.0, -0.2))
-	var mask := StandardMaterial3D.new()
-	mask.albedo_color = Color("4d345f")
-	var face := BoxMesh.new()
-	face.size = Vector3(0.9, 0.25, 0.3)
-	_part(self, face, mask, Vector3(0, 0.65, 0.56))
-	var glow := StandardMaterial3D.new()
-	glow.albedo_color = Color("ff9a55")
-	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	var eye := SphereMesh.new()
-	eye.radius = 0.10
-	eye.height = 0.12
-	for side in [-1.0, 1.0]:
-		_part(self, eye, glow, Vector3(side * 0.24, 0.76, 0.73))
-	var bar := BoxMesh.new()
-	bar.size = Vector3(1.4, 0.07, 0.13)
-	var red := StandardMaterial3D.new()
-	red.albedo_color = Color("f17e91")
-	red.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	health_fill = _part(self, bar, red, Vector3(0, 1.6, 0))
+	# Etappe 07: meshes and materials are shared by every hunter; both horns and
+	# both eyes are one merged mesh each (fewer draw calls, same look).
+	var parts := _shared_parts()
+	var shell: Material = FX_BATCH.shared_material(Color("834c9f"), false, false, 0.85)
+	body = _part(self, parts.armor, shell, Vector3(0, 0.6, 0))
+	_part(self, parts.horns, shell, Vector3.ZERO)
+	_part(self, parts.face, FX_BATCH.shared_material(Color("4d345f")), Vector3(0, 0.65, 0.56))
+	_part(self, parts.eyes, FX_BATCH.shared_material(Color("ff9a55"), true), Vector3.ZERO)
+	health_fill = _part(self, parts.bar, FX_BATCH.shared_material(Color("f17e91"), true), Vector3(0, 1.6, 0))
 	warning = Node3D.new()
 	add_child(warning)
 	warning.top_level = true
@@ -82,42 +62,15 @@ func make_elite(health_multiplier: float) -> void:
 	health *= health_multiplier
 	max_health = health
 	scale = Vector3.ONE * TUNING.ELITE_SCALE
-	var gold := StandardMaterial3D.new()
-	gold.albedo_color = Color("ffbf1f")
-	gold.metallic = 0.1
-	gold.roughness = 0.35
-	gold.emission_enabled = true
-	gold.emission = Color("ffb347")
-	gold.emission_energy_multiplier = 0.9
+	var parts := _shared_parts()
 	crown = Node3D.new()
 	crown.name = "Crown"
 	crown.position = Vector3(0, 1.18, 0)
 	add_child(crown)
-	var band := CylinderMesh.new()
-	band.top_radius = 0.44
-	band.bottom_radius = 0.48
-	band.height = 0.18
-	band.radial_segments = 12
-	_part(crown, band, gold, Vector3.ZERO)
-	var spike := CylinderMesh.new()
-	spike.top_radius = 0.0
-	spike.bottom_radius = 0.13
-	spike.height = 0.42
-	spike.radial_segments = 6
-	for index in 5:
-		var angle := TAU * float(index) / 5.0
-		_part(crown, spike, gold, Vector3(cos(angle) * 0.38, 0.28, sin(angle) * 0.38))
-	var jewel := StandardMaterial3D.new()
-	jewel.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	jewel.albedo_color = Color("a86bff")
-	var gem := SphereMesh.new()
-	gem.radius = 0.09
-	gem.height = 0.18
-	_part(crown, gem, jewel, Vector3(0, 0.06, 0.46))
-	var bar_gold := StandardMaterial3D.new()
-	bar_gold.albedo_color = Color("ffd66e")
-	bar_gold.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	health_fill.material_override = bar_gold
+	# Band and five spikes are one merged gold mesh.
+	_part(crown, parts.crown, parts.gold, Vector3.ZERO)
+	_part(crown, parts.gem, FX_BATCH.shared_material(Color("a86bff"), true), Vector3(0, 0.06, 0.46))
+	health_fill.material_override = FX_BATCH.shared_material(Color("ffd66e"), true)
 	health_fill.position.y = 1.85
 
 
@@ -136,8 +89,8 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 		var offset := swarm_position - global_position
 		offset.y = 0.0
 		var arena: Node3D = get_parent().get_parent().get_node("Arena")
-		var line_clear: bool = arena.clear_line(position, swarm_position, 0.8).distance_to(position) >= offset.length() - 0.3
-		if offset.length() <= 3.0 and line_clear:
+		# Etappe 07: the (costly) line test only runs in attack range; same result.
+		if offset.length() <= 3.0 and arena.clear_line(position, swarm_position, 0.8).distance_to(position) >= offset.length() - 0.3:
 			state = State.WARNING
 			remaining = TUNING.HUNTER_WARNING_SECONDS
 			# Later hunters lead straight-line movement, but the announced area
@@ -192,6 +145,70 @@ func hit_fraction(points: PackedVector3Array) -> float:
 		if contains(point):
 			inside += 1
 	return float(inside) / float(points.size())
+
+
+static func _shared_parts() -> Dictionary:
+	if not _parts.is_empty():
+		return _parts
+	var armor := SphereMesh.new()
+	armor.radius = 0.72
+	armor.height = 1.05
+	armor.radial_segments = 24
+	armor.rings = 12
+	var horn := CylinderMesh.new()
+	horn.top_radius = 0.0
+	horn.bottom_radius = 0.24
+	horn.height = 0.75
+	horn.radial_segments = 12
+	horn.rings = 1
+	var face := BoxMesh.new()
+	face.size = Vector3(0.9, 0.25, 0.3)
+	var eye := SphereMesh.new()
+	eye.radius = 0.10
+	eye.height = 0.12
+	eye.radial_segments = 10
+	eye.rings = 5
+	var bar := BoxMesh.new()
+	bar.size = Vector3(1.4, 0.07, 0.13)
+	var band := CylinderMesh.new()
+	band.top_radius = 0.44
+	band.bottom_radius = 0.48
+	band.height = 0.18
+	band.radial_segments = 12
+	band.rings = 1
+	var spike := CylinderMesh.new()
+	spike.top_radius = 0.0
+	spike.bottom_radius = 0.13
+	spike.height = 0.42
+	spike.radial_segments = 6
+	spike.rings = 1
+	var crown_parts: Array = [[band, Transform3D.IDENTITY]]
+	for index in 5:
+		var angle := TAU * float(index) / 5.0
+		crown_parts.append([spike, Transform3D(Basis.IDENTITY, Vector3(cos(angle) * 0.38, 0.28, sin(angle) * 0.38))])
+	var gem := SphereMesh.new()
+	gem.radius = 0.09
+	gem.height = 0.18
+	gem.radial_segments = 8
+	gem.rings = 4
+	var gold := StandardMaterial3D.new()
+	gold.albedo_color = Color("ffbf1f")
+	gold.metallic = 0.1
+	gold.roughness = 0.35
+	gold.emission_enabled = true
+	gold.emission = Color("ffb347")
+	gold.emission_energy_multiplier = 0.9
+	_parts = {
+		"armor": armor,
+		"horns": FX_BATCH.merge([[horn, Transform3D(Basis.IDENTITY, Vector3(-0.5, 1.0, -0.2))], [horn, Transform3D(Basis.IDENTITY, Vector3(0.5, 1.0, -0.2))]]),
+		"face": face,
+		"eyes": FX_BATCH.merge([[eye, Transform3D(Basis.IDENTITY, Vector3(-0.24, 0.76, 0.73))], [eye, Transform3D(Basis.IDENTITY, Vector3(0.24, 0.76, 0.73))]]),
+		"bar": bar,
+		"crown": FX_BATCH.merge(crown_parts),
+		"gem": gem,
+		"gold": gold,
+	}
+	return _parts
 
 
 func _part(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -> MeshInstance3D:

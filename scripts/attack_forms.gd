@@ -103,6 +103,9 @@ const MAX_PUDDLES := 10
 const ARC_DOTS := 7
 const SPORE_MOTES := 10
 
+const FX_BATCH = preload("res://scripts/fx_batch.gd")
+const QUALITY = preload("res://scripts/quality.gd")
+
 const BITE_COLOR := Color(1.0, 0.62, 0.18)
 const LEAP_CORE := Color(1.0, 0.93, 0.55)
 const SPORE_COLOR := Color(0.8, 0.95, 0.32)
@@ -133,23 +136,31 @@ var _leap_radius := RUDELBISS_RADIUS
 var _arc_root: Node3D
 var _leap_marker: MeshInstance3D
 var _leap_marker_material: StandardMaterial3D
-var _arc_dots: Array[MeshInstance3D] = []
+# Etappe 07: arc dots, spore motes, spines, rings and puddles are fx_batch.gd
+# MultiMeshes (one draw call each, colour per instance, shared materials).
+var _arc_batch: MultiMeshInstance3D
+var _arc_count := ARC_DOTS
 
 var _spore_root: Node3D
 var _spore_edge: MeshInstance3D
 var _spore_pulse: MeshInstance3D
 var _spore_edge_material: StandardMaterial3D
 var _spore_pulse_material: StandardMaterial3D
-var _spore_motes: Array[MeshInstance3D] = []
+var _mote_batch: MultiMeshInstance3D
+var _mote_count := SPORE_MOTES
 var _spore_visual_radius := 0.0
 
 var _spine_root: Node3D
-var _spines: Array[MeshInstance3D] = []
-var _spine_material: StandardMaterial3D
+var _spine_batch: MultiMeshInstance3D
 var _spine_age := SPINE_SECONDS
 var _spine_origin := Vector3.ZERO
 
 var _rings: Array = []
+var _ring_batch: MultiMeshInstance3D
+var _thick_ring_batch: MultiMeshInstance3D
+var _puddle_batch: MultiMeshInstance3D
+var _puddle_rim_batch: MultiMeshInstance3D
+var _trail_count := 2
 var _projectiles: Array = []
 var _puddles: Array = []
 
@@ -163,8 +174,6 @@ var _bolt_material: StandardMaterial3D
 var _bolt_halo_material: StandardMaterial3D
 var _bolt_trail_material: StandardMaterial3D
 var _puddle_mesh: CylinderMesh
-var _arc_material: StandardMaterial3D
-var _arc_tail_material: StandardMaterial3D
 
 
 func setup(world_node: Node3D, swarm_node: Node3D) -> void:
@@ -232,14 +241,14 @@ func clear() -> void:
 	_spore_root.visible = false
 	for entry in _rings:
 		entry.active = false
-		entry.node.visible = false
 	for entry in _projectiles:
 		entry.active = false
 		entry.target = null
 		entry.node.visible = false
 	for entry in _puddles:
 		entry.active = false
-		entry.node.visible = false
+	_draw_rings()
+	_draw_puddles()
 
 
 func active_projectiles() -> int:
@@ -330,15 +339,16 @@ func _pose_arc() -> void:
 	var progress := clampf(_leap_age / LEAP_SECONDS, 0.0, 1.0)
 	var distance := _leap_from.distance_to(_leap_to)
 	var height := 0.9 + distance * 0.25
-	for index in _arc_dots.size():
+	_arc_batch.begin()
+	for index in _arc_count:
 		# Die Punkte bilden einen kurzen Bogenabschnitt, der zum Ziel wandert.
 		var t := clampf(progress - float(index) * 0.06, 0.0, 1.0)
 		var point := _leap_from.lerp(_leap_to, t)
 		point.y = 0.25 + sin(t * PI) * height
-		var dot := _arc_dots[index]
-		dot.global_position = point
-		var size := 1.0 - float(index) / float(_arc_dots.size())
-		dot.scale = Vector3.ONE * maxf(0.25, size)
+		var size := 1.0 - float(index) / float(ARC_DOTS)
+		var tint := LEAP_CORE if index < 3 else Color(BITE_COLOR.r, BITE_COLOR.g, BITE_COLOR.b, 0.8)
+		_arc_batch.add(Transform3D(Basis.from_scale(Vector3.ONE * maxf(0.25, size)), point), tint)
+	_arc_batch.finish(false)
 	# Landemarke: schrumpft während des Sprungs auf den Wirkradius zu.
 	_leap_marker.global_position = Vector3(_leap_to.x, 0.15, _leap_to.z)
 	var mark := lerpf(_leap_radius * 1.15, _leap_radius, progress)
@@ -381,14 +391,16 @@ func _pose_spores(origin: Vector3, radius: float) -> void:
 	var inner := lerpf(r * 0.35, r, wave)
 	_spore_pulse.scale = Vector3(inner, 0.3, inner)
 	_spore_pulse_material.albedo_color = Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.3 * (1.0 - wave))
-	for index in _spore_motes.size():
-		var mote := _spore_motes[index]
-		var phase := float(index) / float(_spore_motes.size())
+	var mote_tint := Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.42)
+	_mote_batch.begin()
+	for index in _mote_count:
+		var phase := float(index) / float(_mote_count)
 		var angle := phase * TAU + _clock * (0.35 + 0.1 * float(index % 3))
 		var reach := r * (0.45 + 0.5 * fmod(phase * 3.7 + _clock * 0.08, 1.0))
 		var lift := 0.35 + 0.35 * (0.5 + 0.5 * sin(_clock * 1.7 + phase * 11.0))
-		mote.position = Vector3(cos(angle) * reach, lift, sin(angle) * reach)
-		mote.scale = Vector3.ONE * (0.8 + 0.35 * sin(_clock * 2.3 + phase * 7.0))
+		var size := 0.8 + 0.35 * sin(_clock * 2.3 + phase * 7.0)
+		_mote_batch.add(Transform3D(Basis.from_scale(Vector3.ONE * size), Vector3(cos(angle) * reach, lift, sin(angle) * reach)), mote_tint)
+	_mote_batch.finish()
 
 
 func _release_slow(keep: Dictionary) -> void:
@@ -424,8 +436,9 @@ func _step_spit(delta: float, origin: Vector3, living: Array) -> void:
 	entry.damage = SPIT_DAMAGE[level - 1] * _enemy_scale
 	entry.node.visible = true
 	entry.node.global_position = Vector3(origin.x, SPIT_HEIGHT, origin.z)
-	for ghost in entry.trail:
-		ghost.position = Vector3.ZERO
+	for index in entry.trail.size():
+		entry.trail[index].position = Vector3.ZERO
+		entry.trail[index].visible = index < _trail_count
 
 
 func _step_projectiles(delta: float, living: Array) -> void:
@@ -464,9 +477,7 @@ func _spawn_puddle(location: Vector3) -> void:
 	entry.active = true
 	entry.age = 0.0
 	entry.center = _flat(location)
-	entry.node.visible = true
-	entry.node.global_position = Vector3(location.x, 0.05, location.z)
-	_pose_puddle(entry)
+	_draw_puddles()
 
 
 func _step_puddles(delta: float, living: Array) -> void:
@@ -476,23 +487,33 @@ func _step_puddles(delta: float, living: Array) -> void:
 		entry.age += delta
 		if entry.age >= PUDDLE_SECONDS:
 			entry.active = false
-			entry.node.visible = false
 			continue
 		for target in living:
 			if _flat_distance(target.global_position, entry.center) <= PUDDLE_RADIUS:
 				_hurt(target, PUDDLE_DPS * _enemy_scale * delta, "aetzflut")
-		_pose_puddle(entry)
+	_draw_puddles()
 
 
-func _pose_puddle(entry: Dictionary) -> void:
-	var t: float = entry.age / PUDDLE_SECONDS
-	var grow := minf(1.0, t * 8.0)
-	var radius := PUDDLE_RADIUS * (0.4 + 0.6 * grow)
-	entry.node.scale = Vector3(radius, 1.0, radius)
-	var fade := 1.0 - smoothstep(0.7, 1.0, t)
-	var bubble := 0.06 * sin(_clock * 9.0 + entry.center.x)
-	entry.material.albedo_color = Color(0.62, 0.9, 0.18, (0.3 + bubble) * fade)
-	entry.rim_material.albedo_color = Color(0.82, 1.0, 0.4, 0.75 * fade)
+# Pfuetzen: Scheibe (vor anderen Transparenzen) plus Rand, je eine MultiMesh.
+func _draw_puddles() -> void:
+	if not _built:
+		return
+	_puddle_batch.begin()
+	_puddle_rim_batch.begin()
+	for entry in _puddles:
+		if not entry.active:
+			continue
+		var t: float = entry.age / PUDDLE_SECONDS
+		var grow := minf(1.0, t * 8.0)
+		var radius := PUDDLE_RADIUS * (0.4 + 0.6 * grow)
+		var fade := 1.0 - smoothstep(0.7, 1.0, t)
+		var bubble := 0.06 * sin(_clock * 9.0 + entry.center.x)
+		var at := Vector3(entry.center.x, 0.05, entry.center.z)
+		_puddle_batch.add(Transform3D(Basis.from_scale(Vector3(radius, 1.0, radius)), at), Color(0.62, 0.9, 0.18, (0.3 + bubble) * fade))
+		# Rand wie frueher: Kind der Scheibe mit Skalierung (1, 0.25, 1) und 4 cm Hoehe.
+		_puddle_rim_batch.add(Transform3D(Basis.from_scale(Vector3(radius, 0.25, radius)), at + Vector3(0.0, 0.04, 0.0)), Color(0.82, 1.0, 0.4, 0.75 * fade))
+	_puddle_batch.finish()
+	_puddle_rim_batch.finish()
 
 
 # --- Stachelrücken -------------------------------------------------------
@@ -508,14 +529,14 @@ func _step_spines(delta: float) -> void:
 	_spine_root.global_position = Vector3(origin.x, 0.0, origin.z)
 	var out := 1.0 - pow(1.0 - minf(1.0, t * 2.2), 3.0)
 	var shrink := 1.0 - smoothstep(0.55, 1.0, t)
-	for index in _spines.size():
-		var angle := TAU * float(index) / float(_spines.size())
-		var spine := _spines[index]
+	var tint := Color(SPINE_COLOR.r, SPINE_COLOR.g, SPINE_COLOR.b, shrink)
+	_spine_batch.begin()
+	for index in SPINE_COUNT:
+		var angle := TAU * float(index) / float(SPINE_COUNT)
 		var reach := 1.1 + out * 1.3
-		spine.position = Vector3(cos(angle) * reach, 0.45, sin(angle) * reach)
-		spine.rotation = Vector3(0, -angle, -PI * 0.5 + 0.35)
-		spine.scale = Vector3.ONE * maxf(0.01, shrink)
-	_spine_material.albedo_color = Color(SPINE_COLOR.r, SPINE_COLOR.g, SPINE_COLOR.b, shrink)
+		var spine_basis := Basis.from_euler(Vector3(0, -angle, -PI * 0.5 + 0.35)).scaled_local(Vector3.ONE * maxf(0.01, shrink))
+		_spine_batch.add(Transform3D(spine_basis, Vector3(cos(angle) * reach, 0.45, sin(angle) * reach)), tint)
+	_spine_batch.finish(false)
 
 
 # --- Ringe (gepoolt) -----------------------------------------------------
@@ -524,16 +545,15 @@ func _ring(location: Vector3, tint: Color, from_radius: float, to_radius: float,
 	if not _built:
 		return
 	var entry: Dictionary = _take(_rings, MAX_RINGS, _make_ring)
-	entry.node.mesh = _thick_torus if thick else _torus
+	entry.thick = thick
 	entry.active = true
 	entry.age = 0.0
 	entry.duration = seconds
 	entry.from_radius = from_radius
 	entry.to_radius = to_radius
 	entry.color = tint
-	entry.node.visible = true
-	entry.node.global_position = Vector3(location.x, 0.16, location.z)
-	_pose_ring(entry)
+	entry.at = Vector3(location.x, 0.16, location.z)
+	_draw_rings()
 
 
 func _step_rings(delta: float) -> void:
@@ -543,18 +563,26 @@ func _step_rings(delta: float) -> void:
 		entry.age += delta
 		if entry.age >= entry.duration:
 			entry.active = false
-			entry.node.visible = false
+	_draw_rings()
+
+
+# Alle aktiven Ringe in zwei MultiMeshes (duenn/dick), Farbe und Alpha je Instanz.
+func _draw_rings() -> void:
+	if not _built:
+		return
+	_ring_batch.begin()
+	_thick_ring_batch.begin()
+	for entry in _rings:
+		if not entry.active:
 			continue
-		_pose_ring(entry)
-
-
-func _pose_ring(entry: Dictionary) -> void:
-	var progress: float = clampf(entry.age / entry.duration, 0.0, 1.0)
-	var eased := 1.0 - pow(1.0 - progress, 3.0)
-	var radius: float = lerpf(entry.from_radius, entry.to_radius, eased)
-	entry.node.scale = Vector3(radius, 0.4, radius)
-	var tint: Color = entry.color
-	entry.material.albedo_color = Color(tint.r, tint.g, tint.b, tint.a * (1.0 - progress * progress))
+		var progress: float = clampf(entry.age / entry.duration, 0.0, 1.0)
+		var eased := 1.0 - pow(1.0 - progress, 3.0)
+		var radius: float = lerpf(entry.from_radius, entry.to_radius, eased)
+		var tint: Color = entry.color
+		var batch: MultiMeshInstance3D = _thick_ring_batch if entry.thick else _ring_batch
+		batch.add(Transform3D(Basis.from_scale(Vector3(radius, 0.4, radius)), entry.at), Color(tint.r, tint.g, tint.b, tint.a * (1.0 - progress * progress)))
+	_ring_batch.finish()
+	_thick_ring_batch.finish()
 
 
 # --- Schaden und Zielwahl ------------------------------------------------
@@ -644,11 +672,7 @@ func _take(pool: Array, limit: int, factory: Callable) -> Dictionary:
 
 
 func _make_ring() -> Dictionary:
-	var material := _glow_material(Color.WHITE, true)
-	var node := _mesh(self, _torus, material)
-	node.top_level = true
-	node.visible = false
-	return {"node": node, "material": material, "active": false, "age": 0.0, "duration": 1.0,
+	return {"active": false, "age": 0.0, "duration": 1.0, "thick": false, "at": Vector3.ZERO,
 		"from_radius": 0.0, "to_radius": 1.0, "color": Color.WHITE}
 
 
@@ -666,17 +690,17 @@ func _make_projectile() -> Dictionary:
 
 
 func _make_puddle() -> Dictionary:
-	var material := _glow_material(ACID_COLOR, true)
-	material.render_priority = -1
-	var node := _mesh(self, _puddle_mesh, material)
-	node.top_level = true
-	node.visible = false
-	var rim_material := _glow_material(ACID_COLOR, true)
-	var rim := _mesh(node, _torus, rim_material)
-	rim.scale = Vector3(1.0, 0.25, 1.0)
-	rim.position.y = 0.04
-	return {"node": node, "material": material, "rim_material": rim_material, "active": false,
-		"age": 0.0, "center": Vector3.ZERO}
+	return {"active": false, "age": 0.0, "center": Vector3.ZERO}
+
+
+# MultiMesh unter `parent`; top = Welt-Koordinaten (top-level am Ursprung).
+func _batch(parent: Node, mesh: Mesh, capacity: int, node_name: String, transparent := true, top := true) -> MultiMeshInstance3D:
+	var batch := FX_BATCH.create(mesh, capacity, transparent, true, node_name)
+	parent.add_child(batch)
+	if top:
+		batch.top_level = true
+		batch.transform = Transform3D.IDENTITY
+	return batch
 
 
 func _build() -> void:
@@ -722,18 +746,26 @@ func _build() -> void:
 	_bolt_material = _glow_material(Color(0.7, 1.0, 0.45), false)
 	_bolt_halo_material = _glow_material(Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.35), true)
 	_bolt_trail_material = _glow_material(Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.3), true)
-	_arc_material = _glow_material(LEAP_CORE, false)
-	_arc_tail_material = _glow_material(Color(BITE_COLOR.r, BITE_COLOR.g, BITE_COLOR.b, 0.8), true)
+	# Qualitaet: effect_density duennt nur Zierteile aus (Sporen, Bogenpunkte, Spuckspur).
+	var density := clampf(float(QUALITY.value("effect_density", 1.0)), 0.0, 1.0)
+	_mote_count = maxi(3, QUALITY.scaled_count(SPORE_MOTES, density))
+	_arc_count = maxi(3, QUALITY.scaled_count(ARC_DOTS, density))
+	_trail_count = QUALITY.scaled_count(2, density)
+	_ring_batch = _batch(self, _torus, MAX_RINGS, "Ring batch")
+	_thick_ring_batch = _batch(self, _thick_torus, MAX_RINGS, "Thick ring batch")
+	_puddle_batch = _batch(self, _puddle_mesh, MAX_PUDDLES, "Puddle batch")
+	# Pfuetzen liegen unter anderen Transparenzen (frueher render_priority -1).
+	var puddle_material: StandardMaterial3D = _puddle_batch.material_override.duplicate()
+	puddle_material.render_priority = -1
+	_puddle_batch.material_override = puddle_material
+	_puddle_rim_batch = _batch(self, _torus, MAX_PUDDLES, "Puddle rim batch")
 
 	_arc_root = Node3D.new()
 	_arc_root.name = "Leap arc"
 	add_child(_arc_root)
 	_arc_root.top_level = true
 	_arc_root.visible = false
-	for index in ARC_DOTS:
-		var dot := _mesh(_arc_root, _dot_mesh, _arc_material if index < 3 else _arc_tail_material)
-		dot.top_level = true
-		_arc_dots.append(dot)
+	_arc_batch = _batch(_arc_root, _dot_mesh, ARC_DOTS, "Leap arc dots")
 	_leap_marker_material = _glow_material(BITE_COLOR, true)
 	_leap_marker = _mesh(self, _thick_torus, _leap_marker_material)
 	_leap_marker.top_level = true
@@ -750,24 +782,21 @@ func _build() -> void:
 	_spore_edge.position.y = 0.12
 	_spore_pulse = _mesh(_spore_root, _torus, _spore_pulse_material)
 	_spore_pulse.position.y = 0.1
-	var mote_material := _glow_material(Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.42), true)
-	for index in SPORE_MOTES:
-		_spore_motes.append(_mesh(_spore_root, _mote_mesh, mote_material))
+	_mote_batch = _batch(_spore_root, _mote_mesh, SPORE_MOTES, "Spore motes", true, false)
 
 	_spine_root = Node3D.new()
 	_spine_root.name = "Spine burst"
 	add_child(_spine_root)
 	_spine_root.top_level = true
 	_spine_root.visible = false
-	_spine_material = _glow_material(SPINE_COLOR, true)
 	var spine_mesh := CylinderMesh.new()
 	spine_mesh.top_radius = 0.0
 	spine_mesh.bottom_radius = 0.11
 	spine_mesh.height = 0.75
 	spine_mesh.radial_segments = 6
 	spine_mesh.rings = 1
-	for index in SPINE_COUNT:
-		_spines.append(_mesh(_spine_root, spine_mesh, _spine_material))
+	_spine_batch = _batch(_spine_root, spine_mesh, SPINE_COUNT, "Spines", true, false)
+	_spine_batch.visible = true
 
 
 func _glow_material(tint: Color, transparent: bool) -> StandardMaterial3D:

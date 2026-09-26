@@ -13,6 +13,7 @@ const SFX_PATH := "res://scripts/sfx.gd"
 const PROFILE_PATH := "res://scripts/meta/profile.gd"
 const MENU_SCENE := "res://scenes/menu.tscn"
 const ONBOARDING_PATH := "res://scripts/onboarding.gd"
+const QUALITY = preload("res://scripts/quality.gd")
 
 const KING_SLOW_SCALE := 0.3
 const KING_SLOW_SECONDS := 0.6      # real time, not game time
@@ -29,6 +30,9 @@ var slow_motion_enabled := DisplayServer.get_name() != "headless"
 var king_slow_left := 0.0
 var king_zoom_left := 0.0
 var king_focus := Vector3.ZERO
+# Etappe 07: quality tier (quality.gd Tier) and its display switches.
+var quality_tier := -1
+var quality: Dictionary = {}
 
 
 func _ready() -> void:
@@ -41,6 +45,7 @@ func _ready() -> void:
 			controls.connect(pair[0], pair[1])
 	_create_sfx()
 	var config := _take_pending_config()
+	_apply_quality(config.get("settings", {}))
 	if not config.is_empty():
 		# The map is generated from the run seed before the world spawns into it.
 		arena.set_seed(int(config.get("seed", 0)))
@@ -135,6 +140,30 @@ func _create_onboarding(config: Dictionary) -> void:
 	onboarding.name = "Onboarding"
 	add_child(onboarding)
 	onboarding.setup(world, controls, swarm, profile_path)
+
+
+# Etappe 07: picks the quality tier (settings "quality" = low/medium/high
+# overrides the device heuristic in quality.gd) and applies its display-only
+# switches. Never touches combat: the visible Mawling limit stays as it is,
+# because melee and area hits count the visible animals.
+func _apply_quality(settings: Variant) -> void:
+	if settings is Dictionary and (settings as Dictionary).has("quality"):
+		QUALITY.set_override(QUALITY.parse(String(settings["quality"])))
+	quality_tier = QUALITY.current_tier()
+	quality = QUALITY.settings(quality_tier)
+	# Headless tests keep their own frame pacing (--fixed-fps, no FPS cap).
+	if DisplayServer.get_name() != "headless":
+		QUALITY.apply_viewport(get_viewport(), quality)
+	# Ground shadows under the Mawlings (Swarm.shadows MultiMesh), if present.
+	var shadows: Variant = swarm.get("shadows")
+	if shadows is Node3D:
+		(shadows as Node3D).visible = bool(quality.get("unit_shadows", true))
+
+
+## Display switch of the active quality tier, e.g. "decor_density" (read later by
+## the arena) or "effect_density" (fx.gd, attack_forms.gd read it via quality.gd).
+func quality_value(key: String, fallback: Variant = null) -> Variant:
+	return quality.get(key, fallback)
 
 
 # Menu settings travel inside the RunConfig; the menu already mutes the bus.

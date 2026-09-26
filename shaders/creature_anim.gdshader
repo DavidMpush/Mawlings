@@ -47,6 +47,10 @@ uniform float walk_phase = 0.0;
 instance uniform float instance_walk = 0.0;
 instance uniform float instance_phase = 0.0;
 instance uniform float instance_bite = 0.0;
+// MultiMesh drawing (Swarm): per-instance values come from INSTANCE_CUSTOM
+// (x = walk, y = phase, z = bite) instead of the instance uniforms above.
+// Off for single MeshInstance3D users (menu pack, Bog King).
+uniform bool use_instance_custom = false;
 
 group_uniforms jaw;
 // Lower jaw: vertices in front of the hinge and between floor and hinge height.
@@ -86,8 +90,16 @@ void vertex() {
 	float l = dot(VERTEX, lat);
 	vec2 p = vec2(f, l);
 
-	float walk = clamp((walk_amount + instance_walk) * walk_scale, 0.0, 1.0);
-	float phase = TIME * walk_speed + walk_phase + instance_phase;
+	float i_walk = instance_walk;
+	float i_phase = instance_phase;
+	float i_bite = instance_bite;
+	if (use_instance_custom) {
+		i_walk = INSTANCE_CUSTOM.x;
+		i_phase = INSTANCE_CUSTOM.y;
+		i_bite = INSTANCE_CUSTOM.z;
+	}
+	float walk = clamp((walk_amount + i_walk) * walk_scale, 0.0, 1.0);
+	float phase = TIME * walk_speed + walk_phase + i_phase;
 
 	// Leg deformation, fading out with height (squared: feet travel, hips barely).
 	float leg = 1.0 - smoothstep(0.0, leg_height, u);
@@ -124,7 +136,7 @@ void vertex() {
 	f += stomp * stomp_lift * stomp_height * 0.3;
 
 	// Lower jaw drops around a lateral hinge.
-	float bite = clamp(bite_amount + instance_bite, 0.0, 1.0);
+	float bite = clamp(bite_amount + i_bite, 0.0, 1.0);
 	float jaw = smoothstep(jaw_hinge_forward, jaw_hinge_forward + 0.06, f)
 		* (1.0 - smoothstep(jaw_hinge_height - 0.03, jaw_hinge_height + 0.01, u))
 		* smoothstep(jaw_floor, jaw_floor + 0.04, u);
@@ -138,7 +150,7 @@ void vertex() {
 
 	// Tail pendulum, stronger towards the tip and while walking.
 	float tail = smoothstep(tail_start, tail_start - tail_length, f) * smoothstep(tail_floor, tail_floor + 0.05, u);
-	float swing = sin(TIME * tail_rate + tail_phase + instance_phase * 0.5);
+	float swing = sin(TIME * tail_rate + tail_phase + i_phase * 0.5);
 	l += tail * tail * tail_swing * swing * (0.35 * idle_motion + 0.65 * walk);
 
 	VERTEX = fwd * f + up * (u + ground_offset) + lat * l;

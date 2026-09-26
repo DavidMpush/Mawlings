@@ -102,7 +102,10 @@ func _process(delta: float) -> void:
 	if toast_time > 0.0:
 		toast_time = maxf(0.0, toast_time - delta)
 	_slide = move_toward(_slide, 0.0, delta * maxf(900.0, absf(_slide) * 9.0))
-	queue_redraw()
+	# Stage 07: the scripts/ui/menu components repaint themselves on change;
+	# this node only draws per frame while a legacy block is still on.
+	if legacy.values().has(true):
+		queue_redraw()
 
 
 func _notification(what: int) -> void:

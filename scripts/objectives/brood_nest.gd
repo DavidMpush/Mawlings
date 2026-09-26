@@ -8,6 +8,8 @@ extends Node3D
 
 const TUNING = preload("res://scripts/tuning.gd")
 const UI_ICONS = preload("res://scripts/ui/ui_icons.gd")
+const FX_BATCH = preload("res://scripts/fx_batch.gd")
+static var _claw_meshes := {}
 const CYAN := Color("3fe6d8")
 const BONE := Color("efe2c0")
 const TWIG := Color("6b4a2f")
@@ -48,22 +50,11 @@ func _ready() -> void:
 	_edge = _part(self, ring, _edge_material, Vector3(0, 0.06, 0))
 	_edge.scale = Vector3(1.0, 0.25, 1.0)
 	# Bone claws around the rim read as "a place" rather than an attack ring.
-	var bone := StandardMaterial3D.new()
-	bone.albedo_color = BONE
-	bone.roughness = 0.7
-	var claw := CylinderMesh.new()
-	claw.top_radius = 0.0
-	claw.bottom_radius = 0.16
-	claw.height = 0.75
-	claw.radial_segments = 6
-	for index in 12:
-		var angle := TAU * float(index) / 12.0 + 0.13
-		var part := _part(self, claw, bone, Vector3(cos(angle) * (radius + 0.15), 0.3, sin(angle) * (radius + 0.15)))
-		part.rotation = Vector3(0.0, -angle, -0.45)
+	# Etappe 07: all twelve claws are one merged mesh (one draw call).
+	var bone: Material = FX_BATCH.shared_material(BONE, false, false, 0.7)
+	_part(self, _claw_ring(radius), bone, Vector3.ZERO)
 	# Twig mound with a glowing clutch of eggs.
-	var twig := StandardMaterial3D.new()
-	twig.albedo_color = TWIG
-	twig.roughness = 1.0
+	var twig: Material = FX_BATCH.shared_material(TWIG)
 	var mound := TorusMesh.new()
 	mound.inner_radius = 0.55
 	mound.outer_radius = 1.35
@@ -71,12 +62,13 @@ func _ready() -> void:
 	mound.ring_segments = 10
 	var mound_part := _part(self, mound, twig, Vector3(0, 0.16, 0))
 	mound_part.scale = Vector3(1.0, 0.55, 1.0)
-	var moss := StandardMaterial3D.new()
-	moss.albedo_color = Color("3d5a2c")
+	var moss: Material = FX_BATCH.shared_material(Color("3d5a2c"))
 	var bed := CylinderMesh.new()
 	bed.top_radius = 0.75
 	bed.bottom_radius = 0.9
 	bed.height = 0.14
+	bed.radial_segments = 20
+	bed.rings = 1
 	_part(self, bed, moss, Vector3(0, 0.07, 0))
 	_egg_material = StandardMaterial3D.new()
 	_egg_material.albedo_color = EGG
@@ -161,6 +153,27 @@ func animate(delta: float, occupied: bool) -> void:
 	for index in _eggs.size():
 		var wobble := (0.05 + 0.1 * progress) * sin(_time * (5.0 + index) + index) if occupied else 0.0
 		_eggs[index].scale = Vector3.ONE * (0.85 + 0.35 * progress) * (1.0 + wobble)
+
+
+# Twelve bone claws around the rim as one mesh (cached per radius).
+static func _claw_ring(zone_radius: float) -> ArrayMesh:
+	var key := snappedf(zone_radius, 0.01)
+	if _claw_meshes.has(key):
+		return _claw_meshes[key]
+	var claw := CylinderMesh.new()
+	claw.top_radius = 0.0
+	claw.bottom_radius = 0.16
+	claw.height = 0.75
+	claw.radial_segments = 6
+	claw.rings = 1
+	var parts: Array = []
+	for index in 12:
+		var angle := TAU * float(index) / 12.0 + 0.13
+		var basis := Basis.from_euler(Vector3(0.0, -angle, -0.45))
+		parts.append([claw, Transform3D(basis, Vector3(cos(angle) * (zone_radius + 0.15), 0.3, sin(angle) * (zone_radius + 0.15)))])
+	var merged := FX_BATCH.merge(parts)
+	_claw_meshes[key] = merged
+	return merged
 
 
 func _flat(color: Color, transparent := true) -> StandardMaterial3D:

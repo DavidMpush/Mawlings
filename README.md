@@ -30,6 +30,8 @@ Nach etwa **90 Sekunden** erscheint der große **Bog King**. Seine eigene Lebens
 
 **Run-Ziele und Einstieg (Etappe 06):** Brutnester (Zone mit dem Schwarm füllen → liegenbleibende Biomasse), Fluch-Totems vor Bossen (Risiko gegen doppelte Beute), gekrönte Elite-Jäger mit garantiertem Alpha-Kern. Neue Spieler starten direkt im Run und erhalten einmalige Tipps. Leistungsmessung: `tools/perf.ps1`. Details: [Etappe 06](stages/06_objectives_onboarding.md).
 
+**Leistung (Etappe 07):** Schwarm, Kadaver und Effekte als MultiMesh, HUD/Menü zeichnen nur bei Änderung; Desktop-Worst-Case 3,97 ms statt 8,5 ms, Menü 1,1 ms statt 14 ms (`tools/perf.ps1`). Qualitätsstufen werden beim Start gewählt. Details: [Etappe 07](stages/07_performance.md).
+
 Der Zeitdruck verdoppelt sich alle 90 Spielsekunden und erhöht Angriffsleistung, neue Gegnergesundheit und Spawnrate. Maximal zwölf Jäger, drei Skitter und fünf Nibbler sind gleichzeitig aktiv. **Nur Aussterben beendet den Run**; es gibt kein Zeitlimit. Die Ergebnisanzeige zeigt Überlebenszeit, höchste Population, Kills und geerntete Biomasse. Mit **NEUER RUN**, **R** oder **Enter** neu starten. **P / Escape** oder der Pause-Button pausiert; bei Fokusverlust pausiert das Spiel ebenfalls. Die Kadaver bleiben innerhalb des aktiven Runs erhalten; Neustart setzt den gesamten Run zurück.
 
 Das ist ein spielbarer **Survival-Mechanik-Prototyp** mit vorläufigen Werten und Gegner-/Weltformen. Das Mawling- und Bog-King-Modell sowie das HUD haben einen ersten Design-Pass. Angriff, Ernte und Flächentreffer verwenden vorerst die Entfernung zum Schwarmzentrum; individuelle Mawlings haben keine eigene Kampf-KI. Endgültige Animationen und Grafik fehlen noch. Zentrale Survival-Werte stehen in `scripts/tuning.gd`.

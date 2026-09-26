@@ -7,6 +7,7 @@ extends Node3D
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
 const TG = preload("res://scripts/telegraph_style.gd")
+const FX_BATCH = preload("res://scripts/fx_batch.gd")
 
 const ARRIVE_SECONDS := 0.8
 const BODY_RADIUS := 0.7
@@ -41,7 +42,8 @@ var damage := 0
 var resolved_power := 0
 var hit_flash := 0.0
 var warning: Node3D
-var arc: Node3D
+# Jump arc dots: an fx_batch.gd MultiMesh (begin/add/finish); `visible` follows the state.
+var arc: MultiMeshInstance3D
 # Presentation only: nothing below feeds back into game logic.
 var body: Node3D
 var hind_legs: Array[Node3D] = []
@@ -52,7 +54,6 @@ var health_fill: MeshInstance3D
 # Patterned landing zone (telegraph_style.gd "leaper") inside `warning`.
 var zone: MeshInstance3D
 var arrow: MeshInstance3D
-var arc_dots: Array[MeshInstance3D] = []
 var hop_start := Vector3.ZERO
 var hop_end := Vector3.ZERO
 var _time := 0.0
@@ -64,6 +65,11 @@ var _stretch := 0.0
 var _fold := 0.0
 static var _reaper_mesh: Mesh
 static var _reaper_base := Transform3D.IDENTITY
+# Etappe 07: shared by every leaper (built once).
+static var _arc_dot_mesh: SphereMesh
+static var _shadow_material: StandardMaterial3D
+static var _shadow_plane: PlaneMesh
+static var _bar_mesh: BoxMesh
 
 
 func _ready() -> void:
@@ -74,9 +80,10 @@ func _ready() -> void:
 	shadow = _make_shadow()
 	health_bar = Node3D.new()
 	add_child(health_bar)
-	var bar := BoxMesh.new()
-	bar.size = Vector3(1.3, 0.07, 0.12)
-	health_fill = _part(health_bar, bar, _flat(LIME), Vector3.ZERO)
+	if _bar_mesh == null:
+		_bar_mesh = BoxMesh.new()
+		_bar_mesh.size = Vector3(1.3, 0.07, 0.12)
+	health_fill = _part(health_bar, _bar_mesh, _flat(LIME), Vector3.ZERO)
 	_build_warning()
 	FX.ring(_fx_parent(), global_position, Color(0.45, 0.3, 0.85, 0.8), 0.3, 2.0, 0.6)
 	_pose(0.0, 0.0, true)
@@ -294,16 +301,17 @@ func _build_warning() -> void:
 	var palette: Dictionary = TG.PALETTE_COLORBLIND if TG.UI_STYLE.colorblind else TG.PALETTE
 	arrow = _part(warning, cone, _flat(palette["leaper"]["pattern"]), Vector3(0.0, 1.2, 0.0))
 	warning.visible = false
-	arc = Node3D.new()
-	arc.name = "Leaper jump arc"
+	# Etappe 07: all arc dots are one MultiMesh (one draw call, shared material).
+	if _arc_dot_mesh == null:
+		_arc_dot_mesh = SphereMesh.new()
+		_arc_dot_mesh.radius = 0.16
+		_arc_dot_mesh.height = 0.32
+		_arc_dot_mesh.radial_segments = 10
+		_arc_dot_mesh.rings = 5
+	arc = FX_BATCH.create(_arc_dot_mesh, ARC_DOTS, false, true, "Leaper jump arc")
 	add_child(arc)
 	arc.top_level = true
-	var dot := SphereMesh.new()
-	dot.radius = 0.16
-	dot.height = 0.32
-	var dot_material := _flat(ARC_COLOR)
-	for index in ARC_DOTS:
-		arc_dots.append(_part(arc, dot, dot_material, Vector3.ZERO))
+	arc.transform = Transform3D.IDENTITY
 	arc.visible = false
 
 
@@ -419,14 +427,16 @@ func _pose_warning() -> void:
 	if state == State.WARNING or state == State.LEAP:
 		var start := Vector3(jump_start.x, 0.0, jump_start.z)
 		var peak := _arc_height()
-		for index in arc_dots.size():
+		arc.begin()
+		for index in ARC_DOTS:
 			# Dots march from the leaper to the zone along the flight parabola.
-			var t := fposmod((float(index) + _time * 2.2) / float(arc_dots.size()), 1.0)
+			var t := fposmod((float(index) + _time * 2.2) / float(ARC_DOTS), 1.0)
 			var point := start.lerp(landing_center, t)
 			point.y = 0.6 + 4.0 * peak * t * (1.0 - t) * 0.85
-			arc_dots[index].global_position = point
 			var size := lerpf(0.6, 1.2, t)
-			arc_dots[index].scale = Vector3.ONE * size
+			arc.add(Transform3D(Basis.from_scale(Vector3.ONE * size), point), ARC_COLOR)
+		# Visibility of the arc stays with the state machine.
+		arc.finish(false)
 
 
 func _fx_parent() -> Node:
@@ -434,13 +444,14 @@ func _fx_parent() -> Node:
 
 
 func _flat(color: Color) -> StandardMaterial3D:
-	var value := StandardMaterial3D.new()
-	value.albedo_color = color
-	value.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	return value
+	return FX_BATCH.shared_material(color, true)
 
 
 func _make_shadow() -> MeshInstance3D:
+	if _shadow_material != null:
+		var shared := _part(self, _shadow_plane, _shadow_material, Vector3(0.0, 0.06, 0.0))
+		shared.name = "Mire Leaper shadow"
+		return shared
 	var gradient := Gradient.new()
 	gradient.set_color(0, Color(0.02, 0.04, 0.02, 0.55))
 	gradient.set_color(1, Color(0.02, 0.04, 0.02, 0.0))
@@ -451,13 +462,13 @@ func _make_shadow() -> MeshInstance3D:
 	texture.fill_to = Vector2(1.0, 0.5)
 	texture.width = 64
 	texture.height = 64
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_texture = texture
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(2.7, 2.7)
-	var part := _part(self, plane, material, Vector3(0.0, 0.06, 0.0))
+	_shadow_material = StandardMaterial3D.new()
+	_shadow_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_shadow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_shadow_material.albedo_texture = texture
+	_shadow_plane = PlaneMesh.new()
+	_shadow_plane.size = Vector2(2.7, 2.7)
+	var part := _part(self, _shadow_plane, _shadow_material, Vector3(0.0, 0.06, 0.0))
 	part.name = "Mire Leaper shadow"
 	return part
 

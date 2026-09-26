@@ -38,6 +38,7 @@ var _reward_open := false
 var _reward_t0 := 0.0
 var _last_tab := ""
 var _tab_t0 := 0.0
+var _last_key: Variant = null
 
 
 func _ready() -> void:
@@ -78,8 +79,34 @@ func _process(_delta: float) -> void:
 		var area := _list_area()
 		_list.position = area.position
 		_list.size = area.size
-		_list.queue_redraw()
-	queue_redraw()
+		_list._repaint([menu.trophy_scroll, area.size, menu.profile.completed_quests.size(), str(menu.profile.records), S.colorblind])
+	_repaint(_state_key(open))
+
+
+# Stage 07 (performance): repaint only on change. Nothing open = nothing drawn
+# and no repaint at all; the reward intro and the toast animate per frame,
+# pulsing buttons and the instinct ring at 30 Hz, settings only on change.
+func _repaint(key: Variant) -> void:
+	if key == null or typeof(key) != typeof(_last_key) or key != _last_key:
+		queue_redraw()
+	_last_key = key
+
+
+func _state_key(reward_open: bool) -> Variant:
+	var toast: bool = menu.toast_time > 0.0 and menu.toast != ""
+	var sheet: bool = menu.profile != null and menu.tab != ""
+	var settings: bool = menu.profile != null and bool(menu.get("settings_open"))
+	if not reward_open and not toast and not sheet and not settings:
+		return ["idle", size]
+	if toast or (reward_open and _now() - _reward_t0 < 4.5):
+		return null
+	var p = menu.profile
+	var key: Array = [size, menu.tab, reward_open, settings, menu.pressed_rect(), menu.trophy_scroll, S.colorblind,
+		p.essence, p.crowns, str(p.upgrades), p.instinct_level, p.completed_quests.size(), str(p.settings)]
+	# Buy-button glows, the instinct ring and the reward shine keep moving.
+	if reward_open or menu.tab in ["upgrades", "instinct"]:
+		key.append(int(_now() * 30.0))
+	return key
 
 
 func _list_area() -> Rect2:

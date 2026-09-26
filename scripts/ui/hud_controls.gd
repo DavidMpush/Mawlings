@@ -5,7 +5,14 @@
 # Input stays in the parent; this node only draws at the parent's centres
 # (_rally_center(), _movement_center()) so the touch areas are unchanged.
 
+#
+# Stage 07 (performance): drawn through UiLayer children in the original order.
+# Static parts (claws, frame ring, core, heads, labels, joystick at rest) are
+# baked; the Rally breathing only animates the scale/modulate of three small
+# layers, the pulling rings repaint only while Rally is held.
+
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
+const UiLayer := preload("res://scripts/ui/ui_layer.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 const DIR := "res://assets/ui/controls/"
@@ -38,10 +45,23 @@ var _tip_text := ""
 var _tip_icon := ""
 var _tip_alpha := 0.0
 
+var _cv: CanvasItem = self
+var _paint := ""
+var _layers: Dictionary = {}
+const PARTS := [
+	# name, cached
+	["hint", true], ["rally_glow", false], ["rally_base", true], ["rally_rim", false],
+	["rally_core", false], ["rally_heads", true], ["rally_rings", false], ["rally_text", true],
+	["joy", true],
+]
+
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for spec in PARTS:
+		var part: String = spec[0]
+		_layers[part] = UiLayer.make(self, part.capitalize().replace(" ", ""), _painter(part), spec[1])
 	_tip_layer = Control.new()
 	_tip_layer.name = "TutorialTip"
 	_tip_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -56,7 +76,73 @@ func _process(delta: float) -> void:
 		position = Vector2.ZERO
 		size = hud.size
 	_update_tip(hud, delta)
-	queue_redraw()
+	_refresh_layers(hud)
+
+
+func _painter(part: String) -> Callable:
+	return func(canvas: CanvasItem) -> void:
+		var hud := _hud()
+		if not _visible_now(hud):
+			return
+		_cv = canvas
+		_paint = part
+		var rally_c: Vector2 = hud._rally_center()
+		var move_c: Vector2 = hud._movement_center()
+		if part == "hint":
+			if hud.hint != "":
+				_draw_hint(hud.hint, minf(rally_c.y, move_c.y) - FRAME_R - 30.0 - BANNER_GAP)
+		elif part == "joy":
+			_draw_joystick(move_c, hud.movement_vector)
+		else:
+			_draw_rally(rally_c, hud.rally_pressed)
+		_paint = ""
+		_cv = self
+
+
+func _refresh_layers(hud: Control) -> void:
+	var shown := _visible_now(hud)
+	for part in _layers:
+		_layers[part].visible = shown
+	if not shown:
+		return
+	var rally_c: Vector2 = hud._rally_center()
+	var move_c: Vector2 = hud._movement_center()
+	var pressed: bool = hud.rally_pressed
+	var hint: String = hud.hint
+	var warn := hint != "" and _is_warning(hint)
+	var hint_top := minf(rally_c.y, move_c.y) - FRAME_R - 30.0 - BANNER_GAP
+	_region("hint", Rect2(0, hint_top - 40, size.x, 150))
+	_layers.hint.visible = hint != ""
+	_layers.hint.refresh([hint, int(_t() * 30.0) if warn else 0, size, hint_top])
+	var rally_area := Rect2(rally_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0)
+	for part in ["rally_base", "rally_heads", "rally_text"]:
+		_region(part, rally_area)
+		_layers[part].refresh([pressed, rally_c])
+	_region("joy", Rect2(move_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0))
+	_layers.joy.refresh([hud.movement_vector, move_c])
+	# Breathing without repainting: glow radius/alpha, rim and core light.
+	var breathe := _pulse(2.4)
+	var glow: Control = _layers.rally_glow
+	glow.refresh([pressed, rally_c])
+	glow.pivot_offset = rally_c
+	glow.scale = Vector2.ONE if pressed else Vector2.ONE * (FRAME_R + 26.0 + 6.0 * breathe) / (FRAME_R + 26.0)
+	glow.modulate = Color.WHITE if pressed else Color(1, 1, 1, 0.5 + 0.22 * breathe)
+	_layers.rally_rim.refresh([pressed, rally_c])
+	_layers.rally_rim.modulate = Color(1, 1, 1, 0.35 + 0.45 * breathe)
+	_layers.rally_core.refresh([pressed, rally_c])
+	_layers.rally_core.modulate = Color.WHITE if pressed else Color(1, 1, 1, 0.18 + 0.14 * breathe)
+	var rings: Control = _layers.rally_rings
+	rings.visible = pressed
+	if pressed:
+		rings.refresh(null, true)
+
+
+func _region(part: String, rect: Rect2) -> void:
+	var layer: Control = _layers[part]
+	var snapped := Rect2(rect.position.floor(), rect.size.ceil())
+	if layer.region != snapped:
+		layer.region = snapped
+		layer.invalidate()
 
 
 func _hud() -> Control:
@@ -67,18 +153,6 @@ func _visible_now(hud: Control) -> bool:
 	if hud == null or hud.extinct or hud.paused:
 		return false
 	return not (hud.has_method("_choosing") and hud._choosing())
-
-
-func _draw() -> void:
-	var hud := _hud()
-	if not _visible_now(hud):
-		return
-	var rally_c: Vector2 = hud._rally_center()
-	var move_c: Vector2 = hud._movement_center()
-	if hud.hint != "":
-		_draw_hint(hud.hint, minf(rally_c.y, move_c.y) - FRAME_R - 30.0 - BANNER_GAP)
-	_draw_rally(rally_c, hud.rally_pressed)
-	_draw_joystick(move_c, hud.movement_vector)
 
 
 # ---------------------------------------------------------------- helpers
@@ -95,16 +169,16 @@ func _tex_at(name: String, center: Vector2, tex_size: Vector2, tint: Color = Col
 	var texture := UiStyle.tex(DIR + name)
 	if texture == null:
 		return false
-	draw_set_transform(center, angle, Vector2.ONE)
-	draw_texture_rect(texture, Rect2(-tex_size * 0.5, tex_size), false, tint)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_cv.draw_set_transform(center, angle, Vector2.ONE)
+	_cv.draw_texture_rect(texture, Rect2(-tex_size * 0.5, tex_size), false, tint)
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	return true
 
 
 func _glow(center: Vector2, radius: float, color: Color) -> void:
 	if not _tex_at("glow.svg", center, Vector2.ONE * radius * 2.0, color):
 		for i in 4:
-			draw_circle(center, radius * (1.0 - i * 0.2), Color(color, color.a * 0.25))
+			_cv.draw_circle(center, radius * (1.0 - i * 0.2), Color(color, color.a * 0.25))
 
 
 # Bone claws gripping the frame like talons: each one sits on the rim and
@@ -139,58 +213,70 @@ func _claws(c: Vector2, side: float, alpha: float) -> void:
 			angle = deg_to_rad(deg + lean)
 		# Texture: base at the bottom, tip at the top curling toward +x.
 		var flip := side if inward else -side
-		draw_set_transform(base, angle, Vector2(flip, 1.0))
-		draw_texture_rect(texture, Rect2(Vector2(-length * 0.24, -length), Vector2(length * 0.5, length)), false, Color(UiStyle.BONE, alpha))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_cv.draw_set_transform(base, angle, Vector2(flip, 1.0))
+		_cv.draw_texture_rect(texture, Rect2(Vector2(-length * 0.24, -length), Vector2(length * 0.5, length)), false, Color(UiStyle.BONE, alpha))
+		_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _frame_ring(c: Vector2, alpha: float, spin: float) -> void:
 	if not _tex_at("frame_ring.svg", c, Vector2.ONE * FRAME_R * 2.0, Color(1, 1, 1, alpha), spin):
-		draw_circle(c, FRAME_R, Color(UiStyle.PANEL, alpha))
-		draw_arc(c, FRAME_R - 2.0, 0.0, TAU, 64, Color(UiStyle.PANEL_EDGE, alpha), 3.0, true)
+		_cv.draw_circle(c, FRAME_R, Color(UiStyle.PANEL, alpha))
+		_cv.draw_arc(c, FRAME_R - 2.0, 0.0, TAU, 64, Color(UiStyle.PANEL_EDGE, alpha), 3.0, true)
 
 
 # ---------------------------------------------------------------- rally
 
+# Parts (in drawing order); the breathing values (glow radius and alpha, rim
+# and core light) are applied by _refresh_layers() through scale/modulate, so
+# the parts below draw them at rest size with full alpha.
 func _draw_rally(c: Vector2, pressed: bool) -> void:
-	var breathe := _pulse(2.4)
-	var glow_color := Color(UiStyle.EMBER, 0.5 + 0.22 * breathe)
-	var glow_r := FRAME_R + 26.0 + 6.0 * breathe
-	if pressed:
-		glow_color = Color(UiStyle.EMBER_GLOW, 0.7)
-		glow_r = FRAME_R + 40.0
-	_glow(c, glow_r, glow_color)
-	_frame_ring(c, 0.96, 0.0)
-	_claws(c, 1.0, 1.0)
-	# Core disc with its ember ring; the whole disc sinks a little when held.
 	var core_r := RALLY_R - (5.0 if pressed else 0.0)
-	if not _tex_at("rally_core.svg", c, Vector2.ONE * core_r * 2.0):
-		draw_circle(c, core_r, Color("5e200c"))
-		draw_arc(c, core_r - 5.0, 0.0, TAU, 64, UiStyle.EMBER, 8.0, true)
-	# Warm rim light breathes at rest; held, the core flares up.
-	draw_arc(c, core_r - 5.0, 0.0, TAU, 72, Color(UiStyle.EMBER_GLOW, 0.35 + 0.45 * breathe), 4.0, true)
-	if pressed:
-		draw_circle(c, core_r - 9.0, Color(UiStyle.EMBER, 0.92))
-		_glow(c + Vector2(0, -8), core_r * 0.95, Color(UiStyle.EMBER_GLOW, 1.0))
-		_glow(c + Vector2(0, -12), 52.0, Color(UiStyle.TEXT, 0.95))
-	else:
-		_glow(c + Vector2(0, -14), 58.0, Color(UiStyle.EMBER, 0.18 + 0.14 * breathe))
-	var heads_size := Vector2(180, 155)
-	# Held: the heads turn into dark silhouettes against the flaring core.
-	var heads_tint := Color(0.42, 0.16, 0.07) if pressed else Color.WHITE
-	if not _tex_at("rally_heads.svg", c + Vector2(-6, -30), heads_size, heads_tint):
-		draw_circle(c + Vector2(0, -24), 34, UiStyle.EMBER)
+	match _paint:
+		"rally_glow":
+			if pressed:
+				_glow(c, FRAME_R + 40.0, Color(UiStyle.EMBER_GLOW, 0.7))
+			else:
+				_glow(c, FRAME_R + 26.0, Color(UiStyle.EMBER, 1.0))
+		"rally_base":
+			_frame_ring(c, 0.96, 0.0)
+			_claws(c, 1.0, 1.0)
+			# Core disc with its ember ring; the whole disc sinks a little when held.
+			if not _tex_at("rally_core.svg", c, Vector2.ONE * core_r * 2.0):
+				_cv.draw_circle(c, core_r, Color("5e200c"))
+				_cv.draw_arc(c, core_r - 5.0, 0.0, TAU, 64, UiStyle.EMBER, 8.0, true)
+		"rally_rim":
+			# Warm rim light breathes at rest (alpha 0.35 + 0.45 * breathe).
+			_cv.draw_arc(c, core_r - 5.0, 0.0, TAU, 72, Color(UiStyle.EMBER_GLOW, 1.0), 4.0, true)
+		"rally_core":
+			# Held, the core flares up; at rest a soft glow breathes (0.18 + 0.14 * breathe).
+			if pressed:
+				_cv.draw_circle(c, core_r - 9.0, Color(UiStyle.EMBER, 0.92))
+				_glow(c + Vector2(0, -8), core_r * 0.95, Color(UiStyle.EMBER_GLOW, 1.0))
+				_glow(c + Vector2(0, -12), 52.0, Color(UiStyle.TEXT, 0.95))
+			else:
+				_glow(c + Vector2(0, -14), 58.0, Color(UiStyle.EMBER, 1.0))
+		"rally_heads":
+			var heads_size := Vector2(180, 155)
+			# Held: the heads turn into dark silhouettes against the flaring core.
+			var heads_tint := Color(0.42, 0.16, 0.07) if pressed else Color.WHITE
+			if not _tex_at("rally_heads.svg", c + Vector2(-6, -30), heads_size, heads_tint):
+				_cv.draw_circle(c + Vector2(0, -24), 34, UiStyle.EMBER)
+		"rally_text":
+			_draw_rally_text(c, pressed)
 	# Held: bright rings contract from the rim toward the heads (the swarm pulls in).
-	if pressed:
+	if pressed and _paint == "rally_rings":
 		for i in 3:
 			var phase := fposmod(_t() * 1.4 + i / 3.0, 1.0)
 			var r := lerpf(core_r + 18.0, core_r - 34.0, phase)
 			var fade := sin(phase * PI)
-			draw_arc(c, r, 0.0, TAU, 72, Color(UiStyle.TEXT, 0.9 * fade), lerpf(9.0, 3.0, phase), true)
-	UiStyle.text(self, "RALLY", c + Vector2(0, 58), UiStyle.SIZE_HEAD, UiStyle.TEXT, true, 7)
+			_cv.draw_arc(c, r, 0.0, TAU, 72, Color(UiStyle.TEXT, 0.9 * fade), lerpf(9.0, 3.0, phase), true)
+
+
+func _draw_rally_text(c: Vector2, pressed: bool) -> void:
+	UiStyle.text(_cv, "RALLY", c + Vector2(0, 58), UiStyle.SIZE_HEAD, UiStyle.TEXT, true, 7)
 	var sub := "AKTIV" if pressed else "HALTEN"
 	var sub_color: Color = UiStyle.EMBER_GLOW.lerp(Color.WHITE, 0.55) if pressed else UiStyle.TEXT_DIM.lerp(UiStyle.EMBER_GLOW, 0.35)
-	UiStyle.text(self, sub, c + Vector2(0, 84), UiStyle.SIZE_LABEL, sub_color, true, 5)
+	UiStyle.text(_cv, sub, c + Vector2(0, 84), UiStyle.SIZE_LABEL, sub_color, true, 5)
 
 
 # ---------------------------------------------------------------- joystick
@@ -198,13 +284,13 @@ func _draw_rally(c: Vector2, pressed: bool) -> void:
 func _draw_joystick(c: Vector2, move: Vector2) -> void:
 	var strength := clampf(move.length(), 0.0, 1.0)
 	# Bark crescent on the outer (screen-edge) side carries the claws.
-	draw_arc(c, JOY_R + 10.0, -PI * 0.62, PI * 0.62, 48, Color(UiStyle.PANEL, 0.92), 20.0, true)
-	draw_arc(c, JOY_R + 19.0, -PI * 0.6, PI * 0.6, 48, Color(UiStyle.PANEL_EDGE, 0.8), 2.5, true)
-	draw_arc(c, JOY_R + 3.0, 0.0, TAU, 72, Color(UiStyle.OUTLINE, 0.55), 5.0, true)
+	_cv.draw_arc(c, JOY_R + 10.0, -PI * 0.62, PI * 0.62, 48, Color(UiStyle.PANEL, 0.92), 20.0, true)
+	_cv.draw_arc(c, JOY_R + 19.0, -PI * 0.6, PI * 0.6, 48, Color(UiStyle.PANEL_EDGE, 0.8), 2.5, true)
+	_cv.draw_arc(c, JOY_R + 3.0, 0.0, TAU, 72, Color(UiStyle.OUTLINE, 0.55), 5.0, true)
 	_claws(c, -1.0, 0.95)
 	if not _tex_at("joy_base.svg", c, Vector2.ONE * JOY_R * 2.0):
-		draw_circle(c, JOY_R, Color("0c1d1a88"))
-		draw_arc(c, JOY_R - 3.0, 0.0, TAU, 64, Color(1, 1, 1, 0.42), 3.0, true)
+		_cv.draw_circle(c, JOY_R, Color("0c1d1a88"))
+		_cv.draw_arc(c, JOY_R - 3.0, 0.0, TAU, 64, Color(1, 1, 1, 0.42), 3.0, true)
 	# Direction wedge glow under the knob.
 	if strength > 0.05:
 		_glow(c + move.normalized() * 58.0, 64.0, Color(UiStyle.EMBER_GLOW, 0.3 * strength))
@@ -217,10 +303,10 @@ func _draw_joystick(c: Vector2, move: Vector2) -> void:
 		var tint := Color(1, 1, 1, 0.42).lerp(Color(UiStyle.EMBER_GLOW, 1.0), lit)
 		if not _tex_at("arrow.svg", tip, Vector2(38, 38) * (1.0 + 0.3 * lit), tint, dir.angle()):
 			var side := Vector2(-dir.y, dir.x)
-			draw_colored_polygon(PackedVector2Array([tip + dir * 8, tip - dir * 8 + side * 11, tip - dir * 8 - side * 11]), tint)
+			_cv.draw_colored_polygon(PackedVector2Array([tip + dir * 8, tip - dir * 8 + side * 11, tip - dir * 8 - side * 11]), tint)
 	var knob := c + move.limit_length(1.0) * KNOB_TRAVEL
 	if not _tex_at("joy_knob.svg", knob + Vector2(0, 4), Vector2.ONE * KNOB_R * 2.46):
-		draw_circle(knob, KNOB_R, Color("d8e6e0f0"))
+		_cv.draw_circle(knob, KNOB_R, Color("d8e6e0f0"))
 
 
 # ---------------------------------------------------------------- tutorial tip
@@ -436,11 +522,11 @@ func _draw_hint(text: String, top: float) -> void:
 		if warn:
 			for k in 2:
 				var halo := _banner_points(rect.grow(4.0 + 5.0 * k + 3.0 * beat), 18.0)
-				draw_polyline(_closed(halo), Color(UiStyle.DANGER, (0.85 - 0.4 * k) * (0.45 + 0.55 * beat)), 5.0 - k, true)
-		frames.panel(self, rect, accent.lerp(Color.WHITE, 0.25 * beat), true)
+				_cv.draw_polyline(_closed(halo), Color(UiStyle.DANGER, (0.85 - 0.4 * k) * (0.45 + 0.55 * beat)), 5.0 - k, true)
+		frames.panel(_cv, rect, accent.lerp(Color.WHITE, 0.25 * beat), true)
 		if warn:
 			var inner_rect: Rect2 = frames.panel_inner(rect)
-			draw_colored_polygon(_banner_points(inner_rect, 8.0), Color(UiStyle.DANGER, 0.42 + 0.22 * beat))
+			_cv.draw_colored_polygon(_banner_points(inner_rect, 8.0), Color(UiStyle.DANGER, 0.42 + 0.22 * beat))
 	else:
 		_draw_banner_fallback(rect, warn, accent, beat)
 	var content_w := text_w + icon_space
@@ -449,28 +535,28 @@ func _draw_hint(text: String, top: float) -> void:
 	if warn:
 		_warn_icon(Vector2(x + 18.0, rect.get_center().y), 19.0 + 2.0 * beat, UiStyle.DANGER.lerp(UiStyle.GOLD, 0.35 * beat))
 	var text_color: Color = Color.WHITE.lerp(Color("ffd9c8"), beat) if warn else UiStyle.TEXT
-	UiStyle.text(self, text, Vector2(x + icon_space, baseline), font_size, text_color, false, 7)
+	UiStyle.text(_cv, text, Vector2(x + icon_space, baseline), font_size, text_color, false, 7)
 
 
 func _draw_banner_fallback(rect: Rect2, warn: bool, accent: Color, beat: float) -> void:
 	var height := rect.size.y
 	var outer := _banner_points(rect, 16.0)
 	var inner := _banner_points(rect.grow(-5.0), 12.0)
-	draw_colored_polygon(_offset(outer, Vector2(0, 5)), UiStyle.SHADOW)
-	draw_colored_polygon(outer, Color("2a0c08f0") if warn else UiStyle.PANEL)
-	draw_colored_polygon(inner, Color(UiStyle.DANGER, 0.16 + 0.18 * beat) if warn else Color(UiStyle.PANEL_SOFT, 0.9))
+	_cv.draw_colored_polygon(_offset(outer, Vector2(0, 5)), UiStyle.SHADOW)
+	_cv.draw_colored_polygon(outer, Color("2a0c08f0") if warn else UiStyle.PANEL)
+	_cv.draw_colored_polygon(inner, Color(UiStyle.DANGER, 0.16 + 0.18 * beat) if warn else Color(UiStyle.PANEL_SOFT, 0.9))
 	_veins(rect, Color(accent, 0.22))
 	var edge := accent.lerp(Color.WHITE, 0.25 * beat)
-	draw_polyline(_closed(outer), edge, 3.0 if not warn else 4.0, true)
-	draw_polyline(_closed(inner), Color(edge, 0.3), 1.5, true)
+	_cv.draw_polyline(_closed(outer), edge, 3.0 if not warn else 4.0, true)
+	_cv.draw_polyline(_closed(inner), Color(edge, 0.3), 1.5, true)
 	# Bone teeth on both ends of the banner.
 	for s: float in [-1.0, 1.0]:
 		var base_x := rect.get_center().x + s * (rect.size.x * 0.5 - 2.0)
 		for k in 2:
 			var y := rect.position.y + height * (0.32 + 0.36 * k)
 			var tip := Vector2(base_x + s * 16.0, y)
-			draw_colored_polygon(PackedVector2Array([Vector2(base_x - s * 4.0, y - 8), tip, Vector2(base_x - s * 4.0, y + 8)]), UiStyle.BONE)
-			draw_polyline(PackedVector2Array([Vector2(base_x - s * 4.0, y - 8), tip, Vector2(base_x - s * 4.0, y + 8)]), UiStyle.OUTLINE, 1.5, true)
+			_cv.draw_colored_polygon(PackedVector2Array([Vector2(base_x - s * 4.0, y - 8), tip, Vector2(base_x - s * 4.0, y + 8)]), UiStyle.BONE)
+			_cv.draw_polyline(PackedVector2Array([Vector2(base_x - s * 4.0, y - 8), tip, Vector2(base_x - s * 4.0, y + 8)]), UiStyle.OUTLINE, 1.5, true)
 
 
 func _frames_script() -> Script:
@@ -484,13 +570,13 @@ func _frames_script() -> Script:
 func _warn_icon(center: Vector2, radius: float, color: Color) -> void:
 	var icons := _icons_script()
 	if icons != null and icons.has("skull"):
-		icons.draw(self, "skull", Rect2(center - Vector2.ONE * radius, Vector2.ONE * radius * 2.0), color)
+		icons.draw(_cv, "skull", Rect2(center - Vector2.ONE * radius, Vector2.ONE * radius * 2.0), color)
 		return
 	var pts := PackedVector2Array([center + Vector2(0, -radius), center + Vector2(radius * 1.05, radius * 0.8), center + Vector2(-radius * 1.05, radius * 0.8)])
-	draw_colored_polygon(pts, color)
-	draw_polyline(_closed(pts), UiStyle.OUTLINE, 2.0, true)
-	draw_rect(Rect2(center + Vector2(-2.5, -radius * 0.45), Vector2(5, radius * 0.7)), UiStyle.OUTLINE)
-	draw_circle(center + Vector2(0, radius * 0.5), 3.0, UiStyle.OUTLINE)
+	_cv.draw_colored_polygon(pts, color)
+	_cv.draw_polyline(_closed(pts), UiStyle.OUTLINE, 2.0, true)
+	_cv.draw_rect(Rect2(center + Vector2(-2.5, -radius * 0.45), Vector2(5, radius * 0.7)), UiStyle.OUTLINE)
+	_cv.draw_circle(center + Vector2(0, radius * 0.5), 3.0, UiStyle.OUTLINE)
 
 
 func _icons_script() -> Script:
@@ -523,7 +609,7 @@ func _veins(rect: Rect2, color: Color) -> void:
 		for k in 5:
 			var t := k / 4.0
 			pts.append(Vector2(x + sin(t * 5.0 + f * 20.0) * 10.0, rect.position.y + 8.0 + (rect.size.y - 16.0) * t))
-		draw_polyline(pts, color, 1.5, true)
+		_cv.draw_polyline(pts, color, 1.5, true)
 
 
 func _offset(points: PackedVector2Array, by: Vector2) -> PackedVector2Array:

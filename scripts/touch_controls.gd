@@ -102,7 +102,13 @@ func clear_pointers() -> void:
 	rally_pressed = false
 	movement_pointer = -1
 	rally_pointer = -1
-	queue_redraw()
+	_redraw_legacy()
+
+
+# Own drawing is only needed while a legacy block is still on (stage 07).
+func _redraw_legacy() -> void:
+	if legacy.values().has(true):
+		queue_redraw()
 
 
 func _input(event: InputEvent) -> void:
@@ -167,7 +173,7 @@ func _press(pointer: int, location: Vector2) -> void:
 	elif rally_pointer == -1 and location.distance_to(_rally_center()) < 125.0:
 		rally_pointer = pointer
 		rally_pressed = true
-		queue_redraw()
+		_redraw_legacy()
 
 
 func _release(pointer: int) -> void:
@@ -177,12 +183,12 @@ func _release(pointer: int) -> void:
 	if pointer == rally_pointer:
 		rally_pointer = -1
 		rally_pressed = false
-	queue_redraw()
+	_redraw_legacy()
 
 
 func _update_movement(location: Vector2) -> void:
 	movement_vector = ((location - _movement_center()) / 66.0).limit_length(1.0)
-	queue_redraw()
+	_redraw_legacy()
 
 
 func _movement_center() -> Vector2:
@@ -244,6 +250,11 @@ var legacy := {"top": true, "badges": true, "pointer": true, "feedback": true, "
 
 
 func _draw() -> void:
+	# Stage 07: with every block handed to the scripts/ui components this node
+	# draws nothing; HuntWorld still calls queue_redraw() each frame, so leave
+	# before any work (the components repaint themselves on change).
+	if not legacy.values().has(true):
+		return
 	_ensure_font()
 	if legacy.top:
 		_draw_top()

@@ -6,6 +6,13 @@ extends Control
 # from the parent HUD; input stays in touch_controls.gd, buttons are drawn on
 # its _action_rect() / _hub_rect() so the hit areas match.
 
+#
+# Stage 07 (performance): repaints only while something moves (popups, loss
+# number, king moment, boss pointer, banner, screen intros) or when the shown
+# values change; idle it draws nothing and costs nothing. Zooming text is
+# scaled from a fixed palette size (UiStyle.text_px) instead of rasterising a
+# new font size per frame.
+
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
@@ -35,6 +42,7 @@ var _clock := 0.0
 # Königsmoment: HuntWorld counts Bog King kills in the HUD meta "king_moments".
 var _king_seen := 0
 var _king_time := -1.0
+var _last_key: Variant = null
 
 
 func _ready() -> void:
@@ -80,7 +88,31 @@ func _process(delta: float) -> void:
 		_king_time += delta / maxf(0.01, Engine.time_scale)
 		if _king_time > KING_TIME or hud.extinct:
 			_king_time = -1.0
-	queue_redraw()
+	var key: Variant = _redraw_key(hud)
+	if key == null or typeof(key) != typeof(_last_key) or key != _last_key:
+		queue_redraw()
+	_last_key = key
+
+
+# null = animating (repaint every frame); otherwise a key of what is shown.
+func _redraw_key(hud: Control) -> Variant:
+	if hud.extinct:
+		# After the count-up only the rays behind the skull turn (slowly).
+		return null if _result_time < 3.2 else ["result", int(_clock * 30.0), size, hud.run_stats]
+	if hud.paused:
+		if _pause_time < 0.3:
+			return null
+		var evo: Variant = hud.evolution
+		return ["pause", int(hud.elapsed), int(hud.population), size, str(evo.ranks) if evo != null else "", str(evo.evolutions) if evo != null else "", int(evo.level) if evo != null else 0]
+	var popups: Array = hud.get_meta("kill_popups", [])
+	for popup in popups:
+		if float(popup.get("t", 1.0)) < 1.0:
+			return null
+	if _loss_visible() or float(hud.hit_feedback) > 0.0 or _king_time >= 0.0:
+		return null
+	if hud.boss_pointer.is_finite() or float(hud.evolve_flash) > 0.0:
+		return null
+	return ["idle", size]
 
 
 func _draw() -> void:
@@ -125,7 +157,7 @@ func _draw_result(hud: Control) -> void:
 	_medallion(skull_c, 74.0 * punch, UiStyle.DANGER, appear)
 	_icon("skull", Rect2(skull_c - Vector2(46, 46) * punch, Vector2(92, 92) * punch), Color(UiStyle.BONE, appear))
 	var title_alpha := clampf((t - 0.1) / 0.25, 0.0, 1.0)
-	var title_size := int(round(UiStyle.SIZE_HERO * (1.0 + 0.35 * (1.0 - _ease_out(clampf((t - 0.1) / 0.3, 0.0, 1.0))))))
+	var title_size := roundf(UiStyle.SIZE_HERO * (1.0 + 0.35 * (1.0 - _ease_out(clampf((t - 0.1) / 0.3, 0.0, 1.0)))))
 	_title("AUSGESTORBEN", Vector2(cx, panel.position.y + 150), title_size, Color(UiStyle.TEXT, title_alpha), UiStyle.DANGER)
 	var lost := int(stats.get("lost", 0))
 	var sub := "DER SCHWARM IST ERLOSCHEN" if lost <= 0 else "%d MAWLINGS GEFALLEN" % lost
@@ -239,9 +271,9 @@ func _draw_evolve_banner(hud: Control) -> void:
 	var gem_c := c + Vector2(0, -104) * scale
 	_medallion(gem_c, 60.0 * scale, UiStyle.GOLD, fade)
 	_icon("alpha_core", Rect2(gem_c - Vector2(42, 42) * scale, Vector2(84, 84) * scale), Color(1, 1, 1, fade))
-	_label("EVOLUTION", c + Vector2(0, -24) * scale, maxi(LABEL, int(LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
+	_label("EVOLUTION", c + Vector2(0, -24) * scale, maxf(LABEL, floorf(LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
 	var name_text := String(hud.evolve_name).to_upper()
-	_title(name_text if name_text != "" else "EVOLUTION", c + Vector2(0, 54) * scale, int(UiStyle.SIZE_HERO * scale), Color(1, 1, 1, fade), UiStyle.VIOLET)
+	_title(name_text if name_text != "" else "EVOLUTION", c + Vector2(0, 54) * scale, floorf(UiStyle.SIZE_HERO * scale), Color(1, 1, 1, fade), UiStyle.VIOLET)
 
 
 func _ribbon(rect: Rect2, alpha: float) -> void:
@@ -277,16 +309,15 @@ func _draw_loss(hud: Control) -> void:
 	# longer drifts, so kill popups can reliably steer around it.
 	var c := _loss_center()
 	var number := "−%d" % _loss_total
-	var font := UiStyle.display_font()
-	var fs := int(64 * pop)
-	var w := font.get_string_size(number, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var fs := floorf(64 * pop)
+	var w := UiStyle.width_px(number, fs)
 	var head := 44.0 * pop
 	var total := head + 10 + w
 	var x0 := c.x - total * 0.5
 	var pill := Rect2(x0 - 22, c.y - 46 * pop, total + 44, 64 * pop)
 	draw_colored_polygon(_chamfer(pill, 16.0 * pop, 0.0), Color(UiStyle.OUTLINE, 0.62 * a))
 	_icon("mawling", Rect2(x0, c.y - head * 0.5 - 14 * pop, head, head), Color(UiStyle.DANGER, a))
-	UiStyle.text(self, number, Vector2(x0 + head + 10, c.y + 8 * pop), fs, Color(Color("ffd9cc"), a), false, 9)
+	UiStyle.text_px(self, number, Vector2(x0 + head + 10, c.y + 8 * pop), fs, Color(Color("ffd9cc"), a), false, 9)
 	_label("MAWLINGS", Vector2(c.x, c.y + 44 * pop), LABEL, Color(UiStyle.DANGER.lightened(0.35), a), true)
 
 
@@ -332,13 +363,13 @@ func _draw_popups(hud: Control) -> void:
 			parts.append(["biomass", "+%d" % int(popup.biomass), UiStyle.AMBER])
 		if parts.is_empty():
 			continue
-		var fs := int(34 * pop)
+		var fs := floorf(34 * pop)
 		var icon := 34.0 * pop
 		var gap := 16.0 * pop
 		var widths: Array = []
 		var total := 0.0
 		for part in parts:
-			var w := icon + 4.0 + font.get_string_size(part[1], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var w := icon + 4.0 + UiStyle.width_px(part[1], fs, font)
 			widths.append(w)
 			total += w
 		total += gap * (parts.size() - 1)
@@ -353,7 +384,7 @@ func _draw_popups(hud: Control) -> void:
 		for index in parts.size():
 			var part: Array = parts[index]
 			_icon(part[0], Rect2(Vector2(x, c.y - icon * 0.5 - 4.0 * pop), Vector2(icon, icon)), Color(part[2], a))
-			UiStyle.text(self, part[1], Vector2(x + icon + 4.0, c.y + 10.0 * pop), fs, Color(part[2].lightened(0.35), a), false, 7)
+			UiStyle.text_px(self, part[1], Vector2(x + icon + 4.0, c.y + 10.0 * pop), fs, Color(part[2].lightened(0.35), a), false, 7)
 			x += widths[index] + gap
 
 
@@ -404,8 +435,8 @@ func _draw_king(hud: Control) -> void:
 	var crown_c := c + Vector2(0, -112) * scale
 	_medallion(crown_c, 62.0 * scale, UiStyle.GOLD, fade)
 	_icon("crown", Rect2(crown_c - Vector2(40, 40) * scale, Vector2(80, 80) * scale), Color(UiStyle.GOLD, fade))
-	_label("BOG KING", c + Vector2(0, -26) * scale, maxi(LABEL, int(LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
-	_title("KÖNIG VERSCHLUNGEN", c + Vector2(0, 50) * scale, int(58 * scale), Color(1, 1, 1, fade), UiStyle.GOLD)
+	_label("BOG KING", c + Vector2(0, -26) * scale, maxf(LABEL, floorf(LABEL * scale * 1.3)), Color(UiStyle.GOLD, fade), true)
+	_title("KÖNIG VERSCHLUNGEN", c + Vector2(0, 50) * scale, floorf(58 * scale), Color(1, 1, 1, fade), UiStyle.GOLD)
 
 
 # ---------------------------------------------------------------- boss pointer
@@ -627,17 +658,22 @@ func _medallion(c: Vector2, r: float, accent: Color, alpha: float) -> void:
 	draw_arc(c, r - maxf(6.0, r * 0.14), 0, TAU, 40, Color(accent, 0.3 * alpha), 1.5, true)
 
 
-func _title(value: String, at: Vector2, font_size: int, color: Color, glow: Color) -> void:
+# Sizes may be fractional (zoom): drawn from a palette size, scaled.
+func _title(value: String, at: Vector2, font_size: float, color: Color, glow: Color) -> void:
 	var font := UiStyle.display_font()
-	var w := font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var step := UiStyle.size_step(font_size)
+	var k := font_size / step
+	var w := font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, step).x * k
 	var origin := at - Vector2(w * 0.5, 0)
-	draw_string_outline(font, origin + Vector2(0, 5), value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 16, Color(glow, 0.25 * color.a))
-	draw_string_outline(font, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 10, Color(UiStyle.OUTLINE, color.a))
-	draw_string(font, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+	draw_set_transform(origin, 0.0, Vector2(k, k))
+	draw_string_outline(font, Vector2(0, 5) / k, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, 16, Color(glow, 0.25 * color.a))
+	draw_string_outline(font, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, 10, Color(UiStyle.OUTLINE, color.a))
+	draw_string(font, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, color)
+	draw_set_transform(Vector2.ZERO)
 
 
-func _label(value: String, at: Vector2, font_size: int, color: Color, centered: bool) -> void:
-	UiStyle.text(self, value, at, font_size, color, centered, 4)
+func _label(value: String, at: Vector2, font_size: float, color: Color, centered: bool) -> void:
+	UiStyle.text_px(self, value, at, font_size, color, centered, 4)
 
 
 func _rays(c: Vector2, r: float, count: int, spin: float, a: Color, b: Color) -> void:

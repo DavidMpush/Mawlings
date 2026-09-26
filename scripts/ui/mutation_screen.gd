@@ -7,6 +7,11 @@ extends Control
 #
 # Cards are child Controls (CardView) so the intro and the pick flash can use
 # position/scale/modulate without touching the drawing code.
+#
+# Stage 07 (performance): the screen repaints only while it fades or when its
+# values change, a card only when its content changes (the pulsing rank
+# diamond: 20 Hz). Shrink-to-fit text is scaled from one rasterised size
+# instead of trying every integer size.
 
 const UI := preload("res://scripts/ui/ui_style.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
@@ -42,6 +47,13 @@ class CardView extends Control:
 	var entry: Array = []
 	var rank := 0
 	var flash := 0.0
+	var key: Variant = null
+
+	# Repaints when `new_key` differs from the last painted one.
+	func refresh(new_key: Variant) -> void:
+		if typeof(new_key) != typeof(key) or new_key != key:
+			key = new_key
+			queue_redraw()
 
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -66,6 +78,7 @@ var _open_time := -10.0
 var _close_time := -10.0
 var _flash_time := -10.0
 var _spaced: FontVariation
+var _screen_key: Variant = null
 
 
 func _ready() -> void:
@@ -173,7 +186,7 @@ func _process(_delta: float) -> void:
 			card.position = rect.position + Vector2((1.0 - e) * 64.0, (1.0 - e) * 14.0)
 			card.scale = Vector2.ONE * lerpf(0.96, 1.0, e)
 			card.modulate = Color(1, 1, 1, e)
-			card.queue_redraw()
+			card.refresh(_card_key(hud, evo, slot, entry, rank, 0.0))
 	else:
 		for card in _cards:
 			card.visible = false
@@ -188,8 +201,34 @@ func _process(_delta: float) -> void:
 		_flash_card.scale = Vector2.ONE * (1.0 + 0.06 * e)
 		_flash_card.flash = 1.0 - e
 		_flash_card.modulate = Color(1, 1, 1, 1.0 - e * e)
-		_flash_card.queue_redraw()
-	queue_redraw()
+		_flash_card.refresh(_card_key(hud, _evolution(), _flash_card.slot, _flash_card.entry, _flash_card.rank, _flash_card.flash))
+	var key: Variant = _screen_state(now, open)
+	if key == null or typeof(key) != typeof(_screen_key) or key != _screen_key:
+		queue_redraw()
+	_screen_key = key
+
+
+# Everything a card shows; the offered rank's diamond pulses (20 Hz).
+func _card_key(hud: Control, evo: RefCounted, slot: int, entry: Array, rank: int, flash: float) -> Array:
+	var key: Array = [slot, entry, rank, flash, use_frame_kit, int(_now() * 20.0) if rank < 3 else 0]
+	if hud != null:
+		key.append_array([hud._count("banishes"), hud._banish_rect(slot), hud._mutation_rect(slot).size])
+	if evo != null:
+		key.append_array([evo.slots_used("attack"), evo.slots_used("trait"), evo.slot_limit("attack"), evo.slot_limit("trait"), str(evo.ranks), str(evo.evolutions)])
+	return key
+
+
+# null while the dimmer/title animate, else the values the screen shows.
+func _screen_state(now: float, open: bool) -> Variant:
+	if open and now - _open_time < maxf(DIM_IN, 0.3) + 0.05:
+		return null
+	if not open and now - _close_time < DIM_OUT + 0.05:
+		return null
+	if not open:
+		return ["closed", size]
+	var hud := _hud()
+	var evo := _evolution()
+	return ["open", size, hud._count("rerolls"), hud._count("skips"), int(evo.level), evo.offers.size()]
 
 
 func _on_chosen(slot: int) -> void:
@@ -337,7 +376,7 @@ func _draw_button(rect: Rect2, icon_id: String, label: String, count: int, accen
 	_icon(self, icon_id, icon_rect, accent)
 	var font := UI.display_font()
 	var fs := _fit(label, font, 26, rect.size.x - 100.0, MIN_TEXT)
-	var lw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var lw := _width(label, font, fs)
 	var lx := icon_rect.end.x + (rect.end.x - 24.0 - icon_rect.end.x - lw) * 0.5
 	_text(self, label, Vector2(lx, rect.get_center().y + fs * 0.36), fs, UI.TEXT, 0, 6)
 	_badge(self, Vector2(rect.end.x - 6, rect.position.y + 4), count, accent)
@@ -472,7 +511,7 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 		if hint_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, MIN_TEXT).x > avail:
 			label = hint.short
 		var fs := _fit(label, hint_font, MIN_TEXT, avail, MIN_TEXT)
-		var lw := hint_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var lw := _width(label, hint_font, fs)
 		var hx := right - lw
 		var tint: Color = UI.GOLD if hint.ready else UI.VIOLET
 		var pill := Rect2(hx - 36, row_y - 26, lw + 46, 34)
@@ -508,7 +547,7 @@ func _draw_banish(c: CanvasItem, r: Rect2, count: int) -> void:
 	_icon(c, "banish", Rect2(r.position + Vector2(10, (r.size.y - icon_size) * 0.5), Vector2(icon_size, icon_size)), red.lightened(0.2))
 	var tx := r.position.x + 16.0 + icon_size
 	var fs := _fit("VERBANNEN", UI.display_font(), 23, r.end.x - 10.0 - tx, MIN_TEXT)
-	var lw := UI.display_font().get_string_size("VERBANNEN", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var lw := _width("VERBANNEN", UI.display_font(), fs)
 	_text(c, "VERBANNEN", Vector2(tx + maxf(0.0, (r.end.x - 10.0 - tx - lw) * 0.5), r.get_center().y + fs * 0.36), fs, UI.TEXT, 0, 5)
 	_badge(c, Vector2(r.end.x - 4, r.position.y + 2), count, red)
 
@@ -755,25 +794,46 @@ func _evolution_hint(evo: RefCounted, id: String, rank: int) -> Dictionary:
 # ------------------------------------------------------------------ text
 
 # Outlined text. align: 0 left, 1 centre, 2 right. Returns the drawn width.
-func _text(c: CanvasItem, value: String, at: Vector2, font_size: int, tint: Color, align: int = 0, outline: int = 6, font: Font = null) -> float:
+# Whole sizes draw exactly; fractional (fitted) sizes are drawn from a palette
+# size and scaled (UiStyle.size_step), so fitting adds no glyph caches.
+func _text(c: CanvasItem, value: String, at: Vector2, font_size: float, tint: Color, align: int = 0, outline: int = 6, font: Font = null) -> float:
 	var face: Font = font if font != null else UI.display_font()
-	var w := face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var whole := absf(font_size - roundf(font_size)) < 0.01
+	var step := int(roundf(font_size)) if whole else UI.size_step(font_size)
+	var k := 1.0 if whole else font_size / step
+	var w := face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, step).x * k
 	var origin := at
 	if align == 1:
 		origin.x -= w * 0.5
 	elif align == 2:
 		origin.x -= w
+	if not whole:
+		c.draw_set_transform(origin, 0.0, Vector2(k, k))
+		origin = Vector2.ZERO
 	if outline > 0:
-		c.draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, outline, Color(UI.OUTLINE, tint.a))
-	c.draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, tint)
+		c.draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, outline, Color(UI.OUTLINE, tint.a))
+	c.draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, tint)
+	if not whole:
+		c.draw_set_transform(Vector2.ZERO)
 	return w
 
 
-func _fit(value: String, font: Font, wanted: int, width: float, minimum: int) -> int:
-	var fs := wanted
-	while fs > minimum and font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
-		fs -= 1
-	return fs
+func _width(value: String, font: Font, font_size: float) -> float:
+	if absf(font_size - roundf(font_size)) < 0.01:
+		return font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, int(roundf(font_size))).x
+	return UI.width_px(value, font_size, font)
+
+
+# Size that fits `width`: `wanted` when it fits, else shrunk (not below minimum).
+func _fit(value: String, font: Font, wanted: int, width: float, minimum: int) -> float:
+	var w := font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, wanted).x
+	if w <= width or wanted <= minimum:
+		return float(wanted)
+	var fitted := maxf(float(minimum), floorf(wanted * width / w * 4.0) / 4.0)
+	# A whole size would get its own glyph cache; stay fractional (scaled).
+	if fitted > minimum and absf(fitted - roundf(fitted)) < 0.01:
+		fitted -= 0.05
+	return fitted
 
 
 func _wrap(value: String, font: Font, font_size: int, width: float) -> Array:

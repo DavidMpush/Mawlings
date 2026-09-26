@@ -6,6 +6,7 @@ const CELL := 28.0
 const VISIBLE_RADIUS := 1
 const OBSTACLE_RADIUS := 1.85
 const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
+const BIOMES = preload("res://scripts/biomes.gd")
 const ROCK_SCENE = preload("res://assets/gameplay/props/Rock_game.glb")
 const LEAF_SCENE = preload("res://assets/gameplay/props/Leaf_game.glb")
 const ROOT_ARCH_SCENE = preload("res://assets/gameplay/props/RootArch_game.glb")
@@ -40,6 +41,7 @@ const START_CLEARANCE := 22.0
 const MIN_PASSAGE := 3.0
 # Upper bound for the collision area owned by one chunk.
 const MAX_COLLISION_SHARE := 0.12
+# Classic Verdant Maw values; the active colours come from scripts/biomes.gd.
 const GROUND_COLOR := Color("80a04c")
 # Flower petal ramp (dark -> light); see creature_look.gdshaderinc recolour.
 const FLOWER_DARK := Color("6a5a8e")
@@ -49,6 +51,11 @@ const EDGE_OFFSETS := [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(
 const NEIGHBOURS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1)]
 enum TrailDir { NORTH_SOUTH, EAST_WEST, DIAGONAL_NE, DIAGONAL_NW }
 var world_seed := 0
+# Active biome (scripts/biomes.gd): colours and decoration counts only; the
+# layout (trails, stones, landmarks, collisions) never depends on it.
+var biome_id: String = BIOMES.DEFAULT
+var biome: Dictionary = BIOMES.get_data(BIOMES.DEFAULT)
+var ground_color := GROUND_COLOR
 var _seed_mix := 0
 var view_radius := VISIBLE_RADIUS
 var _last_sync := Vector3.ZERO
@@ -106,8 +113,8 @@ func _ready() -> void:
 	path_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	path_edge_material = _material(Color("aeaa62"))
 	path_edge_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	for tint in [Color("88a852"), Color("718f40"), Color("7a9844")]:
-		moss_materials.append(_material(tint))
+	for index in 3:
+		moss_materials.append(_material(Color.WHITE))
 	sand_material = _material(Color("c8ab6e"))
 	earth_material = _material(Color("b39862"))
 	plinth_material = _material(Color("62883a"))
@@ -131,6 +138,7 @@ func _ready() -> void:
 	flower_material.set_shader_parameter("recolor_dark", FLOWER_DARK)
 	flower_material.set_shader_parameter("recolor_light", FLOWER_LIGHT)
 	flower_material.set_shader_parameter("recolor_amount", 0.92)
+	_apply_biome_colors()
 	var arch_parts := _extract_mesh(ROOT_ARCH_SCENE)
 	arch_mesh = arch_parts[0]
 	arch_base = arch_parts[1]
@@ -184,6 +192,51 @@ func set_seed(value: int) -> void:
 	chunks.clear()
 	if ground_mesh != null:
 		sync(_last_sync)
+
+## Switches the biome at runtime (colours and decoration counts): the shared
+## materials are restyled and the visible chunks rebuilt around the last synced
+## position. Unknown ids fall back to verdant_maw. Layout and collisions stay.
+func set_biome(id: String) -> void:
+	biome_id = id if BIOMES.has(id) else BIOMES.DEFAULT
+	biome = BIOMES.get_data(biome_id)
+	if ground_material == null:
+		return
+	_apply_biome_colors()
+	for key in chunks.keys():
+		var chunk: Node = chunks[key]
+		remove_child(chunk)
+		chunk.queue_free()
+	chunks.clear()
+	sync(_last_sync)
+
+# Writes the biome colours into the shared materials (every chunk uses them).
+func _apply_biome_colors() -> void:
+	ground_color = biome.ground
+	ground_material.albedo_color = ground_color
+	path_material.albedo_color = biome.path
+	path_edge_material.albedo_color = biome.path_edge
+	_set_glow(path_material, biome.path_emission)
+	_set_glow(path_edge_material, biome.path_edge_emission)
+	for index in moss_materials.size():
+		moss_materials[index].albedo_color = biome.moss[index]
+	sand_material.albedo_color = biome.sand
+	earth_material.albedo_color = biome.earth
+	plinth_material.albedo_color = biome.plinth
+	water_material.albedo_color = biome.pool
+	water_material.roughness = biome.pool_roughness
+	_set_glow(water_material, biome.pool_emission)
+	shore_material.albedo_color = biome.shore
+	flower_material.set_shader_parameter("recolor_dark", biome.flower_dark)
+	flower_material.set_shader_parameter("recolor_light", biome.flower_light)
+	for pair in [[rock_material, "rock_tint"], [leaf_material, "leaf_tint"], [arch_material, "wood_tint"], [log_material, "wood_tint"], [reed_material, "reed_tint"], [flower_material, ""]]:
+		var target: ShaderMaterial = pair[0]
+		target.set_shader_parameter("rim_color", biome.prop_rim)
+		# Flowers keep their own petal ramp; a tint would also grey their green leaves.
+		target.set_shader_parameter("body_tint", biome[pair[1]] if pair[1] != "" else Color(1, 1, 1, 0))
+
+static func _set_glow(target: StandardMaterial3D, glow: Color) -> void:
+	target.emission_enabled = glow.r + glow.g + glow.b > 0.0
+	target.emission = glow
 
 static func _scramble(value: int) -> int:
 	var n := (value ^ 0x2545F4914F6CDD1D) * 6364136223846793005
@@ -537,7 +590,7 @@ func _ground_tint(x: float, z: float) -> Color:
 		var params := region_params(Vector2i(ix + corner.x, iz + corner.y))
 		hue += float(params.hue) * weight
 		value += float(params.value) * weight
-	return Color.from_hsv(GROUND_COLOR.h + hue, GROUND_COLOR.s, GROUND_COLOR.v * (1.0 + value))
+	return Color.from_hsv(ground_color.h + hue, ground_color.s, ground_color.v * (1.0 + value))
 
 func _ground_mesh(key: Vector2i) -> ArrayMesh:
 	var surface := SurfaceTool.new()
@@ -701,7 +754,7 @@ func _make_chunk(key: Vector2i) -> Node3D:
 		_part(chunk, "Trail edge", _trail_mesh(key, TRAIL_EDGE_WIDTH, 0.003), path_edge_material, Vector3.ZERO)
 		_part(chunk, "Broad trail", _trail_mesh(key, TRAIL_HALF_WIDTH, 0.007), path_material, Vector3.ZERO)
 	# Calm ground variation: soft moss tints, a few sand/earth spots, small pebbles.
-	for index in 6:
+	for index in int(biome.moss_patches):
 		var spot := Vector3(2.0 + float(_hash(key.x, key.y, index + 30) % 24), 0.001, 2.0 + float(_hash(key.x, key.y, index + 60) % 24))
 		if _near_trail(chunk.position + spot, 1.0):
 			continue
@@ -710,15 +763,15 @@ func _make_chunk(key: Vector2i) -> Node3D:
 		var size := 1.3 + float(_hash(key.x, key.y, index + 120) % 5) * 0.3
 		moss.scale = Vector3(size * 1.5, 1, size)
 		moss.rotation.y = float(_hash(key.x, key.y, index + 150) % 628) * 0.01
-	for index in 3:
+	for index in int(biome.sand_patches):
 		var spot := Vector3(2.0 + float(_hash(key.x, key.y, index + 180) % 24), 0.002, 2.0 + float(_hash(key.x, key.y, index + 210) % 24))
 		if _near_trail(chunk.position + spot, 1.5):
 			continue
-		var dirt := _part(chunk, "Sand patch", patch_mesh, sand_material if index != 2 else earth_material, spot)
+		var dirt := _part(chunk, "Sand patch", patch_mesh, sand_material if index % 3 != 2 else earth_material, spot)
 		var size := 1.2 + float(_hash(key.x, key.y, index + 240) % 4) * 0.3
 		dirt.scale = Vector3(size * 1.4, 1, size)
 		dirt.rotation.y = float(_hash(key.x, key.y, index + 270) % 628) * 0.01
-	for index in 5:
+	for index in int(biome.pebbles):
 		var spot := Vector3(1.0 + float(_hash(key.x, key.y, index + 300) % 26), 0, 1.0 + float(_hash(key.x, key.y, index + 330) % 26))
 		var size := 0.32 + float(_hash(key.x, key.y, index + 360) % 4) * 0.07
 		_prop(chunk, "Pebble", rock_mesh, rock_base, rock_material, spot, Vector3(size, size * 0.8, size), float(_hash(key.x, key.y, index + 390) % 628) * 0.01)
@@ -731,7 +784,7 @@ func _make_chunk(key: Vector2i) -> Node3D:
 	# Scattered leaf clumps at the edges of the open ground: never on the trail,
 	# never in the middle of the chunk, never inside a stone footprint.
 	var placed := 0
-	var wanted := 3 + _hash(key.x, key.y, 400) % 3
+	var wanted := int(biome.leaf_clumps_min) + _hash(key.x, key.y, 400) % 3
 	for index in 14:
 		if placed >= wanted:
 			break
@@ -745,12 +798,12 @@ func _make_chunk(key: Vector2i) -> Node3D:
 	if seeded:
 		_seeded_decor(chunk, key)
 	# A rare water landmark is flat and traversable; the route stays open.
-	elif _hash(key.x, key.y, 13) % 5 == 0 and not near_landmark(chunk.position + Vector3(4, 0, 22), 3.0):
+	elif _hash(key.x, key.y, 13) % int(biome.pond_one_in) == 0 and not near_landmark(chunk.position + Vector3(4, 0, 22), 3.0):
 		_pool(chunk, Vector3(4, 0, 22), Vector3(1.8, 1, 1.1))
 		# A single reed clump on the far shore.
 		_prop(chunk, "Pond reeds", reed_mesh, reed_base, reed_material, Vector3(6.3, 0, 21.1), Vector3.ONE * 1.5, float(_hash(key.x, key.y, 14) % 628) * 0.01)
 	# Rare single flowers as colour accents on the open ground.
-	if not seeded and _hash(key.x, key.y, 800) % 3 == 0:
+	if not seeded and _hash(key.x, key.y, 800) % int(biome.flower_one_in) == 0:
 		var local := Vector3(2.0 + float(_hash(key.x, key.y, 810) % 24), 0, 2.0 + float(_hash(key.x, key.y, 820) % 24))
 		var world := chunk.position + local
 		if not _near_trail(world, 1.2) and is_open(world, 1.0) and not near_landmark(world, 1.0):

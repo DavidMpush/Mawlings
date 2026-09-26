@@ -7,9 +7,11 @@ extends SceneTree
 # Aufruf (einzeln):
 #   Godot_console.exe --path <projekt> --script res://tests/perf_bench.gd -- scene=worst secs=20
 #   Weitere Schalter: off=units,shadows,decor,arena,enemies,corpses,fx,forms,popups,hud,swarmcpu
-#                     mm_units (Mawlings als MultiMesh-Schätzung statt Einzel-Meshes)
-#                     cap=60 (nur die ersten N Mawling-Modelle sichtbar), scale3d=0.7
-#                     (3D-Renderskalierung), msaa=2|4, trace=1 (Speicher alle 5 s), res=540x1170 (Fenstergröße), warm=3
+#                     (off=units blendet das Schwarm-MultiMesh "Mawlings" samt Geistern aus)
+#                     cap=60 (nur die ersten N Mawling-Instanzen sichtbar), scale3d=0.7
+#                     (3D-Renderskalierung), msaa=0|2|4, trace=1 (Speicher alle 5 s), res=540x1170 (Fenstergröße), warm=3
+#                     corpses=30 (liegende Kadaver im Worst Case), quality=low|medium|high (Stufe erzwingen;
+#                     sonst wählt main.gd sie wie im Spiel per Heuristik – Desktop = HOCH)
 # Szenen: worst (Worst Case), calm (ruhiger Spielstart), menu (Brutstätte mit
 #         SubViewport-Rudel), menu2d (Brutstätte ohne 3D-Rudel).
 # Kennzahlen: avg/p95 = reale Frame-Zeit (Vsync aus); process_max_ms = Performance.TIME_PROCESS
@@ -26,6 +28,7 @@ const MAP_SEED := 424242
 const GROUND_PARTS := ["Open ground", "Trail edge", "Broad trail"]
 const ENEMY_NAMES := ["Hunter", "Skitter", "Mire Leaper", "Bog King", "Nibbler"]
 const TOUGH := 1.0e9
+const QUALITY = preload("res://scripts/quality.gd")
 
 var args := {}
 var off: PackedStringArray = []
@@ -42,7 +45,6 @@ var menu: Control
 
 var clock := 0.0
 var popup_clock := 0.0
-var mm_instance: MultiMeshInstance3D
 var last_world_us := 0
 var last_swarm_us := 0
 
@@ -69,11 +71,8 @@ func _run() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = 0
 	RenderingServer.viewport_set_measure_render_time(root.get_viewport_rid(), true)
-	if args.has("scale3d"):
-		root.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-		root.scaling_3d_scale = float(args.scale3d)
-	if args.has("msaa"):
-		root.msaa_3d = {"2": Viewport.MSAA_2X, "4": Viewport.MSAA_4X}.get(String(args.msaa), Viewport.MSAA_DISABLED)
+	if args.has("quality"):
+		QUALITY.set_override(QUALITY.parse(String(args.quality)))
 	match scene_name:
 		"menu", "menu2d":
 			_build_menu(scene_name == "menu")
@@ -83,6 +82,14 @@ func _run() -> void:
 			_build_game()
 			await process_frame
 			_build_worst_case()
+	# main.gd applies the quality tier (MSAA, 3D scale, 60 fps cap) like in the
+	# game; the bench measures uncapped and may override the viewport switches.
+	Engine.max_fps = 0
+	if args.has("scale3d"):
+		root.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		root.scaling_3d_scale = float(args.scale3d)
+	if args.has("msaa"):
+		root.msaa_3d = {"2": Viewport.MSAA_2X, "4": Viewport.MSAA_4X}.get(String(args.msaa), Viewport.MSAA_DISABLED)
 	node_added.connect(_on_node_added)
 	_apply_switches_to_tree(root)
 	await _measure()
@@ -129,9 +136,9 @@ func _build_worst_case() -> void:
 	for enemy in _enemies():
 		_toughen(enemy)
 	# A late run leaves persistent corpses along the way (a full swarm cannot eat).
-	for index in 30:
+	for index in int(args.get("corpses", "30")):
 		var angle := float(index) * 2.39996
-		world._create_corpse(origin + Vector3(cos(angle), 0.0, sin(angle)) * (4.0 + float(index % 6) * 2.5), 12.0)
+		world._create_corpse(origin + Vector3(cos(angle), 0.0, sin(angle)) * (4.0 + float(index % 6) * 2.5 + float(index / 30) * 1.2), 12.0)
 
 
 func _build_menu(with_3d: bool) -> void:
@@ -178,11 +185,12 @@ func _step_systems(delta: float) -> void:
 	var t2 := Time.get_ticks_usec()
 	last_world_us = t1 - t0
 	last_swarm_us = t2 - t1
+	# Etappe 07: the swarm is one MultiMesh ("Mawlings"); cap trims its instances.
 	if args.has("cap"):
-		var cap := int(args.cap)
-		for index in swarm.units.size():
-			swarm.units[index].visible = index < cap
-		swarm.shadows.multimesh.visible_instance_count = mini(cap, swarm.units.size())
+		var cap := mini(int(args.cap), swarm.units.size())
+		for batch in [swarm.get("bodies"), swarm.get("shadows")]:
+			if batch is MultiMeshInstance3D:
+				(batch as MultiMeshInstance3D).multimesh.visible_instance_count = mini(cap, (batch as MultiMeshInstance3D).multimesh.visible_instance_count)
 
 
 func _drive_worst_case(delta: float) -> void:
@@ -210,8 +218,6 @@ func _drive_worst_case(delta: float) -> void:
 		popup_clock = 0.35
 		var spot := origin + Vector3(randf_range(-6.0, 6.0), 0.0, randf_range(-6.0, 6.0))
 		world._add_popup(spot, 10 + randi() % 30, randf_range(4.0, 20.0))
-	if mm_instance != null:
-		_update_mm_units()
 
 
 func _hold_spawn_clocks() -> void:
@@ -255,11 +261,16 @@ func _apply_switches_to_tree(node: Node) -> void:
 		swarm.shadows.visible = false
 	if _is_off("fx") and world.attack_forms != null:
 		world.attack_forms.visible = false
+	if _is_off("corpses") and world.get("corpse_batch") != null:
+		world.corpse_batch.visible = false
 	if _is_off("forms") and world.attack_forms != null:
 		world.evolution.ranks = {"jaws": 3, "pack": 3, "glutton": 3}
 		world._sync_attack_forms()
-	if args.has("mm_units"):
-		_build_mm_units()
+	if _is_off("units"):
+		for key in ["bodies", "ghost_bodies"]:
+			var batch: Variant = swarm.get(key)
+			if batch is Node3D:
+				(batch as Node3D).visible = false
 	for child in node.find_children("*", "Node3D", true, false):
 		_on_node_added(child)
 
@@ -268,15 +279,13 @@ func _on_node_added(node: Node) -> void:
 	if world == null or not (node is Node3D):
 		return
 	var parent := node.get_parent()
-	if (_is_off("units") or args.has("mm_units")) and parent == swarm and node.has_node("Game model"):
-		node.visible = false
-	elif _is_off("decor") and parent != null and parent.get_parent() == arena and not GROUND_PARTS.has(String(node.name)):
+	if _is_off("decor") and parent != null and parent.get_parent() == arena and not GROUND_PARTS.has(String(node.name)):
 		node.visible = false
 	elif _is_off("enemies") and parent == world and _named(node, ENEMY_NAMES):
 		node.visible = false
 	elif _is_off("corpses") and parent == world and String(node.name).begins_with("Persistent corpse"):
 		node.visible = false
-	elif _is_off("fx") and String(node.name).contains("Ground ring"):
+	elif _is_off("fx") and (String(node.name).contains("Ground ring") or String(node.name) == "FX rings"):
 		node.visible = false
 
 
@@ -286,33 +295,6 @@ func _named(node: Node, names: Array) -> bool:
 		if own.contains(entry):
 			return true
 	return false
-
-
-# Estimate for a MultiMesh swarm: one instance per visible Mawling, same material
-# (without per-instance leg phase; the real version would use INSTANCE_CUSTOM).
-func _build_mm_units() -> void:
-	if swarm.units.is_empty():
-		return
-	var mesh_node: MeshInstance3D = swarm._unit_mesh(swarm.units[0])
-	var multimesh := MultiMesh.new()
-	multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	multimesh.mesh = mesh_node.mesh
-	multimesh.instance_count = swarm.VISUAL_LIMIT
-	mm_instance = MultiMeshInstance3D.new()
-	mm_instance.name = "Bench MultiMesh swarm"
-	mm_instance.multimesh = multimesh
-	mm_instance.material_override = swarm.game_material
-	mm_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mm_instance.top_level = true
-	swarm.add_child(mm_instance)
-
-
-func _update_mm_units() -> void:
-	var multimesh := mm_instance.multimesh
-	var count := mini(swarm.units.size(), multimesh.instance_count)
-	for index in count:
-		multimesh.set_instance_transform(index, swarm._unit_mesh(swarm.units[index]).global_transform)
-	multimesh.visible_instance_count = count
 
 
 # ---------------------------------------------------------------- measuring
@@ -370,15 +352,17 @@ func _measure() -> void:
 		total += value
 	var p95: float = sorted[mini(sorted.size() - 1, int(sorted.size() * 0.95))] if not sorted.is_empty() else 0.0
 	var label := scene_name
+	if args.has("corpses"):
+		label += "-corpses_%s" % String(args.corpses)
+	if args.has("quality"):
+		label += "-q_%s" % String(args.quality)
 	if not off.is_empty():
 		label += "-off_" + "+".join(off)
-	if args.has("mm_units"):
-		label += "-mm_units"
 	for key in ["res", "cap", "scale3d", "msaa"]:
 		if args.has(key):
 			label += "-%s_%s" % [key, String(args[key])]
-	print("PERF scene=%s avg_ms=%.2f p95_ms=%.2f fps=%.0f process_max_ms=%.2f world_ms=%.2f swarm_ms=%.2f render_cpu_ms=%.2f gpu_ms=%.2f draw_calls=%.0f objects=%.0f prims=%.0f objs=%d nodes=%d mem_mb=%.1f vram_mb=%.1f mem_start_mb=%.1f vram_start_mb=%.1f frames=%d res=%dx%d" % [
-		label, total / n, p95, 1000.0 / maxf(0.001, total / n), process_ms / n, world_ms / n, swarm_ms / n, render_cpu_ms / n, gpu_ms / n,
+	print("PERF scene=%s tier=%s avg_ms=%.2f p95_ms=%.2f fps=%.0f process_max_ms=%.2f world_ms=%.2f swarm_ms=%.2f render_cpu_ms=%.2f gpu_ms=%.2f draw_calls=%.0f objects=%.0f prims=%.0f objs=%d nodes=%d mem_mb=%.1f vram_mb=%.1f mem_start_mb=%.1f vram_start_mb=%.1f frames=%d res=%dx%d" % [
+		label, QUALITY.tier_id(QUALITY.current_tier()), total / n, p95, 1000.0 / maxf(0.001, total / n), process_ms / n, world_ms / n, swarm_ms / n, render_cpu_ms / n, gpu_ms / n,
 		draws / n, objects / n, prims / n,
 		int(Performance.get_monitor(Performance.OBJECT_COUNT)), int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0, Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
@@ -400,9 +384,11 @@ func _print_node_breakdown(label: String) -> void:
 		enemies += _geometry(enemy)
 	for prey in world.prey:
 		enemies += _geometry(prey)
+	# Corpses are one MultiMesh (Etappe 07); count its geometry once.
 	var corpses := 0
-	for visual in world.corpse_visuals.values():
-		corpses += _geometry(visual)
+	var batch: Variant = world.get("corpse_batch")
+	if batch is GeometryInstance3D and is_instance_valid(batch) and (batch as GeometryInstance3D).is_visible_in_tree():
+		corpses = 1
 	var forms := _geometry(world.attack_forms) if world.attack_forms != null else 0
 	var swarm_geo := _geometry(swarm)
 	print("PERF_NODES scene=%s swarm_geo=%d mawling_units=%d ghosts=%d arena_chunks=%d arena_geo=%d enemy_geo=%d corpse_geo=%d corpses=%d attack_fx_geo=%d world_geo_total=%d unique_materials_hint=corpses:%d" % [
@@ -411,7 +397,9 @@ func _print_node_breakdown(label: String) -> void:
 
 
 # Visible GeometryInstance3D nodes below `node` (MultiMesh counts once).
-func _geometry(node: Node) -> int:
+func _geometry(node: Variant) -> int:
+	if not (node is Node) or not is_instance_valid(node):
+		return 0
 	var count := 0
 	for child in node.find_children("*", "GeometryInstance3D", true, false):
 		if (child as GeometryInstance3D).is_visible_in_tree():

@@ -7,6 +7,8 @@ extends Node3D
 
 const TUNING = preload("res://scripts/tuning.gd")
 const UI_ICONS = preload("res://scripts/ui/ui_icons.gd")
+const FX_BATCH = preload("res://scripts/fx_batch.gd")
+static var _parts := {}
 const VIOLET := Color("b07ae8")
 const CURSE := Color("ff4a8a")
 const STONE := Color("3a2a48")
@@ -37,56 +39,19 @@ func _ready() -> void:
 	_fill_disc = _part(self, zone, _fill_material, Vector3(0, 0.045, 0))
 	_fill_disc.scale = Vector3(0.001, 1.0, 0.001)
 	_ring_material = _flat(Color(VIOLET, 0.9))
-	var shard := CylinderMesh.new()
-	shard.top_radius = 0.0
-	shard.bottom_radius = 0.13
-	shard.height = 0.5
-	shard.radial_segments = 4
-	for index in 9:
-		var angle := TAU * float(index) / 9.0
-		var part := _part(self, shard, _ring_material, Vector3(cos(angle) * radius, 0.2, sin(angle) * radius))
-		part.rotation = Vector3(0.0, -angle, 0.35)
-	var stone := StandardMaterial3D.new()
-	stone.albedo_color = STONE
-	stone.roughness = 0.9
-	var sizes := [[0.62, 0.62, 0.31], [0.5, 0.6, 0.92], [0.4, 0.58, 1.5]]
-	for entry in sizes:
-		var block := CylinderMesh.new()
-		block.top_radius = entry[0] * 0.8
-		block.bottom_radius = entry[0]
-		block.height = entry[1]
-		block.radial_segments = 7
-		var part := _part(self, block, stone, Vector3(0, entry[2], 0))
-		part.rotation.y = entry[2] * 2.0
+	# Etappe 07: same-material parts are merged meshes (shards, stone stack,
+	# skull + horns, eyes), built once per radius and shared.
+	var parts := _shared_parts(radius)
+	_part(self, parts.shards, _ring_material, Vector3.ZERO)
+	_part(self, parts.stack, FX_BATCH.shared_material(STONE, false, false, 0.9), Vector3.ZERO)
 	_head = Node3D.new()
 	_head.position = Vector3(0, HEAD_HEIGHT, 0)
 	add_child(_head)
-	var bone := StandardMaterial3D.new()
-	bone.albedo_color = BONE
-	bone.roughness = 0.6
-	var skull := SphereMesh.new()
-	skull.radius = 0.42
-	skull.height = 0.72
-	_part(_head, skull, bone, Vector3.ZERO)
-	var horn := CylinderMesh.new()
-	horn.top_radius = 0.0
-	horn.bottom_radius = 0.14
-	horn.height = 0.7
-	for side in [-1.0, 1.0]:
-		var part := _part(_head, horn, bone, Vector3(side * 0.42, 0.28, 0))
-		part.rotation.z = -side * 0.7
+	_part(_head, parts.skull, FX_BATCH.shared_material(BONE, false, false, 0.6), Vector3.ZERO)
 	_eye_material = _flat(CURSE, false)
-	var eye := SphereMesh.new()
-	eye.radius = 0.09
-	eye.height = 0.14
-	for side in [-1.0, 1.0]:
-		_part(_head, eye, _eye_material, Vector3(side * 0.15, 0.02, 0.36))
+	_part(_head, parts.eyes, _eye_material, Vector3.ZERO)
 	_beam_material = _flat(Color(VIOLET, 0.22))
-	var beam := CylinderMesh.new()
-	beam.top_radius = 0.05
-	beam.bottom_radius = 0.32
-	beam.height = 5.0
-	_part(self, beam, _beam_material, Vector3(0, 2.5, 0))
+	_part(self, parts.beam, _beam_material, Vector3(0, 2.5, 0))
 	var icon := UI_ICONS.texture("skull")
 	if icon != null:
 		var sprite := Sprite3D.new()
@@ -133,6 +98,67 @@ func _apply(_delta: float) -> void:
 	_beam_material.albedo_color = Color(VIOLET.lerp(CURSE, hold), 0.14 + 0.1 * pulse)
 	_head.position.y = HEAD_HEIGHT + 0.08 * sin(_time * 1.8)
 	_head.rotation.y = 0.25 * sin(_time * 0.9)
+
+
+static func _shared_parts(zone_radius: float) -> Dictionary:
+	var key := snappedf(zone_radius, 0.01)
+	if _parts.has(key):
+		return _parts[key]
+	var shard := CylinderMesh.new()
+	shard.top_radius = 0.0
+	shard.bottom_radius = 0.13
+	shard.height = 0.5
+	shard.radial_segments = 4
+	shard.rings = 1
+	var shards: Array = []
+	for index in 9:
+		var angle := TAU * float(index) / 9.0
+		shards.append([shard, Transform3D(Basis.from_euler(Vector3(0.0, -angle, 0.35)), Vector3(cos(angle) * zone_radius, 0.2, sin(angle) * zone_radius))])
+	var stack: Array = []
+	for entry in [[0.62, 0.62, 0.31], [0.5, 0.6, 0.92], [0.4, 0.58, 1.5]]:
+		var block := CylinderMesh.new()
+		block.top_radius = entry[0] * 0.8
+		block.bottom_radius = entry[0]
+		block.height = entry[1]
+		block.radial_segments = 7
+		block.rings = 1
+		stack.append([block, Transform3D(Basis(Vector3.UP, entry[2] * 2.0), Vector3(0, entry[2], 0))])
+	var skull := SphereMesh.new()
+	skull.radius = 0.42
+	skull.height = 0.72
+	skull.radial_segments = 20
+	skull.rings = 10
+	var horn := CylinderMesh.new()
+	horn.top_radius = 0.0
+	horn.bottom_radius = 0.14
+	horn.height = 0.7
+	horn.radial_segments = 12
+	horn.rings = 1
+	var head: Array = [[skull, Transform3D.IDENTITY]]
+	var eye := SphereMesh.new()
+	eye.radius = 0.09
+	eye.height = 0.14
+	eye.radial_segments = 10
+	eye.rings = 5
+	var eyes: Array = []
+	for side in [-1.0, 1.0]:
+		head.append([horn, Transform3D(Basis(Vector3.BACK, -side * 0.7), Vector3(side * 0.42, 0.28, 0))])
+		eyes.append([eye, Transform3D(Basis.IDENTITY, Vector3(side * 0.15, 0.02, 0.36))])
+	var beam := CylinderMesh.new()
+	beam.top_radius = 0.05
+	beam.bottom_radius = 0.32
+	beam.height = 5.0
+	beam.radial_segments = 20
+	beam.rings = 1
+	var result := {
+		"shards": FX_BATCH.merge(shards),
+		"stack": FX_BATCH.merge(stack),
+		"skull": FX_BATCH.merge(head),
+		"eyes": FX_BATCH.merge(eyes),
+		"beam": beam,
+	}
+	_parts[key] = result
+	return result
 
 
 func _flat(color: Color, transparent := true) -> StandardMaterial3D:

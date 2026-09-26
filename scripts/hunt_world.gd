@@ -9,6 +9,10 @@ const BOG_KING = preload("res://scripts/bog_king.gd")
 const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
+const FX_BATCH = preload("res://scripts/fx_batch.gd")
+const QUALITY = preload("res://scripts/quality.gd")
+const CORPSE_COLOR := Color("efb642")
+const CORPSE_BATCH_STEP := 64
 const BROOD_NEST = preload("res://scripts/objectives/brood_nest.gd")
 const CURSE_TOTEM = preload("res://scripts/objectives/curse_totem.gd")
 const HUD_OBJECTIVES_PATH := "res://scripts/ui/hud_objectives.gd"
@@ -59,7 +63,15 @@ var hunters: Array[Node3D] = []
 var skitters: Array[Node3D] = []
 var leapers: Array[Node3D] = []
 var boss: Node3D
+# Corpse display (Etappe 07): id -> instance index in corpse_batch; index -> id.
 var corpse_visuals: Dictionary = {}
+var corpse_slots: Array[int] = []
+var corpse_transforms: Array[Transform3D] = []
+var corpse_batch: MultiMeshInstance3D
+# Merged corpse meshes per segment count, shared by every run.
+static var _corpse_meshes := {}
+# Shared look of the Alpha-Kern and the curse aura (built once).
+static var _alpha_parts := {}
 var spawn_clock := 0.0
 var hunter_clock := TUNING.FIRST_HUNTER_SECONDS
 var skitter_clock := TUNING.FIRST_SKITTER_SECONDS
@@ -135,6 +147,9 @@ func reset_run() -> void:
 	enemy_states.clear()
 	boss = null
 	corpse_visuals.clear()
+	corpse_slots.clear()
+	corpse_transforms.clear()
+	corpse_batch = null
 	evolution = EVOLUTION.new()
 	model = RUN_MODEL.new()
 	_configure_run()
@@ -556,36 +571,93 @@ func _create_corpse(location: Vector3, biomass: float) -> int:
 	var id: int = model.add_corpse(location, biomass * reward_multiplier())
 	if id < 0:
 		return id
-	var visual := Node3D.new()
-	visual.name = "Persistent corpse %d" % id
-	visual.position = location
-	add_child(visual)
-	var amber := StandardMaterial3D.new()
-	amber.albedo_color = Color("efb642")
-	amber.roughness = 0.8
-	var ring := CylinderMesh.new()
-	ring.top_radius = 0.7
-	ring.bottom_radius = 0.7
-	ring.height = 0.06
-	_piece(visual, ring, amber, Vector3(0.0, 0.05, 0.0))
-	var core := SphereMesh.new()
-	core.radius = 0.25
-	core.height = 0.4
-	_piece(visual, core, amber, Vector3(0.0, 0.25, 0.0))
-	corpse_visuals[id] = visual
+	_ensure_corpse_batch()
+	var index := corpse_slots.size()
+	corpse_slots.append(id)
+	corpse_transforms.append(Transform3D(Basis.IDENTITY, location))
+	corpse_visuals[id] = index
+	if index >= corpse_batch.multimesh.instance_count:
+		_grow_corpse_batch()
+	else:
+		corpse_batch.multimesh.set_instance_transform(index, corpse_transforms[index])
+	corpse_batch.multimesh.visible_instance_count = corpse_slots.size()
 	return id
 
 
 func _update_corpse(id: int, initial: float) -> void:
-	var visual: Node3D = corpse_visuals.get(id)
-	if visual == null:
+	if not corpse_visuals.has(id) or corpse_batch == null:
 		return
+	var index: int = corpse_visuals[id]
 	var remaining: float = model.remaining_biomass(id)
 	if remaining <= 0.0:
+		# Swap-remove: the last instance takes the freed slot (O(1)).
+		var last := corpse_slots.size() - 1
+		if index != last:
+			var moved_id: int = corpse_slots[last]
+			corpse_slots[index] = moved_id
+			corpse_transforms[index] = corpse_transforms[last]
+			corpse_visuals[moved_id] = index
+			corpse_batch.multimesh.set_instance_transform(index, corpse_transforms[index])
+		corpse_slots.remove_at(last)
+		corpse_transforms.remove_at(last)
 		corpse_visuals.erase(id)
-		visual.queue_free()
+		corpse_batch.multimesh.visible_instance_count = corpse_slots.size()
 	else:
-		visual.scale = Vector3.ONE * (0.45 + 0.55 * remaining / initial)
+		var size := 0.45 + 0.55 * remaining / initial
+		corpse_transforms[index] = Transform3D(Basis.from_scale(Vector3.ONE * size), corpse_transforms[index].origin)
+		corpse_batch.multimesh.set_instance_transform(index, corpse_transforms[index])
+
+
+# Every persistent corpse is one instance of a single MultiMesh (disc + core
+# merged, one shared material): one draw call however long the run lasts. The
+# corpses themselves live in RunModel; this is display only.
+func _ensure_corpse_batch() -> void:
+	if corpse_batch != null and is_instance_valid(corpse_batch) and not corpse_batch.is_queued_for_deletion():
+		return
+	corpse_slots.clear()
+	corpse_transforms.clear()
+	corpse_visuals.clear()
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = _corpse_mesh()
+	multimesh.instance_count = CORPSE_BATCH_STEP
+	multimesh.visible_instance_count = 0
+	corpse_batch = MultiMeshInstance3D.new()
+	corpse_batch.name = "Persistent corpses"
+	corpse_batch.multimesh = multimesh
+	corpse_batch.material_override = FX_BATCH.shared_material(CORPSE_COLOR, false, false, 0.8)
+	corpse_batch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(corpse_batch)
+	corpse_batch.top_level = true
+	corpse_batch.transform = Transform3D.IDENTITY
+
+
+# Changing instance_count clears the buffer, so all live corpses are rewritten.
+func _grow_corpse_batch() -> void:
+	var multimesh := corpse_batch.multimesh
+	multimesh.instance_count = (corpse_slots.size() / CORPSE_BATCH_STEP + 1) * CORPSE_BATCH_STEP
+	for index in corpse_slots.size():
+		multimesh.set_instance_transform(index, corpse_transforms[index])
+
+
+static func _corpse_mesh() -> ArrayMesh:
+	var segments := maxi(8, int(QUALITY.value("corpse_segments", 16)))
+	if _corpse_meshes.has(segments):
+		return _corpse_meshes[segments]
+	var ring := CylinderMesh.new()
+	ring.top_radius = 0.7
+	ring.bottom_radius = 0.7
+	ring.height = 0.06
+	ring.radial_segments = segments * 2
+	ring.rings = 1
+	var core := SphereMesh.new()
+	core.radius = 0.25
+	core.height = 0.4
+	core.radial_segments = segments
+	core.rings = maxi(4, segments / 2)
+	var merged := FX_BATCH.merge([[ring, Transform3D(Basis.IDENTITY, Vector3(0.0, 0.05, 0.0))], [core, Transform3D(Basis.IDENTITY, Vector3(0.0, 0.25, 0.0))]])
+	_corpse_meshes[segments] = merged
+	return merged
 
 
 func _piece(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -> MeshInstance3D:
@@ -607,48 +679,55 @@ func _drop_alpha_core(location: Vector3) -> Node3D:
 	pickup.name = "Alpha core"
 	pickup.position = get_parent().get_node("Arena").safe_spawn(location + offset, 0.5)
 	add_child(pickup)
-	var glow := StandardMaterial3D.new()
-	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	glow.albedo_color = ALPHA_AMBER
-	var shell := StandardMaterial3D.new()
-	shell.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	shell.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	shell.albedo_color = Color(ALPHA_VIOLET, 0.55)
-	var halo := StandardMaterial3D.new()
-	halo.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	halo.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	halo.albedo_color = Color(ALPHA_AMBER, 0.75)
-	halo.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var parts := _alpha_core_parts()
+	var glow: Material = FX_BATCH.shared_material(ALPHA_AMBER, true)
+	var shell: Material = FX_BATCH.shared_material(Color(ALPHA_VIOLET, 0.55), true, true)
+	var halo: Material = FX_BATCH.shared_material(Color(ALPHA_AMBER, 0.75), true, true, 1.0, true)
 	var float_root := Node3D.new()
 	float_root.name = "Float"
 	pickup.add_child(float_root)
+	_piece(float_root, parts.gem, glow, Vector3(0.0, 1.3, 0.0))
+	_piece(float_root, parts.outer, shell, Vector3(0.0, 1.3, 0.0))
+	var ground := _piece(pickup, parts.ring, halo, Vector3(0.0, 0.08, 0.0))
+	ground.scale = Vector3(1.0, 0.2, 1.0)
+	_piece(pickup, parts.beam, shell, Vector3(0.0, 2.0, 0.0))
+	alpha_pickups.append(pickup)
+	FX.ring(self, pickup.position, Color(ALPHA_VIOLET, 0.8), 0.3, 2.4, 0.6)
+	return pickup
+
+
+# Meshes of the Alpha-Kern and the curse aura, built once and shared.
+static func _alpha_core_parts() -> Dictionary:
+	if not _alpha_parts.is_empty():
+		return _alpha_parts
 	var gem := SphereMesh.new()
 	gem.radius = 0.36
 	gem.height = 0.84
 	gem.radial_segments = 6
 	gem.rings = 3
-	_piece(float_root, gem, glow, Vector3(0.0, 1.3, 0.0))
 	var outer := SphereMesh.new()
 	outer.radius = 0.62
 	outer.height = 1.24
 	outer.radial_segments = 8
 	outer.rings = 4
-	_piece(float_root, outer, shell, Vector3(0.0, 1.3, 0.0))
 	var ring := TorusMesh.new()
 	ring.inner_radius = 0.85
 	ring.outer_radius = 1.1
 	ring.rings = 32
 	ring.ring_segments = 4
-	var ground := _piece(pickup, ring, halo, Vector3(0.0, 0.08, 0.0))
-	ground.scale = Vector3(1.0, 0.2, 1.0)
 	var beam := CylinderMesh.new()
 	beam.top_radius = 0.04
 	beam.bottom_radius = 0.2
 	beam.height = 4.0
-	_piece(pickup, beam, shell, Vector3(0.0, 2.0, 0.0))
-	alpha_pickups.append(pickup)
-	FX.ring(self, pickup.position, Color(ALPHA_VIOLET, 0.8), 0.3, 2.4, 0.6)
-	return pickup
+	beam.radial_segments = 16
+	beam.rings = 1
+	var aura := TorusMesh.new()
+	aura.inner_radius = 2.4
+	aura.outer_radius = 2.95
+	aura.rings = 48
+	aura.ring_segments = 4
+	_alpha_parts = {"gem": gem, "outer": outer, "ring": ring, "beam": beam, "aura": aura}
+	return _alpha_parts
 
 
 # Animates stored-on-ground cores and collects touched ones.
@@ -849,16 +928,8 @@ func _on_boss_spawned(target: Node3D) -> void:
 	target.set_meta("cursed", true)
 	target.health *= TUNING.CURSE_BOSS_MULTIPLIER
 	target.max_health = target.health
-	var aura_material := StandardMaterial3D.new()
-	aura_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	aura_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	aura_material.albedo_color = Color(CURSE_COLOR, 0.75)
-	var aura := TorusMesh.new()
-	aura.inner_radius = 2.4
-	aura.outer_radius = 2.95
-	aura.rings = 48
-	aura.ring_segments = 4
-	var ring := _piece(target, aura, aura_material, Vector3(0.0, 0.12, 0.0))
+	var aura_material: Material = FX_BATCH.shared_material(Color(CURSE_COLOR, 0.75), true, true)
+	var ring := _piece(target, _alpha_core_parts().aura, aura_material, Vector3(0.0, 0.12, 0.0))
 	ring.name = "Curse aura"
 	ring.scale = Vector3(1.0, 0.3, 1.0)
 
@@ -951,16 +1022,21 @@ func _update_hud(message: String) -> void:
 	if "objectives" in hud:
 		hud.set("objectives", objectives)
 	hud.nearest_corpse = ""
+	# Etappe 07: squared distances in the loop, the label is formatted once.
 	var nearest := INF
+	var nearest_offset := Vector3.ZERO
 	for corpse in model.corpses:
 		var offset: Vector3 = corpse.position - swarm.position
-		var distance := offset.length()
-		if distance < nearest:
-			nearest = distance
-			var direction := "hier"
-			if distance > TUNING.HARVEST_RADIUS:
-				direction = ("oben" if offset.z < 0 else "unten") if absf(offset.z) > absf(offset.x) else ("links" if offset.x < 0 else "rechts")
-			hud.nearest_corpse = "Kadaver: %dm · %s" % [int(distance), direction]
+		var distance_squared := offset.length_squared()
+		if distance_squared < nearest:
+			nearest = distance_squared
+			nearest_offset = offset
+	if nearest < INF:
+		var distance := sqrt(nearest)
+		var direction := "hier"
+		if distance > TUNING.HARVEST_RADIUS:
+			direction = ("oben" if nearest_offset.z < 0 else "unten") if absf(nearest_offset.z) > absf(nearest_offset.x) else ("links" if nearest_offset.x < 0 else "rechts")
+		hud.nearest_corpse = "Kadaver: %dm · %s" % [int(distance), direction]
 	hud.queue_redraw()
 
 

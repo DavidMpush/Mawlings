@@ -12,6 +12,7 @@ const CHIP_Y := 392.0          # left column, below corpse and biomass hints
 const POINTER_GAP := 128.0     # minimum distance between two edge markers
 
 var _time := 0.0
+var _last_key: Variant = null
 
 
 func _ready() -> void:
@@ -19,9 +20,19 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
+# Stage 07: repaint only when the markers move or pulse (30 Hz) or the curse
+# chip pulses (20 Hz); with nothing to show it stays empty and costs nothing.
 func _process(delta: float) -> void:
 	_time += delta
-	queue_redraw()
+	var key: Array = [size]
+	var state := _state()
+	if not state.is_empty() and not _hidden():
+		var markers := bool(state.get("nest_active", false)) or bool(state.get("totem_active", false))
+		var tick := int(_time * 30.0) if markers else (int(_time * 20.0) if int(state.get("curse", 0)) > 0 else 0)
+		key = [size, state.duplicate(), get_parent().get("boss_pointer"), tick]
+	if typeof(_last_key) != TYPE_ARRAY or key != _last_key:
+		queue_redraw()
+	_last_key = key
 
 
 func _state() -> Dictionary:
