@@ -1,0 +1,7 @@
+# Skitter – Prüfstand 26.09.2026
+
+Der Skitter ist die zweite aktive Gefahr im Survival-Run. Ab 45 Sekunden erscheint er zunächst einzeln; später sind bis zu drei gleichzeitig möglich. Seine einsekündige gelbe Sprintwarnung bleibt an einer geraden Bahn stehen. Seitliches Ausweichen verhindert den einmaligen Treffer. Steine verkürzen die Bahn; ohne sichtbare Bahn gibt es keinen Sprinttreffer. Jäger und Skitter steuern um Steine herum. Getötete Skitter geben 15 DNA und lassen 18 Biomasse als bleibenden Kadaver zurück. Sie pausieren mit der Welt und verschwinden beim Run-Neustart.
+
+`tests/skitter.gd` prüft sichtbare festgelegte Warnung, seitliches Ausweichen, genau einen Treffer, Deckung und unmögliche unsichtbare Sprints, Wegfindung um Steine, Spawn/HUD, DNA/Kadaver und Neustart. Smoke-, Survival-, Evolution- und Arena-Prüfungen bestanden ebenfalls. `tests/capture_skitter.gd` rendert die Hochformatwarnung in `preview_skitter.png`; das Bild wurde betrachtet.
+
+Der automatisierte Run mit `--fixed-fps 60 -- --long` erreichte 360 Spielsekunden mit 250 Mawlings, 84 Kills, 66 Verlusten, 68 liegenden Kadavern und drei aktiven Skittern. Mit `-- --very-long` starb der Testschwarm nach 543,1 Spielsekunden; 154 Kills und 18 Evolutionsstufen waren erreicht. Die Botsteuerung weicht beiden Warnmustern aus und ist kein Ersatz für menschliches Balancing. Der Run endete durch Aussterben, nicht durch eine Zeitmarke. Test auf dem Samsung S25 steht aus.

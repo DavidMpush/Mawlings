@@ -71,6 +71,48 @@ func _push_out(point: Vector3, radius: float) -> Vector3:
 					point.z = center.z + normal.y * minimum
 	return point
 
+func is_open(location: Vector3, radius: float) -> bool:
+	var middle := _cell(location)
+	for x in range(middle.x - 1, middle.x + 2):
+		for z in range(middle.y - 1, middle.y + 2):
+			for center in obstacle_centers(Vector2i(x, z)):
+				if location.distance_to(center) < OBSTACLE_RADIUS + radius:
+					return false
+	return true
+
+func clear_line(start: Vector3, desired_end: Vector3, radius: float) -> Vector3:
+	var distance := start.distance_to(desired_end)
+	var samples := maxi(1, ceili(distance / 0.25))
+	var clear := start
+	for index in range(1, samples + 1):
+		var candidate := start.lerp(desired_end, float(index) / samples)
+		if not is_open(candidate, radius):
+			break
+		clear = candidate
+	return clear
+
+func steer_direction(start: Vector3, target: Vector3, radius: float) -> Vector3:
+	var desired := target - start
+	desired.y = 0
+	if desired.length_squared() < 0.0001:
+		return Vector3.ZERO
+	var forward := desired.normalized()
+	if clear_line(start, start + forward * minf(3.5, desired.length()), radius).distance_to(start) >= minf(3.5, desired.length()) - 0.2:
+		return forward
+	var best := INF
+	var side := 1.0
+	var middle := _cell(start)
+	for x in range(middle.x - 1, middle.x + 2):
+		for z in range(middle.y - 1, middle.y + 2):
+			for center in obstacle_centers(Vector2i(x, z)):
+				var offset := center - start
+				var ahead := offset.dot(forward)
+				var cross := forward.x * offset.z - forward.z * offset.x
+				if ahead > 0 and ahead < 4.5 and absf(cross) < OBSTACLE_RADIUS + radius + 0.5 and ahead < best:
+					best = ahead
+					side = 1.0 if cross >= 0 else -1.0
+	return Vector3(forward.z * side, 0, -forward.x * side)
+
 func safe_spawn(location: Vector3, radius: float) -> Vector3:
 	return _push_out(location, radius)
 

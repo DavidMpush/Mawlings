@@ -16,13 +16,15 @@ Die drei türkisfarbenen Nibbler fliehen vor dem Schwarm. In Nähe greift er aut
 
 Nach 18 Sekunden kommt der erste violette **Jäger**. Ein blauer Ring kündigt sein Erscheinen an. Sein roter Angriffsring bleibt während der 1,25 Sekunden langen Warnung fest an der markierten Position: rechtzeitig herauslaufen. Treffer kosten Mawlings und erzeugen eine Verlustanzeige. Rally erhöht den Bissschaden; ein besiegter Jäger hinterlässt 26 Biomasse. Bei höherem Druck werden Jäger schneller und markieren Flächen vor der aktuellen Laufrichtung. Richtungswechsel bleiben möglich, da sie die Warnfläche anschließend nicht nachführen.
 
-Der Zeitdruck verdoppelt sich alle 90 Spielsekunden und erhöht Angriffsleistung, neue Jägergesundheit und Spawnrate. Maximal zwölf Jäger und fünf Nibbler sind gleichzeitig aktiv. **Nur Aussterben beendet den Run**; es gibt kein Zeitlimit. Die Ergebnisanzeige zeigt Überlebenszeit, höchste Population, Kills und geerntete Biomasse. Mit **NEUER RUN**, **R** oder **Enter** neu starten. **P / Escape** oder der Pause-Button pausiert; bei Fokusverlust pausiert das Spiel ebenfalls. Die Kadaver bleiben innerhalb des aktiven Runs erhalten; Neustart setzt den gesamten Run zurück.
+Ab etwa 45 Sekunden kommt der blau-pinke **Skitter** hinzu. Er markiert eine gerade, gelbe Sprintbahn für eine Sekunde und schießt danach entlang dieser festen Spur. Seitlich ausweichen; Steine stoppen die Sprintbahn und können Deckung bieten. Skitter hinterlassen 18 Biomasse und geben 15 DNA. Im HUD stehen aktive Jäger und Skitter.
+
+Der Zeitdruck verdoppelt sich alle 90 Spielsekunden und erhöht Angriffsleistung, neue Gegnergesundheit und Spawnrate. Maximal zwölf Jäger, drei Skitter und fünf Nibbler sind gleichzeitig aktiv. **Nur Aussterben beendet den Run**; es gibt kein Zeitlimit. Die Ergebnisanzeige zeigt Überlebenszeit, höchste Population, Kills und geerntete Biomasse. Mit **NEUER RUN**, **R** oder **Enter** neu starten. **P / Escape** oder der Pause-Button pausiert; bei Fokusverlust pausiert das Spiel ebenfalls. Die Kadaver bleiben innerhalb des aktiven Runs erhalten; Neustart setzt den gesamten Run zurück.
 
 Das ist ein spielbarer **Survival-Mechanik-Prototyp** mit vorläufigen Werten und Formen. Angriff, Ernte und Flächentreffer verwenden vorerst die Entfernung zum Schwarmzentrum; individuelle Mawlings haben keine eigene Kampf-KI. Bosse und endgültige Grafik sind noch nicht enthalten. Zentrale Survival-Werte stehen in `scripts/tuning.gd`.
 
 ## Evolution im Run
 
-Nibbler geben 10 DNA, Jäger 20 DNA. Ab 20 DNA öffnet sich eine Auswahl aus bis zu drei verschiedenen Mutationen. Antippen oder **1 / 2 / 3** wählt eine Verbesserung; währenddessen stehen Kampf, Ernte, Spawns und Run-Zeit still. Jede weitere Auswahl kostet 10 DNA mehr. Überschüsse bleiben erhalten. Es gibt sechs Mutationen mit jeweils maximal drei Rängen:
+Nibbler geben 10 DNA, Skitter 15 DNA, Jäger 20 DNA. Ab 20 DNA öffnet sich eine Auswahl aus bis zu drei verschiedenen Mutationen. Antippen oder **1 / 2 / 3** wählt eine Verbesserung; währenddessen stehen Kampf, Ernte, Spawns und Run-Zeit still. Jede weitere Auswahl kostet 10 DNA mehr. Überschüsse bleiben erhalten. Es gibt sechs Mutationen mit jeweils maximal drei Rängen:
 
 | Mutation | Effekt je Rang |
 |---|---|
@@ -50,9 +52,10 @@ Automatisierte Prüfungen mit der installierten Godot-Konsole:
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/survival.gd'
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/evolution.gd'
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/arena.gd'
+& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/skitter.gd'
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --fixed-fps 60 --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/endless_playthrough.gd'
 ```
 
-Prüfstand und Grenzen: [Survival-Prüfung](SURVIVAL_VERIFICATION.md), [Evolution](EVOLUTION_VERIFICATION.md) und [Arena](ARENA_VERIFICATION.md).
+Prüfstand und Grenzen: [Survival-Prüfung](SURVIVAL_VERIFICATION.md), [Evolution](EVOLUTION_VERIFICATION.md), [Arena](ARENA_VERIFICATION.md) und [Skitter](SKITTER_VERIFICATION.md).
 
 Projektdateien liegen unter `scenes/` und `scripts/`; `.godot/` wird nicht versioniert. Das Projekt besitzt ein eigenes Git-Repository, damit Dateien außerhalb dieses Ordners nicht dazugehören.

@@ -78,7 +78,9 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 	if state == State.CHASE:
 		var offset := swarm_position - global_position
 		offset.y = 0.0
-		if offset.length() <= 3.0:
+		var arena: Node3D = get_parent().get_parent().get_node("Arena")
+		var line_clear: bool = arena.clear_line(position, swarm_position, 0.8).distance_to(position) >= offset.length() - 0.3
+		if offset.length() <= 3.0 and line_clear:
 			state = State.WARNING
 			remaining = TUNING.HUNTER_WARNING_SECONDS
 			# Later hunters lead straight-line movement, but the announced area
@@ -91,7 +93,8 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 			warning_material.albedo_color = Color("ff674b")
 			warning.visible = true
 		else:
-			position = get_parent().get_parent().get_node("Arena").resolve_motion(position, offset.normalized() * minf(8.2, TUNING.HUNTER_SPEED + log(pressure) * 0.9) * delta, 0.8)
+			var direction: Vector3 = arena.steer_direction(position, swarm_position, 0.8)
+			position = arena.resolve_motion(position, direction * minf(8.2, TUNING.HUNTER_SPEED + log(pressure) * 0.9) * delta, 0.8)
 		return 0
 	remaining -= delta
 	if state == State.WARNING:

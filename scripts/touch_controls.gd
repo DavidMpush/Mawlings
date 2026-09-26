@@ -14,6 +14,8 @@ var population := 25
 var biomass_bank := 0.0
 var corpse_count := 0
 var kills := 0
+var hunters := 0
+var skitters := 0
 var hint := ""
 var elapsed := 0.0
 var pressure := 1.0
@@ -135,9 +137,10 @@ func _draw() -> void:
 	draw_string(font, Vector2(38.0, 63.0), "MAWLINGS", HORIZONTAL_ALIGNMENT_LEFT, -1, 31, Color("ffe6b4"))
 	draw_string(font, Vector2(38.0, 103.0), "Schwarm  %d" % population, HORIZONTAL_ALIGNMENT_LEFT, -1, 27, Color.WHITE)
 	draw_string(font, Vector2(38.0, 144.0), "Biomasse  %.1f / 2" % biomass_bank, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("d5e7d4"))
-	draw_string(font, Vector2(38.0, 178.0), "Kadaver  %d    Beute  %d" % [corpse_count, kills], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("d5e7d4"))
+	draw_string(font, Vector2(38.0, 178.0), "Kadaver  %d    Kills  %d" % [corpse_count, kills], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("d5e7d4"))
 	draw_string(font, Vector2(38.0, 239.0), "%02d:%02d   ·   Druck ×%.1f" % [int(elapsed) / 60, int(elapsed) % 60, pressure], HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color("ffe6b4"))
 	draw_string(font, Vector2(38.0, 277.0), nearest_corpse, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("ffe6b4"))
+	draw_string(font, Vector2(38, 353), "Jäger  %d    Skitter  %d" % [hunters, skitters], HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color("f6d9aa"))
 	draw_rect(_pause_rect(), Color(0.05, 0.12, 0.10, 0.85))
 	draw_string(font, _pause_rect().position + Vector2(22, 44), "PAUSE", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
 	if hit_feedback > 0.0:

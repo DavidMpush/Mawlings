@@ -4,6 +4,7 @@ const EVOLUTION = preload("res://scripts/evolution.gd")
 const RUN_MODEL = preload("res://scripts/run_model.gd")
 const PREY = preload("res://scripts/prey.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
+const SKITTER = preload("res://scripts/skitter.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const CORPSE_BIOMASS := TUNING.CORPSE_BIOMASS
 
@@ -13,9 +14,11 @@ var evolution = EVOLUTION.new()
 var model = RUN_MODEL.new()
 var prey: Array[Node3D] = []
 var hunters: Array[Node3D] = []
+var skitters: Array[Node3D] = []
 var corpse_visuals: Dictionary = {}
 var spawn_clock := 0.0
 var hunter_clock := TUNING.FIRST_HUNTER_SECONDS
+var skitter_clock := TUNING.FIRST_SKITTER_SECONDS
 var spawn_number := 0
 var paused := false
 var hit_feedback := 0.0
@@ -39,11 +42,13 @@ func reset_run() -> void:
 		child.queue_free()
 	prey.clear()
 	hunters.clear()
+	skitters.clear()
 	corpse_visuals.clear()
 	evolution = EVOLUTION.new()
 	model = RUN_MODEL.new()
 	spawn_clock = 0.0
 	hunter_clock = TUNING.FIRST_HUNTER_SECONDS
+	skitter_clock = TUNING.FIRST_SKITTER_SECONDS
 	spawn_number = 0
 	paused = false
 	hit_feedback = 0.0
@@ -120,6 +125,31 @@ func step(delta: float) -> void:
 				return
 		if hunter.get("state") == HUNTER.State.WARNING:
 			message = "RAUS AUS DEM ROTEN RING!"
+	for skitter in skitters.duplicate():
+		if skitter.get("state") != SKITTER.State.ARRIVING and skitter.position.distance_to(swarm.position) < attack_range:
+			skitter.take_damage(damage * delta)
+			message = "Skitter angreifen · seitlich ausweichen"
+			if skitter.health <= 0:
+				skitters.erase(skitter)
+				_create_corpse(skitter.position, TUNING.SKITTER_BIOMASS * evolution.biomass_multiplier())
+				_award_dna(15)
+				skitter.cleanup()
+				skitter.queue_free()
+				if choosing():
+					return
+				continue
+		var loss: int = skitter.step(delta, swarm.position, pressure)
+		if loss > 0:
+			last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
+			swarm.set_population(model.population)
+			hit_feedback = 1.2
+			if model.extinct:
+				swarm.set_controls(Vector2.ZERO, false)
+				hud.clear_pointers()
+				_update_hud("Ausgestorben")
+				return
+		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH]:
+			message = "SPRINT! SEITLICH AUSWEICHEN"
 	for corpse in model.corpses.duplicate():
 		var id: int = corpse.id
 		if corpse.position.distance_to(swarm.position) > TUNING.HARVEST_RADIUS:
@@ -142,6 +172,11 @@ func step(delta: float) -> void:
 	if hunter_clock <= 0.0 and hunters.size() < hunter_budget:
 		_spawn_hunter(_spawn_position(8.0))
 		hunter_clock = maxf(2.5, 12.0 / sqrt(pressure))
+	skitter_clock -= delta
+	var skitter_budget := mini(TUNING.MAX_SKITTERS, 1 + int(model.elapsed / 90.0))
+	if model.elapsed >= TUNING.FIRST_SKITTER_SECONDS and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
+		_spawn_skitter(_spawn_position(9.0))
+		skitter_clock = maxf(7.0, 28.0 / sqrt(pressure))
 	_update_hud(message)
 
 
@@ -167,6 +202,17 @@ func _spawn_hunter(location: Vector3) -> Node3D:
 	target.max_health = target.health
 	add_child(target)
 	hunters.append(target)
+	return target
+
+
+func _spawn_skitter(location: Vector3) -> Node3D:
+	var target = SKITTER.new()
+	target.name = "Skitter"
+	target.position = location
+	target.health = TUNING.SKITTER_HEALTH * sqrt(model.pressure())
+	target.max_health = target.health
+	add_child(target)
+	skitters.append(target)
 	return target
 
 
@@ -227,6 +273,8 @@ func _update_hud(message: String) -> void:
 	hud.biomass_bank = model.biomass_bank
 	hud.corpse_count = model.corpses.size()
 	hud.kills = model.kills
+	hud.hunters = hunters.size()
+	hud.skitters = skitters.size()
 	hud.elapsed = model.elapsed
 	hud.pressure = model.pressure()
 	hud.extinct = model.extinct
