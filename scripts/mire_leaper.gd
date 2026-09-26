@@ -9,7 +9,7 @@ const FX = preload("res://scripts/fx.gd")
 const TG = preload("res://scripts/telegraph_style.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
 
-const ARRIVE_SECONDS := 0.8
+const ARRIVE_SECONDS := TUNING.LEAPER_ARRIVE_SECONDS
 const BODY_RADIUS := 0.7
 const ARC_DOTS := 11
 const LAND_SQUASH_SECONDS := 0.3
@@ -144,7 +144,7 @@ func _logic(delta: float, swarm_position: Vector3, pressure: float) -> int:
 	match state:
 		State.ARRIVING:
 			state = State.STALK
-			lurk = TUNING.LEAPER_LURK_SECONDS
+			lurk = TUNING.recovery(TUNING.LEAPER_LURK_SECONDS, pressure, 0.8)
 		State.WARNING:
 			state = State.LEAP
 			remaining = TUNING.LEAPER_FLIGHT_SECONDS
@@ -162,7 +162,7 @@ func _logic(delta: float, swarm_position: Vector3, pressure: float) -> int:
 		State.RETREAT:
 			position = hop_end
 			state = State.STALK
-			lurk = TUNING.LEAPER_LURK_SECONDS
+			lurk = TUNING.recovery(TUNING.LEAPER_LURK_SECONDS, pressure, 0.8)
 	return 0
 
 

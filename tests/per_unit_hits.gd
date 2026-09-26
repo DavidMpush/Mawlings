@@ -6,6 +6,7 @@ extends SceneTree
 const HUNTER = preload("res://scripts/hunter.gd")
 const SKITTER = preload("res://scripts/skitter.gd")
 const BOG_KING = preload("res://scripts/bog_king.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 var failures: Array[String] = []
 var world: Variant
 var swarm: Variant
@@ -99,10 +100,10 @@ func _run() -> void:
 	world._kill_prey(world.prey[0])
 	world._kill_prey(world.prey[0])
 	world.evolution.offers.clear()
-	_check(world.kill_popups.size() == 2 and world.kill_popups[0].dna == 10 and world.kill_popups[0].biomass == 12, "Prey kill shows +10 DNA and +12 biomass")
+	_check(world.kill_popups.size() == 2 and world.kill_popups[0].dna == 10 and world.kill_popups[0].biomass == int(round(TUNING.CORPSE_BIOMASS)), "Prey kill shows +10 DNA and its biomass")
 	var spot: Vector3 = world.kill_popups[0].at
 	world._add_popup(spot + Vector3(0.5, 0, 0), 20, 26.0)
-	_check(world.kill_popups[0].dna == 30 and world.kill_popups[0].biomass == 38, "Close kills merge into one popup")
+	_check(world.kill_popups[0].dna == 30 and world.kill_popups[0].biomass == 26 + int(round(TUNING.CORPSE_BIOMASS)), "Close kills merge into one popup")
 	for index in 10:
 		world._add_popup(Vector3(index * 10.0, 0, 50), 10, 12.0)
 	_check(world.kill_popups.size() == world.POPUP_MAX, "At most %d popups at once" % world.POPUP_MAX)

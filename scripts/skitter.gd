@@ -7,7 +7,7 @@ const FX_BATCH = preload("res://scripts/fx_batch.gd")
 static var _parts := {}
 enum State { ARRIVING, CHASE, WARNING, DASH, RECOVERY }
 var state := State.ARRIVING
-var remaining := 0.8
+var remaining := TUNING.SKITTER_ARRIVE_SECONDS
 var health := TUNING.SKITTER_HEALTH
 var max_health := TUNING.SKITTER_HEALTH
 var dash_start := Vector3.ZERO
@@ -73,7 +73,7 @@ func step(delta: float, swarm_position: Vector3, pressure: float) -> int:
 		if remaining <= 0:
 			position = dash_end
 			state = State.RECOVERY
-			remaining = TUNING.SKITTER_RECOVERY_SECONDS
+			remaining = TUNING.recovery(TUNING.SKITTER_RECOVERY_SECONDS, pressure, 0.7)
 			warning.visible = false
 			resolved_power = damage
 			if warning_distance(swarm_position) <= TUNING.SKITTER_WIDTH:

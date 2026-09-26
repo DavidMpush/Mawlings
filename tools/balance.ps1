@@ -20,8 +20,12 @@ $Strains = & $split $Strains
 $Strategies = & $split $Strategies
 $Difficulties = @(& $split $Difficulties | ForEach-Object { [int]$_ })
 $Seeds = @(& $split $Seeds | ForEach-Object { [int]$_ })
-# Targets from stages/05_feel_balance.md (median death in seconds; Wild also: every run >= 120 s).
-$targets = @{ 0 = @(360, 720); 1 = @(240, 420); 2 = @(150, 300) }
+# Targets from stages/08_flood_difficulty.md (median death in seconds): Wild 6:30-8:30
+# (every run >= 120 s and < 11 min, median population at 2:00 <= 160), Brutal 5:00-6:30,
+# Apex 3:30-4:30.
+$targets = @{ 0 = @(390, 510); 1 = @(300, 390); 2 = @(210, 270) }
+$wildMaxSeconds = 660
+$wildPop120 = 160
 
 $jobs = New-Object System.Collections.Generic.List[object]
 foreach ($d in $Difficulties) { foreach ($s in $Strains) { foreach ($st in $Strategies) { foreach ($seed in $Seeds) {
@@ -65,6 +69,8 @@ function Parse($line) {
 	$h = @{}
 	foreach ($m in [regex]::Matches($line, '(\w+)=(\S+)')) { $h[$m.Groups[1].Value] = $m.Groups[2].Value }
 	$h.survived = [double]$h.survived; $h.diff = [int]$h.diff; $h.peak = [int]$h.peak; $h.kills = [int]$h.kills
+	$h.pop120 = if ($h.ContainsKey('pop120')) { [int]$h.pop120 } else { -1 }
+	$h.flood = if ($h.ContainsKey('flood')) { [double]$h.flood } else { 0 }
 	return [pscustomobject]$h
 }
 function Median($values) {
@@ -77,7 +83,7 @@ $rows = @($lines | ForEach-Object { Parse $_ })
 function Summary($group, $label) {
 	$t = @($group | ForEach-Object { $_.survived })
 	$causes = ($group | Group-Object cause | Sort-Object Count -Descending | ForEach-Object { "$($_.Name)$($_.Count)" }) -join ' '
-	'{0,-34} n={1,2}  median={2,6:N0}s  min={3,5:N0}s  max={4,5:N0}s  peak~{5,3}  kills~{6,4}  {7}' -f $label, $t.Count, (Median $t), ($t | Measure-Object -Minimum).Minimum, ($t | Measure-Object -Maximum).Maximum, (Median @($group | ForEach-Object { $_.peak })), (Median @($group | ForEach-Object { $_.kills })), $causes
+	'{0,-34} n={1,2}  median={2,6:N0}s  min={3,5:N0}s  max={4,5:N0}s  peak~{5,3}  pop2:00~{6,3}  flood~{7,4:N0}s  kills~{8,4}  {9}' -f $label, $t.Count, (Median $t), ($t | Measure-Object -Minimum).Minimum, ($t | Measure-Object -Maximum).Maximum, (Median @($group | ForEach-Object { $_.peak })), (Median @($group | ForEach-Object { $_.pop120 })), (Median @($group | ForEach-Object { $_.flood })), (Median @($group | ForEach-Object { $_.kills })), $causes
 }
 Write-Output ''
 Write-Output '--- per strain / difficulty / strategy'
@@ -93,7 +99,9 @@ foreach ($g in ($rows | Group-Object diff | Sort-Object Name)) {
 	$med = Median @($g.Group | ForEach-Object { $_.survived })
 	$min = ($g.Group | Measure-Object survived -Minimum).Minimum
 	$range = $targets[$d]
-	$hit = $med -ge $range[0] -and $med -le $range[1] -and ($d -ne 0 -or $min -ge 120)
+	$max = ($g.Group | Measure-Object survived -Maximum).Maximum
+	$pop = Median @($g.Group | ForEach-Object { $_.pop120 })
+	$hit = $med -ge $range[0] -and $med -le $range[1] -and ($d -ne 0 -or ($min -ge 120 -and $max -lt $wildMaxSeconds -and $pop -le $wildPop120))
 	if (-not $hit) { $ok = $false }
 	Write-Output ((Summary $g.Group "diff=$d") + ("  target {0}-{1}s {2}" -f $range[0], $range[1], $(if ($hit) { 'OK' } else { 'MISS' })))
 	$meds = @($g.Group | Group-Object strain | ForEach-Object { Median @($_.Group | ForEach-Object { $_.survived }) })

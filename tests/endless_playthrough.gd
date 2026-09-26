@@ -64,6 +64,16 @@ func _run() -> void:
 					avoiding = true
 					break
 		if not avoiding:
+			# Stage 08: Nibblers snap back in a small announced circle.
+			for prey in world.prey:
+				if int(prey.get("snap_state")) == 1:
+					var away: Vector3 = swarm.position - prey.snap_center
+					away.y = 0.0
+					if away.length() < 1.9:
+						direction = away.normalized() if away.length() > 0.01 else Vector3.RIGHT
+						avoiding = true
+						break
+		if not avoiding:
 			for skitter in world.skitters:
 				if skitter.state in [skitter.State.WARNING, skitter.State.DASH] and skitter.warning_distance(swarm.position) < 1.8:
 					direction = skitter.dodge_direction(swarm.position)
@@ -76,6 +86,11 @@ func _run() -> void:
 	print("EVOLUTION level=%d build=%s" % [world.evolution.level, world.evolution.summary()])
 	if world.evolution.level < 1 or world.model.kills < 3 or world.model.peak_population <= 25 or world.model.elapsed < 60.0:
 		push_error("Automated food-and-dodge playtest could not establish the survival loop")
+		quit(1)
+		return
+	# Stage 08: the default 120 s run on Wild must survive, but with real losses.
+	if frame_budget == 7200 and (world.model.extinct or world.model.lost_population < 10):
+		push_error("Wild must survive 120 s with noticeable losses (extinct=%s lost=%d)" % [world.model.extinct, world.model.lost_population])
 		quit(1)
 		return
 	quit(0)

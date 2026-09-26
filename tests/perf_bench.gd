@@ -13,7 +13,8 @@ extends SceneTree
 #                     corpses=30 (liegende Kadaver im Worst Case), quality=low|medium|high (Stufe erzwingen;
 #                     sonst wählt main.gd sie wie im Spiel per Heuristik – Desktop = HOCH)
 # Szenen: worst (Worst Case), calm (ruhiger Spielstart), menu (Brutstätte mit
-#         SubViewport-Rudel), menu2d (Brutstätte ohne 3D-Rudel).
+#         SubViewport-Rudel), menu2d (Brutstätte ohne 3D-Rudel), flood (Etappe 08:
+#         Worst Case plus volle Flut – 160 Moorbrut ab Stufe 3, Bisse, Tode, Kadaver).
 # Kennzahlen: avg/p95 = reale Frame-Zeit (Vsync aus); process_max_ms = Performance.TIME_PROCESS
 # (Godot meldet das Maximum der letzten Sekunde); world_ms/swarm_ms = selbst gemessene
 # Skriptzeit von HuntWorld.step / Swarm._process (der Bench ruft beide selbst auf);
@@ -29,6 +30,7 @@ const GROUND_PARTS := ["Open ground", "Trail edge", "Broad trail"]
 const ENEMY_NAMES := ["Hunter", "Skitter", "Mire Leaper", "Bog King", "Nibbler"]
 const TOUGH := 1.0e9
 const QUALITY = preload("res://scripts/quality.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 
 var args := {}
 var off: PackedStringArray = []
@@ -78,6 +80,11 @@ func _run() -> void:
 			_build_menu(scene_name == "menu")
 		"calm":
 			_build_game()
+		"flood":
+			_build_game()
+			await process_frame
+			_build_worst_case()
+			_build_flood()
 		_:
 			_build_game()
 			await process_frame
@@ -141,6 +148,24 @@ func _build_worst_case() -> void:
 		world._create_corpse(origin + Vector3(cos(angle), 0.0, sin(angle)) * (4.0 + float(index % 6) * 2.5 + float(index / 30) * 1.2), 12.0)
 
 
+# Full flood at stage ~3 (k = 120 s / 40 s): the horde is kept at its cap of 160
+# with real stats, so bites, deaths, bundled corpses and popups all happen.
+func _build_flood() -> void:
+	world.model.elapsed = world.flood_start + 120.0
+	world.flood_state = 2
+	world.flood_reached = true
+	_top_up_flood()
+
+
+func _top_up_flood() -> void:
+	var horde: Variant = world.get("horde")
+	if horde == null or not horde.has_method("spawn_ring"):
+		return
+	var missing: int = TUNING.FLOOD_MAX_ACTIVE - int(horde.count())
+	if missing > 0:
+		horde.spawn_ring(swarm.position, missing, 11.0, world.flood_stats())
+
+
 func _build_menu(with_3d: bool) -> void:
 	if FileAccess.file_exists(BENCH_PROFILE):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(BENCH_PROFILE))
@@ -172,6 +197,9 @@ func _drive(delta: float) -> void:
 	controls.movement_vector = Vector2(cos(angle), sin(angle)) * (0.35 if scene_name == "calm" else 0.8)
 	if scene_name != "calm":
 		_drive_worst_case(delta)
+	if scene_name == "flood":
+		world.flood_state = 2
+		_top_up_flood()
 	_step_systems(delta)
 
 

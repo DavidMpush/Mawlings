@@ -4,6 +4,7 @@ extends SceneTree
 # Alpha-Kern persists and evolves, ranged kills reward once, stats reach Session.
 const SESSION = preload("res://scripts/meta/session.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 var failures: Array[String] = []
 
 
@@ -41,11 +42,16 @@ func _run() -> void:
 	_check(is_equal_approx(swarm.move_speed(), swarm.MOVE_SPEED * 1.2), "Strain speed reaches the swarm")
 	world.model.elapsed = 45.0
 	_check(is_equal_approx(world.model.pressure(), 2.0), "Difficulty pressure doubling")
+	# Stage 08: the difficulty multipliers ramp in over DIFFICULTY_RAMP_SECONDS.
 	world.model.elapsed = 0.0
 	var hunter: Variant = world._spawn_hunter(Vector3(30, 0, 0))
-	_check(is_equal_approx(hunter.health, 44.0), "Difficulty enemy health")
+	_check(is_equal_approx(hunter.health, TUNING.HUNTER_HEALTH), "Difficulty enemy health starts at x1")
+	world.model.elapsed = TUNING.DIFFICULTY_RAMP_SECONDS
+	hunter = world._spawn_hunter(Vector3(-30, 0, 0))
+	_check(is_equal_approx(hunter.health, TUNING.HUNTER_HEALTH * sqrt(world.model.pressure()) * 2.0), "Difficulty enemy health")
 	world._apply_hit(3, swarm.position, 0.0)
 	_check(world.model.population == 34, "Difficulty enemy damage")
+	world.model.elapsed = 0.0
 
 	# Offers respect the pool and free slots; counters work once.
 	world.reset_run()
@@ -149,7 +155,7 @@ func _run() -> void:
 			break
 	_check(world.hunters.is_empty() and world.model.kills_by_type.hunter == 1, "Ranged damage kills the hunter")
 	_check(evo.dna == 20 and world.model.corpses.size() == 1 and world.model.kills == 1, "Ranged kill gives DNA and biomass once")
-	_check(world.model.corpses[0].initial == 26.0 * evo.biomass_multiplier(), "Ranged kill leaves full biomass")
+	_check(world.model.corpses[0].initial == TUNING.HUNTER_BIOMASS * evo.biomass_multiplier(), "Ranged kill leaves full biomass")
 	_check(not world._resolve_death(hunter, "hunter") and evo.dna == 20, "Dead hunter never rewards twice")
 
 	# Extinction hands RunStats to the Session and shows both result buttons.

@@ -125,6 +125,14 @@ var _spit_timer := 0.0
 var _slowed := {}
 var _built := false
 var _current: Array = []
+# Etappe 08: optionale Moorbrut-Horde (scripts/horde.gd). Ohne Horde verhält sich
+# jede Form exakt wie vorher. Echte Ziele haben Vorrang; nur ohne sie zielen
+# Rudelbiss und Säure auf die nächste Brut. Flächen treffen immer beide.
+var horde: Node3D = null
+var _leap_brood := false
+var _spine_horde_cd := 0.0
+const SPINE_HORDE_COOLDOWN := 0.5
+const BROOD_TRACK := 1.6
 
 var _leap_active := false
 var _leap_age := 0.0
@@ -190,6 +198,10 @@ func set_ranks(new_ranks: Dictionary) -> void:
 		ranks[id] = clampi(int(new_ranks[id]), 0, limit)
 
 
+func set_horde(h: Node3D) -> void:
+	horde = h
+
+
 func rank(id: String) -> int:
 	return int(ranks.get(id, 0))
 
@@ -201,6 +213,7 @@ func step(delta: float, targets: Array, rally: bool, enemy_scale: float) -> void
 	var origin := _swarm_position()
 	var living := _living(targets)
 	_current = living
+	_spine_horde_cd = maxf(0.0, _spine_horde_cd - delta)
 	_step_bite(delta, origin, living, rally)
 	_step_spores(delta, origin, living)
 	_step_spit(delta, origin, living)
@@ -219,9 +232,14 @@ func on_swarm_hit(attacker: Node3D, loss: int) -> void:
 	_spine_origin = _swarm_position()
 	_spine_age = 0.0
 	_ring(_spine_origin, SPINE_COLOR, 1.0, 3.2, SPINE_SECONDS)
+	var amount: float = (SPINE_DAMAGE[level - 1] + float(maxi(0, loss)) * SPINE_PER_LOSS) * _enemy_scale
+	# Stacheln treffen auch Brut am Schwarmrand (gedrosselt: Bisse kommen in Serie).
+	if _has_horde() and _spine_horde_cd <= 0.0:
+		_spine_horde_cd = SPINE_HORDE_COOLDOWN
+		horde.damage_circle(_spine_origin, _spine_reach(), amount)
+		_note_horde("stachelruecken", amount)
 	if not _valid_target(attacker):
 		return
-	var amount: float = (SPINE_DAMAGE[level - 1] + float(maxi(0, loss)) * SPINE_PER_LOSS) * _enemy_scale
 	_hurt(attacker, amount, "stachelruecken")
 
 
@@ -233,6 +251,8 @@ func clear() -> void:
 	_bite_timer = 0.0
 	_spit_timer = 0.0
 	_spine_age = SPINE_SECONDS
+	_leap_brood = false
+	_spine_horde_cd = 0.0
 	if not _built:
 		return
 	_arc_root.visible = false
@@ -295,8 +315,11 @@ func _step_bite(delta: float, origin: Vector3, living: Array, rally: bool) -> vo
 	if _leap_active or _bite_timer > 0.0 or (not rally and not pack):
 		return
 	var target := _nearest(living, origin, RUDELBISS_REACH)
+	var brood := Vector3.INF
 	if target == null:
-		return
+		brood = _brood_near(origin, RUDELBISS_REACH)
+		if brood == Vector3.INF:
+			return
 	var base: float = RUDELBISS_DAMAGE[maxi(level, 3 if pack else 1) - 1]
 	if pack:
 		_bite_timer = MEUTE_INTERVAL
@@ -311,7 +334,8 @@ func _step_bite(delta: float, origin: Vector3, living: Array, rally: bool) -> vo
 	_leap_age = 0.0
 	_leap_from = origin
 	_leap_target = target
-	_leap_to = _flat(target.global_position)
+	_leap_brood = target == null
+	_leap_to = _flat(target.global_position) if target != null else brood
 	_arc_root.visible = true
 	_leap_marker.visible = true
 	_pose_arc()
@@ -321,6 +345,8 @@ func _advance_leap(delta: float) -> void:
 	_leap_age += delta
 	if _valid_target(_leap_target):
 		_leap_to = _flat(_leap_target.global_position)
+	elif _leap_brood:
+		_leap_to = _track_brood(_leap_to)
 	if _leap_age < LEAP_SECONDS:
 		_pose_arc()
 		return
@@ -331,8 +357,13 @@ func _advance_leap(delta: float) -> void:
 	var tint := BITE_COLOR if rank("meute") <= 0 else Color(1.0, 0.42, 0.16)
 	_ring(_leap_to, Color(tint.r, tint.g, tint.b, 0.95), _leap_radius * 0.6, _leap_radius * 1.1, 0.4, true)
 	_ring(_leap_to, Color(LEAP_CORE.r, LEAP_CORE.g, LEAP_CORE.b, 0.9), 0.2, _leap_radius * 0.55, 0.26, true)
+	var source := "meute" if rank("meute") > 0 else "rudelbiss"
 	for target in _targets_near(_leap_to, _leap_radius):
-		_hurt(target, _leap_damage, "meute" if rank("meute") > 0 else "rudelbiss")
+		_hurt(target, _leap_damage, source)
+	if _has_horde():
+		horde.damage_circle(_leap_to, _leap_radius, _leap_damage)
+		_note_horde(source, _leap_damage)
+	_leap_brood = false
 
 
 func _pose_arc() -> void:
@@ -376,6 +407,9 @@ func _step_spores(delta: float, origin: Vector3, living: Array) -> void:
 			inside[target.get_instance_id()] = target
 	_release_slow(inside)
 	_slowed = inside
+	if _has_horde():
+		horde.damage_circle(origin, radius, dps * delta)
+		_note_horde("sporenwolke", dps * delta)
 	_pose_spores(origin, radius)
 
 
@@ -425,14 +459,18 @@ func _step_spit(delta: float, origin: Vector3, living: Array) -> void:
 	if _spit_timer > 0.0:
 		return
 	var target := _nearest(living, origin, SPIT_REACH)
+	var brood := Vector3.INF
 	if target == null:
-		return
+		brood = _brood_near(origin, SPIT_REACH)
+		if brood == Vector3.INF:
+			return
 	_spit_timer = SPIT_INTERVAL[level - 1]
 	var entry: Dictionary = _take(_projectiles, MAX_PROJECTILES, _make_projectile)
 	entry.active = true
 	entry.age = 0.0
 	entry.target = target
-	entry.aim = _flat(target.global_position)
+	entry.brood = target == null
+	entry.aim = _flat(target.global_position) if target != null else brood
 	entry.damage = SPIT_DAMAGE[level - 1] * _enemy_scale
 	entry.node.visible = true
 	entry.node.global_position = Vector3(origin.x, SPIT_HEIGHT, origin.z)
@@ -449,6 +487,8 @@ func _step_projectiles(delta: float, living: Array) -> void:
 		var tracking: bool = _valid_target(entry.target)
 		if tracking:
 			entry.aim = _flat(entry.target.global_position)
+		elif entry.brood:
+			entry.aim = _track_brood(entry.aim)
 		var node: Node3D = entry.node
 		var goal: Vector3 = entry.aim + Vector3(0, 0.45, 0)
 		var offset: Vector3 = goal - node.global_position
@@ -469,7 +509,15 @@ func _step_projectiles(delta: float, living: Array) -> void:
 			_ring(hit_point, Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.85), 0.15, 0.9, 0.25)
 			if rank("aetzflut") > 0:
 				_spawn_puddle(hit_point)
+		elif entry.brood and _has_horde():
+			var struck: Vector3 = horde.damage_nearest(hit_point, 1.0, entry.damage)
+			if struck != Vector3.INF:
+				_note_horde("saeurespucker", entry.damage)
+				_ring(struck, Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.85), 0.15, 0.9, 0.25)
+				if rank("aetzflut") > 0:
+					_spawn_puddle(struck)
 		entry.target = null
+		entry.brood = false
 
 
 func _spawn_puddle(location: Vector3) -> void:
@@ -491,6 +539,9 @@ func _step_puddles(delta: float, living: Array) -> void:
 		for target in living:
 			if _flat_distance(target.global_position, entry.center) <= PUDDLE_RADIUS:
 				_hurt(target, PUDDLE_DPS * _enemy_scale * delta, "aetzflut")
+		if _has_horde():
+			horde.damage_circle(entry.center, PUDDLE_RADIUS, PUDDLE_DPS * _enemy_scale * delta)
+			_note_horde("aetzflut", PUDDLE_DPS * _enemy_scale * delta)
 	_draw_puddles()
 
 
@@ -639,6 +690,46 @@ func _targets_near(center: Vector3, radius: float) -> Array:
 	return result
 
 
+# --- Moorbrut (optional) --------------------------------------------------
+
+func _has_horde() -> bool:
+	return horde != null and is_instance_valid(horde) and int(horde.call("count")) > 0
+
+
+# Nächste Brut innerhalb `reach` (flach) oder Vector3.INF.
+func _brood_near(origin: Vector3, reach: float) -> Vector3:
+	if not _has_horde():
+		return Vector3.INF
+	var brood: Vector3 = horde.call("nearest", origin)
+	if brood == Vector3.INF or _flat_distance(brood, origin) > reach:
+		return Vector3.INF
+	return _flat(brood)
+
+
+# Folgt der Brut, die dem bisherigen Zielpunkt am nächsten ist (sie läuft weiter).
+func _track_brood(aim: Vector3) -> Vector3:
+	if not _has_horde():
+		return aim
+	var brood: Vector3 = horde.call("nearest", aim)
+	if brood == Vector3.INF or _flat_distance(brood, aim) > BROOD_TRACK:
+		return aim
+	return _flat(brood)
+
+
+func _note_horde(source: String, amount: float) -> void:
+	var hits := int(horde.get("last_hit_count")) if horde != null and is_instance_valid(horde) else 0
+	if hits > 0 and amount > 0.0:
+		damage_dealt[source] = float(damage_dealt.get(source, 0.0)) + amount * float(hits)
+
+
+func _spine_reach() -> float:
+	var population := 25
+	if swarm != null and is_instance_valid(swarm) and "population" in swarm:
+		population = int(swarm.get("population"))
+	# Schwarmradius wie swarm.gd (_flow_radius) plus Stachelreichweite.
+	return 2.65 + maxf(0.0, sqrt(float(population) / 25.0) - 1.0) * 0.55 + 1.2
+
+
 func _swarm_position() -> Vector3:
 	if swarm != null and is_instance_valid(swarm) and swarm.is_inside_tree():
 		return swarm.global_position
@@ -686,7 +777,7 @@ func _make_projectile() -> Dictionary:
 		var ghost := _mesh(node, _bolt_halo_mesh, _bolt_trail_material)
 		ghost.scale = Vector3.ONE * (0.7 - 0.2 * float(index))
 		trail.append(ghost)
-	return {"trail": trail, "node": node, "active": false, "age": 0.0, "target": null, "aim": Vector3.ZERO, "damage": 0.0}
+	return {"trail": trail, "node": node, "active": false, "age": 0.0, "target": null, "aim": Vector3.ZERO, "damage": 0.0, "brood": false}
 
 
 func _make_puddle() -> Dictionary:

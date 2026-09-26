@@ -1,6 +1,7 @@
 extends SceneTree
 
 const EVOLUTION = preload("res://scripts/evolution.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 var failures: Array[String] = []
 
 func check(condition: bool, message: String) -> void:
@@ -64,7 +65,7 @@ func _run() -> void:
 	check(world.evolution.level == 1 and not world.choosing(), "Touch selection")
 	world.evolution.ranks["glutton"] = 3
 	world._kill_prey(world.prey[0])
-	check(world.model.corpses[0].remaining == biomass and world.model.corpses[-1].initial == 21, "Only future kills gain biomass")
+	check(world.model.corpses[0].remaining == biomass and is_equal_approx(world.model.corpses[-1].initial, TUNING.CORPSE_BIOMASS * 1.75), "Only future kills gain biomass")
 	world._award_dna(20)
 	var key := InputEventKey.new()
 	key.keycode = KEY_1

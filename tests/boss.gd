@@ -32,7 +32,7 @@ func _run() -> void:
 	_check(boss.step(TUNING.BOSS_WARNING_SECONDS, Vector3(8, 0, 0), 1.0) == 0 and boss.attack_center == locked, "Leaving fixed stomp circle avoids damage")
 	boss.step(TUNING.BOSS_RECOVERY_SECONDS, Vector3.ZERO, 1.0)
 	boss.step(0.01, Vector3.ZERO, 1.0)
-	_check(boss.step(TUNING.BOSS_WARNING_SECONDS, locked, 1.0) == 12, "Stomp deals one announced hit")
+	_check(boss.step(TUNING.BOSS_WARNING_SECONDS, locked, 1.0) == int(ceil(TUNING.BOSS_DAMAGE)), "Stomp deals one announced hit")
 	_check(boss.step(0.1, locked, 1.0) == 0, "Recovery cannot hit twice")
 	world.reset_run()
 	_check(world.boss == null and world.boss_clock == TUNING.FIRST_BOSS_SECONDS and hud.boss_health == 0.0, "Restart clears boss and UI")

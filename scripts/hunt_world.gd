@@ -37,6 +37,11 @@ const POPUP_SECONDS := 0.9
 const POPUP_MAX := 6
 const POPUP_MERGE_SECONDS := 0.3
 const POPUP_MERGE_DISTANCE := 2.5
+# Die Flut (stage 08): the Moorbrut horde is written by a parallel module and
+# loaded at runtime; without it the flood still announces and counts, but spawns nothing.
+const HORDE_PATH := "res://scripts/horde.gd"
+const HUD_FLOOD_PATH := "res://scripts/ui/hud_flood.gd"
+const META_DATA_PATH := "res://scripts/meta/meta_data.gd"
 
 @onready var swarm = get_parent().get_node("Swarm")
 @onready var hud = get_parent().get_node("HUD/Controls")
@@ -108,13 +113,29 @@ var boss_cycles := 0
 var curse_state := 0
 var nests_completed := 0
 var totems_taken := 0
+# Die Flut: 0 = not yet, 1 = announced (countdown), 2 = running. flood_start comes
+# from the difficulty (meta_data.DIFFICULTIES[n].flood_start; Wild without config).
+var horde: Node3D
+var flood_start := TUNING.FLOOD_START_SECONDS
+var flood_state := 0
+var flood_wave_clock := 0.0
+var flood_reached := false
+var horde_kills := 0
+var flood_waves := 0
+var flood_beep := -1
+# Horde kills waiting to become one corpse per cell: key -> {sum, n, biomass, dna}.
+var flood_bundles: Dictionary = {}
+var flood_bundle_clock := 0.0
 
 
 func _ready() -> void:
 	drop_rng.randomize()
 	_seed_objectives()
 	_ensure_objective_hud()
+	_ensure_flood_hud()
 	_create_attack_forms()
+	_create_horde()
+	_reset_flood()
 	_starting_prey()
 	_update_hud("")
 
@@ -136,6 +157,9 @@ func _starting_prey() -> void:
 func reset_run() -> void:
 	if attack_forms != null and attack_forms.has_method("clear"):
 		attack_forms.clear()
+	if horde != null and is_instance_valid(horde) and horde.has_method("clear"):
+		horde.clear()
+	horde = null
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
@@ -174,6 +198,8 @@ func reset_run() -> void:
 	swarm.set_controls(Vector2.ZERO, false)
 	hud.clear_pointers()
 	_create_attack_forms()
+	_create_horde()
+	_reset_flood()
 	_starting_prey()
 	_update_hud("")
 
@@ -181,6 +207,7 @@ func reset_run() -> void:
 func _configure_run() -> void:
 	enemy_hp = 1.0
 	enemy_damage = 1.0
+	flood_start = _difficulty_flood_start()
 	if config.is_empty():
 		return
 	model.configure(int(config.get("start_population", model.population)), float(config.get("pressure_doubling", TUNING.PRESSURE_DOUBLING_SECONDS)))
@@ -207,6 +234,270 @@ func _create_attack_forms() -> void:
 func _sync_attack_forms() -> void:
 	if attack_forms != null and attack_forms.has_method("set_ranks"):
 		attack_forms.set_ranks(evolution.attack_ranks())
+
+
+# ---------------------------------------------------------------- Die Flut
+
+# Adds the Moorbrut horde (scripts/horde.gd, contract in stages/08) when present.
+func _create_horde() -> void:
+	horde = null
+	if not ResourceLoader.exists(HORDE_PATH):
+		return
+	var script: Script = load(HORDE_PATH)
+	if script == null or not script.can_instantiate():
+		return
+	horde = script.new()
+	horde.name = "Horde"
+	add_child(horde)
+	if horde.has_method("setup"):
+		horde.setup(self, swarm, get_parent().get_node_or_null("Arena"))
+	if attack_forms != null and attack_forms.has_method("set_horde"):
+		attack_forms.set_horde(horde)
+
+
+func _ensure_flood_hud() -> void:
+	if hud == null or hud.get_node_or_null("hud_flood") != null or not ResourceLoader.exists(HUD_FLOOD_PATH):
+		return
+	var component: Control = load(HUD_FLOOD_PATH).new()
+	component.name = "hud_flood"
+	hud.add_child(component)
+
+
+func _reset_flood() -> void:
+	flood_state = 0
+	flood_wave_clock = 0.0
+	flood_reached = false
+	horde_kills = 0
+	flood_waves = 0
+	flood_beep = -1
+	flood_bundles.clear()
+	flood_bundle_clock = 0.0
+
+
+# Difficulty multipliers (enemy HP/damage) ramp in over the first
+# DIFFICULTY_RAMP_SECONDS: a fresh 20-25 swarm is not wiped by the first hunter.
+func difficulty_scale(multiplier: float) -> float:
+	return lerpf(minf(1.0, multiplier), multiplier, clampf(model.elapsed / TUNING.DIFFICULTY_RAMP_SECONDS, 0.0, 1.0))
+
+
+# Flood start of the configured difficulty; Wild (TUNING) without a config.
+func _difficulty_flood_start() -> float:
+	if config.is_empty() or not config.has("difficulty") or not ResourceLoader.exists(META_DATA_PATH):
+		return TUNING.FLOOD_START_SECONDS
+	var table: Array = load(META_DATA_PATH).DIFFICULTIES
+	var index := clampi(int(config.get("difficulty", 0)), 0, table.size() - 1)
+	return float(table[index].get("flood_start", TUNING.FLOOD_START_SECONDS))
+
+
+# Seconds since the flood started (0 before).
+func flood_seconds() -> float:
+	return maxf(0.0, model.elapsed - flood_start) if flood_state == 2 else 0.0
+
+
+# Flood stage k: strength doubles every FLOOD_DOUBLING_SECONDS.
+func flood_level() -> float:
+	return flood_seconds() / TUNING.FLOOD_DOUBLING_SECONDS
+
+
+# Stats of newly spawned Moorbrut at the current stage (horde contract):
+# HP and bite x 2^k, speed x 2^k but capped below the swarm's own speed.
+func flood_stats() -> Dictionary:
+	var growth := pow(2.0, minf(flood_level(), 30.0))
+	var speed_cap := minf(TUNING.FLOOD_SPEED_CAP, swarm.move_speed() * TUNING.FLOOD_SPEED_SHARE)
+	return {
+		"hp": TUNING.FLOOD_HP * growth * enemy_hp,
+		"speed": minf(TUNING.FLOOD_SPEED * growth, speed_cap),
+		"bite": TUNING.FLOOD_BITE * growth,
+		"bite_cooldown": TUNING.FLOOD_BITE_COOLDOWN,
+		"biomass": TUNING.FLOOD_KILL_BIOMASS,
+		"dna": TUNING.FLOOD_KILL_DNA,
+	}
+
+
+# Moorbrut per wave: x 2^k up to the wave cap, never above the active cap.
+func flood_wave_count() -> int:
+	var wanted := mini(TUNING.FLOOD_WAVE_MAX, int(round(float(TUNING.FLOOD_WAVE_COUNT) * pow(2.0, minf(flood_level(), 30.0)))))
+	var living := int(horde.count()) if horde != null and horde.has_method("count") else 0
+	return clampi(wanted, 0, maxi(0, TUNING.FLOOD_MAX_ACTIVE - living))
+
+
+# Announcement, waves, bites and kills. Returns true when step() must stop
+# (extinction or a mutation offer).
+func _step_flood(delta: float, damage: float) -> bool:
+	if flood_state == 0 and model.elapsed >= flood_start - TUNING.FLOOD_WARNING_SECONDS:
+		flood_state = 1
+		flood_beep = -1
+		_sfx("warn", 150)
+	if flood_state == 1:
+		var countdown := ceili(flood_start - model.elapsed)
+		# Short beeps over the last three seconds (the sfx rules rate-limit them).
+		if countdown <= 3 and countdown != flood_beep and countdown > 0:
+			flood_beep = countdown
+			_sfx("warn", 40)
+		if model.elapsed >= flood_start:
+			flood_state = 2
+			flood_reached = true
+			flood_wave_clock = 0.0
+			_sfx("stomp", 220)
+			_shake(0.45)
+	if flood_state != 2:
+		return false
+	flood_wave_clock -= delta
+	if flood_wave_clock <= 0.0:
+		flood_wave_clock = TUNING.FLOOD_WAVE_SECONDS
+		_spawn_flood_wave()
+	if horde == null:
+		return false
+	var points := _unit_points()
+	if horde.has_method("melee") and horde.count() > 0 and not points.is_empty():
+		horde.melee(points, MELEE_REACH, damage, delta)
+	var result: Dictionary = horde.step(delta, points) if horde.has_method("step") else {}
+	if _flood_kills(delta):
+		return true
+	return _flood_bites(result, points)
+
+
+func _spawn_flood_wave() -> void:
+	var count := flood_wave_count()
+	if count <= 0 or horde == null or not horde.has_method("spawn_ring"):
+		return
+	var center: Vector3 = swarm.position + Vector3(0.0, 0.0, -TUNING.FLOOD_RING_SHIFT)
+	center.y = 0.0
+	horde.spawn_ring(center, count, TUNING.FLOOD_RING_RADIUS, flood_stats())
+	flood_waves += 1
+
+
+# Bitten animals fall first (prefer_removal); the loss is scaled to the logical
+# population like an area hit and resolved through _apply_hit().
+func _flood_bites(result: Dictionary, points: PackedVector3Array) -> bool:
+	var bitten: PackedInt32Array = result.get("bitten_indices", PackedInt32Array())
+	var loss := 0
+	var impact: Vector3 = swarm.position
+	if points.is_empty():
+		loss = int(result.get("losses", 0))
+	elif not bitten.is_empty():
+		var sum := Vector3.ZERO
+		var valid := PackedInt32Array()
+		for index in bitten:
+			if index >= 0 and index < points.size():
+				valid.append(index)
+				sum += points[index]
+		if valid.is_empty():
+			return false
+		impact = sum / float(valid.size())
+		# "losses" = summed bite strength of this step in visible animals (the
+		# horde carries fractions); each visible animal stands for P / visible.
+		var units := float(result.get("losses", valid.size()))
+		loss = ceili(units * float(model.population) / float(points.size()) - 0.0001)
+		last_hit_share = float(valid.size()) / float(points.size())
+		if swarm.has_method("prefer_removal"):
+			swarm.prefer_removal(valid)
+	if loss <= 0:
+		return false
+	# No attacker: Stachelrücken answers the Moorbrut through the horde hook.
+	return _apply_hit(loss, impact, 0.08, null)
+
+
+# Collects horde kills into per-cell bundles; every FLOOD_BUNDLE_SECONDS each
+# bundle becomes one persistent corpse (resource rule) with one popup.
+func _flood_kills(delta: float) -> bool:
+	if horde != null and horde.has_method("take_kills"):
+		for kill in horde.take_kills():
+			var at: Vector3 = kill.get("position", swarm.position)
+			var key := Vector2i(floori(at.x / TUNING.FLOOD_BUNDLE_CELL), floori(at.z / TUNING.FLOOD_BUNDLE_CELL))
+			var bundle: Dictionary = flood_bundles.get(key, {"sum": Vector3.ZERO, "n": 0, "biomass": 0.0, "dna": 0})
+			# The horde already merges close kills; "count" says how many.
+			var count := maxi(1, int(kill.get("count", 1)))
+			bundle.sum += Vector3(at.x, 0.0, at.z) * float(count)
+			bundle.n += count
+			bundle.biomass += float(kill.get("biomass", TUNING.FLOOD_KILL_BIOMASS * count))
+			bundle.dna += int(kill.get("dna", TUNING.FLOOD_KILL_DNA * count))
+			flood_bundles[key] = bundle
+			horde_kills += count
+			for index in count:
+				model.record_kill("horde")
+	flood_bundle_clock += delta
+	if flood_bundle_clock < TUNING.FLOOD_BUNDLE_SECONDS or flood_bundles.is_empty():
+		return false
+	flood_bundle_clock = 0.0
+	return flush_flood_bundles()
+
+
+# Turns every pending horde bundle into a corpse + DNA now. True when a
+# mutation offer opened (step() must stop).
+func flush_flood_bundles() -> bool:
+	if flood_bundles.is_empty():
+		return false
+	var dna_total := 0
+	for key in flood_bundles:
+		var bundle: Dictionary = flood_bundles[key]
+		var location: Vector3 = get_parent().get_node("Arena").safe_spawn(bundle.sum / float(bundle.n), 0.4)
+		location.y = 0.0
+		var amount: float = float(bundle.biomass) * evolution.biomass_multiplier() * reward_multiplier()
+		# A long flood kills hundreds: feed an uneaten corpse close by instead of
+		# adding one more (keeps the corpse list short; the biomass stays).
+		var id := _grow_nearby_corpse(location, amount)
+		if id >= 0:
+			model.kills += int(bundle.n)
+			location = _corpse_position(id)
+		else:
+			id = _create_corpse(location, float(bundle.biomass) * evolution.biomass_multiplier())
+			if id >= 0:
+				# add_corpse counted one kill; the bundle holds bundle.n of them.
+				model.kills += int(bundle.n) - 1
+		var dna := _reward_dna(int(bundle.dna))
+		dna_total += dna
+		# The horde draws its own death effect; the popup shows the reward.
+		_add_popup(location, dna, model.remaining_biomass(id) if id >= 0 else 0.0)
+	flood_bundles.clear()
+	if dna_total > 0:
+		_sfx("kill", 10)
+		_award_dna(dna_total)
+	return choosing()
+
+
+# Adds biomass to the corpse within FLOOD_BUNDLE_CELL of `location`; -1 when none.
+func _grow_nearby_corpse(location: Vector3, amount: float) -> int:
+	if amount <= 0.0 or model.extinct:
+		return -1
+	var reach := TUNING.FLOOD_BUNDLE_CELL * TUNING.FLOOD_BUNDLE_CELL
+	for index in model.corpses.size():
+		var corpse: Dictionary = model.corpses[index]
+		var offset: Vector3 = corpse.position - location
+		if offset.x * offset.x + offset.z * offset.z > reach:
+			continue
+		corpse.remaining += amount
+		corpse.initial += amount
+		_update_corpse(int(corpse.id), float(corpse.initial))
+		return int(corpse.id)
+	return -1
+
+
+func _corpse_position(id: int) -> Vector3:
+	for corpse in model.corpses:
+		if corpse.id == id:
+			return corpse.position
+	return swarm.position
+
+
+func _flood_message(message: String) -> String:
+	if flood_state == 1:
+		return "DIE FLUT KOMMT IN %d s!" % maxi(1, ceili(flood_start - model.elapsed))
+	if flood_state == 2 and (message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Biomasse") or message.begins_with("Schwarm voll")):
+		return "DIE FLUT · in Bewegung bleiben, Brut zerbeißen"
+	return message
+
+
+# Flood state for hud_flood.gd.
+func _flood_hud() -> Dictionary:
+	return {
+		"state": flood_state,
+		"countdown": maxf(0.0, flood_start - model.elapsed),
+		"stage": int(floor(flood_level())) + 1,
+		"level": flood_level(),
+		"seconds": flood_seconds(),
+		"count": int(horde.count()) if horde != null and horde.has_method("count") else 0,
+	}
 
 
 func toggle_pause() -> void:
@@ -258,7 +549,12 @@ func step(delta: float) -> void:
 			prey.erase(target)
 			target.queue_free()
 			continue
-		target.call("step", delta, swarm.position)
+		target.call("step", delta, swarm.position, pressure)
+		# Nibbler snap (stage 08): announced small circle, per-animal hit.
+		if _resolve_area_hit(target, target.get("snap_center"), 0.12):
+			return
+		if int(target.get("snap_state")) == 1 and not message.begins_with("RAUS"):
+			message = "Nibbler schnappt · kurz ausweichen"
 		_consider_focus(target.position, 3.2)
 		var bite := melee_factor(target.position, "prey", attack_range)
 		if bite > 0.0:
@@ -359,6 +655,8 @@ func step(delta: float) -> void:
 				message = "BOG KING ERSCHÖPFT · JETZT ANGREIFEN!"
 			elif boss.state == BOG_KING.State.ARRIVING:
 				message = "DER BOG KING TAUCHT AUF!"
+	if _step_flood(delta, damage):
+		return
 	for corpse in model.corpses.duplicate():
 		var id: int = corpse.id
 		if corpse.position.distance_to(swarm.position) > TUNING.HARVEST_RADIUS:
@@ -386,25 +684,26 @@ func step(delta: float) -> void:
 		spawn_clock = 0.0
 		_spawn_prey(_spawn_position(7.0))
 	hunter_clock -= delta
-	var hunter_budget := mini(TUNING.MAX_HUNTERS, 1 + int(model.elapsed / 35.0))
+	var hunter_budget := mini(TUNING.MAX_HUNTERS, TUNING.HUNTER_BUDGET_BASE + int(model.elapsed / TUNING.HUNTER_BUDGET_SECONDS))
 	if hunter_clock <= 0.0 and hunters.size() < hunter_budget:
 		_spawn_hunter(_spawn_position(8.0))
-		hunter_clock = maxf(2.5, 12.0 / sqrt(pressure))
+		hunter_clock = maxf(TUNING.HUNTER_SPAWN_MIN, TUNING.HUNTER_SPAWN_SECONDS / sqrt(pressure))
 	skitter_clock -= delta
-	var skitter_budget := mini(TUNING.MAX_SKITTERS, 1 + int(model.elapsed / 90.0))
+	var skitter_budget := mini(TUNING.MAX_SKITTERS, 1 + int(model.elapsed / TUNING.SKITTER_BUDGET_SECONDS))
 	if model.elapsed >= TUNING.FIRST_SKITTER_SECONDS and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
 		_spawn_skitter(_spawn_position(9.0))
-		skitter_clock = maxf(7.0, 28.0 / sqrt(pressure))
+		skitter_clock = maxf(TUNING.SKITTER_SPAWN_MIN, TUNING.SKITTER_SPAWN_SECONDS / sqrt(pressure))
 	leaper_clock -= delta
-	var leaper_budget := mini(TUNING.MAX_LEAPERS, 1 + int(maxf(0.0, model.elapsed - TUNING.FIRST_LEAPER_SECONDS) / 80.0))
+	var leaper_budget := mini(TUNING.MAX_LEAPERS, 1 + int(maxf(0.0, model.elapsed - TUNING.FIRST_LEAPER_SECONDS) / TUNING.LEAPER_BUDGET_SECONDS))
 	if model.elapsed >= TUNING.FIRST_LEAPER_SECONDS and leaper_clock <= 0.0 and leapers.size() < leaper_budget:
 		_spawn_leaper(_spawn_position(10.0))
-		leaper_clock = maxf(8.0, 30.0 / sqrt(pressure))
+		leaper_clock = maxf(TUNING.LEAPER_SPAWN_MIN, TUNING.LEAPER_SPAWN_SECONDS / sqrt(pressure))
 	if boss == null:
 		boss_clock -= delta
 		if boss_clock <= 0.0:
 			_spawn_boss(_spawn_position(11.0))
 	message = _step_objectives(delta, message)
+	message = _flood_message(message)
 	_update_hud(message)
 
 
@@ -511,7 +810,7 @@ func _spawn_hunter(location: Vector3) -> Node3D:
 	var target = HUNTER.new()
 	target.name = "Hunter"
 	target.position = location
-	target.health = TUNING.HUNTER_HEALTH * sqrt(model.pressure()) * enemy_hp
+	target.health = TUNING.HUNTER_HEALTH * sqrt(model.pressure()) * difficulty_scale(enemy_hp)
 	target.max_health = target.health
 	add_child(target)
 	hunters.append(target)
@@ -522,7 +821,7 @@ func _spawn_skitter(location: Vector3) -> Node3D:
 	var target = SKITTER.new()
 	target.name = "Skitter"
 	target.position = location
-	target.health = TUNING.SKITTER_HEALTH * sqrt(model.pressure()) * enemy_hp
+	target.health = TUNING.SKITTER_HEALTH * sqrt(model.pressure()) * difficulty_scale(enemy_hp)
 	target.max_health = target.health
 	add_child(target)
 	skitters.append(target)
@@ -533,7 +832,7 @@ func _spawn_leaper(location: Vector3) -> Node3D:
 	var target = MIRE_LEAPER.new()
 	target.name = "Mire Leaper"
 	target.position = location
-	target.health = TUNING.LEAPER_HEALTH * sqrt(model.pressure()) * enemy_hp
+	target.health = TUNING.LEAPER_HEALTH * sqrt(model.pressure()) * difficulty_scale(enemy_hp)
 	target.max_health = target.health
 	add_child(target)
 	leapers.append(target)
@@ -544,7 +843,7 @@ func _spawn_boss(location: Vector3) -> Node3D:
 	var target = BOG_KING.new()
 	target.name = "Bog King"
 	target.position = get_parent().get_node("Arena").safe_spawn(location, 2.5)
-	target.health = TUNING.BOSS_HEALTH * sqrt(model.pressure()) * enemy_hp
+	target.health = TUNING.BOSS_HEALTH * sqrt(model.pressure()) * difficulty_scale(enemy_hp)
 	target.max_health = target.health
 	add_child(target)
 	boss = target
@@ -1017,6 +1316,7 @@ func _update_hud(message: String) -> void:
 	hud.hint = message
 	hud.set_meta("kill_popups", _popup_screen())
 	hud.set_meta("king_moments", king_moments)
+	hud.set_meta("flood", _flood_hud())
 	var objectives := _objective_hud()
 	hud.set_meta("objectives", objectives)
 	if "objectives" in hud:
@@ -1190,8 +1490,9 @@ func _king_moment(location: Vector3) -> void:
 
 # Resolves one announced hit. Returns true when the run ended by extinction.
 func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3D = null) -> bool:
-	if enemy_damage != 1.0:
-		loss = maxi(1, ceili(float(loss) * enemy_damage))
+	var damage_scale := difficulty_scale(enemy_damage)
+	if damage_scale != 1.0:
+		loss = maxi(1, ceili(float(loss) * damage_scale))
 	unit_points_valid = false
 	var before: int = model.population
 	last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
@@ -1241,6 +1542,9 @@ func run_stats() -> Dictionary:
 		"used_rally": model.used_rally,
 		"nests": nests_completed,
 		"totems": totems_taken,
+		"flood_reached": flood_reached,
+		"flood_seconds": flood_seconds(),
+		"horde_kills": horde_kills,
 		"seed": int(config.get("seed", 0)),
 		"daily": bool(config.get("daily", false)),
 		"daily_date": str(config.get("daily_date", "")),

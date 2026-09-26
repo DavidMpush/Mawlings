@@ -1,6 +1,7 @@
 extends SceneTree
 
 const SKITTER = preload("res://scripts/skitter.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 var failures: Array[String] = []
 func check(value: bool, label: String) -> void:
 	if not value:
@@ -63,7 +64,7 @@ func _run() -> void:
 	skitter.health = 0.01
 	world.step(0.01)
 	check(world.skitters.is_empty() and world.evolution.dna == 15, "Kill awards DNA once")
-	check(world.model.corpses.size() == 1 and world.model.corpses[0].remaining == 18, "Skitter leaves persistent biomass at cap")
+	check(world.model.corpses.size() == 1 and is_equal_approx(world.model.corpses[0].remaining, TUNING.SKITTER_BIOMASS), "Skitter leaves persistent biomass at cap")
 	check(not is_instance_valid(skitter.warning) or skitter.warning.is_queued_for_deletion(), "Warning removed on kill")
 	world.reset_run()
 	skitter = world._spawn_skitter(Vector3(-4, 0, 0))

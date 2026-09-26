@@ -29,15 +29,22 @@ const STEP := 0.05
 const TIME_SCALE := 3.0
 const REACT := 0.45
 const MISS := 0.12
+# Stage 08 bot: Moorbrut closer than this is avoided; this many within 2.5 m = surrounded.
+const BROOD_ALERT := 5.0
+const BROOD_CROWD := 6
 
-# Quick regression (< 30 s): two short seeded runs with wide tolerances. They catch a
-# broken loop (no growth, instant death) or toothless enemies (Apex must cost Mawlings).
+# Quick regression (~40 s): three seeded runs with wide tolerances. They catch a
+# broken loop (no growth, instant death), toothless enemies (Apex must cost Mawlings),
+# a too easy start (Wild: clear losses and population below the cap at 2:00, stage 08)
+# and a missing flood (Apex must reach it and die in it; matrix median ~4:20).
 # Runs are near-deterministic; tiny drift between processes stays inside the tolerances.
 const REGRESS_RUNS := [
 	{"strain": "glutmaw", "diff": 0, "seed": 1, "strategy": "greedy", "limit": 150.0,
-		"min_seconds": 120.0, "min_peak": 30, "min_kills": 15},
+		"min_seconds": 120.0, "min_peak": 30, "min_kills": 15, "min_lost": 20, "max_pop120": 200},
 	{"strain": "sporling", "diff": 2, "seed": 2, "strategy": "attack_first", "limit": 180.0,
 		"min_seconds": 60.0, "min_peak": 40, "min_kills": 25, "min_lost": 40},
+	{"strain": "glutmaw", "diff": 2, "seed": 1, "strategy": "attack_first", "limit": 420.0,
+		"min_seconds": 150.0, "max_seconds": 400.0, "min_peak": 60, "min_kills": 40, "min_flood": 1.0, "min_flood_lost": 10},
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -80,6 +87,9 @@ func _run() -> void:
 			_check(stats.peak >= spec.min_peak, "%s/%d grows to %d (peak %d)" % [spec.strain, spec.diff, spec.min_peak, stats.peak])
 			_check(stats.lost >= spec.get("min_lost", 0), "%s/%d loses at least %d Mawlings (got %d)" % [spec.strain, spec.diff, spec.get("min_lost", 0), stats.lost])
 			_check(stats.kills >= spec.min_kills, "%s/%d kills at least %d (got %d)" % [spec.strain, spec.diff, spec.min_kills, stats.kills])
+			_check(stats.pop120 <= spec.get("max_pop120", 1000), "%s/%d population at 2:00 at most %d (got %d)" % [spec.strain, spec.diff, spec.get("max_pop120", 1000), stats.pop120])
+			_check(stats.flood >= spec.get("min_flood", 0.0), "%s/%d reaches the flood (%.0f s in it)" % [spec.strain, spec.diff, stats.flood])
+			_check(stats.flood_lost >= spec.get("min_flood_lost", 0), "%s/%d loses at least %d Mawlings to the Moorbrut (got %d)" % [spec.strain, spec.diff, spec.get("min_flood_lost", 0), stats.flood_lost])
 		_finish("PASS balance_sim regress: %d runs within tolerance in %.1f s" % [REGRESS_RUNS.size(), (Time.get_ticks_msec() - started) / 1000.0])
 		return
 	var first := int(args.seed)
@@ -133,11 +143,15 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 	var hud: Variant = scene.get_node("HUD/Controls")
 	world.evolution.rng.seed = run_seed
 	world.drop_rng.seed = run_seed + 101
-	var losses := {"hunter": 0, "skitter": 0, "leaper": 0, "boss": 0, "other": 0}
+	var losses := {"hunter": 0, "skitter": 0, "leaper": 0, "boss": 0, "other": 0, "flood": 0}
 	var states := {}
 	var cause := "timeout"
 	var picks: Array[String] = []
 	var guard := int(limit / STEP * 1.6) + 600
+	# Population at 2:00 (stage 08: early pressure; -1 = died before).
+	var pop120 := -1
+	var lost120 := 0
+	var bio120 := 0.0
 	while guard > 0 and not world.model.extinct and world.model.elapsed < limit:
 		guard -= 1
 		# Main resets time_scale when a scene leaves the tree (Königsmoment safety).
@@ -160,6 +174,10 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 			if world.model.extinct:
 				cause = hitter
 		states = before_states
+		if pop120 < 0 and world.model.elapsed >= 120.0:
+			pop120 = world.model.population
+			lost120 = world.model.lost_population
+			bio120 = world.model.consumed_biomass
 	if world.model.extinct and cause == "timeout":
 		cause = "other"
 	var forms: Array = world.attack_forms.damage_dealt.keys() if world.attack_forms != null else []
@@ -170,11 +188,14 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"seconds": world.model.elapsed, "peak": world.model.peak_population, "kills": world.model.kills,
 		"extinct": world.model.extinct, "cause": cause, "lost": world.model.lost_population,
 		"nests": int(world.get("nests_completed")) if world.get("nests_completed") != null else 0,
+		"pop120": pop120,
+		"flood": float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
+		"flood_lost": int(losses.flood),
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d build=%s forms=%s wall=%.1f" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop120=%d lost120=%d bio120=%.0f flood=%.0f build=%s forms=%s wall=%.1f" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
-		losses.hunter, losses.skitter, losses.leaper, losses.boss,
+		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop120, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
 		_build(world.evolution), ",".join(dealt), (Time.get_ticks_msec() - wall) / 1000.0])
 	root.remove_child(scene)
 	scene.free()
@@ -225,6 +246,8 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	var dodge := _dodge(world, here, world.model.elapsed)
 	if dodge != Vector3.ZERO:
 		return {"move": Vector2(dodge.x, dodge.z).normalized(), "rally": false}
+	# Stage 08: keep away from the Moorbrut; Rally (more bite) when surrounded.
+	var brood := _brood_escape(world, here)
 	var target := here
 	var best := INF
 	var harvesting := false
@@ -265,7 +288,36 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 		direction = Vector3.ZERO
 	var leap: bool = world.evolution.rank("rudelbiss") > 0 or world.evolution.rank("meute") > 0
 	var rally: bool = (harvesting and best < 1.05) or enemy_near < 1.1 or (leap and enemy_near < 4.0)
+	if brood.away != Vector3.ZERO:
+		# Mostly away from the brood, a little towards the goal.
+		direction = brood.away * 0.75 + direction.normalized() * 0.25 if direction.length() > 0.01 else brood.away
+	if brood.surrounded:
+		rally = true
 	return {"move": Vector2(direction.x, direction.z).limit_length(1.0), "rally": rally}
+
+
+# Escape direction from the Moorbrut within BROOD_ALERT m (weighted by closeness)
+# and whether the swarm is surrounded (BROOD_CROWD brood within 2.5 m).
+func _brood_escape(world: Variant, here: Vector3) -> Dictionary:
+	var result := {"away": Vector3.ZERO, "surrounded": false}
+	var horde: Variant = world.get("horde")
+	if horde == null or not horde.has_method("positions") or horde.count() == 0:
+		return result
+	var push := Vector3.ZERO
+	var close := 0
+	for point in horde.positions():
+		var offset: Vector3 = here - point
+		offset.y = 0.0
+		var distance := offset.length()
+		if distance > BROOD_ALERT or distance < 0.01:
+			continue
+		push += offset / distance * (BROOD_ALERT - distance)
+		if distance < 2.5:
+			close += 1
+	result.surrounded = close >= BROOD_CROWD
+	if push.length() > 0.01:
+		result.away = push.normalized()
+	return result
 
 
 # Sum of escape directions out of every noticed announced zone, or ZERO when safe.
@@ -282,6 +334,10 @@ func _dodge(world: Variant, here: Vector3, now: float) -> Vector3:
 	for skitter in world.skitters:
 		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH] and _noticed(skitter, now) and skitter.warning_distance(here) < TUNING.SKITTER_WIDTH + 0.7:
 			escape += skitter.dodge_direction(here).normalized()
+	# Stage 08: Nibbler snap (small circle, short warning).
+	for prey in world.prey:
+		if int(prey.get("snap_state")) == 1 and _noticed(prey, now):
+			escape += _away(here, prey.snap_center, TUNING.NIBBLER_SNAP_RADIUS + 0.6)
 	return escape
 
 
@@ -308,6 +364,9 @@ func _forget(world: Variant) -> void:
 	for enemy in _enemies(world):
 		if _is_armed(enemy):
 			armed[enemy.get_instance_id()] = true
+	for prey in world.prey:
+		if int(prey.get("snap_state")) == 1:
+			armed[prey.get_instance_id()] = true
 	for key in seen.keys():
 		if not armed.has(key):
 			seen.erase(key)
@@ -370,7 +429,8 @@ func _kind(enemy: Variant) -> String:
 func _hitter(world: Variant, before: Dictionary, _older: Dictionary) -> String:
 	var armed := {"hunter": [HUNTER.State.WARNING], "skitter": [SKITTER.State.DASH, SKITTER.State.WARNING],
 		"leaper": [MIRE_LEAPER.State.LEAP, MIRE_LEAPER.State.WARNING], "boss": [BOG_KING.State.WARNING]}
-	var fallback := "other"
+	# Without an armed enemy the loss came from Moorbrut (flood) or a Nibbler snap (other).
+	var fallback := "flood" if int(world.get("flood_state")) == 2 else "other"
 	for id in before:
 		var entry: Array = before[id]
 		if not (entry[1] in armed[entry[0]]):

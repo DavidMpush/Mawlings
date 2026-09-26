@@ -2,6 +2,7 @@ extends SceneTree
 
 const RUN_MODEL = preload("res://scripts/run_model.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 var failures: Array[String] = []
 
 
@@ -12,8 +13,8 @@ func _initialize() -> void:
 func _run() -> void:
 	var model = RUN_MODEL.new()
 	var id: int = model.add_corpse(Vector3(12, 0, 0), 12.0)
-	model.advance(90.0)
-	_check(is_equal_approx(model.pressure(), 2.0), "Pressure doubles after 90 seconds")
+	model.advance(TUNING.PRESSURE_DOUBLING_SECONDS)
+	_check(is_equal_approx(model.pressure(), 2.0), "Pressure doubles after %.0f seconds" % TUNING.PRESSURE_DOUBLING_SECONDS)
 	model.advance(86400.0)
 	_check(not model.extinct and is_finite(model.pressure()), "24-hour model remains finite and has no timer ending")
 	_check(model.remaining_biomass(id) == 12.0, "Long run preserves biomass")
@@ -42,7 +43,7 @@ func _run() -> void:
 	_check(hunter.attack_center == locked and dodge == 0, "Warning stays fixed and leaving avoids damage")
 	hunter.step(2.0, Vector3.ZERO, 1.0)
 	hunter.step(0.01, Vector3.ZERO, 1.0)
-	_check(hunter.step(1.3, Vector3.ZERO, 1.0) == 6, "Standing in the ring resolves one hit")
+	_check(hunter.step(1.3, Vector3.ZERO, 1.0) == int(ceil(TUNING.HUNTER_DAMAGE)), "Standing in the ring resolves one hit")
 	_check(hunter.step(0.1, Vector3.ZERO, 1.0) == 0, "Recovery never repeats a hit")
 	hunter.step(2.0, Vector3.ZERO, 8.0)
 	hunter.step(0.01, Vector3.ZERO, 8.0, Vector3(7, 0, 0))
@@ -86,6 +87,9 @@ func _run() -> void:
 	world.step(60.0)
 	_check(world.model.elapsed == 0.0 and hud.paused, "Pause freezes elapsed time and spawns")
 	world.toggle_pause()
+	# Stage 08: the flood kills late runs on purpose (tests/flood.gd); here only
+	# the absence of any timer ending is checked, so the flood stays away.
+	world.flood_start = 1.0e9
 	world.model.elapsed = 720.0
 	world._create_corpse(Vector3(-50, 0, -50), 12.0)
 	for tick in 600:
