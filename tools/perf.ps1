@@ -3,7 +3,7 @@
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools/perf.ps1 [-Quick] [-Only worst,menu] [-Seconds 20] [-Out perf.txt]
 #   -Quick    only worst case, calm start and menu (no ablations)
 #   The game applies its quality tier (desktop = HIGH: MSAA 2x); 'worst_noaa'
-#   measures like stage 06 (no MSAA), 'worst_c60' a long run with 60 corpses.
+#   measures like stage 06 (no MSAA), 'worst_loot1000' a long run with 1000 loot crystals.
 #   -Only     run only the named variants (see $variants below)
 #   -Seconds  measuring time of the worst case; ablations use half of it
 #   -Out      also write the collected lines to this file
@@ -42,8 +42,9 @@ $variants = [ordered]@{
 	'scale70'        = @('scene=worst', "secs=$half", 'scale3d=0.7')
 	'msaa2'          = @('scene=worst', "secs=$half", 'msaa=2')
 	'worst_720'      = @('scene=worst', "secs=$half", 'res=720x1560')
-	# Etappe 07: long run (60 lying corpses), no MSAA (= Etappe-06 setup), tiers.
-	'worst_c60'      = @('scene=worst', "secs=$half", 'corpses=60')
+	# Etappe 16: long run with 1000 lying loot crystals (was: 60 corpses), no MSAA (= Etappe-06 setup), tiers.
+	'worst_loot1000' = @('scene=worst', "secs=$half", 'loot=1000')
+	'no_loot'        = @('scene=worst', "secs=$half", 'off=loot')
 	'worst_noaa'     = @('scene=worst', "secs=$half", 'msaa=0')
 	'worst_medium'   = @('scene=worst', "secs=$half", 'quality=medium')
 	'worst_low'      = @('scene=worst', "secs=$half", 'quality=low')

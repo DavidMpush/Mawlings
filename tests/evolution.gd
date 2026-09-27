@@ -33,7 +33,8 @@ func _run() -> void:
 		evo.ranks[mutation[0]] = 3
 	check(is_equal_approx(evo.damage_multiplier(false), 1.75), "Jaws damage")
 	check(is_equal_approx(evo.damage_multiplier(true), 2.8), "Rally damage")
-	check(is_equal_approx(evo.harvest_multiplier(), 1.9), "Brood harvest")
+	check(is_equal_approx(evo.harvest_multiplier(), 1.0 + 3.0 * evo.BROOD_STEP), "Brood: biomass per collected crystal")
+	check(is_equal_approx(evo.magnet_multiplier(), 1.0 + 3.0 * evo.LURE_SCENT_STEP), "Lockduft: magnet radius")
 	check(is_equal_approx(evo.biomass_multiplier(), 1.75), "Future biomass")
 	check(evo.loss_after_armor(100, false) == 40 and evo.loss_after_armor(100, true) == 70, "Conditional armor")
 	check(evo.loss_after_armor(1, false) == 1, "No invulnerability")
@@ -47,16 +48,24 @@ func _run() -> void:
 	world.set_process(false)
 	swarm.set_process(false)
 	world.reset_run()
+	# Etappe 16: DNA arrives with the collected crystals.
 	world._kill_prey(world.prey[0])
+	check(world.evolution.dna == 0, "No DNA before the crystals arrive")
+	world.collect_loot_now()
 	check(world.evolution.dna == 10 and not world.choosing(), "Prey DNA exactly once")
+	world.collect_loot_now()
+	check(world.evolution.dna == 10, "Collected crystals never pay twice")
 	hud.movement_vector = Vector2.ONE
 	world._kill_prey(world.prey[0])
+	world.drop_loot(Vector3(40, 0, 0), 5.0)
+	world.collect_loot_now()
 	check(world.choosing() and hud.movement_vector == Vector2.ZERO, "Second kill opens and clears input")
+	world.drop_loot(Vector3(40, 0, 0), 5.0)
 	var before: float = world.model.elapsed
-	var biomass: float = world.model.corpses[0].remaining
+	var biomass: float = world.loot.total(0)
 	var spawn_before: float = world.hunter_clock
 	world.step(30)
-	check(world.model.elapsed == before and world.hunter_clock == spawn_before and world.model.corpses[0].remaining == biomass, "Entire world frozen")
+	check(world.model.elapsed == before and world.hunter_clock == spawn_before and world.loot.total(0) == biomass, "Entire world frozen")
 	world.toggle_pause()
 	world.choose_mutation(0)
 	check(world.evolution.level == 0, "Manual pause blocks selection")
@@ -65,7 +74,8 @@ func _run() -> void:
 	check(world.evolution.level == 1 and not world.choosing(), "Touch selection")
 	world.evolution.ranks["glutton"] = 3
 	world._kill_prey(world.prey[0])
-	check(world.model.corpses[0].remaining == biomass and is_equal_approx(world.model.corpses[-1].initial, TUNING.CORPSE_BIOMASS * 1.75), "Only future kills gain biomass")
+	check(is_equal_approx(world.loot.total(0) - biomass, TUNING.CORPSE_BIOMASS * 1.75), "Only future kills gain biomass")
+	world.collect_loot_now()
 	world._award_dna(20)
 	var key := InputEventKey.new()
 	key.keycode = KEY_1
@@ -75,9 +85,10 @@ func _run() -> void:
 	world.reset_run()
 	check(world.evolution.level == 0 and world.evolution.ranks.is_empty() and world.evolution.dna == 0 and not world.choosing(), "Restart clears all evolution")
 	world.evolution.ranks["brood"] = 3
-	world._create_corpse(Vector3.ZERO, 12)
-	world.step(0.5)
-	check(is_equal_approx(world.model.consumed_biomass, 3.8), "Harvest modifier wired into world")
+	world.drop_loot(swarm.position, 12)
+	for tick in 30:
+		world.step(0.05)
+	check(is_equal_approx(world.model.consumed_biomass, 12.0 * (1.0 + 3.0 * world.evolution.BROOD_STEP)), "Schnelle Brut: more biomass per collected crystal (%.2f)" % world.model.consumed_biomass)
 	world.reset_run()
 	world.model.population = 250
 	swarm.set_population(250)
@@ -85,6 +96,8 @@ func _run() -> void:
 	hunter.state = hunter.State.CHASE
 	hunter.health = 0.01
 	world.step(0.01)
+	world.collect_loot_now()
+	world.collect_loot_now()
 	check(world.evolution.dna == 20 and world.choosing() and world.hunters.is_empty(), "Hunter kill awards DNA once")
 	world.reset_run()
 	# Stage 09 lone start: the modifier checks below use a 25-strong swarm.

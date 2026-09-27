@@ -17,6 +17,7 @@ const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 const UiFrames := preload("res://scripts/ui/ui_frames.gd")
 const UiIcons := preload("res://scripts/ui/ui_icons.gd")
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const DIR := "res://assets/ui/controls/"
 # Calm skin (V2 kit): rally_button_base / joystick_base have their outer ring at
 # r 89 of 192 units, the Rally core at r 76, joystick_knob r 38 of 84 units.
@@ -121,9 +122,10 @@ func _refresh_layers(hud: Control) -> void:
 	_layers.hint.visible = hint != ""
 	_layers.hint.refresh([hint, int(_t() * 30.0) if warn else 0, size, hint_top])
 	var rally_area := Rect2(rally_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0)
+	var charge := _rally_charge(hud)
 	for part in ["rally_base", "rally_heads", "rally_text"]:
 		_region(part, rally_area)
-		_layers[part].refresh([pressed, rally_c])
+		_layers[part].refresh([pressed, rally_c, charge, _rally_count(hud)])
 	_region("joy", Rect2(move_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0))
 	_layers.joy.refresh([hud.movement_vector, move_c])
 	# Breathing without repainting: glow radius/alpha, rim and core light.
@@ -137,6 +139,10 @@ func _refresh_layers(hud: Control) -> void:
 	_layers.rally_rim.modulate = Color(1, 1, 1, 0.35 + 0.45 * breathe)
 	_layers.rally_core.refresh([pressed, rally_c])
 	_layers.rally_core.modulate = Color.WHITE if pressed else Color(1, 1, 1, 0.18 + 0.14 * breathe)
+	if UiStyle.is_brawl():
+		# Held: the light ring beats quickly; at rest nothing moves (calm HUD).
+		glow.scale = Vector2.ONE
+		glow.modulate = Color(1, 1, 1, 0.72 + 0.28 * _pulse(7.0)) if pressed else Color.WHITE
 	var rings: Control = _layers.rally_rings
 	rings.visible = pressed
 	if pressed:
@@ -236,6 +242,9 @@ func _frame_ring(c: Vector2, alpha: float, spin: float) -> void:
 # and core light) are applied by _refresh_layers() through scale/modulate, so
 # the parts below draw them at rest size with full alpha.
 func _draw_rally(c: Vector2, pressed: bool) -> void:
+	if UiStyle.is_brawl():
+		_draw_rally_brawl(c, pressed)
+		return
 	if UiStyle.is_calm():
 		_draw_rally_calm(c, pressed)
 		return
@@ -331,6 +340,9 @@ func _draw_rally_text(c: Vector2, pressed: bool) -> void:
 # ---------------------------------------------------------------- joystick
 
 func _draw_joystick(c: Vector2, move: Vector2) -> void:
+	if UiStyle.is_brawl():
+		_draw_joystick_brawl(c, move)
+		return
 	if UiStyle.is_calm():
 		_draw_joystick_calm(c, move)
 		return
@@ -457,7 +469,7 @@ func tip_rect() -> Rect2:
 		return Rect2()
 	var banner_top := minf(hud._rally_center().y, hud._movement_center().y) - FRAME_R - 30.0 - BANNER_GAP
 	var height := _tip_height()
-	var width := minf(size.x - 96.0, 780.0)
+	var width := minf(size.x - 64.0, 800.0) if UiStyle.is_brawl() else minf(size.x - 96.0, 780.0)
 	var slide := (1.0 - _ease(_tip_alpha)) * 22.0
 	return Rect2(Vector2(size.x * 0.5 - width * 0.5, banner_top - TIP_GAP - height + slide), Vector2(width, height))
 
@@ -467,6 +479,8 @@ func _tip_text_width() -> float:
 
 
 func _tip_height() -> float:
+	if UiStyle.is_brawl():
+		return _tip_height_brawl()
 	var lines := _wrap(_tip_text, UiStyle.display_font(), UiStyle.SIZE_BODY, _tip_text_width())
 	return maxf(118.0, 60.0 + 34.0 * lines.size())
 
@@ -489,6 +503,9 @@ func _wrap(text: String, font: Font, font_size: int, max_w: float) -> PackedStri
 func _draw_tip() -> void:
 	var hud := _hud()
 	if hud == null or _tip_text == "":
+		return
+	if UiStyle.is_brawl():
+		_draw_tip_brawl(hud)
 		return
 	var layer := _tip_layer
 	var rect := tip_rect()
@@ -597,6 +614,9 @@ func _is_warning(text: String) -> bool:
 
 
 func _draw_hint(text: String, top: float) -> void:
+	if UiStyle.is_brawl():
+		_draw_hint_brawl(text, top)
+		return
 	var warn := _is_warning(text)
 	var font := UiStyle.display_font()
 	var font_size := UiStyle.SIZE_HEAD - 4 if warn else UiStyle.SIZE_BODY
@@ -721,3 +741,256 @@ func _closed(points: PackedVector2Array) -> PackedVector2Array:
 	var out := points.duplicate()
 	out.append(points[0])
 	return out
+
+
+# ================================================================ brawl skin
+# Stage 15 (wave 2, package B): Supercell-style controls drawn only with the
+# brawl kit. Rally = big ember round button (held: pressed face + light ring),
+# joystick = translucent disc with an ink contour and a neutral knob (info while
+# steering), hints and tips = pills bottom centre. The touch areas stay in the
+# parent (radius 125 around _rally_center() / _movement_center()).
+
+const BRAWL_RALLY_R := 100.0   # round button, 200 px across (touch radius 125)
+const BRAWL_JOY_R := 112.0     # base disc
+const BRAWL_KNOB_R := 50.0     # knob, 100 px across
+const BRAWL_HINT_H := 76.0
+const BRAWL_TIP_PLATE := 76.0
+
+
+## Optional Rally charge from the HUD: property/meta `rally_charge` (0..1,
+## 1 = ready) draws a ring around the button, `rally_count` (int > 0) a badge.
+## -1 = the run has no charge (today Rally is a plain hold).
+func _rally_charge(hud: Object) -> float:
+	if hud == null:
+		return -1.0
+	var value: Variant = hud.get("rally_charge") if "rally_charge" in hud else (hud.get_meta("rally_charge") if hud.has_meta("rally_charge") else null)
+	if value == null:
+		return -1.0
+	return snappedf(clampf(float(value), 0.0, 1.0), 0.01)
+
+
+func _rally_count(hud: Object) -> int:
+	if hud == null:
+		return 0
+	var value: Variant = hud.get("rally_count") if "rally_count" in hud else (hud.get_meta("rally_count") if hud.has_meta("rally_count") else null)
+	return int(value) if value != null else 0
+
+
+func _draw_rally_brawl(c: Vector2, pressed: bool) -> void:
+	var r := BRAWL_RALLY_R
+	var light: Color = UiStyle.brawl_tone("ember")["light"]
+	match _paint:
+		"rally_glow":
+			if pressed:
+				# Glow ring: soft halo plus a bright band with an ink contour.
+				for i in 8:
+					Kit.circle_ring(_cv, c, r + 34.0 - i * 3.0, 4.0, Color(light, 0.05 + 0.035 * i))
+				Kit.circle_ring(_cv, c, r + 14.0, 3.0, UiStyle.BRAWL_INK)
+				Kit.circle_ring(_cv, c, r + 11.0, 7.0, light)
+				Kit.circle_ring(_cv, c, r + 4.0, 3.0, UiStyle.BRAWL_INK)
+		"rally_base":
+			var hud := _hud()
+			var charge := _rally_charge(hud)
+			if charge >= 0.0:
+				Kit.circle_ring(_cv, c, r + 12.0, 10.0, Color(UiStyle.BRAWL_WELL, 0.85))
+				if charge > 0.0:
+					_cv.draw_arc(c, r + 7.0, -PI * 0.5, -PI * 0.5 + TAU * charge, 64, light if charge >= 1.0 else Color(light, 0.8), 6.0, true)
+			Kit.round_button(_cv, c, r, "ember", pressed)
+			var lc := Kit.round_label_center(c, r, pressed)
+			Kit.text_outlined(_cv, lc, "RALLY", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+			var count := _rally_count(hud)
+			if count > 0:
+				Kit.badge(_cv, c + Vector2(r * 0.72, -r * 0.72), str(count), "info", UiStyle.T_LABEL)
+	# Held: thin light rings pull in toward the button (the swarm gathers).
+	if pressed and _paint == "rally_rings":
+		for i in 2:
+			var phase := fposmod(_t() * 1.3 + i * 0.5, 1.0)
+			var rr := lerpf(r + 48.0, r + 16.0, phase)
+			var fade := sin(phase * PI)
+			Kit.circle_ring(_cv, c, rr, 4.0, Color(light, 0.7 * fade))
+
+
+func _draw_joystick_brawl(c: Vector2, move: Vector2) -> void:
+	var strength := clampf(move.length(), 0.0, 1.0)
+	var r := BRAWL_JOY_R
+	var info: Dictionary = UiStyle.brawl_tone("info")
+	# Base: translucent disc, ink contour outside, light ring inside.
+	Kit.disc(_cv, c, r, Color(UiStyle.BRAWL_INK, 0.34))
+	Kit.circle_ring(_cv, c, r + 2.0, 4.0, Color(UiStyle.BRAWL_INK, 0.55))
+	Kit.circle_ring(_cv, c, r - 1.0, 5.0, Color(1, 1, 1, 0.4))
+	Kit.circle_ring(_cv, c, r * 0.56, 2.0, Color(1, 1, 1, 0.12))
+	# Steering direction lights the rim.
+	if strength > 0.05:
+		var a := move.angle()
+		_cv.draw_arc(c, r - 4.0, a - 0.55, a + 0.55, 24, Color(info["light"], 0.9 * strength), 8.0, true)
+	# Four quiet direction arrows (ink edge, white face).
+	for i in 4:
+		var dir := Vector2.RIGHT.rotated(i * PI * 0.5)
+		var lit := clampf(move.dot(dir), 0.0, 1.0)
+		var tip := c + dir * (r - 16.0)
+		var base := c + dir * (r - 32.0)
+		var side := Vector2(-dir.y, dir.x)
+		var pts := PackedVector2Array([tip, base + side * 13.0, base - side * 13.0])
+		var closed := pts.duplicate()
+		closed.append(pts[0])
+		_cv.draw_polyline(closed, Color(UiStyle.BRAWL_INK, 0.5), 5.0, true)
+		_cv.draw_colored_polygon(pts, Color(1, 1, 1, 0.5).lerp(info["light"], lit))
+	# Knob: neutral at rest, info (pushed in) while steering.
+	var knob := c + move.limit_length(1.0) * KNOB_TRAVEL
+	var active := strength > 0.05
+	Kit.round_button(_cv, knob, BRAWL_KNOB_R, "info" if active else "neutral", active)
+
+
+# ---------------------------------------------------------------- brawl hint
+
+func _hint_tone(text: String) -> String:
+	var upper := text.to_upper()
+	if upper.begins_with("EVOLUTION"):
+		return "special"
+	if upper.begins_with("MIGRATION"):
+		return "info"
+	return "dark"
+
+
+func _draw_hint_brawl(text: String, top: float) -> void:
+	var warn := _is_warning(text)
+	var font := UiStyle.display_font()
+	var size_px := UiStyle.T_HEAD if warn else UiStyle.T_BODY
+	var h := BRAWL_HINT_H if warn else 64.0
+	var glyph_w := 64.0 if warn else 0.0
+	var pad := 34.0
+	var text_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+	var max_w := size.x - 48.0
+	var width := clampf(text_w + glyph_w + pad * 2.0, 320.0, max_w)
+	var text_room := width - glyph_w - pad * 2.0
+	var shown_w := minf(text_w, text_room)
+	var rect := Rect2(Vector2(roundf(size.x * 0.5 - width * 0.5), top + (BRAWL_HINT_H - h) * 0.5), Vector2(roundf(width), h))
+	if warn:
+		var beat := _pulse(9.0)
+		var glow: Color = UiStyle.brawl_tone("danger")["light"]
+		for k in 3:
+			Kit.ring(_cv, rect.grow(6.0 + 5.0 * k + 3.0 * beat), h * 0.5 + 6.0 + 5.0 * k, 4.0, Color(glow, (0.55 - 0.16 * k) * (0.4 + 0.6 * beat)))
+		Kit.pill(_cv, rect, "danger")
+	else:
+		Kit.pill(_cv, rect, _hint_tone(text))
+	var x := rect.get_center().x - (shown_w + glyph_w) * 0.5
+	var mid := rect.position.y + (h - 4.0) * 0.5
+	if warn:
+		_warn_glyph(Vector2(x + 24.0, mid), 25.0)
+	Kit.text_outlined(_cv, Vector2(x + glyph_w, mid), text, size_px, Color.WHITE, -1, -1, font, Kit.LEFT | Kit.MIDDLE, text_room)
+
+
+# Warning glyph: white rounded triangle with an ink contour and a danger "!".
+func _warn_glyph(center: Vector2, radius: float) -> void:
+	var pts := PackedVector2Array([center + Vector2(0, -radius), center + Vector2(radius * 1.1, radius * 0.82), center + Vector2(-radius * 1.1, radius * 0.82)])
+	var closed := pts.duplicate()
+	closed.append(pts[0])
+	_cv.draw_polyline(closed, UiStyle.BRAWL_INK, 11.0, true)
+	for p in pts:
+		Kit.disc(_cv, p, 5.5, UiStyle.BRAWL_INK)
+	_cv.draw_colored_polygon(pts, Color.WHITE)
+	_cv.draw_polyline(closed, Color.WHITE, 4.0, true)
+	var ink: Color = UiStyle.brawl_tone("danger")["dark"]
+	_cv.draw_line(center + Vector2(0, -radius * 0.42), center + Vector2(0, radius * 0.28), ink, 6.0, true)
+	Kit.disc(_cv, center + Vector2(0, radius * 0.56), 3.8, ink)
+
+
+# ---------------------------------------------------------------- brawl tip
+
+func _tip_plate_tone(id: String) -> String:
+	match id:
+		"rally":
+			return "ember"
+		"warning", "boss":
+			return "danger"
+		"corpse", "prey":
+			return "loot"
+		"alpha", "mutation":
+			return "special"
+		"nest":
+			return "action"
+	return "info"
+
+
+func _tip_text_width_brawl() -> float:
+	return minf(size.x - 64.0, 800.0) - BRAWL_TIP_PLATE - 64.0
+
+
+func _tip_height_brawl() -> float:
+	var lines := Kit.wrap_lines(_tip_text, UiStyle.body_bold_font(), UiStyle.T_BODY, _tip_text_width_brawl())
+	return maxf(104.0, 40.0 + 34.0 * mini(lines.size(), 3))
+
+
+func _draw_tip_brawl(hud: Control) -> void:
+	var layer := _tip_layer
+	var rect := tip_rect()
+	rect = Rect2(rect.position.round(), rect.size)
+	var height := rect.size.y
+	var tone := _tip_plate_tone(_tip_icon)
+	_draw_tip_pointer_brawl(layer, hud, rect, tone)
+	Kit.panel(layer, rect, "dark", minf(height * 0.5, UiStyle.R_XL))
+	# Icon plate on the left, "TIPP" chip on the top edge.
+	var plate_c := Vector2(rect.position.x + 20.0 + BRAWL_TIP_PLATE * 0.5, rect.get_center().y)
+	# The painted Rally jaws are red: they need the dark plate to read.
+	Kit.icon_plate(layer, plate_c, BRAWL_TIP_PLATE, "dark" if _tip_icon == "rally" else tone)
+	var icon_id: String = TIP_ICONS.get(_tip_icon, "")
+	var ic := Kit.plate_center(plate_c, BRAWL_TIP_PLATE)
+	if icon_id != "" and UiIcons.has(icon_id):
+		UiIcons.draw(layer, icon_id, Rect2(ic - Vector2.ONE * 29.0, Vector2.ONE * 58.0), Color.WHITE)
+	else:
+		Kit.text_outlined(layer, ic, "!", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	var chip := Rect2(Vector2(rect.position.x + BRAWL_TIP_PLATE + 44.0, rect.position.y - 18.0), Vector2(86.0, 34.0))
+	Kit.chip(layer, chip, "info")
+	Kit.text_outlined(layer, chip.get_center(), "TIPP", UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	var text_x := rect.position.x + BRAWL_TIP_PLATE + 44.0
+	var tw := _tip_text_width_brawl()
+	var lines := Kit.wrap_lines(_tip_text, UiStyle.body_bold_font(), UiStyle.T_BODY, tw)
+	var n := mini(lines.size(), 3)
+	var first := rect.get_center().y - (n - 1) * 17.0 + UiStyle.T_BODY * Kit.CAP_BODY * 0.5 + 2.0
+	Kit.paragraph(layer, Vector2(text_x, first), _tip_text, tw, UiStyle.T_BODY, Color.WHITE, true, Kit.LEFT, 3, 0)
+
+
+# Bewegen/Rally tips point at their control: chevrons, a ring and a fingertip.
+func _draw_tip_pointer_brawl(layer: Control, hud: Control, rect: Rect2, tone: String) -> void:
+	var target: Vector2
+	var target_r: float
+	match _tip_icon:
+		"move":
+			target = hud._movement_center()
+			target_r = BRAWL_JOY_R
+		"rally":
+			target = hud._rally_center()
+			target_r = BRAWL_RALLY_R
+		_:
+			return
+	var light: Color = UiStyle.brawl_tone(tone)["light"]
+	var beat := _pulse(3.0)
+	var from := Vector2(clampf(target.x, rect.position.x + 48.0, rect.end.x - 48.0), rect.end.y + 8.0)
+	var to := target + Vector2(0.0, -target_r - 26.0)
+	var along := to - from
+	var dir := along.normalized()
+	var side := Vector2(-dir.y, dir.x)
+	for i in 3:
+		var phase := fposmod(_t() * 0.9 + i / 3.0, 1.0)
+		var p := from + along * phase
+		var fade := sin(phase * PI)
+		var pts := PackedVector2Array([p - dir * 11.0 + side * 17.0, p + dir * 7.0, p - dir * 11.0 - side * 17.0])
+		layer.draw_polyline(pts, Color(UiStyle.BRAWL_INK, 0.8 * fade), 12.0, true)
+		layer.draw_polyline(pts, Color(Color.WHITE, fade), 6.0, true)
+	# The ring stays on screen (the controls sit 125 px from the edges).
+	var edge := minf(minf(target.x, size.x - target.x), size.y - target.y) - 8.0
+	var ring_r := minf(target_r + 16.0 + 6.0 * beat, edge)
+	Kit.circle_ring(layer, target, ring_r + 2.0, 9.0, Color(UiStyle.BRAWL_INK, 0.55))
+	Kit.circle_ring(layer, target, ring_r, 5.0, Color(light, 0.6 + 0.4 * beat))
+	var finger: Vector2
+	var finger_r := 22.0
+	if _tip_icon == "move":
+		var swing := sin(_t() * 2.2)
+		finger = target + Vector2(swing * 46.0, -26.0 + absf(swing) * 10.0)
+	else:
+		# Presses the lower right of the button, the label stays readable.
+		finger = target + Vector2(38.0, 44.0)
+		finger_r = 20.0 + 5.0 * beat
+	Kit.disc(layer, finger + Vector2(0, 4), finger_r + 4.0, UiStyle.BRAWL_INK_SOFT)
+	Kit.disc(layer, finger, finger_r + 3.0, UiStyle.BRAWL_INK)
+	Kit.disc(layer, finger, finger_r, Color.WHITE)

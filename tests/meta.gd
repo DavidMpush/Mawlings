@@ -30,7 +30,7 @@ func _clean() -> void:
 func _run() -> void:
 	_clean()
 	# Datenumfang
-	check(DATA.STRAINS.size() == 6 and DATA.UPGRADES.size() == 8 and DATA.DIFFICULTIES.size() == 3, "Data sizes")
+	check(DATA.STRAINS.size() == 6 and DATA.UPGRADES.size() == 9 and DATA.DIFFICULTIES.size() == 3, "Data sizes")
 	check(DATA.QUESTS.size() >= 30, "At least 30 quests")
 	var ids := {}
 	for q in DATA.QUESTS:

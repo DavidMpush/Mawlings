@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
 $projectDir = Split-Path -Parent $PSScriptRoot
-$tests = @('smoke','run_model','hunt_flow','survival','evolution','arena','skitter','leaper','model_budget','boss','motion','per_unit_hits','leader','objectives','horde','flood','eruptions','apex','apex_run','migration','apex_toad','toad_run','minimap','onboarding','meta','attack_forms','forms_extra','run_config','menu','sfx','sfx_hooks','music','corpse_visuals','chronicle')
+$tests = @('smoke','run_model','hunt_flow','survival','evolution','arena','skitter','leaper','model_budget','boss','motion','per_unit_hits','leader','objectives','horde','flood','eruptions','apex','apex_run','migration','apex_toad','toad_run','minimap','onboarding','meta','attack_forms','forms_extra','run_config','menu','sfx','sfx_hooks','music','corpse_visuals','loot_magnet','chronicle')
 $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 if ($Only.Count -gt 0) { $tests = $tests | Where-Object { $Only -contains $_ } }
 

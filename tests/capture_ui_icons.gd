@@ -1,12 +1,23 @@
 extends SceneTree
-## Icon sheet for visual review: every UiIcons id at 160 px on the dark panel
-## green, at 56 px on dark and light moss, as flat silhouettes, and tinted.
-## Run WITHOUT --headless. Output: res://preview_ui_icons.png
+## Icon review sheets (icon standard V4, ART_UI_PLAN.md "Icon-Standard").
+## Every UiIcons id at 96 px and 40 px, on the dark panel green and on light
+## moss, once with the V4 standard (after) and once without (before), plus a
+## focus strip for the look-alike teeth icons, the glyphs and tints.
+## Run WITHOUT --headless. Output: res://preview_ui_icons.png (after),
+## res://preview_ui_icons_before.png, res://preview_ui_icons_compare.png
 
 const UiIcons := preload("res://scripts/ui/ui_icons.gd")
-const UiStyle := preload("res://scripts/ui/ui_style.gd")
-const SIZE := Vector2i(1380, 2420)
+const DARK := Color("0c1a14")
 const MOSS := Color("7f9b5a")
+const BACK := Color("050b08")
+const LABEL := Color("c9d6cc")
+const COLS := 4
+const CELL := Vector2(320, 150)
+const FOCUS := ["jaws", "pack", "glutton", "rudelbiss", "meute", "armor", "scatter",
+	"dna", "biomass", "pause", "clock", "lock", "reroll", "restart", "banish", "skip"]
+# Second tint row: tintable head, fixed-colour currencies, painted icons.
+const PAINTED_TINT := ["mawling_head", "dna", "biomass", "skull", "crown", "nest", "essence"]
+const TINTS := [Color.WHITE, Color("ffc94a"), Color("5fe0d0"), Color("ff6a4a"), Color("b58cff")]
 
 
 func _initialize() -> void:
@@ -14,51 +25,79 @@ func _initialize() -> void:
 
 
 func _capture() -> void:
+	UiIcons.set_v4(true)
+	await _render(_draw_sheet, _sheet_size(), "res://preview_ui_icons.png")
+	UiIcons.set_v4(false)
+	await _render(_draw_sheet, _sheet_size(), "res://preview_ui_icons_before.png")
+	await _render(_draw_compare, Vector2i(1400, 640), "res://preview_ui_icons_compare.png")
+	UiIcons.set_v4(true)
+	print("Saved preview_ui_icons(.png/_before/_compare) (%d icons)" % UiIcons.IDS.size())
+	quit()
+
+
+func _sheet_size() -> Vector2i:
+	var rows := ceili(UiIcons.IDS.size() / float(COLS))
+	return Vector2i(int(COLS * CELL.x) + 20, int(rows * CELL.y) + 20)
+
+
+func _render(fn: Callable, size: Vector2i, out: String) -> void:
 	var viewport := SubViewport.new()
-	viewport.size = SIZE
+	viewport.size = size
 	viewport.transparent_bg = false
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	root.add_child(viewport)
 	var sheet := Control.new()
-	sheet.size = Vector2(SIZE)
-	sheet.draw.connect(_draw_sheet.bind(sheet))
+	sheet.size = Vector2(size)
+	sheet.draw.connect(fn.bind(sheet, size))
 	viewport.add_child(sheet)
 	for i in 3:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	viewport.get_texture().get_image().save_png("res://preview_ui_icons.png")
-	print("Saved preview_ui_icons.png (%d icons)" % UiIcons.IDS.size())
-	quit()
+	viewport.get_texture().get_image().save_png(out)
+	viewport.queue_free()
+	await process_frame
 
 
-func _draw_sheet(c: Control) -> void:
-	var font := ThemeDB.fallback_font
-	c.draw_rect(Rect2(Vector2.ZERO, Vector2(SIZE)), Color("050b08"))
-	# 160 px on the dark card body.
-	var rows := ceili(UiIcons.IDS.size() / 8.0)
-	var top := Rect2(10, 10, SIZE.x - 20, rows * 196 + 10)
-	c.draw_rect(top, UiStyle.PANEL.lerp(Color.BLACK, 0.0))
+# One cell: [dark: 96 + 40] [moss: 96 + 40] and the id below.
+func _cell(c: Control, id: String, at: Vector2, tint := Color.WHITE) -> void:
+	for k in 2:
+		var bg := Rect2(at + Vector2(k * 152, 0), Vector2(148, 112))
+		c.draw_rect(bg, DARK if k == 0 else MOSS)
+		UiIcons.draw(c, id, Rect2(bg.position + Vector2(6, 8), Vector2(96, 96)), tint)
+		UiIcons.draw(c, id, Rect2(bg.position + Vector2(104, 64), Vector2(40, 40)), tint)
+	c.draw_string(ThemeDB.fallback_font, at + Vector2(0, 132), id, HORIZONTAL_ALIGNMENT_CENTER, 300, 16, LABEL)
+
+
+func _draw_sheet(c: Control, size: Vector2i) -> void:
+	c.draw_rect(Rect2(Vector2.ZERO, Vector2(size)), BACK)
 	for i in UiIcons.IDS.size():
-		var id: String = UiIcons.IDS[i]
-		var cell := Vector2(20 + (i % 8) * 170, 18 + (i / 8) * 196)
-		UiIcons.draw(c, id, Rect2(cell + Vector2(5, 0), Vector2(160, 160)))
-		c.draw_string(font, cell + Vector2(0, 182), id, HORIZONTAL_ALIGNMENT_CENTER, 170, 15, UiStyle.TEXT_DIM)
-	# 56 px rows: dark panel, light moss, black silhouettes on moss, tinted head.
-	var y := top.end.y + 10
-	var bands := [[UiStyle.PANEL, Color.WHITE], [MOSS, Color.WHITE], [MOSS, Color(0.06, 0.08, 0.06)]]
-	for band in bands:
-		c.draw_rect(Rect2(10, y, SIZE.x - 20, 4 * 70 + 12), band[0])
-		for i in UiIcons.IDS.size():
-			var pos := Vector2(24 + (i % 16) * 84, y + 8 + (i / 16) * 70)
-			UiIcons.draw(c, UiIcons.IDS[i], Rect2(pos, Vector2(56, 56)), band[1])
-		y += 4 * 70 + 22
-	# Tint check for the neutral head + missing-id placeholder + 40 px.
-	c.draw_rect(Rect2(10, y, SIZE.x - 20, 70), UiStyle.PANEL)
-	var tints := [Color.WHITE, UiStyle.EMBER, UiStyle.CYAN, UiStyle.VIOLET, UiStyle.TOXIC, UiStyle.GOLD]
-	for i in tints.size():
-		UiIcons.draw(c, "mawling_head", Rect2(24 + i * 70, y + 7, 56, 56), tints[i])
-	UiIcons.draw(c, "does_not_exist", Rect2(24 + 6 * 70, y + 7, 56, 56))
-	UiIcons.draw(c, "prey", Rect2(24 + 7 * 70, y + 7, 56, 56))
-	var small := ["pack", "meute", "rudelbiss", "hunter", "skitter", "leaper", "nibbler", "bog_king", "biomass", "essence", "up_gene", "dna", "restart", "reroll", "hub", "instinct"]
-	for i in small.size():
-		UiIcons.draw(c, small[i], Rect2(580 + i * 48, y + 15, 40, 40))
+		var at := Vector2(14 + (i % COLS) * CELL.x, 10 + (i / COLS) * CELL.y)
+		_cell(c, UiIcons.IDS[i], at)
+
+
+# Focus strip: before (row 1) / after (row 2) at 64 + 40 px on dark and moss,
+# then the V4 glyphs and the neutral head in five tints.
+func _draw_compare(c: Control, size: Vector2i) -> void:
+	var font := ThemeDB.fallback_font
+	c.draw_rect(Rect2(Vector2.ZERO, Vector2(size)), BACK)
+	for row in 2:
+		UiIcons.set_v4(row == 1)
+		var y := 10.0 + row * 250.0
+		c.draw_string(font, Vector2(12, y + 20), "VORHER" if row == 0 else "NACHHER (V4)", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, LABEL)
+		for band in 2:
+			var by := y + 30 + band * 104
+			c.draw_rect(Rect2(10, by, size.x - 20, 100), DARK if band == 0 else MOSS)
+			for i in FOCUS.size():
+				var x := 20.0 + i * 85.0
+				UiIcons.draw(c, FOCUS[i], Rect2(x, by + 4, 64, 64))
+				UiIcons.draw(c, FOCUS[i], Rect2(x + 12, by + 64, 34, 34))
+	UiIcons.set_v4(true)
+	var ty := 530.0
+	c.draw_string(font, Vector2(12, ty - 8), "Getönt: oben V4-Glyphen, unten Kopf/DNA/Biomasse/Schädel/Krone/Nest/Essenz", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, LABEL)
+	c.draw_rect(Rect2(10, ty, size.x - 20, 96), DARK)
+	var glyphs := ["pause", "clock", "lock", "reroll", "restart", "banish", "skip"]
+	for g in glyphs.size():
+		for t in TINTS.size():
+			var x := 20.0 + g * 190.0 + t * 36.0
+			UiIcons.draw(c, glyphs[g], Rect2(x, ty + 10, 34, 34), TINTS[t])
+			UiIcons.draw(c, PAINTED_TINT[g], Rect2(x, ty + 52, 34, 34), TINTS[t])

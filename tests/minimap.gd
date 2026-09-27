@@ -83,7 +83,8 @@ func _run() -> void:
 	var here: Vector3 = swarm.position
 	world.spawn_nest(here + Vector3(15, 0, 0))
 	world._spawn_boss(here + Vector3(0, 0, -120))
-	world._create_corpse(here + Vector3(-8, 0, 6), 3.0, "prey")
+	var loot_at: Vector3 = here + Vector3(-8, 0, 6)
+	world.loot.drop(0, 3.0, loot_at, loot_at, false)
 	world._spawn_hunter(here + Vector3(6, 0, 6))
 	world._map_clock = 0.0
 	await _frames(12)

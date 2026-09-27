@@ -117,9 +117,7 @@ const HUNTER_SPAWN_SECONDS := 9.0
 const HUNTER_SPAWN_MIN := 2.2
 const MAX_PREY := 5
 const PREY_RESPAWN_SECONDS := 10.0
-const CORPSE_BIOMASS := 4.0         # Etappe 10 Teil 2: 5 -> 4
-const HARVEST_RATE := 4.0
-const HARVEST_RADIUS := 1.55
+const CORPSE_BIOMASS := 4.0         # Etappe 10 Teil 2: 5 -> 4 (Beute-Biomasse, als Kristalle)
 
 const FIRST_SKITTER_SECONDS := 50.0
 const SKITTER_HEALTH := 15.0
@@ -232,9 +230,9 @@ const FLOOD_SPEED_CAP := 6.0
 const FLOOD_SPEED_SHARE := 0.82       # nie schneller als 82 % des Schwarmtempos
 const FLOOD_RING_RADIUS := 23.0       # außerhalb des Hochformat-Bildes
 const FLOOD_RING_SHIFT := 7.0         # Ringmitte nach "oben" (-Z): oben sieht die Kamera weiter
-const FLOOD_BUNDLE_SECONDS := 1.0     # Brut-Kadaver werden so lange je Zelle gesammelt
+const FLOOD_BUNDLE_SECONDS := 0.35    # Brut-Kills werden so lange je Zelle gesammelt (Etappe 16: 1,0 -> 0,35, Kristalle)
 const FLOOD_BUNDLE_CELL := 3.0
-const FLOOD_KILL_BIOMASS := 1.5       # Fallback, falls die Horde keine Biomasse meldet
+const FLOOD_KILL_BIOMASS := 0.3       # Etappe 16: 1,5 -> 0,3 (der Magnet holt jetzt fast jede Brut-Beute)
 const FLOOD_KILL_DNA := 1
 
 # Nibbler wehren sich (Etappe 08): gebissen oder umzingelt schnappen sie nach einer
@@ -357,3 +355,48 @@ const APEX_TOAD_ALPHA_CORES := 2
 # zum Druck, der ohnehin exponentiell steigt).
 const APEX_LOOP_HEALTH := 1.6
 const APEX_LOOP_DAMAGE := 1.25
+
+
+# Etappe 16 – Beute-Kristalle und Magnet (scripts/loot.gd) ersetzen die Kadaver-Ernte.
+# Jeder Tod platzt in 1–LOOT_MAX_PER_KILL Kristalle auf (Biomasse je LOOT_BIO_CHUNK ein
+# Kristall, DNA je LOOT_DNA_CHUNK; gedeckelt je Rang), die LOOT_HOP_SECONDS im Bogen
+# herausspringen und liegen bleiben, bis der Schwarm sie holt (kein Verfall).
+# Liegen in einer Rasterzelle (2,5 m) schon LOOT_CELL_CROWD Kristalle derselben Sorte,
+# geht ein landender im größten davon auf (ab LOOT_SOFT_CAP liegenden immer, auch in
+# den Nachbarzellen), damit die Karte nicht zuwächst.
+const LOOT_BIO_CHUNK := 2.5
+const LOOT_DNA_CHUNK := 25.0
+const LOOT_MAX_PER_KILL := 6
+const LOOT_HOP_SECONDS := [0.3, 0.5]
+const LOOT_HOP_HEIGHT := 1.1
+const LOOT_CELL_CROWD := 4
+const LOOT_SOFT_CAP := 500
+# Magnet: Kristalle im Radius um die Schwarmmitte fliegen zu einem Tier (Start mit
+# LOOT_FLY_KICK m/s rückwärts, dann LOOT_FLY_ACCEL m/s² bis LOOT_FLY_MAX_SPEED).
+# Radius = (MAGNET_BASE + MAGNET_PER_ROOT × √Population) × Witterung (Meta) × Lockduft
+# (Anlage) × MAGNET_RALLY bei gehaltener Rally. 1 Tier 3,3 m, 25 Tiere 4,5 m, 100 → 6 m,
+# 250 → 7,7 m (Schwarmradius dort ~3,8 m).
+const MAGNET_BASE := 3.0
+const MAGNET_PER_ROOT := 0.3
+const MAGNET_RALLY := 1.35
+const LOOT_FLY_KICK := 2.5
+const LOOT_FLY_ACCEL := 45.0
+const LOOT_FLY_MAX_SPEED := 26.0
+# Lockruf: garantiert bei Elite-Jäger, Bog King, Apex und zu jeder neuen Flutstufe
+# (FLOOD_DOUBLING_SECONDS), sonst LURE_CHANCE je Jäger-/Skitter-/Leaper-Kill, sobald
+# mindestens LURE_MIN_LYING Kristalle liegen. Einsammeln: alle Kristalle der Karte
+# fliegen als Kette heran (Verzögerung bis LOOT_VACUUM_SPREAD s nach Entfernung,
+# Flugzeit höchstens ~LOOT_VACUUM_FLIGHT s).
+const LURE_PICKUP_RADIUS := 1.8
+const LURE_CHANCE := 0.03
+const LURE_MIN_LYING := 30
+const LURE_FLOOD_DISTANCE := 9.0
+const LOOT_VACUUM_SPREAD := 1.2
+const LOOT_VACUUM_FLIGHT := 0.8
+# Kadaver sind nur noch Deko (corpse_visuals.gd): sie liegen CORPSE_LIFE Sekunden je
+# Rang und versinken in den letzten CORPSE_SINK_SECONDS; höchstens CORPSE_MAX
+# gleichzeitig (die ältesten gehen zuerst).
+const CORPSE_LIFE := {"normal": 25.0, "mini": 35.0, "boss": 60.0, "special": 14.0}
+const CORPSE_HORDE_LIFE := 12.0
+const CORPSE_SINK_SECONDS := 3.0
+const CORPSE_MAX := 40

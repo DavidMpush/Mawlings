@@ -23,4 +23,4 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 - **Handtest:** 5–10 Minuten Spielgefühl.
 
 ## Erledigt
-- 01 Bewegung & Lesbarkeit · 02 Welt & Assets · 03 Progression · 04 UI-Komponenten · 05 Spielgefühl, Balance, Lesbarkeit · 06 Ziele, Einstieg, UI-Politur, Leistungsmessung · 07 Leistung · 08 Die Flut & Schwierigkeit · 09 Einzelstart & Anführer · 10 Apex, Migration, Build-Vielfalt, Nutzer-Sounds/Drops/Icons · Minimap · V2-Stil · Aschenkröte · Asset-Paket V3 · Android-Export
+- 01 Bewegung & Lesbarkeit · 02 Welt & Assets · 03 Progression · 04 UI-Komponenten · 05 Spielgefühl, Balance, Lesbarkeit · 06 Ziele, Einstieg, UI-Politur, Leistungsmessung · 07 Leistung · 08 Die Flut & Schwierigkeit · 09 Einzelstart & Anführer · 10 Apex, Migration, Build-Vielfalt, Nutzer-Sounds/Drops/Icons · Minimap · V2-Stil · Aschenkröte · Asset-Paket V3 · Android-Export · 16 Beute-Kristalle & Magnet

@@ -144,11 +144,11 @@ func _state_key() -> Array:
 	if menu == null:
 		return []
 	var key: Array = [size, menu.profile == null, menu.get("load_error"), menu.tab, menu.strain_index, menu._slide,
-		menu.biome_id, menu.difficulty, menu.pressed_rect(), menu.settings_open, menu.reward.is_empty(), S.colorblind]
+		menu.biome_id, menu.difficulty, menu.pressed_rect(), menu.settings_open, menu.reward.is_empty(), S.colorblind, S.skin]
 	var p = menu.profile
 	if p != null:
 		key.append_array([p.essence, p.crowns, str(p.upgrades), p.instinct_level, str(p.unlocked_strains), str(p.owned_strains),
-			p.completed_quests.size(), str(p.records), str(p.unlocked_difficulties), p.next_seed, str(p.daily_records),
+			p.completed_quests.size(), str(p.records), str(p.unlocked_difficulties), str(p.daily_records),
 			menu.can_play(), menu.can_play_daily(), menu._affordable_upgrades(), menu._instinct_cost()])
 	if _viewport != null:
 		key.append(_viewport.size)
@@ -161,10 +161,10 @@ func _refresh_layers() -> void:
 	var tint: Color = S.color("ember")
 	if menu != null and menu.profile != null:
 		tint = menu._strain_color(menu.current_strain()) if menu._strain_unlocked(menu.current_strain()) else S.color("text_dim")
-	_layers.sky.refresh([size, tint])
+	_layers.sky.refresh([size, tint, S.skin])
 	_layers.rays.refresh(tick)
 	_layers.fog.refresh(tick)
-	_layers.vignette.refresh(size)
+	_layers.vignette.refresh([size, S.skin])
 	_layers.base.refresh(key)
 	_layers.top.refresh(key)
 	_layers.under.refresh([key, tick])
@@ -631,6 +631,9 @@ func _build_decor() -> void:
 
 
 func _paint_sky() -> void:
+	if S.is_brawl():
+		_b_paint_sky()
+		return
 	var w := size.x
 	var h := size.y
 	var painted := UiArt.menu_background()
@@ -660,6 +663,8 @@ func _paint_sky() -> void:
 
 ## God rays from the canopy.
 func _paint_rays() -> void:
+	if S.is_brawl():
+		return
 	var ray_color := S.color("toxic").lerp(S.color("text"), 0.55)
 	for i in 5:
 		var x := 60.0 + i * 150.0 + sin(_time * 0.13 + i * 1.3) * 26.0
@@ -672,6 +677,8 @@ func _paint_rays() -> void:
 
 ## Drifting fog between the far leaves and the spores.
 func _paint_fog() -> void:
+	if S.is_brawl():
+		return
 	for i in 3:
 		var fy: float = [760.0, 1010.0, 1240.0][i]
 		var fx := fposmod(_time * (14.0 + i * 5.0) + i * 300.0, 1500.0) - 300.0
@@ -681,6 +688,9 @@ func _paint_fog() -> void:
 
 ## Vignette: sides and the bands behind the resource bar and tab dock.
 func _paint_vignette() -> void:
+	if S.is_brawl():
+		_b_paint_vignette()
+		return
 	var w := size.x
 	var h := size.y
 	var dark := Color(S.color("outline"), 0.6)
@@ -696,6 +706,9 @@ func _paint_vignette() -> void:
 func _paint_front() -> void:
 	if menu == null:
 		return
+	if S.is_brawl():
+		_paint_brawl()
+		return
 	if menu.profile == null:
 		# Loading / error state: only the new logo, menu.gd writes the status line.
 		_draw_logo()
@@ -709,7 +722,6 @@ func _paint_front() -> void:
 		_draw_section("SCHWIERIGKEIT", menu.difficulty_rect(0).position.y - 16)
 		_draw_difficulties()
 		_draw_play()
-		_draw_seed_card()
 		_draw_daily()
 	_draw_tabs()
 
@@ -1375,7 +1387,7 @@ func _draw_play() -> void:
 		_txt("Trophäe: " + String(q.get("name", "")), c + Vector2(0, 46), LABEL, S.color("gold"), true, 5)
 	if not _on("top"):
 		return
-	# All-time record line under the seed / daily row (the next trophy lives in TROPHÄEN).
+	# All-time record line under the daily row (the next trophy lives in TROPHÄEN).
 	var best := float(menu.profile.records.get("best_seconds", 0.0))
 	var peak := int(menu.profile.records.get("best_peak", 0))
 	# Stage 10: the line is a quiet pill that opens the CHRONIK (hit area menu.records_rect()).
@@ -1406,38 +1418,6 @@ func _draw_play() -> void:
 	_gem(Vector2(x + 26 + wa + 23, ry - 8), 4, S.color("text_dim"))
 	_mawling_head(Vector2(x + 26 + wa + 46 + 10, ry - 8), 11, S.color("ember_glow"))
 	_txt(part_b, Vector2(x + 26 + wa + 46 + 26, ry), LABEL, S.color("text").darkened(0.12), false, 4)
-
-
-## Next map code with NEU WÜRFELN (hit area: menu.seed_reroll_rect()).
-func _draw_seed_card() -> void:
-	if not _on("top"):
-		return
-	var card: Rect2 = menu.seed_card_rect()
-	_panel(card, Color(S.color("cyan"), 0.6), S.color("panel"), 0.0, 16.0, 0.0, 0, 2.0)
-	var x := card.position.x + 22
-	var label_w := _txt("KARTE", Vector2(x, card.position.y + 44), LABEL, S.color("cyan").lerp(S.color("text"), 0.35), false, 4)
-	var code: String = menu.next_seed_code()
-	_txt(code, Vector2(x + label_w + 14, card.position.y + 46), 38, S.color("text"), false, 6)
-	var roll_left: float = menu.seed_reroll_rect().position.x - 10.0
-	var note := "Gleicher Code = gleiche Karte"
-	if _tw(note, LABEL, true) > roll_left - x:
-		note = "Code = gleiche Karte"
-	_txt(note, Vector2(x, card.position.y + 78), LABEL, S.color("text_dim"), false, 4, true)
-	var roll: Rect2 = menu.seed_reroll_rect()
-	var pressed: bool = menu.is_pressed(roll)
-	if _frames != null:
-		_frames.button(_cv, roll, "secondary", pressed)
-	else:
-		_panel(roll, Color(S.color("bone"), 0.7), S.color("panel").darkened(0.2), 0.0, 12.0, 0.0, 0, 2.0)
-	var off := Vector2(0, 3) if pressed else Vector2.ZERO
-	# Icon + NEU on the first line, WÜRFELN centred below: fits at 22 px.
-	var cx := roll.get_center().x + off.x
-	var neu_w := _tw("NEU", LABEL)
-	var ic := Vector2(cx - (neu_w + 34.0) * 0.5 + 13.0, roll.position.y + 27) + off
-	if not _icon(["reroll"], Rect2(ic - Vector2(14, 14), Vector2(28, 28)), S.color("cyan").lerp(S.color("text"), 0.3)):
-		_cv.draw_arc(ic, 11, 0.4, TAU - 0.4, 20, S.color("cyan"), 4.0, true)
-	_txt("NEU", Vector2(ic.x + 21, roll.position.y + 35 + off.y), LABEL, S.color("text"), false, 4)
-	_txt("WÜRFELN", Vector2(cx, roll.position.y + 62 + off.y), LABEL, S.color("text"), true, 4)
 
 
 ## TAGES-BRUT: secondary gold button with a sun glyph and today's record.
@@ -1638,3 +1618,610 @@ func _tab_icon(id: String, c: Vector2, accent: Color) -> void:
 		_:
 			_mawling_head(c + Vector2(0, 3), 26, S.color("outline"))
 			_mawling_head(c, 25, accent)
+
+
+# ================================================================ brawl skin (stage 15)
+# Supercell-style main view drawn only with ui_kit_brawl.gd and UiStyle tokens.
+# Same phases as above: BASE (cached frames), LIVE (portrait breathing, glows),
+# TOP (cached plates, icons, text). The organic/calm drawing stays untouched.
+
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
+const TAB_TONES := ["info", "loot", "ember", "special"]
+const TAB_ICONS := ["brood", "trophy", "instinct", "clock"]
+const STRAIN_HEADER := 74.0
+const PORTRAIT_H := 288.0
+
+
+func _paint_brawl() -> void:
+	if menu.profile == null:
+		_b_logo(560.0)
+		return
+	_b_header()
+	if menu.tab == "":
+		_b_logo(104.0)
+		_b_strain()
+		_b_biomes()
+		_b_difficulties()
+		_b_play()
+		_b_daily()
+		_b_records()
+	_b_tabs()
+
+
+# ---------------------------------------------------------------- small helpers
+
+func _b_text(pos: Vector2, value: String, font_size: int, color: Color = Color.WHITE, align: int = Kit.LEFT, max_w: float = 0.0, font: Font = null) -> float:
+	return Kit.text_outlined(_cv, pos, value, font_size, color, -1, -1, font, align, max_w)
+
+
+func _b_icon(id: String, center: Vector2, side: float, tint: Color = Color.WHITE) -> bool:
+	if _icons == null or not _icons.has(id):
+		return false
+	_icons.draw(_cv, id, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), tint)
+	return true
+
+
+func _b_light(tone: Variant) -> Color:
+	return Kit.DISABLED["light"] if (tone is String and tone == "disabled") else S.brawl_tone(tone)["light"]
+
+
+func _b_dark(tone: Variant) -> Color:
+	return Kit.DISABLED["dark"] if (tone is String and tone == "disabled") else S.brawl_tone(tone)["dark"]
+
+
+## Dark body inside a Kit.card (frame band excluded).
+func _b_body(rect: Rect2, header: float = 0.0) -> Rect2:
+	var inset := S.STROKE_L + 7.0
+	return Rect2(rect.position + Vector2(inset, inset + header), rect.size - Vector2(inset * 2.0, inset * 2.0 + header))
+
+
+func _b_body_radius(radius: float) -> float:
+	return maxf(radius - S.STROKE_L - 7.0, 4.0)
+
+
+func _b_ellipse_points(c: Vector2, rx: float, ry: float, n: int = 40) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in n:
+		var a := TAU * i / n
+		pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
+	return pts
+
+
+func _b_check(c: Vector2, r: float) -> void:
+	var pts := PackedVector2Array([c + Vector2(-0.62, 0.02) * r, c + Vector2(-0.16, 0.46) * r, c + Vector2(0.66, -0.44) * r])
+	_cv.draw_polyline(pts, S.BRAWL_INK, maxf(6.0, r * 0.5), true)
+	_cv.draw_polyline(pts, Color.WHITE, maxf(3.0, r * 0.26), true)
+
+
+## Solid white arrow head with an ink rim (dir -1 left, 1 right).
+func _b_arrow(c: Vector2, r: float, dir: float) -> void:
+	var pts := PackedVector2Array([c + Vector2(dir * 0.6, 0.0) * r, c + Vector2(-dir * 0.4, -0.72) * r, c + Vector2(-dir * 0.4, 0.72) * r])
+	_cv.draw_colored_polygon(pts, Color.WHITE)
+	pts.append(pts[0])
+	_cv.draw_polyline(pts, S.BRAWL_INK, 5.0, true)
+
+
+func _b_gear_glyph(c: Vector2, r: float) -> void:
+	for pass_i in 2:
+		var k := 1.16 if pass_i == 0 else 1.0
+		var pts := PackedVector2Array()
+		for i in 32:
+			var a := TAU * i / 32.0 + 0.2
+			var outer := i % 4 == 1 or i % 4 == 2
+			pts.append(c + Vector2(cos(a), sin(a)) * r * (1.0 if outer else 0.74) * k)
+		_cv.draw_colored_polygon(pts, S.BRAWL_INK if pass_i == 0 else Color.WHITE)
+	Kit.disc(_cv, c, r * 0.3, S.BRAWL_INK)
+
+
+func _b_sun_glyph(c: Vector2, r: float) -> void:
+	for pass_i in 2:
+		for i in 8:
+			var a := TAU * i / 8.0 + PI / 8.0
+			var d := Vector2(cos(a), sin(a))
+			var side := d.orthogonal() * r * (0.24 if pass_i == 0 else 0.15)
+			var tip := c + d * r * (1.08 if pass_i == 0 else 1.0)
+			_cv.draw_colored_polygon(PackedVector2Array([c + d * r * 0.5 + side, tip, c + d * r * 0.5 - side]), S.BRAWL_INK if pass_i == 0 else Color.WHITE)
+	Kit.disc(_cv, c, r * 0.58, S.BRAWL_INK)
+	Kit.disc(_cv, c, r * 0.58 - 3.0, S.brawl_tone("loot")["light"])
+	Kit.fade_disc(_cv, c, r * 0.58 - 3.0, Color.WHITE, 0.0, 0.5)
+
+
+# ---------------------------------------------------------------- background
+
+func _b_paint_sky() -> void:
+	var full := Rect2(Vector2.ZERO, size)
+	var quad := PackedVector2Array([Vector2.ZERO, Vector2(size.x, 0), size, Vector2(0, size.y)])
+	var painted := UiArt.menu_background()
+	if painted != null:
+		UiArt.draw_cover(_cv, painted, quad, full, Color(0.72, 0.74, 0.8))
+	else:
+		_fill_gradient(quad, S.BRAWL_PANEL_TOP, S.BRAWL_PANEL_BOTTOM)
+	# Blue-violet veil so the saturated widgets carry.
+	_cv.draw_rect(full, Color(S.BRAWL_PANEL_BOTTOM, 0.28))
+	var tint: Color = S.brawl_tone("ember")["face"]
+	if menu != null and menu.profile != null:
+		tint = menu._strain_color(menu.current_strain()) if menu._strain_unlocked(menu.current_strain()) else S.BRAWL_TEXT_DIM
+	_glow(Vector2(size.x * 0.5, 470), Vector2(520, 360), Color(tint, 0.2))
+
+
+func _b_paint_vignette() -> void:
+	var w := size.x
+	var h := size.y
+	var dark := Color(S.BRAWL_INK, 0.7)
+	var clear := Color(S.BRAWL_INK, 0.0)
+	var side := Color(S.BRAWL_INK, 0.28)
+	_cv.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, 150), Vector2(0, 150)]), PackedColorArray([dark, dark, clear, clear]))
+	_cv.draw_polygon(PackedVector2Array([Vector2(0, h - 420), Vector2(w, h - 420), Vector2(w, h), Vector2(0, h)]), PackedColorArray([clear, clear, dark, dark]))
+	_cv.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(70, 0), Vector2(70, h), Vector2(0, h)]), PackedColorArray([side, clear, clear, side]))
+	_cv.draw_polygon(PackedVector2Array([Vector2(w - 70, 0), Vector2(w, 0), Vector2(w, h), Vector2(w - 70, h)]), PackedColorArray([clear, side, side, clear]))
+
+
+# ---------------------------------------------------------------- header
+
+func _b_header() -> void:
+	_b_resource(Rect2(20, 26, 276, 76), "special", "essence", int(menu.profile.essence))
+	_b_resource(Rect2(316, 26, 236, 76), "loot", "crown_tooth", int(menu.profile.crowns))
+	_b_gear()
+
+
+## Resource counter: icon plate overlapping the left end of a dark pill.
+func _b_resource(rect: Rect2, tone: String, icon: String, value: int) -> void:
+	var plate := rect.size.y + 6.0
+	var pc := Vector2(rect.position.x + plate * 0.5, rect.get_center().y)
+	var pill := Rect2(rect.position.x + plate * 0.5, rect.position.y + 9.0, rect.size.x - plate * 0.5, rect.size.y - 18.0)
+	if _on("base"):
+		Kit.pill(_cv, pill, "dark")
+	if not _on("top"):
+		return
+	Kit.icon_plate(_cv, pc, plate, tone)
+	_b_icon(icon, Kit.plate_center(pc, plate), plate * 0.72)
+	var x := pc.x + plate * 0.5 + S.SPACE_M
+	Kit.number(_cv, Vector2(x, pill.get_center().y), value, S.T_HEAD, Color.WHITE, Kit.LEFT | Kit.MIDDLE, pill.end.x - x - S.SPACE_L)
+
+
+func _b_gear() -> void:
+	if not _on("top"):
+		return
+	var rect: Rect2 = menu.settings_button_rect()
+	var pressed: bool = menu.is_pressed(rect) or menu.settings_open
+	var c := rect.get_center()
+	var r := 44.0
+	Kit.round_button(_cv, c, r, "neutral", pressed)
+	_b_gear_glyph(Kit.round_label_center(c, r, pressed), r * 0.5)
+
+
+func _b_logo(top: float) -> void:
+	var cx := size.x * 0.5
+	var tex := UiArt.logo()
+	if tex == null:
+		if _on("top"):
+			_b_text(Vector2(cx, top + 50), "MAWLINGS", S.T_HERO, S.brawl_tone("ember")["light"], Kit.CENTER | Kit.MIDDLE)
+		return
+	if not _on("base"):
+		return
+	var lw := 500.0
+	var lh := lw * float(tex.get_height()) / float(tex.get_width())
+	var rect := Rect2(cx - lw * 0.5, top, lw, lh)
+	_cv.draw_texture_rect(tex, Rect2(rect.position + Vector2(0, S.SHADOW_Y), rect.size), false, Color(S.BRAWL_INK, 0.6))
+	_cv.draw_texture_rect(tex, rect, false)
+
+
+# ---------------------------------------------------------------- strain card
+
+func _b_strain_tone(id: String, unlocked: bool) -> Variant:
+	if not unlocked:
+		return "disabled"
+	if id == "nachtmaul":
+		return "special"
+	var tint: Color = menu._strain_color(id)
+	if tint.s < 0.2 and tint.v > 0.8:
+		return tint.darkened(0.35)   # bone-white Knochenkiefer: keep the frame visible
+	return tint
+
+
+func _b_strain() -> void:
+	var id: String = menu.current_strain()
+	var s: Dictionary = menu._strain(id)
+	var owned: bool = menu._strain_owned(id)
+	var unlocked: bool = menu._strain_unlocked(id)
+	var tone: Variant = _b_strain_tone(id, unlocked)
+	var base_rect: Rect2 = menu.strain_card_rect()
+	var card := Rect2(base_rect.position + Vector2(menu._slide, 0.0), base_rect.size)
+	var body := _b_body(card, STRAIN_HEADER)
+	var cx := card.get_center().x
+	var foot := Vector2(cx, body.position.y + 306.0)
+	if _on("base"):
+		Kit.card(_cv, card, tone, "normal" if unlocked else "disabled", STRAIN_HEADER, S.R_XL)
+		var light := _b_light(tone)
+		_glow(Vector2(cx, foot.y - 120.0), Vector2(300, 170), Color(light, 0.28 if unlocked else 0.1))
+		_cv.draw_colored_polygon(_b_ellipse_points(foot + Vector2(0, 4), 190, 34), Color(S.BRAWL_INK, 0.55))
+		_cv.draw_colored_polygon(_b_ellipse_points(foot, 176, 28), Color(light, 0.22 if unlocked else 0.1))
+		var rim := _b_ellipse_points(foot, 176, 28)
+		rim.append(rim[0])
+		_cv.draw_polyline(rim, Color(light, 0.6 if unlocked else 0.25), 3.0, true)
+	if _on("live"):
+		var tex := UiArt.tribe(id)
+		if tex != null:
+			var h := PORTRAIT_H * (1.0 + 0.014 * sin(_time * 1.7))
+			if unlocked:
+				UiArt.draw_standing(_cv, tex, foot + Vector2(0, 10), h)
+			else:
+				UiArt.draw_standing(_cv, tex, foot + Vector2(0, 6), h, Color(S.BRAWL_PANEL_RIM, 0.55))
+				UiArt.draw_standing(_cv, tex, foot + Vector2(0, 10), h, Color(S.BRAWL_INK, 0.97))
+	if not _on("top"):
+		return
+	if UiArt.tribe(id) == null:
+		_mawling_head(foot + Vector2(0, -110), 90, _b_light(tone))
+	# Name in the coloured header band.
+	var name := String(s.get("name", id)).to_upper()
+	_b_text(Vector2(cx, card.position.y + S.STROKE_L + (STRAIN_HEADER + 7.0) * 0.5 + 2.0), name, S.T_TITLE, Color.WHITE if unlocked else S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE, card.size.x - 120.0)
+	_b_status(body, id, owned, unlocked)
+	if not unlocked:
+		var lc := foot + Vector2(0, -130)
+		Kit.icon_plate(_cv, lc, 104, "neutral")
+		_b_icon("lock", Kit.plate_center(lc, 104), 66)
+	var text_top := foot.y + 44.0
+	if unlocked:
+		var desc := String(s.get("description", ""))
+		var one_line := Kit.wrap_lines(desc, S.body_font(), S.T_BODY, body.size.x - 72).size() <= 1
+		Kit.paragraph(_cv, Vector2(body.position.x + 36, text_top + (16.0 if one_line else 0.0)), desc, body.size.x - 72, S.T_BODY, Color.WHITE, false, Kit.CENTER, 2)
+		_b_chips(s, Rect2(body.position.x + 20, body.end.y - 66, body.size.x - 40, 52))
+	else:
+		_b_unlock_quest(String(s.get("unlock_quest", "")), Rect2(body.position.x + 36, text_top - 30, body.size.x - 72, body.end.y - 50 - (text_top - 30)))
+	_b_arrows()
+	_b_page_dots(Vector2(body.end.x - S.SPACE_L - 12.0, body.position.y + S.SPACE_L + 23.0))
+
+
+## Status plaque in the top-left of the card body.
+func _b_status(body: Rect2, id: String, owned: bool, unlocked: bool) -> void:
+	var text := "IM BESITZ"
+	var tone := "action"
+	if not unlocked:
+		text = "GESPERRT"
+		tone = "neutral"
+	elif not owned:
+		text = "KAUFBAR"
+		tone = "loot"
+	var price := int(menu.profile.strain_cost(id)) if unlocked and not owned else -1
+	var tw := S.display_font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_LABEL).x
+	var extra := 0.0
+	if price >= 0:
+		extra = S.number_font().get_string_size(str(price), HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_LABEL).x + 12.0
+	var rect := Rect2(body.position + Vector2(S.SPACE_L, S.SPACE_L), Vector2(52.0 + tw + extra + S.SPACE_L, 46))
+	Kit.chip(_cv, rect, tone)
+	var ic := Vector2(rect.position.x + 24, rect.get_center().y)
+	if not unlocked:
+		_b_icon("lock", ic, 30)
+	elif owned:
+		_b_check(ic, 14)
+	else:
+		_b_icon("crown_tooth", ic, 34)
+	var x := rect.position.x + 46
+	x += _b_text(Vector2(x, rect.get_center().y), text, S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+	if price >= 0:
+		Kit.number(_cv, Vector2(x + 12, rect.get_center().y), price, S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+
+
+func _b_unlock_quest(quest_id: String, area: Rect2) -> void:
+	var q: Dictionary = menu.meta.quest(quest_id)
+	var cx := area.get_center().x
+	var y := area.position.y + 24
+	var title := "TROPHÄE: %s" % String(q.get("name", quest_id)).to_upper()
+	var tw := _b_text(Vector2(cx + 22, y), title, S.T_HEAD, S.brawl_tone("loot")["light"], Kit.CENTER | Kit.MIDDLE, area.size.x - 60)
+	_b_icon("trophy", Vector2(cx + 22 - tw * 0.5 - 28, y - 2), 44)
+	Kit.paragraph(_cv, Vector2(area.position.x, y + 48), String(q.get("description", "")), area.size.x, S.T_BODY, S.BRAWL_TEXT_DIM, false, Kit.CENTER, 1)
+	var progress: Vector2 = menu.profile.quest_progress(quest_id)
+	var bar := Rect2(cx - 250, y + 76, 380, 34)
+	Kit.bar(_cv, bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), "loot")
+	_b_text(Vector2(bar.end.x + 16, bar.get_center().y), menu._progress_text(q, progress), S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE, area.end.x - bar.end.x - 16)
+
+
+## Stat chips: start pack, signature form, stat modifiers.
+func _b_chips(s: Dictionary, area: Rect2) -> void:
+	var mods: Dictionary = s.get("mods", {})
+	var sig: String = s.get("signature", "")
+	var chips: Array = []
+	if int(s.get("start_population", 1)) > 1:
+		chips.append({"icon": "mawling_head_color", "text": "%d" % int(s.get("start_population", 1)), "tone": "ember", "glyph": ""})
+	chips.append({"icon": sig, "text": String(menu.meta.MUTATION_NAMES.get(sig, sig)), "tone": "special", "glyph": ""})
+	for pair in [["damage", "SCHADEN"], ["armor", "PANZER"], ["speed", "TEMPO"], ["growth", "WACHSTUM"], ["dna", "DNA"]]:
+		var v := float(mods.get(pair[0], 0.0 if pair[0] == "armor" else 1.0))
+		var delta := v * 100.0 if pair[0] == "armor" else (v - 1.0) * 100.0
+		if absf(delta) >= 0.5:
+			chips.append({"icon": "", "text": "%s %+d %%" % [pair[1], roundi(delta)], "tone": "action" if delta > 0 else "danger", "glyph": "▲" if delta > 0 else "▼"})
+	if s.has("rally_damage"):
+		chips.append({"icon": "", "text": "RALLY %+d %%" % roundi((float(s.rally_damage) - 1.0) * 100.0), "tone": "action", "glyph": "▲"})
+	var font := S.display_font()
+	var gap := S.SPACE_M
+	var plate := 40.0
+	var pad := 8.0 + plate + 8.0 + S.SPACE_M
+	var fixed := 0.0
+	var text_w := 0.0
+	for c in chips:
+		c["tw"] = font.get_string_size(c.text, HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_LABEL).x
+		text_w += c.tw
+		fixed += pad
+	fixed += gap * (chips.size() - 1)
+	# Shrink the labels a little if needed (never below ~18 px), else drop chips from the end.
+	var k := clampf((area.size.x - fixed) / maxf(1.0, text_w), 0.0, 1.0)
+	while k < 0.82 and chips.size() > 2:
+		var last: Dictionary = chips.pop_back()
+		text_w -= last.tw
+		fixed -= pad + gap
+		k = clampf((area.size.x - fixed) / maxf(1.0, text_w), 0.0, 1.0)
+	var total := fixed + text_w * k
+	var x := area.position.x + maxf(0.0, (area.size.x - total) * 0.5)
+	for c in chips:
+		var w: float = pad + c.tw * k
+		var r := Rect2(x, area.position.y, w, area.size.y)
+		Kit.chip(_cv, r, "dark")
+		var pc := Vector2(r.position.x + 8.0 + plate * 0.5, r.get_center().y)
+		Kit.icon_plate(_cv, pc, plate, c.tone)
+		if c.icon != "" and _b_icon(c.icon, Kit.plate_center(pc, plate), plate * 0.82):
+			pass
+		elif c.glyph != "":
+			_b_text(Kit.plate_center(pc, plate) + Vector2(0, 1), c.glyph, S.T_LABEL, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+		_b_text(Vector2(pc.x + plate * 0.5 + 8.0, r.get_center().y), c.text, S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE, c.tw * k + 0.5)
+		x += w + gap
+
+
+func _b_arrows() -> void:
+	for i in 2:
+		var rect: Rect2 = menu.strain_prev_rect() if i == 0 else menu.strain_next_rect()
+		var dir := -1.0 if i == 0 else 1.0
+		var pressed: bool = menu.is_pressed(rect)
+		var c := rect.get_center()
+		var r := 42.0
+		Kit.round_button(_cv, c, r, "neutral", pressed)
+		_b_arrow(Kit.round_label_center(c, r, pressed) + Vector2(dir * 2.0, 0), 30.0, dir)
+
+
+## Pager in the top-right corner of the card body; `right` is the last dot.
+func _b_page_dots(right: Vector2) -> void:
+	var n: int = menu.strain_ids.size()
+	var step := 28.0
+	for i in n:
+		var p := right + Vector2((i - (n - 1)) * step, 0)
+		var other: String = menu.strain_ids[i]
+		var open: bool = menu._strain_unlocked(other)
+		if i == menu.strain_index:
+			Kit.disc(_cv, p, 11, S.BRAWL_INK)
+			Kit.disc(_cv, p, 8, Color.WHITE)
+		else:
+			Kit.disc(_cv, p, 8, S.BRAWL_INK)
+			Kit.disc(_cv, p, 5.5, _b_light(_b_strain_tone(other, open)) if open else Kit.DISABLED["face"])
+
+
+# ---------------------------------------------------------------- biome and difficulty tiles
+
+func _b_biomes() -> void:
+	for i in menu.meta.BIOME_ORDER.size():
+		var id: String = menu.meta.BIOME_ORDER[i]
+		var b: Dictionary = menu.meta.BIOMES[id]
+		var rect: Rect2 = menu.biome_rect(i)
+		var locked: bool = b.get("locked", false)
+		var selected: bool = id == menu.biome_id
+		var tone := "disabled" if locked else ("info" if selected else "neutral")
+		var state := "disabled" if locked else ("selected" if selected else "normal")
+		var body := _b_body(rect)
+		var rb := _b_body_radius(S.R_L)
+		if _on("base"):
+			Kit.card(_cv, rect, tone, state, 0.0, S.R_L)
+			var art := UiArt.biome(id)
+			var shape := Kit.round_rect_points(body, Vector4(rb, rb, rb, rb))
+			if art != null:
+				UiArt.draw_cover(_cv, art, shape, body, Color(0.5, 0.5, 0.56) if locked else Color.WHITE, Vector2(0.5, 0.55 if id == "verdant_maw" else 0.62))
+			_fill_gradient(shape, Color(S.BRAWL_INK, 0.0), Color(S.BRAWL_INK, 0.8))
+			Kit.ring(_cv, body.grow(1.5), rb + 1.5, 3.0, Color(_b_dark(tone), 0.95))
+		if not _on("top"):
+			continue
+		var x := body.position.x + S.SPACE_L
+		_b_text(Vector2(x, body.end.y - 26), String(b.name).to_upper(), S.T_HEAD, Color.WHITE if not locked else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, body.size.x - 90)
+		var corner := Vector2(rect.end.x - 34, rect.position.y + 34)
+		if locked:
+			Kit.icon_plate(_cv, corner, 52, "neutral")
+			_b_icon("lock", Kit.plate_center(corner, 52), 34)
+			var status := String(b.get("status", "")).to_upper()
+			if status != "":
+				var sw := S.display_font().get_string_size(status, HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_LABEL).x + 28.0
+				var chip := Rect2(body.position.x + S.SPACE_M, body.position.y + S.SPACE_M, sw, 36)
+				Kit.chip(_cv, chip, "neutral")
+				_b_text(chip.get_center(), status, S.T_LABEL, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+		elif selected:
+			Kit.icon_plate(_cv, corner, 52, "action")
+			_b_check(Kit.plate_center(corner, 52), 15)
+
+
+func _b_difficulties() -> void:
+	for i in menu.meta.DIFFICULTIES.size():
+		var d: Dictionary = menu.meta.DIFFICULTIES[i]
+		var rect: Rect2 = menu.difficulty_rect(i)
+		var unlocked: bool = menu._difficulty_unlocked(i)
+		var selected: bool = i == menu.difficulty
+		var tone := "disabled" if not unlocked else ("info" if selected else "neutral")
+		var state := "disabled" if not unlocked else ("selected" if selected else "normal")
+		var body := _b_body(rect)
+		if _on("base"):
+			Kit.card(_cv, rect, tone, state, 0.0, S.R_L)
+		if not _on("top"):
+			continue
+		var cx := body.get_center().x
+		var name := String(d.name).to_upper()
+		var row1 := body.position.y + 36.0
+		var row2 := body.end.y - 22.0
+		var font := S.display_font()
+		var nw := minf(font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_HEAD).x, body.size.x - 66.0)
+		var icon_x := cx - (nw + 52.0) * 0.5 + 22.0
+		if unlocked:
+			if not _b_icon(["diff_wild", "diff_brutal", "diff_apex"][i], Vector2(icon_x, row1), 52):
+				_skull(Vector2(icon_x, row1), 16, Color.WHITE)
+			_b_text(Vector2(icon_x + 30, row1), name, S.T_HEAD, Color.WHITE, Kit.LEFT | Kit.MIDDLE, body.size.x - 66.0)
+			var reward := "×%s ESSENZ" % String.num(float(d.get("reward", 1.0)), 1).replace(".", ",")
+			var rw := font.get_string_size(reward, HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_LABEL).x + 32.0
+			var ex := cx - rw * 0.5
+			_b_icon("essence", Vector2(ex + 12, row2), 30)
+			_b_text(Vector2(ex + 32, row2), reward, S.T_LABEL, S.brawl_tone("special")["light"], Kit.LEFT | Kit.MIDDLE, body.size.x - 40)
+		else:
+			_b_icon("lock", Vector2(icon_x, row1), 40)
+			_b_text(Vector2(icon_x + 30, row1), name, S.T_HEAD, S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, body.size.x - 66.0)
+			var q: Dictionary = menu.meta.quest(d.get("unlock_quest", ""))
+			_b_text(Vector2(cx, row2), String(q.get("name", "")), S.T_LABEL, S.brawl_tone("loot")["light"], Kit.CENTER | Kit.MIDDLE, body.size.x - 12, S.body_bold_font())
+
+
+# ---------------------------------------------------------------- SPIELEN, daily, records
+
+func _b_play() -> void:
+	var rect: Rect2 = menu.play_rect()
+	var pressed: bool = menu.is_pressed(rect)
+	var id: String = menu.current_strain()
+	var owned: bool = menu._strain_owned(id)
+	var unlocked: bool = menu._strain_unlocked(id)
+	var price := int(menu.profile.strain_cost(id))
+	var affordable: bool = int(menu.profile.crowns) >= price
+	var tone := "disabled"
+	if owned:
+		tone = "action" if menu.can_play() else "disabled"
+	elif unlocked:
+		tone = "loot" if affordable else "disabled"
+	if _on("under") and tone != "disabled" and not pressed:
+		_glow(rect.get_center() + Vector2(0, 6), Vector2(rect.size.x * 0.62, rect.size.y * 0.95), Color(S.brawl_tone(tone)["light"], 0.16 + 0.1 * _pulse(2.2)))
+	if _on("base"):
+		Kit.button(_cv, rect, tone, pressed, S.R_XL)
+	if not _on("top"):
+		return
+	var lc := Kit.button_label_center(rect, pressed)
+	var font := S.display_font()
+	if owned:
+		var label := "SPIELEN"
+		var fs := 64
+		var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var icon := 92.0
+		var x0 := lc.x - (w + icon + 16.0) * 0.5
+		if not _b_icon("mawling_head_color", Vector2(x0 + icon * 0.5, lc.y), icon):
+			_mawling_head(Vector2(x0 + icon * 0.5, lc.y), 38, Color.WHITE)
+		_b_text(Vector2(x0 + icon + 16.0, lc.y), label, fs, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+	elif unlocked:
+		var label := "KAUFEN"
+		var fs := S.T_TITLE
+		var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var pw := S.number_font().get_string_size(str(price), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var total := w + 20.0 + pw + 8.0 + 60.0
+		var y := lc.y - (0.0 if affordable else 14.0)
+		var x := lc.x - total * 0.5
+		var col := Color.WHITE if affordable else S.BRAWL_TEXT_DIM
+		x += _b_text(Vector2(x, y), label, fs, col, Kit.LEFT | Kit.MIDDLE) + 20.0
+		x += Kit.number(_cv, Vector2(x, y), price, fs, col, Kit.LEFT | Kit.MIDDLE) + 8.0
+		_b_icon("crown_tooth", Vector2(x + 30, y), 60)
+		if not affordable:
+			_b_text(Vector2(lc.x, lc.y + 36), "ZU WENIGE KÖNIGSZÄHNE", S.T_LABEL, S.brawl_tone("loot")["light"], Kit.CENTER | Kit.MIDDLE, rect.size.x - 60)
+	else:
+		var fs := S.T_TITLE
+		var w := font.get_string_size("GESPERRT", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var y := lc.y - 14.0
+		var x0 := lc.x - (w + 56.0) * 0.5
+		_b_icon("lock", Vector2(x0 + 22, y), 48)
+		_b_text(Vector2(x0 + 56, y), "GESPERRT", fs, S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE)
+		var q: Dictionary = menu.meta.quest(menu._strain(id).get("unlock_quest", ""))
+		_b_text(Vector2(lc.x, lc.y + 36), "Trophäe: " + String(q.get("name", "")), S.T_LABEL, S.brawl_tone("loot")["light"], Kit.CENTER | Kit.MIDDLE, rect.size.x - 60)
+
+
+## TAGES-BRUT as a wide loot button (stage 15: the map code card is gone):
+## sun plate, title and rule line, today's best in a dark pill on the right.
+func _b_daily() -> void:
+	var rect: Rect2 = menu.daily_rect()
+	var ok: bool = menu.can_play_daily()
+	var pressed: bool = ok and menu.is_pressed(rect)
+	if _on("base"):
+		Kit.button(_cv, rect, "loot" if ok else "disabled", pressed, S.R_L)
+	if not _on("top"):
+		return
+	var lc := Kit.button_label_center(rect, pressed)
+	var pc := Vector2(rect.position.x + 60, lc.y)
+	Kit.icon_plate(_cv, pc, 80, "ember" if ok else "neutral")
+	_b_sun_glyph(Kit.plate_center(pc, 80), 28)
+	var today: Dictionary = menu.daily_today()
+	var pill := Rect2(rect.end.x - 20 - 300, lc.y - 31, 300, 62)
+	Kit.pill(_cv, pill, "dark", S.STROKE_S)
+	var cy := pill.get_center().y
+	if today.is_empty():
+		_b_text(Vector2(pill.get_center().x - 14, cy), "NOCH OFFEN", S.T_BODY, Color.WHITE if ok else S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE, pill.size.x - 70)
+		_b_arrow(Vector2(pill.end.x - 30, cy), 20.0, 1.0)
+	else:
+		var t := float(today.get("seconds", 0.0))
+		var x := pill.position.x + 18
+		_b_icon("clock", Vector2(x + 16, cy), 34)
+		x += 40
+		x += Kit.number(_cv, Vector2(x, cy), "%02d:%02d" % [int(t) / 60, int(t) % 60], S.T_HEAD, Color.WHITE, Kit.LEFT | Kit.MIDDLE) + 14
+		_b_icon("mawling_head_color", Vector2(x + 16, cy), 36)
+		Kit.number(_cv, Vector2(x + 38, cy), int(today.get("peak", 0)), S.T_BODY, Color.WHITE, Kit.LEFT | Kit.MIDDLE, pill.end.x - x - 56)
+	var x := rect.position.x + 118
+	var max_w := pill.position.x - x - S.SPACE_L
+	_b_text(Vector2(x, lc.y - 16), "TAGES-BRUT", S.T_HEAD, Color.WHITE if ok else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, max_w)
+	var runs := int(today.get("runs", 0))
+	var line := "Gleiche Karte für alle · Wild"
+	if runs > 0:
+		line = "Heute %d %s · gleiche Karte für alle" % [runs, "Versuch" if runs == 1 else "Versuche"]
+	_b_text(Vector2(x, lc.y + 22), line, S.T_LABEL, Color.WHITE if ok else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, max_w, S.body_bold_font())
+
+
+## All-time record line; tapping it opens the CHRONIK (hit area menu.records_rect()).
+func _b_records() -> void:
+	var rec: Rect2 = menu.records_rect()
+	var pressed: bool = menu.is_pressed(rec)
+	var pill := Rect2(rec.position.x, rec.get_center().y - 29 + (3.0 if pressed else 0.0), rec.size.x, 58)
+	if _on("base"):
+		Kit.pill(_cv, pill, "dark", S.STROKE_S)
+	if not _on("top"):
+		return
+	var best := float(menu.profile.records.get("best_seconds", 0.0))
+	var peak := int(menu.profile.records.get("best_peak", 0))
+	var cy := pill.get_center().y
+	var more := "CHRONIK →"
+	var mw := S.display_font().get_string_size(more, HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_LABEL).x
+	_b_text(Vector2(pill.end.x - 26 - mw, cy), more, S.T_LABEL, S.brawl_tone("info")["light"], Kit.LEFT | Kit.MIDDLE)
+	var x := pill.position.x + 22
+	var limit := pill.end.x - 26 - mw - 16
+	_b_icon("clock", Vector2(x + 16, cy), 36)
+	x += 40
+	x += _b_text(Vector2(x, cy), "REKORD %02d:%02d" % [int(best) / 60, int(best) % 60], S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE, limit - x) + 22
+	if x + 60 < limit:
+		_b_icon("mawling_head_color", Vector2(x + 16, cy), 38)
+		x += 40
+		_b_text(Vector2(x, cy), "MAX. SCHWARM %s" % Kit.format_int(peak), S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE, limit - x)
+
+
+# ---------------------------------------------------------------- tab dock
+
+func _b_tabs() -> void:
+	var first: Rect2 = menu.tab_rect(0)
+	var dock := Rect2(-S.STROKE_L - 20.0, first.position.y - 14.0, size.x + 2.0 * (S.STROKE_L + 20.0), size.y - first.position.y + 60.0)
+	if _on("base"):
+		Kit.panel(_cv, dock, "dark", S.R_XL, S.STROKE_L, true)
+	var names: Dictionary = menu.TAB_NAMES
+	for i in menu.TABS.size():
+		var id: String = menu.TABS[i]
+		var rect: Rect2 = menu.tab_rect(i)
+		var active: bool = menu.tab == id
+		var tone: String = TAB_TONES[i]
+		var pressed: bool = menu.is_pressed(rect)
+		if _on("base"):
+			if active:
+				Kit.button(_cv, rect, tone, false, S.R_L)
+			elif pressed:
+				Kit.well(_cv, rect, S.R_L)
+		if not _on("top"):
+			continue
+		var plate := 68.0
+		var pc := Vector2(rect.get_center().x, rect.position.y + 44.0 + (3.0 if pressed and not active else 0.0))
+		Kit.icon_plate(_cv, pc, plate, "dark" if active else tone)
+		if not _b_icon(TAB_ICONS[i], Kit.plate_center(pc, plate), plate * 0.78):
+			_tab_icon(id, Kit.plate_center(pc, plate), Color.WHITE)
+		_b_text(Vector2(rect.get_center().x, rect.position.y + 100.0), String(names[id]), S.T_LABEL, Color.WHITE, Kit.CENTER | Kit.MIDDLE, rect.size.x - 16.0)
+		var badge := ""
+		if id == "upgrades":
+			var n: int = menu._affordable_upgrades()
+			badge = "%d" % n if n > 0 else ""
+		elif id == "instinct" and int(menu.profile.essence) >= int(menu._instinct_cost()):
+			badge = "!"
+		if badge != "" and not active:
+			Kit.badge(_cv, Vector2(pc.x + plate * 0.5 + 8.0, rect.position.y + 14.0), badge, "danger", S.T_LABEL)

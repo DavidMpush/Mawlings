@@ -12,8 +12,17 @@ extends Control
 # values change, a card only when its content changes (the pulsing rank
 # diamond: 20 Hz). Shrink-to-fit text is scaled from one rasterised size
 # instead of trying every integer size.
+#
+# Stage 15 (skin "brawl", package C): the screen owns its geometry. Input code
+# (touch_controls.gd) should hit-test with card_rect(slot), banish_rect(slot),
+# reroll_rect() and skip_rect(); in the organic/calm skins these return the
+# old hud rects unchanged. The level-up moment (<= 0.6 s: world desaturated
+# and dimmed, light column on the leader, ribbon "MUTATION!", cards staggered
+# in) can be cut short by a tap: this node eats that first tap in _input(),
+# so it never picks a card the player has not seen yet.
 
 const UI := preload("res://scripts/ui/ui_style.gd")
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 const FORMS_PATH := "res://scripts/attack_forms.gd"
@@ -37,7 +46,7 @@ const CATEGORY_OF := {
 }
 # Short effect wording per trait; the numbers are parsed from evolution.gd.
 const EFFECT_LABEL := {
-	"jaws": "BISSSCHADEN", "brood": "ERNTETEMPO", "glutton": "BIOMASSE PRO KILL",
+	"jaws": "BISSSCHADEN", "brood": "BIOMASSE BEIM SAMMELN", "glutton": "BIOMASSE PRO KILL",
 	"pack": "SCHADEN BEI RALLY", "scatter": "VERLUSTE OHNE RALLY", "armor": "VERLUSTE",
 	"dornenhaut": "RÜCKSCHADEN",
 }
@@ -46,6 +55,69 @@ const RANK_TEXT := {
 	"regeneration": ["+1 LP JE 12 KILLS / 30 S", "+1 LP JE 9 KILLS / 25 S", "+1 LP JE 6 KILLS / 20 S"],
 }
 const ROMAN := ["I", "II", "III", "IV", "V"]
+
+# ---- brawl skin (stage 15) ------------------------------------------------
+# "stack": three wide cards under each other (chosen, see stage 15 notes);
+# "columns": three portrait cards side by side (kit preview), kept for comparison.
+const LAYOUTS := ["stack", "columns"]
+# Trait branch -> card tone. Attack forms are always ember, evolved forms
+# special with a gold rim. Unknown new traits are guessed from their text.
+const BRANCH_OF := {
+	"jaws": "attack", "pack": "attack",
+	"brood": "growth", "glutton": "growth", "lockduft": "growth",
+	"armor": "protect", "regeneration": "protect", "dornenhaut": "protect",
+	"scatter": "special",
+}
+const BRANCH_TONE := {"attack": "ember", "growth": "info", "protect": "action", "special": "special"}
+const BRANCH_LABEL := {"attack": "ANGRIFF", "growth": "WACHSTUM", "protect": "SCHUTZ", "special": "SPEZIAL"}
+# Level-up moment timeline (seconds after the choice opens; total <= 0.6).
+const LV_DIM := 0.15
+const LV_BEAM_OUT := Vector2(0.3, 0.55)
+const LV_RIBBON := Vector2(0.04, 0.22)     # start, duration
+const LV_CARD := Vector2(0.18, 0.24)       # first start, duration
+const LV_STAGGER := 0.07
+const LV_TOTAL := 0.6
+const LV_REDEAL := 0.2                     # card swap after reroll/banish
+# Geometry (base viewport 900 x 1600).
+const B_SIDE := 36.0
+const B_CARD_H := 262.0
+const B_GAP := 22.0
+const B_COL_H := 640.0
+const B_COL_GAP := 14.0
+const B_HEADER := 62.0
+const B_RIBBON := Vector2(470.0, 96.0)
+const B_TITLE_H := 96.0 + 58.0
+const B_BUTTON_H := 104.0
+const B_TOP_MIN := 150.0
+const B_BANISH_R := 32.0
+const DESAT_SHADER := """
+shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
+uniform float amount = 0.0;
+void fragment() {
+	vec3 c = texture(screen_tex, SCREEN_UV).rgb;
+	float g = dot(c, vec3(0.299, 0.587, 0.114));
+	COLOR = vec4(mix(c, vec3(g), 0.8 * amount), 1.0);
+}
+"""
+
+
+# Draws through a callable (ribbon, pieces that animate with scale/position).
+class PaintView extends Control:
+	var painter: Callable
+	var key: Variant = null
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func refresh(new_key: Variant) -> void:
+		if typeof(new_key) != typeof(key) or new_key != key:
+			key = new_key
+			queue_redraw()
+
+	func _draw() -> void:
+		if painter.is_valid():
+			painter.call(self)
 
 
 class CardView extends Control:
@@ -87,12 +159,38 @@ var _flash_time := -10.0
 var _spaced: FontVariation
 var _title_font: FontVariation
 var _screen_key: Variant = null
+## Brawl card arrangement: "stack" (default) or "columns".
+var layout := "stack"
+var _desat: ColorRect
+var _ribbon: PaintView
+var _swarm_node: Node3D
+var _leader_at := Vector2.INF
+# Start of the current level-up moment (restarts when a queued level follows).
+var _moment_time := -10.0
+var _moment_level := -1
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_load_modules()
+	# Desaturates the world behind the dimmer (drawn before this node's own _draw).
+	_desat = ColorRect.new()
+	_desat.name = "Desaturate"
+	_desat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_desat.show_behind_parent = true
+	_desat.visible = false
+	var shader := Shader.new()
+	shader.code = DESAT_SHADER
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	_desat.material = material
+	add_child(_desat)
+	_ribbon = PaintView.new()
+	_ribbon.name = "Ribbon"
+	_ribbon.painter = _paint_ribbon
+	_ribbon.visible = false
+	add_child(_ribbon)
 	for slot in 3:
 		var card := CardView.new()
 		card.screen = self
@@ -148,6 +246,129 @@ static func _ease(t: float) -> float:
 	return 1.0 - k * k * k
 
 
+# Overshooting ease for pops (ribbon, card landing).
+static func _back(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	var c := 1.9
+	var u := t - 1.0
+	return 1.0 + (c + 1.0) * u * u * u + c * u * u
+
+
+func _brawl() -> bool:
+	return UI.is_brawl()
+
+
+# ------------------------------------------------------------------ geometry API
+# Hit areas for touch_controls.gd; drawing uses exactly these rects.
+
+## Card rect of `slot` (screen coordinates of the HUD).
+func card_rect(slot: int) -> Rect2:
+	var hud := _hud()
+	if not _brawl():
+		return hud._mutation_rect(slot) if hud != null else Rect2()
+	var g := _geometry()
+	var n: int = g.count
+	if layout == "columns":
+		var cw: float = (size.x - 2.0 * 28.0 - 2.0 * B_COL_GAP) / 3.0
+		var total := n * cw + (n - 1) * B_COL_GAP
+		return Rect2(Vector2(size.x * 0.5 - total * 0.5 + slot * (cw + B_COL_GAP), g.cards_top), Vector2(cw, B_COL_H))
+	return Rect2(Vector2(B_SIDE, g.cards_top + slot * (B_CARD_H + B_GAP)), Vector2(size.x - 2.0 * B_SIDE, B_CARD_H))
+
+
+## All visible card rects (one per offer).
+func card_rects() -> Array:
+	var out: Array = []
+	var evo := _evolution()
+	var n: int = 3 if evo == null or evo.offers.is_empty() else mini(3, evo.offers.size())
+	for slot in n:
+		out.append(card_rect(slot))
+	return out
+
+
+## Touch area (>= TOUCH_MIN) of the banish button on card `slot`.
+func banish_rect(slot: int) -> Rect2:
+	var hud := _hud()
+	if not _brawl():
+		return hud._banish_rect(slot) if hud != null else Rect2()
+	var c := _banish_center(card_rect(slot))
+	return Rect2(c - Vector2.ONE * UI.TOUCH_MIN * 0.5, Vector2.ONE * UI.TOUCH_MIN)
+
+
+func reroll_rect() -> Rect2:
+	var hud := _hud()
+	if not _brawl():
+		return hud._reroll_rect() if hud != null else Rect2()
+	return _button_rect(0)
+
+
+func skip_rect() -> Rect2:
+	var hud := _hud()
+	if not _brawl():
+		return hud._skip_rect() if hud != null else Rect2()
+	return _button_rect(1)
+
+
+## True while the level-up moment still plays (a tap only skips it).
+func intro_active() -> bool:
+	return _brawl() and _open() and _now() - _moment_time < LV_TOTAL
+
+
+## Jumps to the end of the level-up moment.
+func skip_intro() -> void:
+	var now := _now()
+	_moment_time = minf(_moment_time, now - LV_TOTAL)
+	_open_time = minf(_open_time, now - LV_TOTAL)
+	for slot in 3:
+		_slot_start[slot] = minf(_slot_start[slot], now - LV_CARD.y)
+	queue_redraw()
+
+
+func _banish_center(card: Rect2) -> Vector2:
+	var inset := UI.STROKE_L + 7.0
+	return Vector2(card.end.x - inset - B_BANISH_R - 6.0, card.position.y + inset + B_HEADER * 0.5)
+
+
+# 0 = reroll, 1 = skip; a lone button is centred.
+func _button_rect(which: int) -> Rect2:
+	var g := _geometry()
+	var hud := _hud()
+	var rerolls: int = hud._count("rerolls") if hud != null else 0
+	var skips: int = hud._count("skips") if hud != null else 0
+	var y: float = g.buttons_y
+	if rerolls > 0 and skips > 0:
+		var w := (size.x - 2.0 * B_SIDE - UI.SPACE_XL) * 0.5
+		return Rect2(Vector2(B_SIDE + which * (w + UI.SPACE_XL), y), Vector2(w, B_BUTTON_H))
+	var lone := minf(440.0, size.x - 2.0 * B_SIDE)
+	return Rect2(Vector2(size.x * 0.5 - lone * 0.5, y), Vector2(lone, B_BUTTON_H))
+
+
+# Vertical plan: ribbon + level, cards, buttons, hint; centred, below the HUD.
+func _geometry() -> Dictionary:
+	var evo := _evolution()
+	var hud := _hud()
+	var n: int = 3 if evo == null or evo.offers.is_empty() else mini(3, evo.offers.size())
+	var block := B_COL_H if layout == "columns" else n * B_CARD_H + (n - 1) * B_GAP
+	var has_buttons: bool = hud != null and (hud._count("rerolls") > 0 or hud._count("skips") > 0)
+	var tail := 60.0 + (UI.SPACE_XXL + B_BUTTON_H if has_buttons else 0.0)
+	var top := maxf(B_TOP_MIN, (size.y - (B_TITLE_H + block + tail)) * 0.5)
+	var cards_top := top + B_TITLE_H
+	var buttons_y := cards_top + block + UI.SPACE_XXL
+	return {"count": n, "top": top, "cards_top": cards_top, "buttons_y": buttons_y,
+		"hint_y": (buttons_y + B_BUTTON_H if has_buttons else cards_top + block) + 52.0}
+
+
+# ------------------------------------------------------------------ input
+
+# The first tap during the level-up moment only ends the moment (no blind pick).
+func _input(event: InputEvent) -> void:
+	if not intro_active():
+		return
+	var press: bool = (event is InputEventScreenTouch or event is InputEventMouseButton) and event.pressed
+	if press:
+		skip_intro()
+		get_viewport().set_input_as_handled()
+
+
 # ------------------------------------------------------------------ update
 
 func _process(_delta: float) -> void:
@@ -156,6 +377,11 @@ func _process(_delta: float) -> void:
 	if open and not _was_open:
 		_open_time = now
 		_slot_ids = ["", "", ""]
+		_start_moment(now)
+	elif open and int(_evolution().level) != _moment_level:
+		# Another level was queued: replay the moment (the dimmer stays down).
+		_slot_ids = ["", "", ""]
+		_start_moment(now)
 	elif not open and _was_open:
 		_close_time = now
 	_was_open = open
@@ -163,6 +389,14 @@ func _process(_delta: float) -> void:
 	if hud != null and size != hud.size:
 		position = Vector2.ZERO
 		size = hud.size
+	if _brawl():
+		_process_brawl(now, open)
+		return
+	_desat.visible = false
+	_ribbon.visible = false
+	z_index = 0
+	if _footer != null:
+		_footer.visible = false
 	if open:
 		var evo := _evolution()
 		var offers: Array = evo.offers
@@ -253,9 +487,12 @@ func _on_chosen(slot: int) -> void:
 # ------------------------------------------------------------------ screen
 
 func _draw() -> void:
+	if _brawl():
+		_draw_brawl()
+		return
 	var now := _now()
 	var open := _open()
-	var dim := _ease((now - _open_time) / DIM_IN) if open else 1.0 - _ease((now - _close_time) / DIM_OUT)
+	var dim :=_ease((now - _open_time) / DIM_IN) if open else 1.0 - _ease((now - _close_time) / DIM_OUT)
 	if dim <= 0.0:
 		return
 	_draw_dimmer(dim)
@@ -417,6 +654,9 @@ func _draw_button(rect: Rect2, icon_id: String, label: String, count: int, accen
 # ------------------------------------------------------------------ card
 
 func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) -> void:
+	if _brawl():
+		_brawl_card(c, slot, entry, rank, flash)
+		return
 	var evo := _evolution()
 	var hud := _hud()
 	var id := str(entry[0])
@@ -915,6 +1155,9 @@ func _evolution_hint(evo: RefCounted, id: String, rank: int) -> Dictionary:
 	for rule in evo.EVOLUTION_RULES:
 		if evo.evolutions.has(rule.id) or (id != rule.base and id != rule.partner):
 			continue
+		# A partner trait only points at evolutions whose base form is in reach.
+		if id == rule.partner and evo.rank(rule.base) <= 0 and not evo.pool.has(rule.base):
+			continue
 		var base_rank: int = evo.rank(rule.base) + (1 if id == rule.base else 0)
 		var partner_rank: int = evo.rank(rule.partner) + (1 if id == rule.partner else 0)
 		var name := str(evo.info(rule.id)[1]).to_upper()
@@ -983,3 +1226,499 @@ func _wrap(value: String, font: Font, font_size: int, width: float) -> Array:
 	if line != "":
 		lines.append(line)
 	return lines
+
+
+
+# ================================================================== brawl skin
+# Stage 15, package C: level-up moment (S6), mutation cards (S7) with the
+# evolution hint (S8). Drawn only with ui_kit_brawl.gd and UiStyle tokens.
+
+var _footer: PaintView
+
+
+func _start_moment(now: float) -> void:
+	_moment_time = now
+	var evo := _evolution()
+	_moment_level = int(evo.level) if evo != null else -1
+	_leader_at = _locate_leader()
+
+
+func _process_brawl(now: float, open: bool) -> void:
+	if _footer == null:
+		_footer = PaintView.new()
+		_footer.name = "Footer"
+		_footer.painter = _paint_footer
+		add_child(_footer)
+		move_child(_footer, _ribbon.get_index() + 1)
+	var t := now - _moment_time
+	var dim := _ease((now - _open_time) / LV_DIM) if open else 1.0 - _ease((now - _close_time) / DIM_OUT)
+	_desat.visible = dim > 0.0
+	if _desat.visible:
+		_desat.position = Vector2.ZERO
+		_desat.size = size
+		(_desat.material as ShaderMaterial).set_shader_parameter("amount", dim)
+	var evo := _evolution()
+	var hud := _hud()
+	# While choosing, world popups and banners (later siblings) stay under the
+	# cards; pause/result close the choice first, so they are never covered.
+	z_index = 1 if open else 0
+	_ribbon.visible = open
+	_footer.visible = open
+	if open:
+		var g := _geometry()
+		var rr := _ribbon_rect(g)
+		var e := clampf((t - LV_RIBBON.x) / LV_RIBBON.y, 0.0, 1.0)
+		_ribbon.position = rr.position
+		_ribbon.size = rr.size
+		_ribbon.pivot_offset = rr.size * 0.5
+		_ribbon.scale = Vector2.ONE * lerpf(1.35, 1.0, _back(e))
+		_ribbon.modulate = Color(1, 1, 1, clampf(e * 3.0, 0.0, 1.0))
+		_ribbon.refresh([rr.size, int(evo.level)])
+		_footer.position = Vector2.ZERO
+		_footer.size = size
+		_footer.modulate = Color(1, 1, 1, clampf((t - 0.34) / 0.22, 0.0, 1.0))
+		_footer.refresh([size, layout, hud._count("rerolls"), hud._count("skips"), hud._count("banishes"), evo.offers.size()])
+		var offers: Array = evo.offers
+		var fresh := t < 0.05
+		var changed := 0
+		_snapshot = []
+		for slot in 3:
+			var card: CardView = _cards[slot]
+			if slot >= offers.size():
+				_slot_ids[slot] = ""
+				card.visible = false
+				continue
+			var entry: Array = offers[slot]
+			var id := str(entry[0])
+			if id != _slot_ids[slot]:
+				_slot_ids[slot] = id
+				if fresh:
+					_slot_start[slot] = _moment_time + LV_CARD.x + slot * LV_STAGGER
+				else:
+					_slot_start[slot] = now + changed * 0.05
+				changed += 1
+			var rank: int = evo.rank(id)
+			_snapshot.append([entry, rank])
+			var rect := card_rect(slot)
+			var dur := LV_CARD.y if t < LV_TOTAL else LV_REDEAL
+			var k := clampf((now - _slot_start[slot]) / dur, 0.0, 1.0)
+			card.visible = true
+			card.entry = entry
+			card.rank = rank
+			card.flash = 0.0
+			card.size = rect.size
+			card.pivot_offset = rect.size * 0.5
+			card.position = rect.position + Vector2(0.0, (1.0 - _ease(k)) * 140.0)
+			card.scale = Vector2.ONE * lerpf(0.82, 1.0, _back(k))
+			card.modulate = Color(1, 1, 1, clampf(k * 2.5, 0.0, 1.0))
+			card.refresh(_brawl_card_key(slot, entry, rank, 0.0, rect.size))
+	else:
+		for card in _cards:
+			card.visible = false
+	var ft := (now - _flash_time) / FLASH
+	_flash_card.visible = ft < 1.0 and hud != null
+	if _flash_card.visible:
+		var rect := card_rect(_flash_card.slot)
+		var e := _ease(ft)
+		_flash_card.size = rect.size
+		_flash_card.pivot_offset = rect.size * 0.5
+		_flash_card.position = rect.position
+		_flash_card.scale = Vector2.ONE * (1.0 + 0.05 * e)
+		_flash_card.flash = 1.0 - e
+		_flash_card.modulate = Color(1, 1, 1, 1.0 - e * e)
+		_flash_card.refresh(_brawl_card_key(_flash_card.slot, _flash_card.entry, _flash_card.rank, _flash_card.flash, rect.size))
+	var key: Variant = null
+	if open and t >= LV_TOTAL + 0.1 and now - _open_time >= LV_TOTAL + 0.1:
+		key = ["open", size, layout, hud._count("banishes"), evo.offers.size()]
+	elif not open and now - _close_time >= DIM_OUT + 0.05:
+		key = ["closed", size]
+	if key == null or typeof(key) != typeof(_screen_key) or key != _screen_key:
+		queue_redraw()
+	_screen_key = key
+
+
+func _brawl_card_key(slot: int, entry: Array, rank: int, flash: float, card_size: Vector2) -> Array:
+	var evo := _evolution()
+	var hud := _hud()
+	var key: Array = [slot, entry, rank, flash, layout, card_size, UI.colorblind]
+	if hud != null:
+		key.append(hud._count("banishes"))
+	if evo != null:
+		key.append_array([str(evo.ranks), str(evo.evolutions), evo.slots_used("attack"), evo.slots_used("trait")])
+	return key
+
+
+func _ribbon_rect(g: Dictionary) -> Rect2:
+	return Rect2(Vector2(size.x * 0.5 - B_RIBBON.x * 0.5, g.top), B_RIBBON)
+
+
+# Screen point under the leader (for the light column), INF when unknown.
+func _locate_leader() -> Vector2:
+	if not is_inside_tree():
+		return Vector2.INF
+	if _swarm_node == null or not is_instance_valid(_swarm_node):
+		_swarm_node = get_tree().get_first_node_in_group("swarm") as Node3D
+	var camera := get_viewport().get_camera_3d()
+	if _swarm_node == null or camera == null or not _swarm_node.has_method("leader_display"):
+		return Vector2.INF
+	var info: Dictionary = _swarm_node.call("leader_display")
+	if not bool(info.get("visible", false)):
+		return Vector2.INF
+	var anchor: Vector3 = info.anchor
+	var foot := Vector3(anchor.x, 0.0, anchor.z)
+	if camera.is_position_behind(foot):
+		return Vector2.INF
+	return camera.unproject_position(foot)
+
+
+# ------------------------------------------------------------------ brawl screen
+
+func _draw_brawl() -> void:
+	var now := _now()
+	var open := _open()
+	var t := now - _moment_time
+	var dim := _ease((now - _open_time) / LV_DIM) if open else 1.0 - _ease((now - _close_time) / DIM_OUT)
+	if dim <= 0.0:
+		return
+	# The top HUD stays half readable; below it the world sinks away.
+	var band := 150.0
+	Kit.dim(self, Rect2(Vector2.ZERO, size), 0.38 * dim)
+	var ramp := 8
+	for i in ramp:
+		var y := band - 64.0 + i * 8.0
+		Kit.dim(self, Rect2(0.0, y, size.x, 8.0), 0.34 * dim * float(i + 1) / (ramp + 1))
+	Kit.dim(self, Rect2(0.0, band, size.x, size.y - band), 0.34 * dim)
+	if not open or t >= LV_BEAM_OUT.y:
+		return
+	var k := _ease(t / 0.1) * (1.0 - clampf((t - LV_BEAM_OUT.x) / (LV_BEAM_OUT.y - LV_BEAM_OUT.x), 0.0, 1.0))
+	_draw_beam(k)
+
+
+# Light column from the top of the screen onto the leader.
+func _draw_beam(k: float) -> void:
+	if k <= 0.0:
+		return
+	var foot := _leader_at
+	if foot == Vector2.INF or not Rect2(Vector2.ZERO, size).has_point(foot):
+		foot = Vector2(size.x * 0.5, size.y * 0.55)
+	var gold: Dictionary = UI.brawl_tone("loot")
+	for layer in [[170.0, Color(gold["light"], 0.42 * k)], [54.0, Color(Color.WHITE, 0.7 * k)]]:
+		var w: float = layer[0]
+		var col: Color = layer[1]
+		var clear := Color(col, 0.0)
+		var top_col := Color(col, col.a * 0.25)
+		for side: float in [-1.0, 1.0]:
+			var pts := PackedVector2Array([Vector2(foot.x, 0.0), Vector2(foot.x + side * w * 0.75, 0.0), Vector2(foot.x + side * w * 0.5, foot.y), Vector2(foot.x, foot.y)])
+			draw_polygon(pts, PackedColorArray([top_col, clear, clear, col]))
+	# Pool of light at the leader's feet.
+	draw_set_transform(foot, 0.0, Vector2(1.0, 0.42))
+	Kit.disc(self, Vector2.ZERO, 150.0, Color(gold["light"], 0.2 * k))
+	Kit.disc(self, Vector2.ZERO, 96.0, Color(gold["light"], 0.3 * k))
+	Kit.disc(self, Vector2.ZERO, 52.0, Color(Color.WHITE, 0.55 * k))
+	draw_set_transform(Vector2.ZERO)
+
+
+func _paint_ribbon(c: CanvasItem) -> void:
+	var evo := _evolution()
+	var r := Rect2(Vector2.ZERO, B_RIBBON)
+	Kit.ribbon(c, r, "special")
+	Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.size.y * 0.5 - 3.0), "MUTATION!", UI.T_HERO, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, r.size.x - 44.0)
+	if evo != null:
+		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.end.y + 36.0), "STUFE %d" % (int(evo.level) + 1), UI.T_BODY, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+
+
+func _paint_footer(c: CanvasItem) -> void:
+	var hud := _hud()
+	if hud == null or _evolution() == null:
+		return
+	var rerolls: int = hud._count("rerolls")
+	var skips: int = hud._count("skips")
+	if rerolls > 0:
+		_brawl_button(c, reroll_rect(), "reroll", "NEU WÜRFELN", rerolls)
+	if skips > 0:
+		_brawl_button(c, skip_rect(), "skip", "ÜBERSPRINGEN", skips)
+	var g := _geometry()
+	Kit.text_outlined(c, Vector2(size.x * 0.5, g.hint_y), "KARTE ANTIPPEN ZUM WÄHLEN", UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, size.x - 2.0 * B_SIDE)
+
+
+func _brawl_button(c: CanvasItem, r: Rect2, icon_id: String, label: String, count: int) -> void:
+	Kit.button(c, r, "neutral")
+	var mid := Kit.button_label_center(r)
+	var glyph := 50.0
+	var gx := r.position.x + 22.0
+	_icon(c, icon_id, Rect2(Vector2(gx, mid.y - glyph * 0.5), Vector2(glyph, glyph)), Color.WHITE)
+	var left := gx + glyph + 10.0
+	var avail := r.end.x - 30.0 - left
+	Kit.text_outlined(c, Vector2(left + avail * 0.5, mid.y), label, UI.T_HEAD, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, avail)
+	Kit.badge(c, Vector2(r.end.x - 12.0, r.position.y + 4.0), str(count), "info", UI.T_LABEL)
+
+
+# ------------------------------------------------------------------ brawl card
+
+func _brawl_card(c: CanvasItem, _slot: int, entry: Array, rank: int, flash: float) -> void:
+	var evo := _evolution()
+	var hud := _hud()
+	var id := str(entry[0])
+	var s: Vector2 = c.size
+	var st := _card_style(evo, id, entry, rank)
+	var rect := Rect2(Vector2.ZERO, s)
+	var gold: Dictionary = UI.brawl_tone("loot")
+	if st.gold:
+		Kit.rrect(c, rect.grow(12.0), UI.R_L + 12.0, Color(gold["light"], 0.3))
+		Kit.ring(c, rect.grow(9.0), UI.R_L + 9.0, 6.0, gold["face"])
+	Kit.card(c, rect, st.tone, "selected" if flash > 0.0 else "normal", B_HEADER)
+	var inset := UI.STROKE_L + 7.0
+	var head := Rect2(Vector2(inset, inset), Vector2(s.x - 2.0 * inset, B_HEADER))
+	var body := Rect2(Vector2(inset, inset + B_HEADER), Vector2(s.x - 2.0 * inset, s.y - 2.0 * inset - B_HEADER))
+	var head_right := head.end.x - 16.0
+	var banish: int = hud._count("banishes") if hud != null else 0
+	if banish > 0:
+		var bc := _banish_center(rect)
+		head_right = bc.x - B_BANISH_R - 14.0
+	if layout == "columns":
+		_card_columns(c, s, head, body, head_right, evo, id, entry, rank, st)
+	else:
+		_card_stack(c, head, body, head_right, evo, id, entry, rank, st)
+	if banish > 0:
+		_banish_button(c, _banish_center(rect), banish)
+	if flash > 0.0:
+		Kit.rrect(c, rect.grow(-UI.STROKE_L), UI.R_L - UI.STROKE_L, Color(UI.brawl_tone(st.tone)["light"], 0.25 * flash))
+
+
+# Wide card: header with title and kind, icon plate left, text right, rank row.
+func _card_stack(c: CanvasItem, head: Rect2, body: Rect2, head_right: float, evo: RefCounted, id: String, entry: Array, rank: int, st: Dictionary) -> void:
+	var hy := head.get_center().y
+	var kind_w := Kit.text_outlined(c, Vector2(head_right, hy), st.kind_label, UI.T_LABEL, UI.BRAWL_TEXT, -1, -1, null, Kit.RIGHT | Kit.MIDDLE)
+	var title_x := head.position.x + 18.0
+	Kit.text_outlined(c, Vector2(title_x, hy), str(entry[1]).to_upper(), UI.T_HEAD, UI.BRAWL_TEXT, -1, -1, null, Kit.LEFT | Kit.MIDDLE, head_right - kind_w - 22.0 - title_x)
+	var plate := 128.0
+	var pc := Vector2(body.position.x + 20.0 + plate * 0.5, body.get_center().y + 2.0)
+	_plate_with_icon(c, pc, plate, st, rank)
+	var x0 := pc.x + plate * 0.5 + 24.0
+	var right := body.end.x - 20.0
+	var width := right - x0
+	var row_y := body.end.y - 30.0
+	if st.is_form:
+		Kit.paragraph(c, Vector2(x0, body.position.y + 38.0), _form_body(id, entry, rank), width, UI.T_BODY, UI.BRAWL_TEXT, false, Kit.LEFT, 3)
+	else:
+		var vals := _trait_values(evo, id, entry, rank)
+		if vals.has("text"):
+			Kit.paragraph(c, Vector2(x0, body.position.y + 38.0), vals.text, width, UI.T_BODY, UI.BRAWL_TEXT, false, Kit.LEFT, 3)
+		else:
+			_value_line(c, Vector2(x0, body.position.y + 44.0), vals.before, vals.after, st, width, Kit.LEFT)
+			Kit.paragraph(c, Vector2(x0, body.position.y + 108.0), vals.label, width, UI.T_BODY, UI.BRAWL_TEXT, true, Kit.LEFT, 1)
+	var x := x0
+	if st.kind != "evolved":
+		x = _pips(c, Vector2(x0, row_y), rank, st, evo) + 18.0
+	if st.is_form:
+		x += _rank_change(c, Vector2(x, row_y), rank, st, Kit.LEFT) + 18.0
+	_evo_pill(c, Vector2(right, row_y), evo, id, rank, Kit.RIGHT, right - x)
+
+
+# Portrait card (kit preview): header title, big plate, value, text, rank row.
+func _card_columns(c: CanvasItem, s: Vector2, head: Rect2, body: Rect2, head_right: float, evo: RefCounted, id: String, entry: Array, rank: int, st: Dictionary) -> void:
+	var hy := head.get_center().y
+	var title_left := head.position.x + 14.0
+	Kit.text_outlined(c, Vector2((title_left + head_right) * 0.5, hy), str(entry[1]).to_upper(), UI.T_HEAD, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, head_right - title_left)
+	var cx := s.x * 0.5
+	var plate := 128.0
+	var pc := Vector2(cx, body.position.y + 24.0 + plate * 0.5)
+	_plate_with_icon(c, pc, plate, st, rank)
+	var width := body.size.x - 28.0
+	var y := pc.y + plate * 0.5 + 34.0
+	Kit.text_outlined(c, Vector2(cx, y), st.kind_label, UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, width)
+	y += 50.0
+	var text := ""
+	if st.is_form:
+		_rank_change(c, Vector2(cx, y), rank, st, Kit.CENTER)
+		text = _form_body(id, entry, rank)
+	else:
+		var vals := _trait_values(evo, id, entry, rank)
+		if vals.has("text"):
+			text = vals.text
+			y -= 30.0
+		else:
+			_value_line(c, Vector2(cx, y), vals.before, vals.after, st, width, Kit.CENTER)
+			text = vals.label
+	Kit.paragraph(c, Vector2(body.position.x + 14.0, y + 52.0), text, width, UI.T_BODY, UI.BRAWL_TEXT, not st.is_form, Kit.CENTER, 7)
+	var row_y := body.end.y - 30.0
+	if _evolution_hint(evo, id, rank).is_empty():
+		if st.kind != "evolved":
+			_pips(c, Vector2(cx - 44.0, row_y), rank, st, evo)
+	else:
+		if st.kind != "evolved":
+			_pips(c, Vector2(cx - 44.0, row_y - 58.0), rank, st, evo)
+		_evo_pill(c, Vector2(cx, row_y), evo, id, rank, Kit.CENTER, width)
+
+
+func _plate_with_icon(c: CanvasItem, pc: Vector2, plate: float, st: Dictionary, rank: int) -> void:
+	Kit.icon_plate(c, pc, plate, st.tone)
+	var ic := Kit.plate_center(pc, plate)
+	var side := plate * 0.8
+	_icon(c, st.icon, Rect2(ic - Vector2(side, side) * 0.5, Vector2(side, side)), Color.WHITE)
+	# "NEU" for a new mutation, else the rank this pick reaches.
+	if rank == 0:
+		Kit.badge(c, pc + Vector2(plate * 0.36, -plate * 0.44), "NEU", "loot", UI.T_LABEL)
+	else:
+		Kit.badge(c, pc + Vector2(0.0, plate * 0.5), "RANG %d" % (rank + 1), "neutral", UI.T_LABEL)
+
+
+# "0 % → +25 %": before dimmed, arrow in the card tone, after big.
+func _value_line(c: CanvasItem, at: Vector2, before: String, after: String, st: Dictionary, width: float, align: int) -> void:
+	var t: Dictionary = UI.brawl_tone(st.tone)
+	var nf := UI.number_font()
+	var w_before := nf.get_string_size(before, HORIZONTAL_ALIGNMENT_LEFT, -1, UI.T_HEAD).x
+	var w_arrow := nf.get_string_size("→", HORIZONTAL_ALIGNMENT_LEFT, -1, UI.T_HEAD).x
+	var w_after := nf.get_string_size(after, HORIZONTAL_ALIGNMENT_LEFT, -1, UI.T_TITLE).x
+	var gap := 12.0
+	var total := w_before + w_arrow + w_after + gap * 2.0
+	var k := minf(1.0, width / total)
+	var x := at.x - (total * k * 0.5 if align == Kit.CENTER else 0.0)
+	x += Kit.number(c, Vector2(x, at.y), before, UI.T_HEAD, UI.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, w_before * k) + gap * k
+	x += Kit.text_outlined(c, Vector2(x, at.y), "→", UI.T_HEAD, t["light"], -1, -1, nf, Kit.LEFT | Kit.MIDDLE, w_arrow * k) + gap * k
+	Kit.number(c, Vector2(x, at.y), after, UI.T_TITLE, UI.BRAWL_TEXT, Kit.LEFT | Kit.MIDDLE, w_after * k)
+
+
+# "RANG 1 → 2" (or "RANG 1" for a new form); returns the width. Digits, not
+# roman numerals: Baloo draws "I" as a plain bar.
+func _rank_change(c: CanvasItem, at: Vector2, rank: int, st: Dictionary, align: int) -> float:
+	var t: Dictionary = UI.brawl_tone(st.tone)
+	var parts: Array = [["RANG ", UI.T_LABEL, UI.BRAWL_TEXT_DIM]]
+	if rank > 0:
+		parts.append(["%d " % rank, UI.T_HEAD, UI.BRAWL_TEXT_DIM])
+		parts.append(["→ ", UI.T_HEAD, t["light"]])
+	parts.append(["%d" % (rank + 1), UI.T_HEAD, UI.BRAWL_TEXT])
+	var nf := UI.number_font()
+	var total := 0.0
+	for p in parts:
+		total += nf.get_string_size(p[0], HORIZONTAL_ALIGNMENT_LEFT, -1, p[1]).x
+	var x := at.x - (total * 0.5 if align == Kit.CENTER else 0.0)
+	for p in parts:
+		x += Kit.text_outlined(c, Vector2(x, at.y), p[0], p[1], p[2], -1, -1, nf, Kit.LEFT | Kit.MIDDLE)
+	return total
+
+
+# Rank pips; returns the x right of the last one.
+func _pips(c: CanvasItem, at: Vector2, rank: int, st: Dictionary, evo: RefCounted) -> float:
+	var t: Dictionary = UI.brawl_tone(st.tone)
+	var count: int = evo.MAX_RANK if evo != null else 3
+	var x := at.x
+	for i in count:
+		var pc := Vector2(x + 13.0, at.y)
+		Kit.disc(c, pc + Vector2(0, 2), 14.0, UI.BRAWL_INK_SOFT)
+		Kit.disc(c, pc, 14.0, UI.BRAWL_INK)
+		if i < rank:
+			Kit.disc(c, pc, 10.5, t["face"])
+			Kit.disc(c, pc - Vector2(0, 2), 6.0, Color(t["light"], 0.9))
+		elif i == rank:
+			Kit.disc(c, pc, 10.5, Color.WHITE)
+			Kit.disc(c, pc, 6.5, t["face"])
+		else:
+			Kit.disc(c, pc, 10.5, UI.BRAWL_WELL)
+		x += 32.0
+	return x - 6.0
+
+
+# Small pill "→ STURMRUDEL" (special); gold when this pick makes it ready.
+func _evo_pill(c: CanvasItem, anchor: Vector2, evo: RefCounted, id: String, rank: int, align: int, max_w: float) -> void:
+	var hint := _evolution_hint(evo, id, rank)
+	if hint.is_empty():
+		return
+	var label := "→ " + str(hint.short)
+	var font := UI.display_font()
+	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI.T_LABEL).x
+	var h := 46.0
+	var icon := 34.0
+	var w := minf(tw + icon + 40.0, maxf(max_w, 200.0))
+	var x := anchor.x - w if align == Kit.RIGHT else (anchor.x - w * 0.5 if align == Kit.CENTER else anchor.x)
+	var r := Rect2(Vector2(x, anchor.y - h * 0.5), Vector2(w, h))
+	Kit.pill(c, r, "loot" if hint.ready else "special", UI.STROKE_S)
+	_icon(c, hint.id, Rect2(Vector2(r.position.x + 10.0, r.get_center().y - icon * 0.5 - 1.0), Vector2(icon, icon)), Color.WHITE)
+	var tx := r.position.x + icon + 18.0
+	Kit.text_outlined(c, Vector2(tx, r.get_center().y - 1.0), label, UI.T_LABEL, UI.BRAWL_TEXT, -1, -1, null, Kit.LEFT | Kit.MIDDLE, r.end.x - 14.0 - tx)
+
+
+func _banish_button(c: CanvasItem, center: Vector2, count: int) -> void:
+	Kit.round_button(c, center, B_BANISH_R, "danger")
+	var lc := Kit.round_label_center(center, B_BANISH_R)
+	_icon(c, "banish", Rect2(lc - Vector2(20, 20), Vector2(40, 40)), Color.WHITE)
+	Kit.badge(c, center + Vector2(B_BANISH_R * 0.8, -B_BANISH_R * 0.8), str(count), "neutral", UI.T_LABEL)
+
+
+# ------------------------------------------------------------------ brawl data
+
+# Tone, labels and icon of a card; new ids get a sensible default.
+func _card_style(evo: RefCounted, id: String, entry: Array, rank: int) -> Dictionary:
+	var kind: String = evo.kind_of(id) if evo != null else ""
+	if kind == "":
+		kind = "attack" if _forms.has(id) else "trait"
+	var st := {"kind": kind, "is_form": kind in ["attack", "evolved"], "gold": false, "icon": _icon_id(evo, id)}
+	if kind == "evolved":
+		st.tone = "special"
+		st.gold = true
+		st.kind_label = "EVOLUTION"
+	elif kind == "attack":
+		st.tone = "ember"
+		st.kind_label = "ANGRIFFSFORM"
+	else:
+		var branch: String = BRANCH_OF.get(id, _guess_branch(str(entry[2]) if entry.size() > 2 else ""))
+		st.tone = BRANCH_TONE[branch]
+		st.kind_label = "ANLAGE · " + str(BRANCH_LABEL[branch])
+	var hint := _evolution_hint(evo, id, rank)
+	if not hint.is_empty() and hint.ready:
+		st.gold = true
+	return st
+
+
+static func _guess_branch(desc: String) -> String:
+	var d := desc.to_lower()
+	for word in ["verlust", " lp", "rückschaden", "panzer"]:
+		if d.contains(word):
+			return "protect"
+	for word in ["biomasse", "sammel", "brut", "radius", "wachstum"]:
+		if d.contains(word):
+			return "growth"
+	if d.contains("schaden"):
+		return "attack"
+	return "special"
+
+
+func _icon_id(evo: RefCounted, id: String) -> String:
+	if icons != null and icons.has(id):
+		return id
+	if evo != null:
+		var map: Variant = evo.get_script().get_script_constant_map().get("ICON_IDS")
+		if map is Dictionary and map.has(id):
+			return str(map[id])
+	return id
+
+
+func _form_body(id: String, entry: Array, rank: int) -> String:
+	var text := _form_text(id, rank)
+	return text if text != "" else (str(entry[2]) if entry.size() > 2 else "")
+
+
+# {before, after, label} for a percentage trait, {text} otherwise.
+func _trait_values(evo: RefCounted, id: String, entry: Array, rank: int) -> Dictionary:
+	if id == "regeneration" and evo != null:
+		var kills: Array = evo.REGEN_KILLS
+		var gaps: Array = evo.REGEN_GAP
+		var next := clampi(rank, 0, kills.size() - 1)
+		return {"before": "–" if rank <= 0 else str(kills[rank - 1]), "after": str(kills[next]),
+			"label": "Kills je +1 LP (höchstens alle %d s)" % int(gaps[next])}
+	var desc := str(entry[2]) if entry.size() > 2 else ""
+	var found := RegEx.create_from_string("^([+−-])\\s*(\\d+(?:[.,]\\d+)?)\\s*%\\s*(.*)$").search(desc)
+	if found == null:
+		return {"text": desc}
+	var sign := found.get_string(1)
+	var step := float(found.get_string(2).replace(",", "."))
+	var label := found.get_string(3).replace("pro Rang", "").strip_edges()
+	label = label.substr(0, 1).to_upper() + label.substr(1)
+	return {"before": _percent(sign, step * rank), "after": _percent(sign, step * (rank + 1)), "label": label}
+
+
+static func _percent(sign: String, value: float) -> String:
+	if is_zero_approx(value):
+		return "0 %"
+	var digits := str(int(value)) if is_equal_approx(value, roundf(value)) else String.num(value, 1).replace(".", ",")
+	return "%s%s %%" % [sign, digits]

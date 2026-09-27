@@ -13,7 +13,7 @@ const UiStyle := preload("res://scripts/ui/ui_style.gd")
 const DIR := "res://assets/ui/icons/"
 const PAINTED_DIR := "res://assets/ui/v2/icons/"
 const KIT_DIR := "res://assets/ui/v2/vector/"
-# Calm skin: small HUD glyphs of the V2 kit replace these painted SVGs (fixed
+# Calm skin (only "calm", not "brawl"): small HUD glyphs of the V2 kit replace these icons (fixed
 # kit colours, so callers draw them with a white or alpha-only tint). "v2_*"
 # ids always resolve to the kit glyph, whatever the skin.
 const CALM_GLYPHS := {"dna": "icon_dna", "pause": "icon_pause", "clock": "icon_timer", "biomass": "icon_biomass"}
@@ -35,6 +35,27 @@ const V3_ICONS := {
 	# Boss portrait (bust) for bars and result rows.
 	"portrait_bog_king": "bosses/bog_king",
 }
+# Icon standard V4 (Supercell style, ART_UI_PLAN.md "Icon-Standard"): the
+# painted icons above with one common crop, contour and category recolours,
+# plus white control glyphs, built by assets/ui/v4/build_icons_v4.py. Wins
+# over V3/V2/SVG while use_v4 and use_painted are on (calm glyphs still win).
+const V4_DIR := "res://assets/ui/v4/icons/"
+const V4_ICONS := [
+	"jaws", "brood", "glutton", "pack", "scatter", "armor",
+	"rudelbiss", "sporenwolke", "saeurespucker", "blitzbiss", "graeber", "meute", "nest", "totem",
+	"dna", "biomass", "currency_dna", "currency_biomass",
+	"branch_growth", "branch_attack", "branch_protect", "branch_special",
+	"stachelruecken", "aetzflut", "brutsack", "erdbeben", "sturmrudel", "regeneration", "dornenhaut",
+	"essence", "crown_tooth", "skull", "mawling_head", "mawling_head_color", "crown", "alpha_core",
+	"trophy", "biome_verdant", "biome_glutsumpf", "diff_wild", "diff_brutal", "diff_apex",
+	"hunter", "skitter", "leaper", "nibbler", "bog_king", "instinct", "hub",
+	"pause", "play", "clock", "lock", "reroll", "restart", "banish", "skip",
+]
+# White V4 control glyphs with dark contour: a tint colours them (like text).
+const V4_GLYPHS := ["pause", "play", "clock", "lock", "reroll", "restart", "banish", "skip"]
+# Painted currency icons with a fixed palette: a tint only fades or dims them
+# (callers still pass the old cyan/amber tints of the flat glyphs).
+const FIXED_COLOUR := ["dna", "biomass", "currency_dna", "currency_biomass"]
 # Ids with a painted V2 icon (the six base traits / Anlagen).
 const PAINTED := ["jaws", "brood", "glutton", "pack", "scatter", "armor"]
 const IDS := [
@@ -48,7 +69,7 @@ const IDS := [
 	"up_brood_size", "up_bite", "up_chitin", "up_sprint", "up_digest", "up_gene",
 	"up_attack_slot", "up_trait_slot", "instinct", "restart", "hub",
 	"nest", "totem", "currency_dna", "currency_biomass",
-	"branch_growth", "branch_attack", "branch_protect", "branch_special", "portrait_bog_king",
+	"branch_growth", "branch_attack", "branch_protect", "branch_special", "portrait_bog_king", "play",
 ]
 # Alternative names resolved by has()/texture()/draw().
 const ALIASES := {"prey": "nibbler", "boss": "bog_king"}
@@ -56,6 +77,7 @@ const ALIASES := {"prey": "nibbler", "boss": "bog_king"}
 const BUCKETS := [40, 64, 96, 128, 192]
 
 static var use_painted := true
+static var use_v4 := true
 static var _full: Dictionary = {}
 static var _small: Dictionary = {}
 
@@ -64,10 +86,12 @@ static func path(id: String) -> String:
 	id = ALIASES.get(id, id)
 	if KIT_IDS.has(id):
 		return KIT_DIR + KIT_IDS[id] + ".svg"
+	if UiStyle.skin == "calm" and CALM_GLYPHS.has(id):
+		return KIT_DIR + CALM_GLYPHS[id] + ".svg"
+	if use_v4 and use_painted and V4_ICONS.has(id) and ResourceLoader.exists(V4_DIR + id + ".png"):
+		return V4_DIR + id + ".png"
 	if V3_ICONS.has(id) and (use_painted or not ResourceLoader.exists(DIR + id + ".svg")):
 		return V3_DIR + V3_ICONS[id] + ".png"
-	if UiStyle.is_calm() and CALM_GLYPHS.has(id):
-		return KIT_DIR + CALM_GLYPHS[id] + ".svg"
 	if use_painted and PAINTED.has(id) and ResourceLoader.exists(PAINTED_DIR + id + ".png"):
 		return PAINTED_DIR + id + ".png"
 	return DIR + id + ".svg"
@@ -78,9 +102,23 @@ static func is_glyph(id: String) -> bool:
 	return path(id).begins_with(KIT_DIR)
 
 
-## True when `id` is drawn from a painted V2 PNG.
+## True when `id` is drawn from a painted PNG with its own colours (V2/V3/V4,
+## not the tintable white V4 glyphs).
 static func is_painted(id: String) -> bool:
-	return path(id).ends_with(".png")
+	var p := path(id)
+	return p.ends_with(".png") and not is_tint_glyph(id)
+
+
+## True when `id` is a white V4 control glyph: the tint colours it.
+static func is_tint_glyph(id: String) -> bool:
+	id = ALIASES.get(id, id)
+	return V4_GLYPHS.has(id) and path(id).begins_with(V4_DIR)
+
+
+## Switches the V4 icon standard on or off (before/after sheets). The caches
+## are keyed by file path, so both sets can be drawn in the same frame.
+static func set_v4(enabled: bool) -> void:
+	use_v4 = enabled
 
 
 ## Switches between painted PNGs and the SVG set (clears the caches).
@@ -143,8 +181,8 @@ static func draw(canvas: CanvasItem, id: String, rect: Rect2, tint := Color.WHIT
 	if tex == null:
 		_placeholder(canvas, fitted, tint)
 		return
-	if is_glyph(id):
-		# Kit glyphs carry their palette colour; a tint only fades or dims them.
+	if is_glyph(id) or (FIXED_COLOUR.has(ALIASES.get(id, id)) and path(id).begins_with(V4_DIR)):
+		# Kit glyphs and V4 currencies carry their palette colour; a tint only fades or dims them.
 		var v := maxf(tint.r, maxf(tint.g, tint.b))
 		tint = Color(v, v, v, tint.a) if v < 0.6 else Color(1, 1, 1, tint.a)
 	canvas.draw_texture_rect(tex, fitted, false, tint)

@@ -20,8 +20,24 @@ const CURSE := Color("ff4a8a")
 const MINIMAP_PLATE := 46.0             # region name plate below the minimap disc
 const CHIP_Y := 392.0          # left column, below corpse and biomass hints
 const POINTER_GAP := 128.0     # minimum distance between two edge markers
+# Skin brawl (stage 15, package H): the apex bar moved into hud_top's boss
+# stack; edge pointers are round kit plates with a chevron and the distance
+# (nest info, totem danger, migration info, apex danger / loot when
+# exhausted); totem hold ring, curse chip and the victory / arrival ribbons
+# are kit pieces. The ribbons live on their own layer so they can pop and fade.
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
+const UiLayer := preload("res://scripts/ui/ui_layer.gd")
+const B_POINTER := 80.0
+const B_POINTER_GAP := 150.0
+## Hand-over flag read by hud_overlays.gd: the apex victory and the biome
+## arrival ribbons stay here (own layer below), hud_overlays skips them.
+var banners_in_overlays := false
 
 var _time := 0.0
+var _banner_layer: Control
+var _banner_kind := ""          # "victory" | "arrival" | "" (brawl ribbons)
+var _banner_state: Dictionary = {}
+var _world: Node
 var _last_key: Variant = null
 # Banner clocks in real seconds (-1 = off), started when the counters grow.
 var _victory_seen := 0
@@ -33,6 +49,7 @@ var _arrival_time := -1.0
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner_layer = UiLayer.make(self, "ObjectiveBanner", _paint_banner)
 
 
 # Stage 07: repaint only when the markers move or pulse (30 Hz) or the curse
@@ -51,6 +68,7 @@ func _process(delta: float) -> void:
 	if typeof(_last_key) != TYPE_ARRAY or key != _last_key:
 		queue_redraw()
 	_last_key = key
+	_refresh_banner(state)
 
 
 func _state() -> Dictionary:
@@ -72,6 +90,9 @@ func _hidden() -> bool:
 func _draw() -> void:
 	var state := _state()
 	if state.is_empty() or _hidden():
+		return
+	if UiStyle.is_brawl():
+		_draw_brawl(state)
 		return
 	var boss_at: Vector2 = get_parent().get("boss_pointer") if get_parent().get("boss_pointer") is Vector2 else Vector2.INF
 	var taken: Array[Vector2] = []
@@ -136,6 +157,12 @@ func _keep_on_screen(at: Vector2, reach: float) -> Vector2:
 		var keep_out := Rect2(map.position, map.size + Vector2(0, MINIMAP_PLATE)).grow(reach)
 		if keep_out.has_point(at):
 			at.y = keep_out.end.y + 4.0
+	# Brawl: stay below the boss bars and the flood pill under the header.
+	var top: Node = hud.get_node_or_null("hud_top") if hud != null else null
+	if top != null and top.has_method("top_stack_bottom"):
+		at.y = maxf(at.y, float(top.top_stack_bottom()) + reach)
+		# ...and above the hint pill and the thumb controls.
+		at.y = minf(at.y, size.y - 340.0 - reach)
 	return at
 
 
@@ -467,3 +494,231 @@ func _offset(points: PackedVector2Array, by: Vector2) -> PackedVector2Array:
 	for point in points:
 		result.append(point + by)
 	return result
+
+
+# ---------------------------------------------------------------- brawl (stage 15, package H)
+
+func _draw_brawl(state: Dictionary) -> void:
+	var taken: Array[Vector2] = []
+	var boss_at: Variant = get_parent().get("boss_pointer")
+	if boss_at is Vector2 and (boss_at as Vector2).is_finite():
+		taken.append(boss_at)
+	if bool(state.get("nest_active", false)):
+		var at: Vector2 = state.get("nest_pointer", Vector2.INF)
+		if at.is_finite():
+			taken.append(_b_pointer(_separate_b(at, taken), at, "info", ["nest", "brood"], _distance(state, "nest"), float(state.get("nest_progress", 0.0))))
+	if bool(state.get("totem_active", false)):
+		var at: Vector2 = state.get("totem_pointer", Vector2.INF)
+		if at.is_finite():
+			taken.append(_b_pointer(_separate_b(at, taken), at, "danger", ["totem", "skull"], _distance(state, "totem"), -1.0))
+		var hold := float(state.get("totem_hold", 0.0))
+		var screen: Vector2 = state.get("totem_screen", Vector2.INF)
+		if hold > 0.0 and screen.is_finite():
+			_b_totem_hold(screen, hold)
+	var apex_state := int(state.get("apex_state", 0))
+	if apex_state == 1 or apex_state == 2:
+		var at: Vector2 = state.get("apex_pointer", Vector2.INF)
+		if at.is_finite():
+			var tone := "loot" if bool(state.get("apex_vulnerable", false)) else "danger"
+			taken.append(_b_pointer(_separate_b(at, taken), at, tone, ["diff_apex", "crown"], _distance(state, "apex"), -1.0))
+	if bool(state.get("portal_active", false)) and float(state.get("migration", -1.0)) < 0.0:
+		var at: Vector2 = state.get("portal_pointer", Vector2.INF)
+		if at.is_finite():
+			var icon := "biome_glutsumpf" if String(state.get("portal_target", "")) == "GLUTSUMPF" else "biome_verdant"
+			taken.append(_b_pointer(_separate_b(at, taken), at, "info", [icon], _distance(state, "portal"), float(state.get("portal_hold", 0.0))))
+	var curse := int(state.get("curse", 0))
+	if curse > 0:
+		_b_curse_chip(curse)
+	var migration := float(state.get("migration", -1.0))
+	if migration >= 0.0:
+		_draw_swirl(state, migration)
+
+
+func _separate_b(at: Vector2, taken: Array[Vector2]) -> Vector2:
+	for other in taken:
+		if at.distance_to(other) < B_POINTER_GAP:
+			var along := Vector2(0, 1) if absf(at.x - size.x * 0.5) > absf(at.y - size.y * 0.5) else Vector2(1, 0)
+			at += along * B_POINTER_GAP * (1.0 if along.dot(at - other) >= 0.0 else -1.0)
+	return at
+
+
+# Distance from the swarm to an objective in metres (-1 = unknown). HuntWorld
+# may publish "<name>_distance"; otherwise it is read from the world nodes.
+func _distance(state: Dictionary, target: String) -> float:
+	if state.has(target + "_distance"):
+		return float(state[target + "_distance"])
+	var world := _world_node()
+	if world == null:
+		return -1.0
+	var node: Variant = world.get(target)
+	var swarm: Variant = world.get("swarm")
+	if not (node is Node3D) or not (swarm is Node3D) or not is_instance_valid(node) or not is_instance_valid(swarm):
+		return -1.0
+	var d: Vector3 = (node as Node3D).global_position - (swarm as Node3D).global_position
+	d.y = 0.0
+	return d.length()
+
+
+func _world_node() -> Node:
+	if _world != null and is_instance_valid(_world):
+		return _world
+	var layer := get_parent().get_parent() if get_parent() != null else null
+	var main := layer.get_parent() if layer != null else null
+	_world = main.get_node_or_null("HuntWorld") if main != null else null
+	return _world
+
+
+## Edge pointer: round plate in the target's tone, chevron towards the target,
+## distance underneath (above at the bottom edge). progress >= 0 adds a fill
+## ring (nest, maw hold). Returns where it was drawn.
+func _b_pointer(at: Vector2, raw: Vector2, tone: String, icons: Array, distance: float, progress: float) -> Vector2:
+	var direction := (raw - size * 0.5).normalized()
+	var r := B_POINTER * 0.5
+	at = _keep_on_screen(at, r + 40.0)
+	var t: Dictionary = UiStyle.brawl_tone(tone)
+	var pulse := 0.5 + 0.5 * sin(_time * (7.0 if tone == "loot" else 3.5))
+	Kit.circle_ring(self, at, r + 9.0, 5.0, Color(t["light"], 0.2 + 0.4 * pulse))
+	if progress >= 0.0:
+		Kit.circle_ring(self, at, r + 8.0, 10.0, UiStyle.BRAWL_INK)
+		if progress > 0.0:
+			draw_arc(at, r + 8.0, -PI * 0.5, -PI * 0.5 + TAU * clampf(progress, 0.0, 1.0), 48, t["light"], 6.0, true)
+	if direction.length_squared() > 0.01:
+		var side := Vector2(-direction.y, direction.x)
+		var tip := at + direction * (r + 34.0)
+		var base := at + direction * (r + 6.0)
+		var tri := PackedVector2Array([tip, base + side * 19.0, base - side * 19.0])
+		var drop := PackedVector2Array()
+		for p in tri:
+			drop.append(p + Vector2(0, 4))
+		draw_colored_polygon(drop, UiStyle.BRAWL_INK_SOFT)
+		draw_colored_polygon(tri, t["face"])
+		var edge := tri.duplicate()
+		edge.append(tri[0])
+		draw_polyline(edge, UiStyle.BRAWL_INK, UiStyle.STROKE_S, true)
+	Kit.icon_plate(self, at, B_POINTER, tone)
+	var face := Kit.plate_center(at, B_POINTER)
+	var drawn := false
+	for id in icons:
+		if UiIcons.has(id):
+			UiIcons.draw(self, id, Rect2(face - Vector2(27, 27), Vector2(54, 54)), Color.WHITE)
+			drawn = true
+			break
+	if not drawn:
+		Kit.text_outlined(self, face, "!", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	if distance >= 0.0:
+		var label := "%d m" % int(round(distance))
+		var below := direction.y <= 0.6
+		var y := at.y + r + 26.0 if below else at.y - r - 24.0
+		Kit.text_outlined(self, Vector2(at.x, y), label, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	return at
+
+
+# Hold ring over the totem while the swarm stands on it.
+func _b_totem_hold(at: Vector2, hold: float) -> void:
+	# High enough to clear the leader crown above the swarm.
+	at += Vector2(0, -260)
+	var size_px := 112.0
+	var r := size_px * 0.5
+	var t: Dictionary = UiStyle.brawl_tone("danger")
+	var pulse := 0.5 + 0.5 * sin(_time * 9.0)
+	Kit.circle_ring(self, at, r + 12.0, 6.0, Color(t["light"], (0.2 + 0.4 * pulse) * hold))
+	Kit.circle_ring(self, at, r + 7.0, 12.0, UiStyle.BRAWL_INK)
+	draw_arc(at, r + 7.0, -PI * 0.5, -PI * 0.5 + TAU * clampf(hold, 0.0, 1.0), 56, t["light"].lerp(Color.WHITE, 0.3 * pulse), 7.0, true)
+	Kit.icon_plate(self, at, size_px, "dark")
+	var face := Kit.plate_center(at, size_px)
+	_totem_icon(Rect2(face - Vector2(38, 38), Vector2(76, 76)))
+	var text := "FLUCH ANNEHMEN"
+	var w := UiStyle.display_font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x + 36.0
+	var rect := Rect2(at.x - w * 0.5, at.y + r + 18.0, w, 42.0)
+	Kit.pill(self, rect, "danger", UiStyle.STROKE_S)
+	Kit.text_outlined(self, rect.get_center() - Vector2(0, 2), text, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+
+
+func _b_curse_chip(curse: int) -> void:
+	var text := "FLUCH · BEUTE ×2 · BOSS +50%" if curse == 1 else "VERFLUCHTER KING · BEUTE ×2"
+	var y := CHIP_Y
+	var top: Node = get_parent().get_node_or_null("hud_top")
+	if top != null and top.has_method("top_stack_bottom"):
+		y = maxf(y, float(top.top_stack_bottom()) + 12.0)
+	var h := 48.0
+	var plate := h + 8.0
+	var text_w := UiStyle.display_font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x
+	var rect := Rect2(22.0, y, plate - 6.0 + 10.0 + text_w + 22.0, h)
+	var pulse := 0.5 + 0.5 * sin(_time * 3.0)
+	Kit.ring(self, rect.grow(4.0), h * 0.5 + 4.0, 4.0, Color(UiStyle.brawl_tone("danger")["light"], 0.15 + 0.3 * pulse))
+	Kit.pill(self, rect, "dark", UiStyle.STROKE_S)
+	var plate_c := Vector2(rect.position.x + plate * 0.5 - 6.0, rect.get_center().y)
+	Kit.icon_plate(self, plate_c, plate, "danger")
+	var face := Kit.plate_center(plate_c, plate)
+	_totem_icon(Rect2(face - Vector2(20, 20), Vector2(40, 40)))
+	Kit.text_outlined(self, Vector2(plate_c.x + plate * 0.5 + 10.0, rect.get_center().y - 1.0), text, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+
+
+# --- ribbons (own layer: pop-in via scale, fade via modulate)
+
+func _refresh_banner(state: Dictionary) -> void:
+	if _banner_layer == null:
+		return
+	var kind := ""
+	var t := 0.0
+	var seconds := 1.0
+	if UiStyle.is_brawl() and not state.is_empty() and not _hidden():
+		if _victory_time >= 0.0:
+			kind = "victory"
+			t = _victory_time
+			seconds = VICTORY_SECONDS
+		elif _arrival_time >= 0.0:
+			kind = "arrival"
+			t = _arrival_time
+			seconds = ARRIVAL_SECONDS
+	_banner_kind = kind
+	if kind == "":
+		_banner_layer.refresh([size])
+		_banner_layer.modulate = Color.WHITE
+		_banner_layer.scale = Vector2.ONE
+		return
+	_banner_state = state
+	var flash := 1.0 - clampf(t / 0.35, 0.0, 1.0) if kind == "victory" else 0.0
+	_banner_layer.refresh([size, kind, _apex_name(state), String(state.get("biome_id", "")), int(flash * 30.0)])
+	var pop := 1.0 - pow(1.0 - clampf(t / 0.3, 0.0, 1.0), 3.0)
+	var fade := clampf(t / 0.15, 0.0, 1.0) * (1.0 - clampf((t - (seconds - 0.5)) / 0.5, 0.0, 1.0))
+	_banner_layer.pivot_offset = _banner_center()
+	_banner_layer.scale = Vector2.ONE * lerpf(1.35, 1.0, pop)
+	_banner_layer.modulate = Color(1, 1, 1, fade)
+
+
+func _banner_center() -> Vector2:
+	return Vector2(size.x * 0.5, size.y * 0.5 - 360.0)
+
+
+func _paint_banner(canvas: CanvasItem) -> void:
+	if _banner_kind == "":
+		return
+	var state := _banner_state
+	var c := _banner_center()
+	var w := minf(size.x - 180.0, 640.0)
+	var rect := Rect2(c.x - w * 0.5, c.y - 46.0, w, 92.0)
+	var title := ""
+	var sub := ""
+	var tone := "loot"
+	var icon := "crown"
+	if _banner_kind == "victory":
+		# Short gold flash over the whole screen (the layer's alpha fades it).
+		if _victory_time < 0.35:
+			canvas.draw_rect(Rect2(Vector2.ZERO, size).grow(size.x), Color(UiStyle.brawl_tone("loot")["light"], 0.3 * (1.0 - _victory_time / 0.35)))
+		title = "%s BEZWUNGEN" % _apex_name(state)
+		sub = "Der Migrationsschlund öffnet sich"
+	else:
+		var id := String(state.get("biome_id", "verdant_maw"))
+		var data: Dictionary = Biomes.get_data(id)
+		title = String(data.get("title", "")).to_upper()
+		sub = String(data.get("description", ""))
+		tone = "info"
+		icon = "biome_glutsumpf" if id == "glutsumpf" else "biome_verdant"
+	Kit.ribbon(canvas, rect, tone)
+	Kit.text_outlined(canvas, rect.get_center() + Vector2(0, -3), title, UiStyle.T_TITLE, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, rect.size.x - 48.0)
+	var plate_c := Vector2(c.x, rect.position.y - 34.0)
+	Kit.icon_plate(canvas, plate_c, 96.0, tone)
+	UiIcons.draw(canvas, icon, Rect2(Kit.plate_center(plate_c, 96.0) - Vector2(34, 34), Vector2(68, 68)), Color.WHITE)
+	if sub != "":
+		Kit.text_outlined(canvas, Vector2(c.x, rect.end.y + 44.0), sub, UiStyle.T_BODY, Color.WHITE, -1, -1, UiStyle.body_bold_font(), Kit.CENTER | Kit.MIDDLE, size.x - 80.0)

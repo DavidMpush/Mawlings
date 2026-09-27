@@ -43,9 +43,9 @@ func _capture() -> void:
 	world._spawn_boss(here + Vector3(14, 0, -18))
 	world.spawn_nest(here + Vector3(-20, 0, 8))
 	world.spawn_totem(here + Vector3(70, 0, 40))
-	world._create_corpse(here + Vector3(9, 0, 12), 3.0, "prey")
-	world._create_corpse(here + Vector3(-12, 0, -9), 3.0, "hunter")
-	world._create_corpse(here + Vector3(24, 0, 20), 30.0, "boss")
+	world.drop_loot(here + Vector3(9, 0, 12), 3.0)
+	world.drop_loot(here + Vector3(-12, 0, -9), 3.0)
+	world.drop_loot(here + Vector3(24, 0, 20), 30.0)
 	for offset in [Vector3(-8, 0, -14), Vector3(18, 0, 4)]:
 		var hunter: Variant = world._spawn_hunter(here + offset)
 		hunter.state = hunter.State.CHASE
@@ -68,7 +68,7 @@ func _capture() -> void:
 	var loop := [Vector3(60, 0, -40), Vector3(120, 0, 10), Vector3(90, 0, 110), Vector3(-10, 0, 140), Vector3(-80, 0, 60), Vector3(-60, 0, -60), Vector3(20, 0, -90)]
 	for point in loop:
 		await _walk_to(point, 0.8)
-	world._create_corpse(swarm.position + Vector3(40, 0, 30), 3.0, "prey")
+	world.drop_loot(swarm.position + Vector3(40, 0, 30), 3.0)
 	world.spawn_nest(swarm.position + Vector3(-60, 0, 20))
 	await create_timer(0.8).timeout
 	controls.set_map_open(true)
@@ -84,8 +84,8 @@ func _capture() -> void:
 	if world.horde != null and world.horde.has_method("spawn_ring"):
 		world.horde.spawn_ring(here + Vector3(30, 0, 18), 40, 6.0, {})
 	world._spawn_boss(here + Vector3(10, 0, 26))
-	world._create_corpse(here + Vector3(-9, 0, 11), 3.0, "prey")
-	world._create_corpse(here + Vector3(6, 0, -14), 30.0, "boss")
+	world.drop_loot(here + Vector3(-9, 0, 11), 3.0)
+	world.drop_loot(here + Vector3(6, 0, -14), 30.0)
 	await create_timer(1.8).timeout
 	await _save("preview_minimap_glut.png")
 	controls._map_toggled_at = -100000

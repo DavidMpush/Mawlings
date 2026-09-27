@@ -6,11 +6,13 @@ extends RefCounted
 
 const TRAITS = [
 	["jaws", "Reißzähne", "+25 % Angriffsschaden pro Rang"],
-	["brood", "Schnelle Brut", "+30 % Erntetempo pro Rang"],
+	["brood", "Schnelle Brut", "+10 % Biomasse beim Einsammeln pro Rang"],
 	["glutton", "Vielfraß", "+25 % Biomasse bei künftigen Kills"],
 	["pack", "Rudelinstinkt", "+20 % Schaden bei Rally pro Rang"],
 	["scatter", "Fluchtreflex", "−10 % Verluste ohne Rally pro Rang"],
 	["armor", "Knochenpanzer", "−10 % Verluste pro Rang"],
+	# Etappe 16: größerer Magnetradius für Beute-Kristalle.
+	["lockduft", "Lockduft", "+25 % Sammelradius pro Rang"],
 	# Etappe 10 (nur über Trophäen freischaltbar, nicht im Standard-Pool):
 	["regeneration", "Regeneration", "+1 LP für den Anführer je 12/9/6 Kills (höchstens alle 30/25/20 s)"],
 	["dornenhaut", "Dornenhaut", "+40 % Rückschaden pro Rang"]
@@ -62,6 +64,12 @@ const THORN_PER_LOSS = 4.0
 const THORN_LEADER = 10.0
 signal leader_regenerated(amount: int)
 const MAX_RANK = 3
+# Etappe 16: Magnet (Lockduft) +LURE_SCENT_STEP Radius je Rang; Schnelle Brut
+# +BROOD_STEP Biomasse je eingesammeltem Kristall (vorher Erntetempo).
+const LURE_SCENT_STEP = 0.25
+const BROOD_STEP = 0.10
+# Etappe 16: Anlagen ohne eigenes Symbol in ui_icons.gd nutzen vorerst ein vorhandenes.
+const ICON_IDS = {"lockduft": "biomass"}
 const DEFAULT_SLOTS = {"attack": 2, "trait": 3}
 
 var ranks: Dictionary = {}
@@ -80,7 +88,7 @@ var alpha_cores := 0
 var evolutions: Array[String] = []
 var signature := ""
 # Meta multipliers (1.0 neutral); armor is an additive loss reduction share.
-var mods: Dictionary = {"damage": 1.0, "armor": 0.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0, "rally_damage": 1.0}
+var mods: Dictionary = {"damage": 1.0, "armor": 0.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0, "rally_damage": 1.0, "magnet": 1.0}
 # Etappe 10: Kills seit dem letzten Regenerations-LP.
 var regen_kills := 0.0
 # Spielzeit, ab der das nächste Regenerations-LP frühestens kommt.
@@ -116,7 +124,7 @@ func configure(config: Dictionary) -> void:
 	banishes = int(config.get("banishes", 0))
 	skips = int(config.get("skips", 0))
 	var meta: Dictionary = config.get("mods", {})
-	for key in ["damage", "harvest", "dna", "growth", "rally_damage"]:
+	for key in ["damage", "harvest", "dna", "growth", "rally_damage", "magnet"]:
 		mods[key] = float(meta.get(key, 1.0))
 	# Negative armor (e.g. a fast strain) means extra losses.
 	mods["armor"] = clampf(float(meta.get("armor", 0.0)), -0.5, 0.6)
@@ -322,8 +330,19 @@ func damage_multiplier(rally: bool) -> float:
 	return (1.0 + 0.25 * rank("jaws")) * ((1.0 + 0.20 * rank("pack")) * float(mods.rally_damage) if rally else 1.0) * float(mods.damage)
 
 
+# Etappe 16: Biomasse je eingesammeltem Kristall (Schnelle Brut, Meta "harvest" = Verdauung).
 func harvest_multiplier() -> float:
-	return (1.0 + 0.30 * rank("brood")) * float(mods.harvest)
+	return (1.0 + BROOD_STEP * rank("brood")) * float(mods.harvest)
+
+
+# Etappe 16: Magnetradius-Faktor (Lockduft je Rang, Meta "magnet" = Witterung).
+func magnet_multiplier() -> float:
+	return (1.0 + LURE_SCENT_STEP * rank("lockduft")) * float(mods.magnet)
+
+
+# Existing UI icon for a mutation id (itself when ui_icons.gd has one).
+static func icon_id(id: String) -> String:
+	return String(ICON_IDS.get(id, id))
 
 
 func biomass_multiplier() -> float:

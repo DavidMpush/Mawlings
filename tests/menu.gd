@@ -1,7 +1,7 @@
 extends SceneTree
 ## Brutstätte flow: loads without a profile, strain switching, purchases with and
 ## without enough currency, SPIELEN fills Session.pending_config, reward overlay,
-## seed code + reroll, TAGES-BRUT config and daily record, settings, pressed state.
+## fresh seed per start, TAGES-BRUT config and daily record, settings, pressed state.
 
 const TEST_PROFILE := "user://test_menu_profile.json"
 const TEST_CHRONICLE := "user://test_menu_chronicle.json"
@@ -149,9 +149,20 @@ func _run() -> void:
 	if not is_equal_approx(float(config.mods.damage), 1.05 * 1.01 * float(load("res://scripts/meta/meta_data.gd").STRAINS[first].mods.damage)):
 		_fail("RunConfig does not include meta upgrades: %s" % config.mods)
 		return
-	if int(config.get("seed", 0)) != int(menu.profile.next_seed) or config.get("daily", false):
-		_fail("SPIELEN must use the shown next_seed and no daily flag: %s" % config.get("seed"))
+	# Stage 15: no map code in the menu; every SPIELEN rolls a fresh random seed.
+	var first_seed := int(config.get("seed", 0))
+	if first_seed <= 0 or config.get("daily", false):
+		_fail("SPIELEN must carry a random seed and no daily flag: %s" % config.get("seed"))
 		return
+	var seeds := [first_seed]
+	for attempt in 3:
+		session.pending_config = {}
+		menu.tap(menu.play_rect().get_center())
+		var again := int(session.pending_config.get("seed", 0))
+		if again <= 0 or again in seeds:
+			_fail("Every start needs a new seed: %s after %s" % [again, seeds])
+			return
+		seeds.append(again)
 	if not (config.get("settings") is Dictionary) or config.settings.get("sound", true):
 		_fail("RunConfig must carry the saved settings (sound off): %s" % config.get("settings"))
 		return
@@ -171,7 +182,6 @@ func _run() -> void:
 	if menu.difficulty != 1:
 		_fail("TAGES-BRUT must not change the chosen difficulty")
 		return
-	var seed_before_daily: int = menu.profile.next_seed
 	menu.select_difficulty(0)
 	menu.queue_free()
 	await process_frame
@@ -189,9 +199,6 @@ func _run() -> void:
 	var day: Dictionary = menu.daily_today()
 	if day.is_empty() or not is_equal_approx(float(day.seconds), 45.0) or int(day.peak) != 180 or int(day.runs) != 1:
 		_fail("Daily record wrong: %s" % day)
-		return
-	if menu.profile.next_seed != seed_before_daily:
-		_fail("A daily run must not reroll the own next map")
 		return
 	var reread: Variant = profile_script.load_or_create(TEST_PROFILE)
 	if int(reread.daily_record(today).get("peak", 0)) != 180 or int(reread.records.runs) < 1:
@@ -247,14 +254,14 @@ func _run() -> void:
 		return
 	menu.queue_free()
 	_delete_test_profile()
-	print("PASS: menu loads, strain switch/swipe/buy, difficulty/biome locks, upgrades, instinct, trophies, SPIELEN config, reward overlay, seed code/reroll, TAGES-BRUT + daily record, settings, pressed state, layout, chronicle booking/sheet, share card")
+	print("PASS: menu loads, strain switch/swipe/buy, difficulty/biome locks, upgrades, instinct, trophies, SPIELEN config, reward overlay, fresh seed per start, TAGES-BRUT + daily record, settings, pressed state, layout incl. sheets/settings, UI style, chronicle booking/sheet, share card")
 	quit(0)
 
 
 ## Main-view hit areas must not overlap and must stay on screen; arrows are slim.
 func _check_layout(menu: Control) -> bool:
 	var rects := {"prev": menu.strain_prev_rect(), "next": menu.strain_next_rect(), "play": menu.play_rect(),
-		"seed_card": menu.seed_card_rect(), "daily": menu.daily_rect(), "gear": menu.settings_button_rect(),
+		"daily": menu.daily_rect(), "gear": menu.settings_button_rect(),
 		"biome0": menu.biome_rect(0), "biome1": menu.biome_rect(1), "diff0": menu.difficulty_rect(0),
 		"diff1": menu.difficulty_rect(1), "diff2": menu.difficulty_rect(2), "tab0": menu.tab_rect(0),
 		"tab3": menu.tab_rect(3), "records": menu.records_rect()}
@@ -268,11 +275,21 @@ func _check_layout(menu: Control) -> bool:
 			if rects[names[i]].intersects(rects[names[k]]):
 				_fail("%s overlaps %s" % [names[i], names[k]])
 				return false
-	if not menu.seed_card_rect().encloses(menu.seed_reroll_rect()):
-		_fail("Reroll button must sit inside the seed card")
+	if menu.has_method("seed_reroll_rect") or menu.has_method("next_seed_code"):
+		_fail("The map code / reroll must be gone from the menu")
 		return false
-	if menu.strain_prev_rect().size.x > 90.0 or not screen.encloses(menu.reward_button_rect()):
+	if menu.strain_prev_rect().size.x > 110.0 or not screen.encloses(menu.reward_button_rect()):
 		_fail("Arrow or reward button rect out of spec")
+		return false
+	# Stage 15: every main-view button is a full touch target; SPIELEN is the big one.
+	for key in ["prev", "next", "gear", "daily", "tab0", "tab3"]:
+		if rects[key].size.x < 96.0 or rects[key].size.y < 96.0:
+			_fail("%s is smaller than the 96 px touch target: %s" % [key, rects[key]])
+			return false
+	if menu.play_rect().size.y < 120.0:
+		_fail("SPIELEN below the touch target size")
+		return false
+	if not _check_sheet_layout(menu, screen):
 		return false
 	# Stage 10: share button beside WEITER, four tabs, chronicle segments are big enough to hit.
 	if menu.share_button_rect().intersects(menu.reward_button_rect()) or not screen.encloses(menu.share_button_rect()) or menu.share_button_rect().size.y < 96.0:
@@ -316,26 +333,62 @@ func _check_share(menu: Control) -> bool:
 	return true
 
 
-## Seed code: 6 readable characters, round-trips to next_seed, reroll changes and saves it.
+## Stage 15 sheets: between header and tab dock, lists fit or scroll, buttons
+## and settings rows are full touch targets.
+func _check_sheet_layout(menu: Control, screen: Rect2) -> bool:
+	var sheet: Rect2 = menu.sheet_rect()
+	if sheet.intersects(menu.settings_button_rect()) or sheet.end.y > menu.tab_rect(0).position.y - 14.0:
+		_fail("Sheet must sit between the header and the tab dock: %s" % sheet)
+		return false
+	for tab_i in menu.TABS.size():
+		if sheet.intersects(menu.tab_rect(tab_i)):
+			_fail("Sheet covers tab %d" % tab_i)
+			return false
+	var list: Rect2 = menu.upgrade_list_rect()
+	for i in menu.meta.UPGRADE_ORDER.size():
+		var buy: Rect2 = menu.upgrade_buy_rect(i)
+		if buy.size.x < 96.0 or buy.size.y < 96.0 or not menu.upgrade_row_rect(i).encloses(buy):
+			_fail("Upgrade buy button %d out of spec: %s" % [i, buy])
+			return false
+	var last: Rect2 = menu.upgrade_row_rect(menu.meta.UPGRADE_ORDER.size() - 1)
+	var old_tab: String = menu.tab
+	menu.tab = "upgrades"
+	var scrolls: bool = menu._trophy_scroll_max() > 0.0
+	menu.tab = old_tab
+	if last.end.y > list.end.y and not scrolls:
+		_fail("Brutkammer rows run past the list without scrolling")
+		return false
+	if menu.sheet_close_rect().size.x < 96.0 or menu.sheet_close_rect().size.y < 96.0:
+		_fail("Sheet close button too small")
+		return false
+	var panel: Rect2 = menu.settings_panel_rect()
+	if not screen.encloses(panel) or panel.has_point(menu.daily_rect().get_center()):
+		_fail("Settings modal out of spec: %s" % panel)
+		return false
+	for i in menu.SETTINGS.size():
+		var row: Rect2 = menu.settings_row_rect(i)
+		if row.size.y < 96.0 or not panel.encloses(row):
+			_fail("Settings row %d out of spec: %s" % [i, row])
+			return false
+	for k in menu.UI_SKINS.size():
+		var seg: Rect2 = menu.settings_skin_rect(k)
+		if seg.size.y < 96.0 or seg.size.x < 96.0 or not panel.encloses(seg):
+			_fail("UI style button %d out of spec: %s" % [k, seg])
+			return false
+	return true
+
+
+## Map seeds: SPIELEN never repeats the previous seed; the code only stays as info.
 func _check_seed(menu: Control) -> bool:
-	var code: String = menu.next_seed_code()
-	if code.length() != 6 or menu.seed_from_code(code) != int(menu.profile.next_seed):
-		_fail("Seed code %s does not match next_seed %d" % [code, menu.profile.next_seed])
-		return false
-	if menu.seed_code(2147483647) != "ZIK0ZJ" or menu.seed_from_code("zik0zj") != 2147483647 or menu.seed_from_code("??") != 0:
+	var last := 0
+	for i in 5:
+		var value: int = menu.fresh_seed()
+		if value <= 0 or value == last:
+			_fail("fresh_seed repeated or invalid: %d" % value)
+			return false
+		last = value
+	if menu.seed_code(2147483647) != "ZIK0ZJ":
 		_fail("Seed code conversion is wrong: %s" % menu.seed_code(2147483647))
-		return false
-	var before: int = menu.profile.next_seed
-	for attempt in 3:
-		menu.tap(menu.seed_reroll_rect().get_center())
-		if menu.profile.next_seed != before:
-			break
-	if menu.profile.next_seed == before or menu.next_seed_code() == menu.seed_code(before):
-		_fail("NEU WÜRFELN did not change the map seed")
-		return false
-	var reloaded: Variant = load("res://scripts/meta/profile.gd").load_or_create(TEST_PROFILE)
-	if reloaded.next_seed != menu.profile.next_seed:
-		_fail("Rerolled seed was not saved")
 		return false
 	return true
 
@@ -364,7 +417,11 @@ func _check_settings(menu: Control) -> bool:
 		_fail("Sound off must mute the master bus")
 		return false
 	var strain_before: String = menu.current_strain()
-	menu.tap(menu.play_rect().get_center())
+	# Stage 15: SPIELEN sits under the tall settings panel; TAGES-BRUT lies outside it.
+	if menu.settings_panel_rect().has_point(menu.daily_rect().get_center()):
+		_fail("TAGES-BRUT must lie outside the settings panel for this check")
+		return false
+	menu.tap(menu.daily_rect().get_center())
 	if menu.settings_open or not session.pending_config.is_empty() or menu.current_strain() != strain_before:
 		_fail("A tap outside the settings panel must only close it")
 		return false
@@ -373,6 +430,20 @@ func _check_settings(menu: Control) -> bool:
 	if menu.settings_open:
 		_fail("Settings close button failed")
 		return false
+	# Stage 15: UI style row switches the skin at once and saves it in the profile.
+	var style: Script = load("res://scripts/ui/ui_style.gd")
+	menu.tap(menu.settings_button_rect().get_center())
+	menu.tap(menu.settings_skin_rect(1).get_center())
+	var saved: Variant = load("res://scripts/meta/profile.gd").load_or_create(TEST_PROFILE)
+	if menu.ui_skin() != "calm" or style.get("skin") != "calm" or not saved.get_setting("skin_calm") or not menu.settings_open:
+		_fail("UI style RUHIG was not applied/saved: %s / %s" % [menu.ui_skin(), style.get("skin")])
+		return false
+	menu.tap(menu.settings_skin_rect(0).get_center())
+	saved = load("res://scripts/meta/profile.gd").load_or_create(TEST_PROFILE)
+	if menu.ui_skin() != "brawl" or style.get("skin") != "brawl" or saved.get_setting("skin_calm") or saved.get_setting("skin_organic"):
+		_fail("UI style BRAWL was not restored")
+		return false
+	menu.close_settings()
 	# Colorblind back off for the rest of the test; sound stays off (checked in the RunConfig).
 	menu.toggle_setting("colorblind")
 	return true

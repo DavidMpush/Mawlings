@@ -49,8 +49,11 @@ func _run() -> void:
 	boss.remaining = 10.0
 	boss.health = 0.01
 	world.step(0.1)
+	world.collect_loot_now()
+	world.collect_loot_now()
 	_check(world.boss == null and world.evolution.dna == 50, "Boss defeat grants DNA exactly once")
-	_check(world.model.remaining_biomass(1) == TUNING.BOSS_BIOMASS and world.boss_clock == TUNING.BOSS_RESPAWN_SECONDS, "Defeat leaves persistent biomass and schedules next boss")
+	_check(world.loot.total(0) >= TUNING.BOSS_BIOMASS - 0.01 and world.boss_clock > TUNING.BOSS_RESPAWN_SECONDS - 0.2, "Defeat leaves persistent biomass crystals and schedules next boss (%.1f, clock %.1f)" % [world.loot.total(0), world.boss_clock])
+	_check(world.loot.lures.size() == 1, "The Bog King drops a Lockruf")
 	if not failures.is_empty():
 		for failure in failures:
 			push_error(failure)

@@ -25,6 +25,10 @@ window/size/initial_screen=1
 window/stretch/mode="canvas_items"
 window/handheld/orientation=1
 
+[gui]
+
+theme/custom_font="res://assets/ui/fonts/body.tres"
+
 [rendering]
 
 textures/vram_compression/import_etc2_astc=true

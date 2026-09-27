@@ -31,6 +31,10 @@ const SETTINGS := [
 	["music_v1", "MUSIK: KLASSIK V1", "Aus: adaptive Musik · An: Musikpaket V1"],
 ]
 ## Seed-Code: 6 Zeichen Base36 decken 1..2^31-1 eindeutig ab (36^6 > 2^31).
+## UI-Stil in den Einstellungen (Etappe 15): gespeichert als zwei Schalter im
+## Profil (skin_calm, skin_organic); beide aus = brawl (Standard).
+const UI_SKINS := ["brawl", "calm", "organic"]
+const UI_SKIN_NAMES := {"brawl": "BRAWL", "calm": "RUHIG", "organic": "ORGANISCH"}
 const SEED_ALPHABET := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 const SEED_CODE_LENGTH := 6
 const TAP_SLOP := 26.0
@@ -179,14 +183,11 @@ func _consume_last_result() -> void:
 		return
 	reward_stats = result.duplicate(true)
 	var daily := _result_is_daily(reward_stats)
-	var keep_seed: int = profile.next_seed
 	reward = profile.record_run(reward_stats)
 	if reward == null:
 		reward = {}
 	_book_chronicle(daily)
 	if daily:
-		# The daily map is fixed; the player's own next map stays as it was.
-		profile.next_seed = keep_seed
 		var date: String = daily_pending.get("date", load(PROFILE_PATH).today_key())
 		var seconds := float(reward_stats.get("seconds", 0.0))
 		var peak := int(reward_stats.get("peak_population", 0))
@@ -369,10 +370,25 @@ func play() -> Dictionary:
 	if not can_play():
 		_toast("Diesen Stamm besitzt du noch nicht")
 		return {}
-	var config: Dictionary = profile.build_run_config(current_strain(), biome_id, difficulty)
+	var config: Dictionary = profile.build_run_config(current_strain(), biome_id, difficulty, fresh_seed())
 	daily_pending = {}
 	_remember()
 	return _start(config)
+
+
+## Stage 15: no map code in the menu any more. Every SPIELEN rolls a new random
+## map seed, never the one of the previous start. The seed still travels in the
+## RunConfig and ends up in the chronicle and on the share card.
+static var last_run_seed := 0
+
+
+func fresh_seed() -> int:
+	var profile_script: Variant = load(PROFILE_PATH)
+	var value: int = profile_script.random_seed()
+	while value == last_run_seed:
+		value = profile_script.random_seed()
+	last_run_seed = value
+	return value
 
 
 ## TAGES-BRUT: same map for everyone today (Profile.daily_seed), always Wild,
@@ -426,6 +442,8 @@ func daily_today() -> Dictionary:
 
 # ---------------------------------------------------------------- map seed
 
+## Base36 code of a seed (6 characters). Only shown as information (chronicle
+## daily header, share card); the menu has no code input any more.
 static func seed_code(value: int) -> String:
 	var n := maxi(0, value)
 	var code := ""
@@ -433,32 +451,6 @@ static func seed_code(value: int) -> String:
 		code = SEED_ALPHABET[n % 36] + code
 		n = floori(n / 36.0)
 	return code
-
-
-## Inverse of seed_code; 0 for an invalid code.
-static func seed_from_code(code: String) -> int:
-	var clean := code.strip_edges().to_upper()
-	if clean.is_empty():
-		return 0
-	var n := 0
-	for ch in clean:
-		var digit := SEED_ALPHABET.find(ch)
-		if digit < 0:
-			return 0
-		n = n * 36 + digit
-	return n
-
-
-func next_seed_code() -> String:
-	return seed_code(int(profile.next_seed)) if profile != null else ""
-
-
-func reroll_seed() -> void:
-	if profile == null:
-		return
-	profile.reroll_seed()
-	profile.save()
-	_toast("Neue Karte · %s" % next_seed_code())
 
 # ---------------------------------------------------------------- settings
 
@@ -485,6 +477,31 @@ func toggle_setting(key: String) -> void:
 	queue_redraw()
 
 
+## Saved UI style: "brawl" (default), "calm" or "organic".
+func ui_skin() -> String:
+	if profile == null:
+		return "brawl"
+	if profile.get_setting("skin_organic"):
+		return "organic"
+	if profile.get_setting("skin_calm"):
+		return "calm"
+	return "brawl"
+
+
+func set_ui_skin(id: String) -> void:
+	if profile == null or not id in UI_SKINS:
+		return
+	profile.set_setting("skin_calm", id == "calm")
+	profile.set_setting("skin_organic", id == "organic")
+	profile.save()
+	_apply_settings()
+	if ResourceLoader.exists(UI_STYLE_PATH):
+		var style: Script = load(UI_STYLE_PATH)
+		if style.has_method("set_skin"):
+			style.call("set_skin", id)
+	queue_redraw()
+
+
 ## Pushes the stored settings to engine-wide places: master bus mute and
 ## UiStyle.colorblind (when the style script has that flag). The game's Sfx
 ## node and HUD read the same profile values.
@@ -506,6 +523,11 @@ func _apply_settings() -> void:
 		var style: Script = load(UI_STYLE_PATH)
 		if style.get("colorblind") != null:
 			style.set("colorblind", profile.get_setting("colorblind"))
+		# Only a saved non-default style is pushed on load, so tools that pick a
+		# skin before opening the menu keep theirs; choosing BRAWL applies directly.
+		var saved := ui_skin()
+		if saved != "brawl" and style.has_method("set_skin"):
+			style.call("set_skin", saved)
 
 
 ## The big button plays an owned strain, buys an unlocked one, or explains the lock.
@@ -607,13 +629,13 @@ func _gui_input(event: InputEvent) -> void:
 				_press_pos = Vector2.INF
 				_drag_mode = ""
 			accept_event()
-		elif event.pressed and tab in ["trophies", "chronicle"] and not settings_open and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		elif event.pressed and tab in SCROLL_TABS and not settings_open and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 			_scroll_trophies(90.0 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -90.0)
 			accept_event()
 	elif event is InputEventMouseMotion and _press_pos.is_finite():
 		var moved: Vector2 = event.position - _press_pos
 		if _drag_mode == "" and moved.length() > TAP_SLOP:
-			if tab in ["trophies", "chronicle"] and reward.is_empty() and not settings_open and absf(moved.y) > absf(moved.x):
+			if tab in SCROLL_TABS and reward.is_empty() and not settings_open and absf(moved.y) > absf(moved.x):
 				_drag_mode = "scroll"
 			elif tab == "" and reward.is_empty() and not settings_open and strain_card_rect().has_point(_press_pos) and absf(moved.x) > absf(moved.y):
 				_drag_mode = "swipe"
@@ -647,6 +669,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		select_strain(1)
 	elif tab == "" and event.keycode in [KEY_ENTER, KEY_SPACE]:
 		play()
+
+
+## Sheets with a swipe-scrolled list (all share trophy_scroll).
+const SCROLL_TABS := ["upgrades", "trophies", "chronicle"]
 
 
 func _scroll_trophies(amount: float) -> void:
@@ -686,8 +712,6 @@ func tap(location: Vector2) -> void:
 		_press_main_button()
 	elif daily_rect().has_point(location):
 		play_daily()
-	elif seed_reroll_rect().has_point(location):
-		reroll_seed()
 	elif records_rect().has_point(location):
 		open_chronicle("best")
 	else:
@@ -708,6 +732,10 @@ func _tap_settings(location: Vector2) -> void:
 	for i in SETTINGS.size():
 		if settings_row_rect(i).has_point(location):
 			toggle_setting(SETTINGS[i][0])
+			return
+	for k in UI_SKINS.size():
+		if settings_skin_rect(k).has_point(location):
+			set_ui_skin(UI_SKINS[k])
 			return
 
 
@@ -735,6 +763,8 @@ func _button_rects() -> Array:
 		rects.append(settings_close_rect())
 		for i in SETTINGS.size():
 			rects.append(settings_row_rect(i))
+		for k in UI_SKINS.size():
+			rects.append(settings_skin_rect(k))
 		return rects
 	rects.append(settings_button_rect())
 	for i in TABS.size():
@@ -750,7 +780,7 @@ func _button_rects() -> Array:
 	if tab != "":
 		rects.append(sheet_close_rect())
 	else:
-		rects.append_array([strain_prev_rect(), strain_next_rect(), play_rect(), daily_rect(), seed_reroll_rect(), records_rect()])
+		rects.append_array([strain_prev_rect(), strain_next_rect(), play_rect(), daily_rect(), records_rect()])
 	return rects
 
 
@@ -759,6 +789,8 @@ func _tap_sheet(location: Vector2) -> void:
 		open_tab(tab)
 		return
 	if tab == "upgrades":
+		if not upgrade_list_rect().has_point(location):
+			return
 		for i in meta.UPGRADE_ORDER.size():
 			if upgrade_buy_rect(i).has_point(location):
 				buy_upgrade(meta.UPGRADE_ORDER[i])
@@ -786,20 +818,21 @@ func _cx() -> float:
 
 
 func strain_card_rect() -> Rect2:
-	return Rect2(28, 300, size.x - 56, 500)
+	return Rect2(40, 226, size.x - 80, 574)
 
 
+## Stage 15: round arrow buttons overlapping the card edges (hit area >= 96).
 func strain_prev_rect() -> Rect2:
-	return Rect2(10, 420, 80, 150)
+	return Rect2(2, 382, 98, 120)
 
 
 func strain_next_rect() -> Rect2:
-	return Rect2(size.x - 90, 420, 80, 150)
+	return Rect2(size.x - 100, 382, 98, 120)
 
 
-## Gear next to the crown counter, opens the settings panel.
+## Round gear at the top right, opens the settings panel.
 func settings_button_rect() -> Rect2:
-	return Rect2(size.x - 286 - 94, 18, 80, 78)
+	return Rect2(size.x - 118, 12, 100, 100)
 
 
 ## Buying a strain uses the main button (it turns into KAUFEN).
@@ -808,88 +841,129 @@ func strain_buy_rect() -> Rect2:
 
 
 func biome_rect(i: int) -> Rect2:
-	var w := (size.x - 56 - 16) * 0.5
-	return Rect2(28 + i * (w + 16), 886, w, 106)
+	var w := (size.x - 80 - 16) * 0.5
+	return Rect2(40 + i * (w + 16), 822, w, 116)
 
 
 func difficulty_rect(i: int) -> Rect2:
-	var w := (size.x - 56 - 32) / 3.0
-	return Rect2(28 + i * (w + 16), 1050, w, 104)
+	var w := (size.x - 80 - 28) / 3.0
+	return Rect2(40 + i * (w + 14), 954, w, 120)
 
 
 func play_rect() -> Rect2:
-	return Rect2(_cx() - 330, 1180, 660, 120)
+	return Rect2(_cx() - 340, 1094, 680, 132)
 
 
-## Next-map code card below SPIELEN (left half) with its NEU WÜRFELN mini button.
-func seed_card_rect() -> Rect2:
-	return Rect2(28, 1310, 470, 94)
-
-
-func seed_reroll_rect() -> Rect2:
-	var card := seed_card_rect()
-	return Rect2(card.end.x - 146, card.position.y + 8, 138, card.size.y - 16)
-
-
-## TAGES-BRUT, secondary button beside the seed card.
+## TAGES-BRUT: wide loot button below SPIELEN (the map code card is gone).
 func daily_rect() -> Rect2:
-	var card := seed_card_rect()
-	return Rect2(card.end.x + 14, card.position.y, size.x - 28 - card.end.x - 14, card.size.y)
+	return Rect2(40, 1246, size.x - 80, 112)
 
 
+## Stage 15: centred modal (ribbon on top, four switch rows and the UI style
+## row). TAGES-BRUT stays outside it; a tap outside closes it.
 func settings_panel_rect() -> Rect2:
-	return Rect2(46, 340, size.x - 92, 250 + SETTINGS.size() * 146)
+	var h := 96.0 + SETTINGS.size() * SETTINGS_ROW_STEP + 186.0 + 64.0
+	return Rect2(40, 250, size.x - 80, h)
+
+
+const SETTINGS_ROW_STEP := 128.0
 
 
 func settings_close_rect() -> Rect2:
 	var p := settings_panel_rect()
-	return Rect2(p.end.x - 116, p.position.y + 14, 100, 100)
+	return Rect2(p.end.x - 96, p.position.y - 44, 100, 100)
 
 
 func settings_row_rect(i: int) -> Rect2:
 	var p := settings_panel_rect()
-	return Rect2(p.position.x + 28, p.position.y + 172 + i * 146, p.size.x - 56, 126)
+	return Rect2(p.position.x + 28, p.position.y + 84 + i * SETTINGS_ROW_STEP, p.size.x - 56, 114)
+
+
+## UI style row below the switches: one well with three segment buttons.
+func settings_skin_row_rect() -> Rect2:
+	var last := settings_row_rect(SETTINGS.size() - 1)
+	return Rect2(last.position.x, last.end.y + 14, last.size.x, 172)
+
+
+func settings_skin_rect(k: int) -> Rect2:
+	var row := settings_skin_row_rect()
+	var n := UI_SKINS.size()
+	var w := (row.size.x - 32 - 12 * (n - 1)) / float(n)
+	return Rect2(row.position.x + 16 + k * (w + 12), row.position.y + 60, w, 100)
 
 
 func tab_rect(i: int) -> Rect2:
 	var n := TABS.size()
-	var w := (size.x - 40 - 12 * (n - 1)) / float(n)
-	return Rect2(20 + i * (w + 12), size.y - 128, w, 112)
+	var w := (size.x - 32 - 10 * (n - 1)) / float(n)
+	return Rect2(16 + i * (w + 10), size.y - 138, w, 124)
 
 
-## Rekordzeile zwischen Karten-Code und Tab-Leiste: antippen öffnet die Chronik.
+## Rekordzeile zwischen TAGES-BRUT und Tab-Leiste: antippen öffnet die Chronik.
 func records_rect() -> Rect2:
-	var top := seed_card_rect().end.y + 4.0
-	var bottom := tab_rect(0).position.y - 10.0
-	return Rect2(28, top, size.x - 56, bottom - top)
+	var top := daily_rect().end.y + 14.0
+	var bottom := tab_rect(0).position.y - 20.0
+	return Rect2(40, top, size.x - 80, bottom - top)
 
 
+## Stage 15: the sheet sits between the resource header and the tab dock, so
+## the tabs stay visible and tappable while it is open.
 func sheet_rect() -> Rect2:
-	return Rect2(16, 112, size.x - 32, size.y - 112 - 140)
+	var bottom := tab_rect(0).position.y - 14.0 - 16.0
+	return Rect2(16, 118, size.x - 32, bottom - 118)
 
 
+## Height of the coloured title strip of a sheet (Kit.card header).
+const SHEET_HEADER := 88.0
+
+
+## Round close button in the title strip (hit area 100 x 100).
 func sheet_close_rect() -> Rect2:
 	var s := sheet_rect()
-	return Rect2(s.end.x - 116, s.position.y + 14, 100, 100)
+	var cy := s.position.y + (12.0 + SHEET_HEADER) * 0.5
+	return Rect2(s.end.x - 116, cy - 50, 100, 100)
 
 
 func _sheet_body_top() -> float:
-	return sheet_rect().position.y + 170
+	return sheet_rect().position.y + 12.0 + SHEET_HEADER + 14.0
+
+
+## Scrolling list area of the Brutkammer (also the frame of the trophy view).
+func upgrade_list_rect() -> Rect2:
+	var s := sheet_rect()
+	var top := _sheet_body_top()
+	return Rect2(s.position.x + 24, top, s.size.x - 48, s.end.y - 22 - top)
+
+
+const UPGRADE_ROW_H := 116.0
+const UPGRADE_ROW_GAP := 12.0
 
 
 func upgrade_row_rect(i: int) -> Rect2:
-	var s := sheet_rect()
-	return Rect2(s.position.x + 18, _sheet_body_top() + i * 136, s.size.x - 36, 124)
+	var area := upgrade_list_rect()
+	var scroll := trophy_scroll if tab == "upgrades" else 0.0
+	return Rect2(area.position.x, area.position.y + i * (UPGRADE_ROW_H + UPGRADE_ROW_GAP) - scroll, area.size.x, UPGRADE_ROW_H)
 
 
 func upgrade_buy_rect(i: int) -> Rect2:
 	var row := upgrade_row_rect(i)
-	return Rect2(row.end.x - 218, row.position.y + 12, 206, 100)
+	return Rect2(row.end.x - 8 - 196, row.position.y + 8, 196, 100)
+
+
+## Trophy summary strip above the list, and the list itself.
+func trophy_summary_rect() -> Rect2:
+	var area := upgrade_list_rect()
+	return Rect2(area.position.x, area.position.y, area.size.x, 84)
+
+
+func trophy_list_rect() -> Rect2:
+	var area := upgrade_list_rect()
+	var top := trophy_summary_rect().end.y + 14
+	return Rect2(area.position.x, top, area.size.x, area.end.y - top)
 
 
 func instinct_buy_rect() -> Rect2:
 	var s := sheet_rect()
-	return Rect2(_cx() - 250, s.position.y + 890, 500, 124)
+	return Rect2(_cx() - 270, s.position.y + 876, 540, 128)
 
 
 func reward_button_rect() -> Rect2:
@@ -907,14 +981,14 @@ func chronicle_segment_rect(i: int) -> Rect2:
 	var s := sheet_rect()
 	var n := CHRONICLE_VIEWS.size()
 	var w := (s.size.x - 48 - 12 * (n - 1)) / float(n)
-	return Rect2(s.position.x + 24 + i * (w + 12), _sheet_body_top() + 4, w, 96)
+	return Rect2(s.position.x + 24 + i * (w + 12), _sheet_body_top(), w, 100)
 
 
 ## Scrollbarer Listenbereich unter den Segmenten.
 func chronicle_list_rect() -> Rect2:
 	var s := sheet_rect()
-	var top := chronicle_segment_rect(0).end.y + 16
-	return Rect2(s.position.x + 18, top, s.size.x - 36, s.end.y - 24 - top)
+	var top := chronicle_segment_rect(0).end.y + 18
+	return Rect2(s.position.x + 24, top, s.size.x - 48, s.end.y - 22 - top)
 
 
 ## Zeilen der aktuellen Chronik-Ansicht: [{kind, h, data, …}] mit kind run,
@@ -979,8 +1053,9 @@ func _chronicle_content_height() -> float:
 	return total
 
 
+## Row pitch of the trophy list (row plus 12 px gap).
 func _trophy_row_height() -> float:
-	return 124.0
+	return 150.0
 
 
 func _trophy_scroll_max() -> float:
@@ -988,8 +1063,10 @@ func _trophy_scroll_max() -> float:
 		return 0.0
 	if tab == "chronicle":
 		return maxf(0.0, _chronicle_content_height() - chronicle_list_rect().size.y)
-	var view := sheet_rect().end.y - 20 - _sheet_body_top()
-	return maxf(0.0, meta.QUESTS.size() * _trophy_row_height() - view)
+	if tab == "upgrades":
+		var rows: int = meta.UPGRADE_ORDER.size()
+		return maxf(0.0, rows * (UPGRADE_ROW_H + UPGRADE_ROW_GAP) - UPGRADE_ROW_GAP - upgrade_list_rect().size.y)
+	return maxf(0.0, meta.QUESTS.size() * _trophy_row_height() - 12.0 - trophy_list_rect().size.y)
 
 # ---------------------------------------------------------------- drawing
 

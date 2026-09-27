@@ -97,6 +97,29 @@ func _run() -> void:
 	var hud_slots: String = hud._slot_text()
 	_check(hud_slots == "Angriff 1/1 · Anlagen 1/1", "HUD shows slot usage")
 
+	# Stage 15: in the brawl skin taps hit the cards mutation_screen draws
+	# (touch_controls asks it for card/banish rects).
+	var ms: Variant = hud.get_node_or_null("mutation_screen")
+	var brawl: bool = load("res://scripts/ui/ui_style.gd").is_brawl()
+	_check(ms != null or not brawl, "Brawl skin has the mutation_screen component")
+	if ms != null and brawl:
+		world.reset_run()
+		evo = world.evolution
+		evo.rng.seed = 11
+		world._award_dna(20)
+		_check(world.choosing() and evo.offers.size() >= 2, "Brawl tap test has two offers")
+		if evo.offers.size() >= 2:
+			var target: String = evo.offers[1][0]
+			hud._press(-2, ms.banish_rect(1).get_center())
+			hud._release(-2)
+			_check(evo.banished.has(target), "Brawl: tap on banish_rect banishes the card")
+			if world.choosing() and evo.offers.size() >= 2:
+				var pick: String = evo.offers[1][0]
+				var rank_before: int = evo.rank(pick)
+				hud._press(-2, ms.card_rect(1).get_center())
+				hud._release(-2)
+				_check(evo.rank(pick) == rank_before + 1, "Brawl: tap on card_rect(1) chooses card 1")
+
 	# Alpha-Kern: stays on the ground, then evolves on touch.
 	world.reset_run()
 	evo = world.evolution
@@ -154,8 +177,9 @@ func _run() -> void:
 		if not world.hunters.has(hunter):
 			break
 	_check(world.hunters.is_empty() and world.model.kills_by_type.hunter == 1, "Ranged damage kills the hunter")
-	_check(evo.dna == 20 and world.model.corpses.size() == 1 and world.model.kills == 1, "Ranged kill gives DNA and biomass once")
-	_check(world.model.corpses[0].initial == TUNING.HUNTER_BIOMASS * evo.biomass_multiplier(), "Ranged kill leaves full biomass")
+	_check(is_equal_approx(world.loot.total(0), TUNING.HUNTER_BIOMASS * evo.biomass_multiplier()), "Ranged kill leaves full biomass as crystals")
+	world.collect_loot_now()
+	_check(evo.dna == 20 and world.loot.count() == 0 and world.model.kills == 1, "Ranged kill gives DNA and biomass once")
 	_check(not world._resolve_death(hunter, "hunter") and evo.dna == 20, "Dead hunter never rewards twice")
 
 	# Extinction hands RunStats to the Session and shows both result buttons.
@@ -180,7 +204,32 @@ func _run() -> void:
 	hud._press(-2, hud._hub_rect().get_center())
 	_check(hub_calls[0] == 1, "BRUTSTÄTTE button requests the hub")
 	_check(not hud._hub_rect().intersects(hud._action_rect()), "Result buttons do not overlap")
+	# Stage 15: brawl result/pause buttons are touch-sized and separate; the
+	# pause panel restarts the run (hud_overlays draws on these rects).
+	if brawl:
+		var result_rects: Array = [hud._action_rect(), hud._hub_rect(), hud._share_rect()]
+		for i in result_rects.size():
+			_check(result_rects[i].size.x >= 96.0 and result_rects[i].size.y >= 96.0, "Result button %d is at least TOUCH_MIN" % i)
+			for j in range(i + 1, result_rects.size()):
+				_check(not result_rects[i].intersects(result_rects[j]), "Result buttons %d/%d do not overlap" % [i, j])
+		_check(hud._restart_rect().size == Vector2.ZERO, "No pause restart button on the result screen")
+		_check(hud._pause_rect().size.x >= 96.0 and hud._pause_rect().size.y >= 96.0, "Pause button is at least TOUCH_MIN")
 	SESSION.last_result = {}
+	if brawl:
+		world.reset_run()
+		world.toggle_pause()
+		world.step(0.01)
+		var pause_rects: Array = [hud._action_rect(), hud._restart_rect(), hud._hub_rect()]
+		for i in pause_rects.size():
+			_check(pause_rects[i].size.y >= 96.0, "Pause button %d is at least TOUCH_MIN" % i)
+			for j in range(i + 1, pause_rects.size()):
+				_check(not pause_rects[i].intersects(pause_rects[j]), "Pause buttons %d/%d do not overlap" % [i, j])
+		var restarts := [0]
+		if hud.restart_requested.is_connected(scene._restart):
+			hud.restart_requested.disconnect(scene._restart)
+		hud.restart_requested.connect(func(): restarts[0] += 1)
+		hud._press(-2, hud._restart_rect().get_center())
+		_check(restarts[0] == 1, "Pause NEUSTART requests a restart")
 
 	if not failures.is_empty():
 		for failure in failures:

@@ -217,7 +217,7 @@ func _check_kill() -> void:
 	var apex: Variant = _ready_apex(Vector3(0, 0, -4.0))
 	var bosses_before: int = world.model.bosses
 	var pickups_before: int = world.alpha_pickups.size()
-	var corpses_before: int = world.model.corpses.size()
+	var remains_before: int = world.remains.size()
 	# Phase 2 already reached (at 50 % it roars and is immune first).
 	apex.phase = 2
 	apex.health = 0.5
@@ -227,7 +227,8 @@ func _check_kill() -> void:
 	for id in world.corpse_kinds:
 		if world.corpse_kinds[id] == "apex":
 			apex_corpses += 1
-	_check(apex_corpses == 1 and world.model.corpses.size() >= corpses_before + 1, "Exactly one apex corpse (%d)" % apex_corpses)
+	_check(apex_corpses == 1 and world.remains.size() >= remains_before + 1, "Exactly one apex corpse (%d)" % apex_corpses)
+	_check(world.loot.lures.size() >= 1, "The apex drops a Lockruf")
 	_check(int(world.model.kills_by_type.get("apex", 0)) == 1 and world.model.bosses == bosses_before, "Counted as apex kill, not as Bog King")
 	_check(world.alpha_pickups.size() == pickups_before + TUNING.APEX_ALPHA_CORES, "Apex drops %d Alpha-Kerne" % TUNING.APEX_ALPHA_CORES)
 	_check(world.apex_victories == 1 and main.king_zoom_left > 0.0, "Königsmoment (victory banner + zoom)")
@@ -241,7 +242,7 @@ func _check_kill() -> void:
 	_check(world.portal == null and world.apex_dying != null, "Body sinks first, the maw opens after the delay")
 	_steps(TUNING.APEX_PORTAL_DELAY + 0.1)
 	_check(world.portal != null and _maws() == 1, "Exactly one migration maw")
-	var corpse_position: Vector3 = world._corpse_position(world.corpse_kinds.keys()[0]) if not world.corpse_kinds.is_empty() else Vector3.ZERO
+	var corpse_position: Vector3 = world.remains_position(world.corpse_kinds.keys()[0]) if not world.corpse_kinds.is_empty() else Vector3.ZERO
 	if world.portal != null:
 		_check(world.portal.position.distance_to(corpse_position) >= TUNING.MIGRATION_RADIUS + 1.0, "Maw lies clear of the apex corpse (eating never migrates)")
 	var again: Variant = world.open_portal(Vector3(30, 0, 30))

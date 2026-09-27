@@ -189,17 +189,19 @@ func _run() -> void:
 	_check(world.model.population == 240 - scaled, "Bites scale to the logical population (lost %d, expected %d)" % [240 - world.model.population, scaled])
 	_check(world.hit_feedback > 0.0, "A flood bite gives hit feedback")
 
-	# Horde kills: bundled into one persistent corpse + DNA + popup, counted per kill.
+	# Horde kills: bundled per cell into persistent crystals (Etappe 16), counted per kill.
 	var kills_before: int = world.model.kills
-	var corpses_before: int = world.model.corpses.size()
+	var bio_before: float = world.loot.total(0)
+	var dna_before: float = world.loot.total(1)
 	fake.kills_next = [{"position": swarm.position + Vector3(4.0, 0, 1.0), "biomass": 3.0, "dna": 2, "count": 3},
 		{"position": swarm.position + Vector3(4.5, 0, 1.2), "biomass": 1.0, "dna": 1, "count": 1}]
 	world.step(0.05)
 	world.flush_flood_bundles()
 	_check(world.horde_kills == 4 and int(world.model.kills_by_type.get("horde", 0)) == 4, "Four horde kills counted (%d)" % world.horde_kills)
 	_check(world.model.kills - kills_before == 4, "Kills grow by four (got %d)" % (world.model.kills - kills_before))
-	_check(world.model.corpses.size() == corpses_before + 1, "Close kills become one corpse (%d new)" % (world.model.corpses.size() - corpses_before))
-	_check(absf(world.model.corpses[-1].initial - 4.0 * world.evolution.biomass_multiplier()) < 0.01, "Corpse holds the bundled biomass (%.2f)" % world.model.corpses[-1].initial)
+	_check(absf(world.loot.total(0) + world.model.consumed_biomass - bio_before - 4.0 * world.evolution.biomass_multiplier()) < 0.01, "Crystals hold the bundled biomass (%.2f)" % (world.loot.total(0) - bio_before))
+	_check(int(round(world.loot.total(1) - dna_before)) == 3 or world.evolution.dna > 0, "Crystals hold the bundled DNA")
+	_check(world.corpse_kinds.values().has("horde"), "Horde remains lie there as decoration")
 
 	# Pause freezes the flood (no horde step, no clock).
 	var steps_before: int = fake.steps

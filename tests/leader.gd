@@ -160,17 +160,16 @@ func _run() -> void:
 	_steps(1.0)
 	_check(nibbler.position.distance_to(swarm.position) < 5.0, "Nibblers walk towards the swarm (%.1f m)" % nibbler.position.distance_to(swarm.position))
 
-	# ---- Rückeroberung: fallen Mawlings leave bundled biomass.
+	# ---- Rückeroberung: fallen Mawlings leave bundled biomass crystals (Etappe 16).
 	_fresh(11)
 	_place(11, swarm.position + Vector3(0, 0, 6))
 	swarm.units[0].position = Vector3(0, 0, -10)
 	world.unit_points_valid = false
 	_ring_hunter(10, swarm.position + Vector3(0, 0, 6))
 	world.step(0.02)
-	_check(world.model.population == 1 and world.model.corpses.size() == 1, "Ten fallen Mawlings leave one corpse (%d)" % world.model.corpses.size())
-	var fallen_id: int = world.model.corpses[0].id if not world.model.corpses.is_empty() else -1
-	_check(is_equal_approx(world.model.remaining_biomass(fallen_id), 10.0 * TUNING.FALLEN_BIOMASS), "It holds %.1f biomass per fallen Mawling" % TUNING.FALLEN_BIOMASS)
-	_check(world.corpse_kinds.get(fallen_id, "") == "mawling" and world.model.kills == 0, "Fallen corpse is kind 'mawling' and no kill")
+	_check(world.model.population == 1 and world.loot.count() == 1, "Ten fallen Mawlings leave one crystal (%d)" % world.loot.count())
+	_check(is_equal_approx(world.loot.total(0), 10.0 * TUNING.FALLEN_BIOMASS), "It holds %.1f biomass per fallen Mawling" % TUNING.FALLEN_BIOMASS)
+	_check(world.model.kills == 0, "Fallen Mawlings are no kill")
 	world.model.population = 4
 	swarm.set_population(4, false)
 	_place(4, swarm.position + Vector3(0.5, 0, 6))
@@ -178,15 +177,16 @@ func _run() -> void:
 	world.unit_points_valid = false
 	_ring_hunter(3, swarm.position + Vector3(0.5, 0, 6))
 	world.step(0.02)
-	_check(world.model.corpses.size() == 1 and is_equal_approx(world.model.remaining_biomass(fallen_id), 13.0 * TUNING.FALLEN_BIOMASS), "Later losses nearby join the same corpse")
+	_check(is_equal_approx(world.loot.total(0), 13.0 * TUNING.FALLEN_BIOMASS), "Later losses add their biomass (%.1f)" % world.loot.total(0))
 
 	# ---- Milestones and +1 LP per 25.
 	var cost: float = RUN_MODEL.BIOMASS_PER_MAWLING
 	_fresh(24)
 	world.model.leader_hp = 1
-	world._create_corpse(swarm.position, cost)
+	world.drop_loot(swarm.position, cost)
 	world.step(1.0)
-	_check(world.model.population == 25, "Harvest grows to 25 (got %d)" % world.model.population)
+	world.collect_loot_now()
+	_check(world.model.population == 25, "Collected biomass grows to 25 (got %d)" % world.model.population)
 	_check(world.model.leader_hp == 2, "Reaching 25 heals the leader by 1 LP (hp %d)" % world.model.leader_hp)
 	_check(world.milestone_value == 25 and _hud("milestone") == 25, "Milestone 25 is announced")
 	_steps(world.MILESTONE_SHOW_SECONDS + 0.1)
@@ -195,16 +195,15 @@ func _run() -> void:
 	world.model.apply_hit(3, false)
 	swarm.set_population(world.model.population, false)
 	world.model.leader_hp = 1
-	world._create_corpse(swarm.position, cost * 3.0)
+	world.drop_loot(swarm.position, cost * 3.0)
 	world.step(3.0)
+	world.collect_loot_now()
 	_check(world.model.population == 25 and world.model.leader_hp == 1 and world.milestone_value == 0, "Reaching 25 again neither heals nor announces (hp %d, milestone %d)" % [world.model.leader_hp, world.milestone_value])
 	model = RUN_MODEL.new()
-	var id: int = model.add_corpse(Vector3.ZERO, 100.0)
-	model.harvest(id, cost * 4.0 + 0.01)
+	model.absorb(cost * 4.0 + 0.01)
 	_check(model.population == 5 and model.take_milestone() == 5 and model.take_milestone() == 0, "Milestone 5 once, then consumed (pop %d)" % model.population)
 	model.leader_hp = 1
-	var huge: int = model.add_corpse(Vector3.ZERO, 1000.0)
-	model.harvest(huge, cost * 45.0 + 0.01)
+	model.absorb(cost * 45.0 + 0.01)
 	_check(model.population == 50 and model.leader_hp == 3, "25 and 50 each heal one LP up to the max (hp %d)" % model.leader_hp)
 
 	# ---- First hunter waits for 4 Mawlings or 50 s.

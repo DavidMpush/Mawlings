@@ -41,12 +41,14 @@ const LOW_HP_MARGIN := 0.8
 const SMALL_SWARM := 16
 # Stage 09: reaction time and overlook chance x this while the leader has 1 LP.
 const LOW_HP_FOCUS := 0.5
-# Stage 10: the bot eats corpses within this distance before it walks into the
+# Stage 10: the bot collects crystals within this distance before it walks into the
 # Migrationsschlund; apex dodge keeps this margin (m) around the leader.
 const PORTAL_CORPSE_REACH := 6.0
 const APEX_MARGIN := 1.4
-# ... and eats corpses closer than this before it engages the Moosschlund.
+# ... and collects crystals closer than this before it engages the Moosschlund.
 const APEX_CORPSE_REACH := 8.0
+# Etappe 16: crystals farther than this are not worth a detour.
+const LOOT_REACH := 30.0
 var low_hp := false
 
 # Quick regression (~40 s): three seeded runs with wide tolerances. They catch a
@@ -56,7 +58,10 @@ var low_hp := false
 # Runs are near-deterministic; tiny drift between processes stays inside the tolerances.
 # Stage 10 part 2: Apex runs often end in the first flood seconds (leapers/hunters in
 # the crowd), so the flood only has to take >= 5 Mawlings in the median (was 10).
-const REGRESS_SEEDS := 3
+# Etappe 16: median of five seeds (was three) - the added Lockduft trait reshuffled the
+# seeded mutation offers, and seeds 1 and 2 now start glutmaw/Apex with weak early
+# picks; with three seeds two such starts decided the median (runtime ~105 s).
+const REGRESS_SEEDS := 5
 const REGRESS_RUNS := [
 	{"strain": "glutmaw", "diff": 0, "seed": 1, "strategy": "greedy", "limit": 150.0,
 		"min_seconds": 120.0, "min_peak": 20, "min_kills": 15, "min_lost": 10, "min_pop120": 15, "max_pop120": 80},
@@ -340,6 +345,10 @@ func _pick(evolution: Variant, strategy: String) -> int:
 		var id: String = offers[slot][0]
 		var kind: String = evolution.kind_of(id)
 		var score := float(evolution.rank(id)) + rng.randf() * 0.1
+		# Etappe 16: like a player, the bot takes the pure pickup trait (Lockduft)
+		# only when nothing else is on offer or it already owns it.
+		if id == "lockduft" and evolution.rank(id) == 0:
+			score -= 0.5
 		if strategy == "attack_first" and kind in ["attack", "evolved"]:
 			score += 10.0
 		elif strategy.begins_with("form:"):
@@ -355,8 +364,8 @@ func _pick(evolution: Variant, strategy: String) -> int:
 
 # --------------------------------------------------------------- bot
 
-# Same priorities as a careful player: never stand in an announced zone, eat
-# corpses, hunt prey, grab Alpha-Kerne, Rally when biting or harvesting.
+# Same priorities as a careful player: never stand in an announced zone, collect
+# crystals, hunt prey, grab Alpha-Kerne and Lockrufe, Rally when biting.
 func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	var here: Vector3 = swarm.position
 	_forget(world)
@@ -370,13 +379,23 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	var target := here
 	var best := INF
 	var harvesting := false
-	if world.model.population < 250:
-		for corpse in world.model.corpses:
-			var distance: float = corpse.position.distance_to(here)
+	# Etappe 16: walk towards the nearest lying crystal (biomass only while the
+	# swarm has room) until it is inside the magnet; Lockrufe like Alpha-Kerne.
+	var loot: Variant = world.get("loot")
+	if loot != null:
+		var crystal: Vector3 = loot.nearest_lying(here, LOOT_REACH, -1 if world.model.population < 250 else 1)
+		if crystal.is_finite():
+			var distance: float = Vector2(crystal.x - here.x, crystal.z - here.z).length()
 			if distance < best:
 				best = distance
-				target = corpse.position
+				target = crystal
 				harvesting = true
+		for lure in loot.lures:
+			var distance: float = Vector2(lure.at.x - here.x, lure.at.z - here.z).length()
+			if distance < minf(best, 20.0):
+				best = distance
+				target = lure.at
+				harvesting = false
 	for pickup in world.alpha_pickups:
 		var distance: float = pickup.position.distance_to(here)
 		if distance < minf(best, 14.0):
@@ -384,7 +403,7 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 			target = pickup.position
 			harvesting = false
 	# Brutnest (stage 06): walk into it when no enemy is announcing an attack and
-	# no corpse lies close by; stay until it hatches.
+	# no crystal lies close by; stay until it hatches.
 	var nest: Variant = world.get("nest")
 	if nest != null and (best == INF or best > 6.0) and not _any_armed(world) and world.get("apex") == null:
 		var inside: float = Vector2(nest.position.x - here.x, nest.position.z - here.z).length()
@@ -415,10 +434,12 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 			enemy_near = minf(enemy_near, enemy.position.distance_to(here) - _body(world, enemy))
 	var direction: Vector3 = target - here
 	direction.y = 0.0
-	if harvesting and direction.length() < 1.0:
+	if harvesting and direction.length() < world.magnet_radius() * 0.5:
 		direction = Vector3.ZERO
 	var leap: bool = world.evolution.rank("rudelbiss") > 0 or world.evolution.rank("meute") > 0
-	var rally: bool = (harvesting and best < 1.05) or enemy_near < 1.1 or (leap and enemy_near < 4.0)
+	# Etappe 16: no Rally just to collect - a compact swarm without Fluchtreflex
+	# lost clearly more to the next ring (tested); the magnet reaches far enough.
+	var rally: bool = enemy_near < 1.1 or (leap and enemy_near < 4.0)
 	if brood.away != Vector3.ZERO:
 		# Mostly away from the brood, a little towards the goal.
 		direction = brood.away * 0.75 + direction.normalized() * 0.25 if direction.length() > 0.01 else brood.away

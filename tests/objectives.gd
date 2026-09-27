@@ -1,7 +1,7 @@
 extends SceneTree
 
 # Stage 06 ZIELE: Brutnest fills by share and keeps progress, hatches exactly once
-# into persistent corpse biomass + DNA; Fluch-Totem hold, boss curse and doubled
+# into persistent loot crystals (biomass + DNA); Fluch-Totem hold, boss curse and doubled
 # rewards; elite hunter with guaranteed Alpha-Kern; pause, reset, seed determinism.
 const TUNING = preload("res://scripts/tuning.gd")
 var failures: Array[String] = []
@@ -74,32 +74,27 @@ func _run() -> void:
 	_check(is_equal_approx(nest.progress, before) and is_equal_approx(nest.get("_time"), paused_time), "Pause freezes nest progress and animation")
 	world.paused = false
 	var kills: int = world.model.kills
-	var corpses: int = world.model.corpses.size()
+	var crystals: int = world.loot.count()
 	var dna_before: int = world.evolution.dna
 	var nest_at: Vector3 = nest.position
 	nest.progress = 0.9999
 	world.step(0.05)
 	_check(world.nest == null and world.nests_completed == 1, "Full nest hatches and disappears")
-	_check(world.model.corpses.size() == corpses + TUNING.NEST_CLUTCH, "Hatching leaves %d corpses" % TUNING.NEST_CLUTCH)
-	var clutch := 0.0
-	var clutch_ids: Array[int] = []
-	for corpse in world.model.corpses:
-		if Vector2(corpse.position.x - nest_at.x, corpse.position.z - nest_at.z).length() < 1.0:
-			clutch += corpse.initial
-			clutch_ids.append(corpse.id)
+	_check(world.loot.count() > crystals and world.loot.count() - crystals <= TUNING.LOOT_MAX_PER_KILL, "Hatching bursts into %d crystals" % (world.loot.count() - crystals))
 	var expected: float = TUNING.NEST_BIOMASS * world.evolution.biomass_multiplier()
-	_check(absf(clutch - expected) < 0.01, "Clutch biomass %.1f = %.1f" % [clutch, expected])
+	_check(absf(world.loot.total(0) - expected) < 0.01, "Clutch biomass %.1f = %.1f" % [world.loot.total(0), expected])
 	_check(world.model.kills == kills, "A hatched nest does not count as a kill")
-	_check(world.evolution.dna - dna_before == TUNING.NEST_DNA or world.choosing(), "Nest grants %d DNA" % TUNING.NEST_DNA)
+	_check(int(round(world.loot.total(1))) == TUNING.NEST_DNA, "Nest drops %d DNA" % TUNING.NEST_DNA)
 	_check(is_equal_approx(world.nest_clock, TUNING.NEST_RESPAWN_SECONDS), "Next nest is scheduled")
 	world.evolution.offers.clear()
 	swarm.position = Vector3(-40, 0, 0)
-	var remaining_before := _remaining(clutch_ids)
+	var remaining_before: float = world.loot.total(0)
 	_steps(5.0)
-	_check(absf(_remaining(clutch_ids) - remaining_before) < 0.001 and world.nests_completed == 1, "Clutch biomass stays on the ground and is paid once")
+	_check(absf(world.loot.total(0) - remaining_before) < 0.001 and world.nests_completed == 1, "Clutch biomass stays on the ground and is paid once")
 	swarm.position = nest_at
-	_steps(1.0)
-	_check(_remaining(clutch_ids) < remaining_before, "Clutch is eaten like any corpse")
+	_steps(2.0)
+	world.evolution.offers.clear()
+	_check(world.loot.total(0) < remaining_before and (world.evolution.dna - dna_before >= TUNING.NEST_DNA or world.evolution.level > 0), "Clutch crystals are collected like any other")
 	_check(int(world.run_stats().get("nests", -1)) == 1, "RunStats count nests")
 
 	# ---- Fluch-Totem: hold to accept, leaving drains.
@@ -120,10 +115,12 @@ func _run() -> void:
 	prey.position = Vector3(25, 0, 0)
 	world.add_child(prey)
 	world.prey.append(prey)
+	var bio_before: float = world.loot.total(0)
+	var dna_lying: float = world.loot.total(1)
 	world._kill_prey(prey)
 	world.evolution.offers.clear()
-	_check(is_equal_approx(world.model.corpses[-1].initial, TUNING.CORPSE_BIOMASS * world.evolution.biomass_multiplier() * 2.0), "Prey biomass doubled under the curse")
-	_check(int(world.kill_popups[-1].dna) == 20, "Prey DNA doubled under the curse")
+	_check(is_equal_approx(world.loot.total(0) - bio_before, TUNING.CORPSE_BIOMASS * world.evolution.biomass_multiplier() * 2.0), "Prey biomass doubled under the curse")
+	_check(int(round(world.loot.total(1) - dna_lying)) == 20, "Prey DNA doubled under the curse")
 	# Cursed boss: +50 % health and damage.
 	world.model.population = 120
 	swarm.set_population(120, false)
@@ -138,9 +135,10 @@ func _run() -> void:
 	_check(world.last_loss == 15, "Cursed boss hits +50 percent (loss %d)" % world.last_loss)
 	boss.resolved_power = 0
 	boss.health = 0.0
+	bio_before = world.loot.total(0)
 	world._resolve_death(boss, "boss")
 	world.evolution.offers.clear()
-	_check(is_equal_approx(world.model.corpses[-1].initial, TUNING.BOSS_BIOMASS * world.evolution.biomass_multiplier() * 2.0), "Cursed boss corpse is still doubled")
+	_check(is_equal_approx(world.loot.total(0) - bio_before, TUNING.BOSS_BIOMASS * world.evolution.biomass_multiplier() * 2.0), "Cursed boss crystals are still doubled")
 	_check(world.curse_state == 0 and is_equal_approx(world.reward_multiplier(), 1.0), "Curse ends with the boss")
 	# An ignored totem crumbles when the boss arrives; that boss stays normal.
 	world.spawn_totem(Vector3(15, 0, 0))
@@ -169,11 +167,13 @@ func _run() -> void:
 		_check(is_equal_approx(elite.max_health, TUNING.HUNTER_HEALTH * sqrt(world.model.pressure()) * world.enemy_hp * TUNING.ELITE_HEALTH_MULTIPLIER), "Elite has x4 health")
 		_check(elite.scale.x > 1.3 and elite.crown != null, "Elite is larger and crowned")
 		var cores: int = world.alpha_pickups.size()
+		var elite_dna: float = world.loot.total(1)
 		elite.health = 0.0
 		world._resolve_death(elite, "hunter")
 		world.evolution.offers.clear()
 		_check(world.alpha_pickups.size() == cores + 1, "Elite always drops an Alpha-Kern")
-		_check(int(world.kill_popups[-1].dna) == TUNING.ELITE_DNA, "Elite grants %d DNA" % TUNING.ELITE_DNA)
+		_check(int(round(world.loot.total(1) - elite_dna)) == TUNING.ELITE_DNA, "Elite drops %d DNA" % TUNING.ELITE_DNA)
+		_check(world.loot.lures.size() >= 1, "Elite always drops a Lockruf")
 
 	# ---- Pause freezes timers; reset clears everything.
 	world.reset_run()
@@ -233,13 +233,6 @@ func _quiet() -> void:
 func _steps(seconds: float) -> void:
 	for index in int(round(seconds / 0.05)):
 		world.step(0.05)
-
-
-func _remaining(ids: Array[int]) -> float:
-	var total := 0.0
-	for id in ids:
-		total += world.model.remaining_biomass(id)
-	return total
 
 
 func _check(condition: bool, message: String) -> void:

@@ -1,6 +1,8 @@
 extends Node
-## Teilen-Karte (Etappe 10): rendert aus RunStats ein 1080 x 1920-Bild (9:16,
-## Story-Format) im Markenstil und speichert es als PNG.
+## Teilen-Karte (Etappe 10, Stil Etappe 15 „brawl“): rendert aus RunStats ein
+## 1080 x 1920-Bild (9:16, Story-Format) mit den Kit-Bausteinen und speichert es
+## als PNG. Gezeichnet wird im 900 x 1600-Raster des Spiels (gleiche Typo-Stufen)
+## und auf 1080 x 1920 skaliert.
 ##
 ##   var card := ShareCard.new()
 ##   add_child(card)                      # braucht den SceneTree zum Rendern
@@ -11,17 +13,19 @@ extends Node
 ## freigegeben. Ohne Grafik (--headless) gibt es keine Pixel: dann entsteht ein
 ## schlichtes Ersatzbild per CPU, damit Speicherpfad und Ablauf testbar bleiben.
 ##
-## Sichere Zone: oben ~260 px und unten ~300 px verdecken TikTok/Instagram-Story
-## ihre Bedienelemente – dort liegen nur Kiefer-Deko und das Maul-Motiv; alles
-## Wichtige (Zeit, Schwarm, Build, Code) steht dazwischen.
+## Sichere Zone: oben ~260 px und unten ~300 px (1920er-Raster) verdecken
+## TikTok/Instagram-Story ihre Bedienelemente – dort liegen nur Hintergrund und
+## das Markenzeichen; Logo, Stamm, Zeit, Werte, Build und Code stehen dazwischen.
 
 const S := preload("res://scripts/ui/ui_style.gd")
 const UiIcons := preload("res://scripts/ui/ui_icons.gd")
 const UiArt := preload("res://scripts/ui/ui_art.gd")
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const CHRONICLE_PATH := "res://scripts/meta/chronicle.gd"
 const META_DATA_PATH := "res://scripts/meta/meta_data.gd"
 
 const SIZE := Vector2i(1080, 1920)
+const BASE := Vector2(900, 1600)
 const DEFAULT_DIR := "user://shares/"
 ## Ältere Karten im Ordner werden über diese Zahl hinaus gelöscht.
 const KEEP_FILES := 20
@@ -87,7 +91,7 @@ static func card_data(stats: Dictionary) -> Dictionary:
 		date = String(stats.get("date", ""))
 	return {
 		"strain_id": strain_id, "strain_name": String(strain.get("name", strain_id if strain_id != "" else "Mawlings")),
-		"tint": Color(String(strain.get("tint", "#d9401f"))),
+		"tint": Color(String(strain.get("tint", ""))) if strain.has("tint") else S.brawl_tone("ember")["face"],
 		"difficulty": diff, "difficulty_name": diff_name,
 		"seconds": maxf(0.0, float(stats.get("seconds", 0.0))),
 		"peak": int(stats.get("peak_population", stats.get("peak", 0))),
@@ -116,9 +120,15 @@ func _render_viewport(data: Dictionary) -> Image:
 	viewport.gui_disable_input = true
 	viewport.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
 	viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	# The painter lays out on the 900 x 1600 base grid of the kit (same type
+	# scale as the game) and is scaled up to 1080 x 1920; text is rasterised
+	# at the final size.
+	var k := float(SIZE.x) / BASE.x
+	viewport.oversampling_override = k
 	var painter := Painter.new()
 	painter.data = data
-	painter.size = Vector2(SIZE)
+	painter.size = BASE
+	painter.scale = Vector2(k, k)
 	viewport.add_child(painter)
 	add_child(viewport)
 	await RenderingServer.frame_post_draw
@@ -127,16 +137,15 @@ func _render_viewport(data: Dictionary) -> Image:
 	return image
 
 
-## CPU-Ersatzbild für Läufe ohne Grafik: Markenfarben, Stammfarbe, Balken.
+## CPU-Ersatzbild für Läufe ohne Grafik: Panel-Farben, Stammfarbe, Balken.
 static func _fallback_image(data: Dictionary) -> Image:
 	var image := Image.create(SIZE.x, SIZE.y, false, Image.FORMAT_RGB8)
-	var top := Color("0a1c17")
-	var low := Color("081611")
 	for y in range(0, SIZE.y, 16):
-		image.fill_rect(Rect2i(0, y, SIZE.x, 16), top.lerp(Color("123326"), sin(float(y) / SIZE.y * PI)).lerp(low, float(y) / SIZE.y * 0.3))
-	var tint: Color = data.get("tint", S.EMBER)
-	image.fill_rect(Rect2i(140, 820, 800, 140), tint.darkened(0.2))
-	image.fill_rect(Rect2i(140, 1480, 800, 120), Color("0c1d17"))
+		image.fill_rect(Rect2i(0, y, SIZE.x, 16), S.BRAWL_PANEL_TOP.lerp(S.BRAWL_PANEL_BOTTOM, float(y) / SIZE.y))
+	var tint: Color = data.get("tint", S.brawl_tone("ember")["face"])
+	image.fill_rect(Rect2i(156, 432, 768, 480), tint)
+	image.fill_rect(Rect2i(156, 948, 768, 180), S.brawl_tone("loot")["face"])
+	image.fill_rect(Rect2i(156, 1486, 768, 132), S.BRAWL_WELL)
 	return image
 
 
@@ -155,39 +164,46 @@ func _prune(out_dir: String) -> void:
 
 # ====================================================================== painter
 
-class Painter extends "res://scripts/ui/menu/menu_canvas.gd":
+## Stage 15 (brawl kit): painted menu background, logo, strain card with the
+## tribe portrait, survival time, three stat tiles, build plates and the map
+## code. Safe zone: story UIs cover ~217 px at the top and ~250 px at the
+## bottom of the 1600 base; everything important sits between 190 and 1350.
+class Painter extends Control:
+	const TOP := 190.0
+	const LEFT := 130.0
+	const W := 640.0
+	const ROMAN := ["I", "II", "III", "IV", "V"]
+
 	var data: Dictionary = {}
+	static var _soft: Texture2D = null
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_ensure_font()
 
 	func _draw() -> void:
-		var w := size.x
-		var tint: Color = data.get("tint", S.EMBER)
-		# Readable accent: very dark strains (Nachtmaul) get lifted for text and glows.
-		var accent := tint if tint.get_luminance() > 0.25 else tint.lightened(0.45)
+		var tint: Color = data.get("tint", S.brawl_tone("ember")["face"])
 		_background(tint)
-		_maw_frame()
-		_logo(Vector2(w * 0.5, 356))
-		_strain_banner(Vector2(w * 0.5, 540), accent)
-		_hero_time(Vector2(w * 0.5, 900), accent)
-		_swarm_line(Vector2(w * 0.5, 1030), accent)
-		_tiles(1086)
-		_build_row(1290)
-		_code_panel(Rect2(90, 1466, w - 180, 176), accent)
-		_maw_motif(Vector2(w * 0.5, 1770), accent)
+		_logo(Vector2(size.x * 0.5, TOP))
+		_strain_card(Rect2(LEFT, 356, W, 410), tint)
+		_hero(Rect2(LEFT, 790, W, 150))
+		_tiles(Rect2(LEFT, 960, W, 130))
+		_build(Rect2(LEFT, 1110, W, 120))
+		_code(Rect2(LEFT, 1250, W, 104))
+		_maw_mark(Vector2(size.x * 0.5, 1476))
 
-	# ------------------------------------------------------------ background
+	# ------------------------------------------------------------ helpers
 
-	func _grad(rect: Rect2, top: Color, bottom: Color) -> void:
-		draw_polygon(PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]),
-			PackedColorArray([top, top, bottom, bottom]))
+	func _txt(pos: Vector2, value: String, font_size: int, color: Color = Color.WHITE, align: int = Kit.LEFT, max_w: float = 0.0, font: Font = null) -> float:
+		return Kit.text_outlined(self, pos, value, font_size, color, -1, -1, font, align, max_w)
 
-	static var _soft: Texture2D = null
+	func _icon(id: String, center: Vector2, side: float) -> bool:
+		if not UiIcons.has(id):
+			return false
+		UiIcons.draw(self, id, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)))
+		return true
 
-	## Smooth radial glow (one textured quad, no visible rings).
-	func _glow(c: Vector2, r: float, color: Color, _rings: int = 0) -> void:
+	## Smooth radial glow (one textured quad).
+	func _glow(c: Vector2, r: Vector2, color: Color) -> void:
 		if _soft == null:
 			var g := Gradient.new()
 			g.set_color(0, Color(1, 1, 1, 1))
@@ -201,217 +217,81 @@ class Painter extends "res://scripts/ui/menu/menu_canvas.gd":
 			tex.width = 256
 			tex.height = 256
 			_soft = tex
-		draw_texture_rect(_soft, Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0), false, color)
+		draw_texture_rect(_soft, Rect2(c - r, r * 2.0), false, color)
+
+	## Strain tint as a kit tone: very light or very dark tints keep a visible frame.
+	func _strain_tone(tint: Color) -> Variant:
+		if tint.get_luminance() < 0.12:
+			return "special"
+		if tint.s < 0.2 and tint.v > 0.8:
+			return tint.darkened(0.35)
+		return tint
+
+	# ------------------------------------------------------------ background
 
 	func _background(tint: Color) -> void:
-		var w := size.x
-		var h := size.y
-		_grad(Rect2(0, 0, w, h * 0.45), Color("07150f"), Color("123326"))
-		_grad(Rect2(0, h * 0.45, w, h * 0.55), Color("123326"), Color("06120d"))
-		# Strain-coloured heat behind the time, soft cyan mist low.
-		_glow(Vector2(w * 0.5, 860), 820, Color(tint, 0.5))
-		_glow(Vector2(w * 0.5, 1560), 560, Color(S.CYAN, 0.12))
-		# Light rays from the top centre.
-		var ray_origin := Vector2(w * 0.5, 120)
-		for i in 7:
-			var a := (i - 3) * 0.22
-			var far_l := ray_origin + Vector2(sin(a - 0.05), cos(a - 0.05)) * 1500.0
-			var far_r := ray_origin + Vector2(sin(a + 0.05), cos(a + 0.05)) * 1500.0
-			draw_colored_polygon(PackedVector2Array([ray_origin, far_l, far_r]), Color(S.GOLD, 0.025))
-		# Jungle leaves along both edges.
-		var rng := RandomNumberGenerator.new()
-		rng.seed = 90210
-		for i in 30:
-			var left := i % 2 == 0
-			var y := rng.randf_range(120, h - 120)
-			var x := rng.randf_range(-80, 60) if left else rng.randf_range(w - 60, w + 80)
-			var angle := rng.randf_range(-0.9, 0.9) + (0.0 if left else PI)
-			var shade := rng.randf()
-			_leaf(Vector2(x, y), rng.randf_range(140, 280), rng.randf_range(30, 62), angle, Color("0d2a1e").lerp(Color("1e4d31"), shade))
-		for i in 46:
-			var p := Vector2(rng.randf_range(40, w - 40), rng.randf_range(160, h - 160))
-			var r := rng.randf_range(2.0, 6.0)
-			draw_circle(p, r * 2.6, Color(S.CYAN, 0.05))
-			draw_circle(p, r, Color(Color("b9f3d8"), rng.randf_range(0.25, 0.6)))
-		# Vignette.
-		_grad(Rect2(0, 0, w, 300), Color(0, 0, 0, 0.55), Color(0, 0, 0, 0))
-		_grad(Rect2(0, h - 360, w, 360), Color(0, 0, 0, 0), Color(0, 0, 0, 0.6))
+		var full := Rect2(Vector2.ZERO, size)
+		var quad := PackedVector2Array([Vector2.ZERO, Vector2(size.x, 0), size, Vector2(0, size.y)])
+		var painted := UiArt.menu_background()
+		if painted != null:
+			UiArt.draw_cover(self, painted, quad, full, Color(0.7, 0.72, 0.8))
+		else:
+			draw_polygon(quad, PackedColorArray([S.BRAWL_PANEL_TOP, S.BRAWL_PANEL_TOP, S.BRAWL_PANEL_BOTTOM, S.BRAWL_PANEL_BOTTOM]))
+		draw_rect(full, Color(S.BRAWL_PANEL_BOTTOM, 0.34))
+		_glow(Vector2(size.x * 0.5, 600), Vector2(560, 520), Color(S.brawl_tone(_strain_tone(tint))["light"], 0.3))
+		_glow(Vector2(size.x * 0.5, 880), Vector2(460, 240), Color(S.brawl_tone("loot")["light"], 0.14))
 
-	## The whole card sits inside a maw: upper teeth hang from the top edge,
-	## lower teeth rise from the bottom (story UI covers these bands anyway).
-	func _maw_frame() -> void:
-		var w := size.x
-		var h := size.y
-		var gum := S.DANGER.darkened(0.5)
-		_jaw_band(Vector2(-20, 36), Vector2(w * 0.5, 96), Vector2(w + 20, 36), 34.0, gum, 1.0, 13, 86.0)
-		_jaw_band(Vector2(-20, h - 36), Vector2(w * 0.5, h - 96), Vector2(w + 20, h - 36), 34.0, gum, -1.0, 11, 70.0)
+	# ------------------------------------------------------------ logo
 
-	func _jaw_band(a: Vector2, ctrl: Vector2, b: Vector2, thick: float, gum: Color, dir: float, teeth: int, longest: float) -> void:
-		var top := PackedVector2Array()
-		var low := PackedVector2Array()
-		for i in 25:
-			var t := float(i) / 24.0
-			var p := _bezier(a, ctrl, b, t)
-			top.append(p - Vector2(0, thick * 0.5))
-			low.append(p + Vector2(0, thick * 0.5))
-		for i in teeth:
-			var t := (i + 0.5) / teeth
-			var p := _bezier(a, ctrl, b, t)
-			var edge := p + Vector2(0, dir * thick * 0.4)
-			var edge_factor := absf(t - 0.5) * 2.0
-			var length := lerpf(longest * 0.45, longest, edge_factor) if i % 2 == 0 else lerpf(longest * 0.3, longest * 0.6, edge_factor)
-			var half := 14.0 + length * 0.14
-			var tip := edge + Vector2((0.5 - t) * 18.0, dir * length)
-			draw_colored_polygon(PackedVector2Array([edge + Vector2(-half - 3, 0), edge + Vector2(half + 3, 0), tip + Vector2(0, dir * 4)]), S.OUTLINE)
-			draw_colored_polygon(PackedVector2Array([edge + Vector2(-half, 0), edge + Vector2(half, 0), tip]), S.BONE)
-			draw_colored_polygon(PackedVector2Array([edge + Vector2(half * 0.1, 0), edge + Vector2(half, 0), tip]), S.BONE.darkened(0.22))
-		var band := top.duplicate()
-		for i in range(low.size() - 1, -1, -1):
-			band.append(low[i])
-		draw_colored_polygon(band, S.OUTLINE)
-		var inner := PackedVector2Array()
-		var colors := PackedColorArray()
-		for i in top.size():
-			inner.append(top[i].lerp(low[i], 0.18))
-			colors.append(gum.lightened(0.35))
-		for i in range(low.size() - 1, -1, -1):
-			inner.append(low[i].lerp(top[i], 0.18))
-			colors.append(gum)
-		draw_polygon(inner, colors)
-
-	# ------------------------------------------------------------ logo + banner
-
-	func _logo(c: Vector2) -> void:
-		var title := "MAWLINGS"
-		var fs := 150
-		var face := S.display_font()
-		var tw := face.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		var origin := Vector2(c.x - tw * 0.5, c.y)
-		_glow(Vector2(c.x, c.y - 50), 460, Color(S.EMBER, 0.3))
-		var art := UiArt.logo()
-		if art != null:
-			# V2 logo artwork (jaw as the W) instead of the drawn word and jaws.
-			var lw := 880.0
-			var lh := lw * float(art.get_height()) / float(art.get_width())
-			var rect := Rect2(c.x - lw * 0.5, c.y - 40.0 - lh * 0.5, lw, lh)
-			draw_texture_rect(art, Rect2(rect.position + Vector2(0, 10), rect.size), false, Color(0, 0, 0, 0.5))
-			draw_texture_rect(art, rect, false)
-			_logo_subtitle(c)
+	func _logo(top_center: Vector2) -> void:
+		var tex := UiArt.logo()
+		if tex == null:
+			_txt(top_center + Vector2(0, 70), "MAWLINGS", 96, S.brawl_tone("ember")["light"], Kit.CENTER | Kit.MIDDLE)
 			return
-		draw_string_outline(face, origin + Vector2(0, 12), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 22, Color(S.OUTLINE, 0.75))
-		draw_string_outline(face, origin + Vector2(0, 7), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 16, S.OUTLINE)
-		draw_string(face, origin + Vector2(0, 7), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.EMBER.darkened(0.5))
-		draw_string(face, origin + Vector2(0, -4), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.GOLD.lightened(0.35))
-		draw_string(face, origin, title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.EMBER_GLOW.lerp(S.EMBER, 0.35))
-		# Fangs bite into the word from above and below.
-		var left := c.x - tw * 0.5 - 40
-		var right := c.x + tw * 0.5 + 40
-		_logo_jaw(Vector2(left, c.y - 138), Vector2(c.x, c.y - 196), Vector2(right, c.y - 138), 24.0, 1.0, [0.06, 0.16, 0.28, 0.4, 0.5, 0.6, 0.72, 0.84, 0.94], [56.0, 38.0, 22.0, 17.0, 15.0, 17.0, 22.0, 38.0, 56.0])
-		_logo_jaw(Vector2(left + 56, c.y + 26), Vector2(c.x, c.y + 64), Vector2(right - 56, c.y + 26), 20.0, -1.0, [0.1, 0.24, 0.38, 0.5, 0.62, 0.76, 0.9], [38.0, 22.0, 16.0, 14.0, 16.0, 22.0, 38.0])
-		_logo_subtitle(c)
+		var lw := 600.0
+		var lh := lw * float(tex.get_height()) / float(tex.get_width())
+		var rect := Rect2(top_center.x - lw * 0.5, top_center.y, lw, lh)
+		draw_texture_rect(tex, Rect2(rect.position + Vector2(0, S.SHADOW_Y), rect.size), false, Color(S.BRAWL_INK, 0.6))
+		draw_texture_rect(tex, rect, false)
 
-	func _logo_subtitle(c: Vector2) -> void:
-		var sub := "DIE HORDE BIST DU"
-		var sw := S.body_font().get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x * 0.5
-		for sgn in [-1.0, 1.0]:
-			draw_line(Vector2(c.x + sgn * (sw + 16), c.y + 106), Vector2(c.x + sgn * (sw + 130), c.y + 106), Color(S.TOXIC, 0.5), 2.0, true)
-			_diamond(Vector2(c.x + sgn * (sw + 138), c.y + 106), 6, S.TOXIC)
-		S.text(self, sub, Vector2(c.x, c.y + 116), 30, S.TOXIC.lerp(S.TEXT, 0.4), true, 6, S.body_font())
+	# ------------------------------------------------------------ strain card
 
-	func _logo_jaw(a: Vector2, ctrl: Vector2, b: Vector2, thick: float, dir: float, spots: Array, lengths: Array) -> void:
-		var gum := S.DANGER.darkened(0.45)
-		var top := PackedVector2Array()
-		var low := PackedVector2Array()
-		for i in 21:
-			var t := float(i) / 20.0
-			var p := _bezier(a, ctrl, b, t)
-			var taper := 0.45 + 0.55 * sin(t * PI)
-			top.append(p - Vector2(0, thick * 0.5 * taper))
-			low.append(p + Vector2(0, thick * 0.5 * taper))
-		for i in spots.size():
-			var t: float = spots[i]
-			var p := _bezier(a, ctrl, b, t)
-			var edge := p + Vector2(0, dir * thick * 0.35)
-			var tip := edge + Vector2((0.5 - t) * 10.0, dir * float(lengths[i]))
-			var half := 8.0 + float(lengths[i]) * 0.16
-			draw_colored_polygon(PackedVector2Array([edge + Vector2(-half - 2, -dir * 2), edge + Vector2(half + 2, -dir * 2), tip + Vector2(0, dir * 3)]), S.OUTLINE)
-			draw_colored_polygon(PackedVector2Array([edge + Vector2(-half, 0), edge + Vector2(half, 0), tip]), S.BONE)
-			draw_colored_polygon(PackedVector2Array([edge + Vector2(half * 0.1, 0), edge + Vector2(half, 0), tip]), S.BONE.darkened(0.22))
-		var band := top.duplicate()
-		for i in range(low.size() - 1, -1, -1):
-			band.append(low[i])
-		draw_colored_polygon(band, S.OUTLINE)
-		var inner := PackedVector2Array()
-		for i in top.size():
-			inner.append(top[i].lerp(low[i], 0.2))
-		for i in range(low.size() - 1, -1, -1):
-			inner.append(low[i].lerp(top[i], 0.2))
-		draw_colored_polygon(inner, gum)
-		for p in [a, b]:
-			draw_circle(p, thick * 0.75, S.OUTLINE)
-			draw_circle(p, thick * 0.55, S.BONE.darkened(0.15))
-
-	func _strain_banner(c: Vector2, accent: Color) -> void:
-		var label := "%s  ·  %s" % [String(data.strain_name).to_upper(), String(data.difficulty_name).to_upper()]
-		var fs := 40
-		var tw := S.display_font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		var daily: bool = data.daily
-		var extra := 0.0
-		var daily_label := ""
-		if daily:
-			daily_label = "TAGES-BRUT"
+	func _strain_card(rect: Rect2, tint: Color) -> void:
+		var tone: Variant = _strain_tone(tint)
+		var header := 70.0
+		Kit.card(self, rect, tone, "normal", header, S.R_XL)
+		var body := Kit.card_inner(rect, header).grow(S.SPACE_S)
+		var cx := rect.get_center().x
+		var light: Color = S.brawl_tone(tone)["light"]
+		# Portrait on a lit ground ellipse.
+		var foot := Vector2(cx, body.end.y - 30.0)
+		_glow(Vector2(cx, foot.y - 120.0), Vector2(260, 150), Color(light, 0.3))
+		draw_colored_polygon(_ellipse(foot + Vector2(0, 4), 170, 30), Color(S.BRAWL_INK, 0.55))
+		draw_colored_polygon(_ellipse(foot, 158, 25), Color(light, 0.22))
+		var tex := UiArt.tribe(String(data.get("strain_id", "")))
+		if tex == null:
+			tex = UiArt.tribe("glutmaw")
+		if tex != null:
+			UiArt.draw_standing(self, tex, foot + Vector2(0, 8), 262.0)
+		elif not _icon("mawling_head_color", foot + Vector2(0, -110), 180):
+			pass
+		_txt(Vector2(cx, rect.position.y + S.STROKE_L + (header + 7.0) * 0.5 + 2.0), String(data.strain_name).to_upper(), S.T_TITLE, Color.WHITE, Kit.CENTER | Kit.MIDDLE, rect.size.x - 80.0)
+		# Difficulty chip top-left, daily chip top-right.
+		var diff := int(data.get("difficulty", 0))
+		var dname := String(data.difficulty_name).to_upper()
+		var dw := S.display_font().get_string_size(dname, HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_LABEL).x + 64.0
+		var chip := Rect2(body.position.x + S.SPACE_M, body.position.y + S.SPACE_M, dw, 46.0)
+		Kit.chip(self, chip, "dark")
+		_icon(["diff_wild", "diff_brutal", "diff_apex"][clampi(diff, 0, 2)], Vector2(chip.position.x + 24.0, chip.get_center().y), 34.0)
+		_txt(Vector2(chip.position.x + 46.0, chip.get_center().y), dname, S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+		if bool(data.daily):
+			var label := "TAGES-BRUT"
 			if int(data.daily_rank) > 0:
-				daily_label += "  #%d" % int(data.daily_rank)
-			extra = S.display_font().get_string_size(daily_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x + 96
-		var total := tw + 104 + extra
-		var rect := Rect2(c.x - total * 0.5, c.y - 40, total, 80)
-		draw_colored_polygon(_rounded_points(rect.grow(4), 44, 6), S.OUTLINE)
-		draw_colored_polygon(_rounded_points(rect, 40, 6), Color("0c1d17"))
-		draw_colored_polygon(_rounded_points(Rect2(rect.position, Vector2(tw + 104, rect.size.y)), 40, 6), Color(accent, 0.22))
-		var pts := _rounded_points(rect, 40, 6)
-		pts.append(pts[0])
-		draw_polyline(pts, Color(accent, 0.85), 3.0, true)
-		_mawling_head(rect.position + Vector2(50, 40), 26, accent)
-		S.text(self, label, rect.position + Vector2(88, 54), fs, S.TEXT, false, 7)
-		if daily:
-			var x := rect.position.x + tw + 104
-			draw_line(Vector2(x, rect.position.y + 14), Vector2(x, rect.end.y - 14), Color(S.GOLD, 0.5), 2.0)
-			_sun(Vector2(x + 44, c.y), 18, S.GOLD)
-			S.text(self, daily_label, Vector2(x + 76, c.y + 12), 34, S.GOLD, false, 6)
-
-	func _sun(c: Vector2, r: float, color: Color) -> void:
-		for i in 10:
-			var a := TAU * i / 10.0
-			var d := Vector2(cos(a), sin(a))
-			draw_colored_polygon(PackedVector2Array([c + d * r * 0.95 + d.orthogonal() * r * 0.2, c + d * r * 1.6, c + d * r * 0.95 - d.orthogonal() * r * 0.2]), color.darkened(0.1))
-		draw_circle(c, r * 0.85, color)
-		draw_circle(c + Vector2(-r * 0.25, -r * 0.25), r * 0.3, Color(1, 1, 1, 0.4))
-
-	# ------------------------------------------------------------ hero
-
-	func _hero_time(c: Vector2, accent: Color) -> void:
-		S.text(self, "ÜBERLEBT", Vector2(c.x, c.y - 250), 46, Color(S.TEXT_DIM, 0.95), true, 6, S.body_font())
-		var value: String = _time_text(float(data.seconds))
-		var fs := 300 if value.length() <= 5 else 220
-		var face := S.display_font()
-		var tw := face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		if tw > size.x - 120:
-			fs = int(fs * (size.x - 120) / tw)
-			tw = face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		var origin := Vector2(c.x - tw * 0.5, c.y)
-		_glow(Vector2(c.x, c.y - fs * 0.36), tw * 0.66, Color(accent, 0.45))
-		draw_string_outline(face, origin + Vector2(0, 16), value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 34, Color(S.OUTLINE, 0.8))
-		draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 44, Color(accent, 0.35))
-		draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 22, S.OUTLINE)
-		draw_string(face, origin + Vector2(0, 8), value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, accent.darkened(0.45))
-		draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
-		# Divider with diamonds under the number.
-		var y := c.y + 40
-		draw_line(Vector2(c.x - 300, y), Vector2(c.x - 40, y), Color(accent, 0.5), 3.0, true)
-		draw_line(Vector2(c.x + 40, y), Vector2(c.x + 300, y), Color(accent, 0.5), 3.0, true)
-		_diamond(Vector2(c.x, y), 12, accent)
-		_diamond(Vector2(c.x - 310, y), 6, Color(accent, 0.8))
-		_diamond(Vector2(c.x + 310, y), 6, Color(accent, 0.8))
+				label += "  #%d" % int(data.daily_rank)
+			var lw := S.display_font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, S.T_LABEL).x + 36.0
+			var day := Rect2(body.end.x - S.SPACE_M - lw, body.position.y + S.SPACE_M, lw, 46.0)
+			Kit.chip(self, day, "loot")
+			_txt(day.get_center(), label, S.T_LABEL, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
 
 	func _time_text(seconds: float) -> String:
 		var s := int(seconds)
@@ -419,129 +299,89 @@ class Painter extends "res://scripts/ui/menu/menu_canvas.gd":
 			return "%d:%02d:%02d" % [s / 3600, (s / 60) % 60, s % 60]
 		return "%d:%02d" % [s / 60, s % 60]
 
-	## "25 → 196 MAWLINGS" (start only when the stats carry it).
-	func _swarm_line(c: Vector2, accent: Color) -> void:
-		var peak := int(data.peak)
-		var start := int(data.start)
-		var face := S.display_font()
-		var parts: Array = []
-		if start > 0 and start < peak:
-			parts.append([str(start), 72, Color(S.TEXT_DIM, 0.9)])
-			parts.append(["→", 72, Color(S.TEXT_DIM, 0.7)])
-		parts.append([str(peak), 96, S.EMBER_GLOW.lerp(accent, 0.25)])
-		parts.append(["MAWLINGS", 52, S.TEXT])
-		var total := 0.0
-		for p in parts:
-			total += face.get_string_size(p[0], HORIZONTAL_ALIGNMENT_LEFT, -1, p[1]).x + 22
-		var head := 58.0
-		total += head + 10
-		var x := c.x - total * 0.5
-		_mawling_head(Vector2(x + head * 0.5, c.y - 30), 30, S.EMBER)
-		x += head + 10
-		for p in parts:
-			x += S.text(self, p[0], Vector2(x, c.y), p[1], p[2], false, 9) + 22
-		S.text(self, "HÖCHSTER SCHWARM", Vector2(c.x, c.y + 44), 30, Color(S.TEXT_DIM, 0.95), true, 5, S.body_font())
+	func _ellipse(c: Vector2, rx: float, ry: float) -> PackedVector2Array:
+		var pts := PackedVector2Array()
+		for i in 32:
+			var a := TAU * i / 32.0
+			pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
+		return pts
 
-	# ------------------------------------------------------------ tiles + build
+	# ------------------------------------------------------------ time, tiles, build
 
-	func _tiles(y: float) -> void:
-		# Only numbers worth showing: zero bosses / no flood give way to biomass.
-		var tiles: Array = [["KILLS", str(int(data.kills)), S.CYAN]]
+	func _hero(rect: Rect2) -> void:
+		Kit.panel(self, rect, "loot", S.R_L)
+		var value: String = _time_text(float(data.seconds))
+		var tw := minf(S.number_font().get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, 96).x, rect.size.x - 200.0)
+		var x0 := rect.get_center().x - (104.0 + 24.0 + tw) * 0.5
+		var pc := Vector2(x0 + 52.0, rect.get_center().y)
+		Kit.icon_plate(self, pc, 104.0, "dark")
+		_icon("clock", Kit.plate_center(pc, 104.0), 64.0)
+		var x := x0 + 128.0
+		_txt(Vector2(x + 4.0, rect.position.y + 36.0), "ÜBERLEBT", S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+		Kit.text_outlined(self, Vector2(x, rect.position.y + 94.0), value, 96, Color.WHITE, 18, 7, S.number_font(), Kit.LEFT | Kit.MIDDLE, tw)
+
+	func _tiles(area: Rect2) -> void:
+		# Peak always; then the most telling of kills, bosses, flood stage, biomass.
+		var tiles: Array = [["mawling_head_color", "PEAK", int(data.peak), "ember"], ["jaws", "KILLS", int(data.kills), "ember"]]
 		if int(data.bosses) > 0:
-			tiles.append(["BOSSE", str(int(data.bosses)), S.GOLD])
-		if int(data.flood_stage) > 0:
-			tiles.append(["FLUTSTUFE", str(int(data.flood_stage)), S.VIOLET])
-		if tiles.size() < 3:
-			tiles.append(["BIOMASSE", str(int(data.biomass)), S.AMBER])
-		var margin := 90.0
-		var gap := 24.0
-		var tw := (size.x - margin * 2 - gap * 2) / 3.0
-		var x0 := (size.x - tiles.size() * tw - (tiles.size() - 1) * gap) * 0.5
+			tiles.append(["bog_king", "BOSSE", int(data.bosses), "danger"])
+		elif int(data.flood_stage) > 0:
+			tiles.append(["skull", "FLUTSTUFE", int(data.flood_stage), "danger"])
+		else:
+			tiles.append(["biomass", "BIOMASSE", int(data.biomass), "loot"])
+		var gap := S.SPACE_M
+		var w := (area.size.x - gap * 2.0) / 3.0
 		for i in tiles.size():
-			var rect := Rect2(x0 + i * (tw + gap), y, tw, 164)
-			var col: Color = tiles[i][2]
-			draw_colored_polygon(_rounded_points(Rect2(rect.position + Vector2(0, 8), rect.size), 28, 6), Color(0, 0, 0, 0.4))
-			draw_colored_polygon(_rounded_points(rect, 28, 6), Color("0c1d17f0"))
-			var inner := rect.grow(-4)
-			draw_polygon(_rounded_points(inner, 25, 6), _vertical_colors(_rounded_points(inner, 25, 6), inner, Color(col, 0.2), Color(col, 0.02)))
-			var pts := _rounded_points(rect, 28, 6)
-			pts.append(pts[0])
-			draw_polyline(pts, Color(col, 0.8), 3.0, true)
-			S.text(self, tiles[i][1], Vector2(rect.get_center().x, rect.position.y + 98), 76, col.lightened(0.3), true, 8)
-			S.text(self, tiles[i][0], Vector2(rect.get_center().x, rect.position.y + 140), 28, Color(S.TEXT_DIM, 0.95), true, 5, S.body_font())
+			var rect := Rect2(area.position.x + i * (w + gap), area.position.y, w, area.size.y)
+			Kit.panel(self, rect, "dark", S.R_L)
+			var pc := Vector2(rect.position.x + 46.0, rect.position.y + 50.0)
+			Kit.icon_plate(self, pc, 64.0, tiles[i][3])
+			_icon(tiles[i][0], Kit.plate_center(pc, 64.0), 48.0)
+			Kit.number(self, Vector2(rect.position.x + 88.0, rect.position.y + 52.0), int(tiles[i][2]), S.T_TITLE, Color.WHITE, Kit.LEFT | Kit.MIDDLE, rect.end.x - 12.0 - (rect.position.x + 88.0))
+			_txt(Vector2(rect.get_center().x, rect.end.y - 24.0), tiles[i][1], S.T_LABEL, S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE, w - 16.0)
 
-	func _vertical_colors(points: PackedVector2Array, rect: Rect2, top: Color, bottom: Color) -> PackedColorArray:
-		var colors := PackedColorArray()
-		for p in points:
-			colors.append(top.lerp(bottom, clampf((p.y - rect.position.y) / maxf(1.0, rect.size.y), 0.0, 1.0)))
-		return colors
-
-	func _build_row(y: float) -> void:
+	func _build(rect: Rect2) -> void:
+		Kit.panel(self, rect, "dark", S.R_L)
 		var build: Array = data.build
-		var c := size.x * 0.5
-		S.text(self, "BUILD", Vector2(c, y), 30, S.VIOLET.lerp(S.TEXT, 0.35), true, 5)
-		var hw := S.display_font().get_string_size("BUILD", HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x * 0.5
-		for sgn in [-1.0, 1.0]:
-			draw_line(Vector2(c + sgn * (hw + 18), y - 10), Vector2(c + sgn * (hw + 200), y - 10), Color(S.VIOLET, 0.45), 2.0, true)
-			_diamond(Vector2(c + sgn * (hw + 208), y - 10), 6, S.VIOLET)
 		if build.is_empty():
-			S.text(self, "Reiner Schwarm – keine Mutation", Vector2(c, y + 84), 34, Color(S.TEXT_DIM, 0.9), true, 5, S.body_font())
+			_txt(rect.get_center(), "Reiner Schwarm – keine Mutation", S.T_BODY, S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE, rect.size.x - 40.0, S.body_bold_font())
 			return
-		var slot := 132.0
-		var n := build.size()
-		var x0 := c - (n * slot - 20) * 0.5
-		for i in n:
+		var extra := int(data.build_total) - build.size()
+		var n := build.size() + (1 if extra > 0 else 0)
+		var step := minf(98.0, (rect.size.x - 40.0) / n)
+		var plate := minf(78.0, step - 14.0)
+		var x0 := rect.get_center().x - (n - 1) * step * 0.5
+		for i in build.size():
 			var b: Dictionary = build[i]
-			var ic := Vector2(x0 + i * slot + (slot - 20) * 0.5, y + 82)
-			var col: Color = S.GOLD if b.evolved else S.VIOLET
-			for k in 4:
-				draw_circle(ic, 58 + k * 5, Color(col, 0.04))
-			draw_circle(ic, 54, Color("040b08"))
-			draw_arc(ic, 54, 0, TAU, 48, col, 4.0, true)
-			if UiIcons.has(String(b.id)):
-				UiIcons.draw(self, String(b.id), Rect2(ic - Vector2(40, 40), Vector2(80, 80)))
-			else:
-				_diamond(ic, 26, col)
-			# Rank pips under the medallion.
-			for k in 3:
-				var p := ic + Vector2((k - 1) * 22, 74)
-				var filled := k < int(b.rank)
-				_diamond(p, 8, col if filled else Color(col, 0.2))
-		if int(data.build_total) > n:
-			S.text(self, "+%d" % (int(data.build_total) - n), Vector2(x0 + n * slot + 8, y + 96), 36, S.VIOLET, false, 5)
+			var c := Vector2(x0 + i * step, rect.get_center().y + 4.0)
+			Kit.icon_plate(self, c, plate, "special" if b.evolved else "ember")
+			_icon(String(b.id), Kit.plate_center(c, plate), plate * 0.76)
+			var tag: String = "EVO" if b.evolved else ROMAN[clampi(int(b.rank), 1, ROMAN.size()) - 1]
+			Kit.badge(self, c + Vector2(plate * 0.38, -plate * 0.36), tag, "loot" if b.evolved else "neutral", S.T_LABEL)
+		if extra > 0:
+			_txt(Vector2(x0 + build.size() * step, rect.get_center().y), "+%d" % extra, S.T_HEAD, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
 
-	# ------------------------------------------------------------ code + motif
+	# ------------------------------------------------------------ code + mark
 
-	func _code_panel(rect: Rect2, accent: Color) -> void:
+	func _code(rect: Rect2) -> void:
+		Kit.panel(self, rect, "dark", S.R_L)
 		var code := String(data.code)
-		draw_colored_polygon(_rounded_points(Rect2(rect.position + Vector2(0, 8), rect.size), 34, 6), Color(0, 0, 0, 0.45))
-		draw_colored_polygon(_rounded_points(rect, 34, 6), Color("0a1a14f2"))
-		var pts := _rounded_points(rect, 34, 6)
-		pts.append(pts[0])
-		draw_polyline(pts, Color(S.CYAN, 0.75), 3.0, true)
-		var inner := _rounded_points(rect.grow(-8), 28, 6)
-		inner.append(inner[0])
-		draw_polyline(inner, Color(S.CYAN, 0.18), 2.0, true)
-		var c := rect.get_center().x
 		var challenge := "SCHLÄGST DU %s?" % _time_text(float(data.seconds))
 		if code == "":
-			S.text(self, challenge, Vector2(c, rect.position.y + 78), 52, S.GOLD, true, 8)
-			S.text(self, "Die Horde wartet.", Vector2(c, rect.position.y + 130), 32, Color(S.TEXT_DIM, 0.95), true, 5, S.body_font())
+			_txt(Vector2(rect.get_center().x, rect.position.y + 38.0), challenge, S.T_HEAD, S.brawl_tone("loot")["light"], Kit.CENTER | Kit.MIDDLE, rect.size.x - 40.0)
+			_txt(Vector2(rect.get_center().x, rect.end.y - 28.0), "Die Horde wartet.", S.T_BODY, S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE, rect.size.x - 40.0, S.body_bold_font())
 			return
-		S.text(self, challenge, Vector2(c, rect.position.y + 62), 44, S.GOLD, true, 7)
-		var label := "KARTE"
-		var lw := S.display_font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
-		var spaced := " ".join(code.split(""))
-		var cw := S.display_font().get_string_size(spaced, HORIZONTAL_ALIGNMENT_LEFT, -1, 58).x
-		var x := c - (lw + 20 + cw) * 0.5
-		S.text(self, label, Vector2(x, rect.position.y + 118), 30, S.CYAN.lerp(S.TEXT, 0.3), false, 5)
-		S.text(self, spaced, Vector2(x + lw + 20, rect.position.y + 122), 58, S.TEXT, false, 8)
-		S.text(self, "Gleicher Code = gleiche Karte", Vector2(c, rect.position.y + 158), 28, Color(S.TEXT_DIM, 0.95), true, 5, S.body_font())
+		var x := rect.position.x + S.SPACE_XL
+		_txt(Vector2(x, rect.position.y + 32.0), challenge, S.T_HEAD, S.brawl_tone("loot")["light"], Kit.LEFT | Kit.MIDDLE, rect.size.x * 0.56)
+		_txt(Vector2(x, rect.end.y - 28.0), "Gleicher Code = gleiche Karte", S.T_LABEL, S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, rect.size.x * 0.56, S.body_bold_font())
+		# The code sits in a well on the right, like the menu's KARTEN-CODE.
+		var well := Rect2(rect.end.x - S.SPACE_M - 250.0, rect.position.y + S.SPACE_M, 250.0, rect.size.y - S.SPACE_M * 2.0)
+		Kit.well(self, well, S.R_M)
+		_txt(Vector2(well.get_center().x, well.position.y + 20.0), "KARTEN-CODE", S.T_LABEL, S.brawl_tone("info")["light"], Kit.CENTER | Kit.MIDDLE)
+		Kit.number(self, Vector2(well.get_center().x, well.end.y - 28.0), code, 44, Color.WHITE, Kit.CENTER | Kit.MIDDLE, well.size.x - 20.0)
 
-	## Small open maw between the lower teeth: the brand mark.
-	func _maw_motif(c: Vector2, accent: Color) -> void:
-		_glow(c, 130, Color(S.EMBER, 0.4))
-		if UiIcons.has("mawling_head_color"):
-			UiIcons.draw(self, "mawling_head_color", Rect2(c - Vector2(62, 62), Vector2(124, 124)))
-		else:
-			_mawling_head(c, 52, S.EMBER)
+	## Brand mark below the safe zone (covered by story UI anyway).
+	func _maw_mark(c: Vector2) -> void:
+		Kit.icon_plate(self, c, 120.0, "ember")
+		if not _icon("mawling_head_color", Kit.plate_center(c, 120.0), 96.0):
+			_txt(c, "M", S.T_TITLE, Color.WHITE, Kit.CENTER | Kit.MIDDLE)

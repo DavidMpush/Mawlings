@@ -63,7 +63,10 @@ const FORMS_PATH := "res://scripts/attack_forms.gd"
 var _forms: Dictionary = {}
 var _forms_loaded := false
 
-var _bold: FontVariation
+# Stage 15: legacy drawing uses the UI fonts (Baloo 2 for headings, Figtree
+# for text) instead of the engine fallback font.
+const UiStyle := preload("res://scripts/ui/ui_style.gd")
+var _bold: Font
 
 
 # Stage 04 components; order matters: overlays and the mutation dimmer sit on top.
@@ -94,9 +97,7 @@ func _ready() -> void:
 
 func _ensure_font() -> void:
 	if _bold == null:
-		_bold = FontVariation.new()
-		_bold.base_font = ThemeDB.fallback_font
-		_bold.variation_embolden = 0.85
+		_bold = UiStyle.display_font()
 
 
 func _notification(what: int) -> void:
@@ -166,25 +167,41 @@ func _press(pointer: int, location: Vector2) -> void:
 		elif (extinct or paused) and _hub_rect().has_point(location):
 			_tap_sound()
 			hub_requested.emit()
+		elif extinct and _share_rect().has_point(location):
+			_tap_sound()
+			var overlays := get_node_or_null("hud_overlays")
+			if overlays != null and overlays.has_method("share_result"):
+				overlays.share_result()
+		elif paused and _restart_rect().has_point(location):
+			_tap_sound()
+			restart_requested.emit()
 		return
 	if _pause_rect().has_point(location):
 		_tap_sound()
 		pause_requested.emit()
 		return
 	if _choosing():
+		# Stage 15: the brawl cards live in mutation_screen.gd; ask it for the
+		# hit areas it draws. The legacy rects below stay as they are (in the
+		# organic/calm skins mutation_screen calls them itself).
+		var ms := get_node_or_null("mutation_screen")
 		for slot in evolution.offers.size():
-			if _count("banishes") > 0 and _banish_rect(slot).has_point(location):
+			var banish_area: Rect2 = ms.banish_rect(slot) if ms != null else _banish_rect(slot)
+			if _count("banishes") > 0 and banish_area.has_point(location):
 				_tap_sound()
 				banish_requested.emit(slot)
 				return
-			if _mutation_rect(slot).has_point(location):
+			var card_area: Rect2 = ms.card_rect(slot) if ms != null else _mutation_rect(slot)
+			if card_area.has_point(location):
 				_tap_sound()
 				mutation_chosen.emit(slot)
 				return
-		if _count("rerolls") > 0 and _reroll_rect().has_point(location):
+		var reroll_area: Rect2 = ms.reroll_rect() if ms != null else _reroll_rect()
+		var skip_area: Rect2 = ms.skip_rect() if ms != null else _skip_rect()
+		if _count("rerolls") > 0 and reroll_area.has_point(location):
 			_tap_sound()
 			reroll_requested.emit()
-		elif _count("skips") > 0 and _skip_rect().has_point(location):
+		elif _count("skips") > 0 and skip_area.has_point(location):
 			_tap_sound()
 			skip_requested.emit()
 		return
@@ -271,16 +288,45 @@ func _map_tap(location: Vector2) -> bool:
 		return true
 	return false
 
+# 96 x 96 touch target (TOUCH_MIN) around the same centre as before, so the
+# round pause button and the DNA pill beside it keep their places.
 func _pause_rect() -> Rect2:
-	return Rect2(Vector2(size.x - 98, 18), Vector2(82, 100))
+	return Rect2(Vector2(size.x - 105, 20), Vector2(96, 96))
+
+# Stage 15 (brawl skin): result and pause buttons of hud_overlays.gd. The
+# layout is the 900 x 1600 base, centred vertically on taller screens.
+#   result: NOCHMAL (action, full width), below BRUTSTÄTTE + TEILEN
+#   pause:  WEITER (action, full width), below NEUSTART + BRUTSTÄTTE
+func _overlay_top() -> float:
+	return (size.y - 1600.0) * 0.5
 
 func _action_rect() -> Rect2:
+	if (extinct or paused) and UiStyle.is_brawl():
+		if extinct:
+			return Rect2(Vector2(size.x * 0.5 - 390, _overlay_top() + 1252), Vector2(780, 132))
+		return Rect2(Vector2(size.x * 0.5 - 340, _overlay_top() + 770), Vector2(680, 130))
 	if extinct or paused:
 		return Rect2(Vector2(size.x * 0.5 - 340, size.y * 0.5 + 235), Vector2(330, 88))
 	return Rect2(Vector2(size.x * 0.5 - 220, size.y * 0.5 + 235), Vector2(440, 88))
 
 func _hub_rect() -> Rect2:
+	if (extinct or paused) and UiStyle.is_brawl():
+		if extinct:
+			return Rect2(Vector2(size.x * 0.5 - 390, _overlay_top() + 1404), Vector2(560, 104))
+		return Rect2(Vector2(size.x * 0.5 + 10, _overlay_top() + 930), Vector2(330, 104))
 	return Rect2(Vector2(size.x * 0.5 + 10, size.y * 0.5 + 235), Vector2(330, 88))
+
+# Result only (brawl): renders the share card (hud_overlays.share_result()).
+func _share_rect() -> Rect2:
+	if extinct and UiStyle.is_brawl():
+		return Rect2(Vector2(size.x * 0.5 + 190, _overlay_top() + 1404), Vector2(200, 104))
+	return Rect2()
+
+# Pause only (brawl): restart the run (a paused run is given up, like BRUTSTÄTTE).
+func _restart_rect() -> Rect2:
+	if paused and not extinct and UiStyle.is_brawl():
+		return Rect2(Vector2(size.x * 0.5 - 340, _overlay_top() + 930), Vector2(330, 104))
+	return Rect2()
 
 func _banish_rect(slot: int) -> Rect2:
 	var card := _mutation_rect(slot)
@@ -383,7 +429,7 @@ func _draw_top() -> void:
 	draw_rect(Rect2(pc + Vector2(5, -18), Vector2(10, 36)), BONE)
 	# Context line below the top bar.
 	var pressure_text := "DRUCK ×%.1f" % pressure
-	var pressure_w := ThemeDB.fallback_font.get_string_size(pressure_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 21).x
+	var pressure_w := UiStyle.body_font().get_string_size(pressure_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 21).x
 	draw_colored_polygon(_rounded_points(Rect2(cx - pressure_w * 0.5 - 16, 130, pressure_w + 32, 32), 16, 4), Color("0f231ecc"))
 	_text(pressure_text, Vector2(cx, 153), 21, danger_color.lerp(Color.WHITE, 0.45), true)
 	var chip_x := 16.0
@@ -414,7 +460,7 @@ func _draw_top() -> void:
 		y += 58
 	if biomass_bank > 0.01:
 		var text := "BIOMASSE %.1f / 2" % biomass_bank
-		var w := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 21).x
+		var w := UiStyle.body_font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 21).x
 		draw_colored_polygon(_rounded_points(Rect2(24, y, w + 60, 36), 18, 4), Color("0f231ed8"))
 		_biomass_drop(Vector2(44, y + 19), 10, Color("f6cc70"))
 		_text(text, Vector2(62, y + 26), 21, Color("f6cc70"))
@@ -504,7 +550,7 @@ func _draw_mutations() -> void:
 		_claw(inner + (outer - inner) * 0.5, Vector2(s * 0.6, 1), 14, 4, Color("7fa86a"), -s * 0.4)
 	var sub := "STUFE %d   ·   %s" % [evolution.level + 1, _slot_text()]
 	_text(sub, Vector2(size.x * 0.5, cy - 346), 22, Color("9ed5b3"), true)
-	var sub_half := ThemeDB.fallback_font.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x * 0.5
+	var sub_half := UiStyle.body_font().get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x * 0.5
 	for s in [-1.0, 1.0]:
 		draw_line(Vector2(size.x * 0.5 + s * (sub_half + 16), cy - 353), Vector2(size.x * 0.5 + s * (sub_half + 130), cy - 353), Color("4f7a5c"), 2, true)
 	for slot in evolution.offers.size():
@@ -559,7 +605,7 @@ func _draw_card(slot: int, mutation: Array) -> void:
 	var description: String = _form_rank_text(id, rank) if kind == "attack" else String(mutation[2])
 	if description == "":
 		description = mutation[2]
-	draw_multiline_string(ThemeDB.fallback_font, Vector2(x, p.y + 116), description, HORIZONTAL_ALIGNMENT_LEFT, width, 19, 2, Color("f2eacb"))
+	draw_multiline_string(UiStyle.body_font(), Vector2(x, p.y + 116), description, HORIZONTAL_ALIGNMENT_LEFT, width, 19, 2, Color("f2eacb"))
 	draw_line(Vector2(x, p.y + 158), Vector2(card.end.x - 28, p.y + 158), Color(accent, 0.45), 2)
 	# Rank pips: owned ranks filled, the offered rank glows.
 	for i in 3:
@@ -659,7 +705,7 @@ func _draw_result() -> void:
 # ---------------------------------------------------------------- helpers
 
 func _text(value: String, point: Vector2, font_size: int, color: Color = Color.WHITE, centered: bool = false, outline: int = 0) -> void:
-	var font: Font = _bold if font_size >= 24 else ThemeDB.fallback_font
+	var font: Font = _bold if font_size >= 24 else UiStyle.body_font()
 	var origin := point
 	if centered:
 		origin.x -= font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x * 0.5
@@ -732,7 +778,7 @@ func _segment_bar(rect: Rect2, fraction: float, color: Color, segments: int) -> 
 
 # Small dark pill with a coloured diamond; returns the right edge.
 func _chip(x: float, text: String, accent: Color, color: Color) -> float:
-	var w := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x + 50
+	var w := UiStyle.body_font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x + 50
 	draw_colored_polygon(_rounded_points(Rect2(x, 130, w, 34), 17, 4), Color("0f231ed8"))
 	_threat_dot(Vector2(x + 20, 147), accent)
 	_text(text, Vector2(x + 36, 154), 20, color)
@@ -997,7 +1043,7 @@ func _alpha_gem(c: Vector2, r: float) -> void:
 
 func _alpha_chip() -> void:
 	var text := "ALPHA-KERN ×%d" % alpha_cores
-	var w := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x + 56
+	var w := UiStyle.body_font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x + 56
 	var x := size.x - w - 16
 	draw_colored_polygon(_rounded_points(Rect2(x, 130, w, 34), 17, 4), Color("1d1330e0"))
 	_alpha_gem(Vector2(x + 22, 147), 11)

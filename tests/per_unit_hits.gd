@@ -95,17 +95,19 @@ func _run() -> void:
 	_check(world.melee_factor(target.position, "hunter", 1.5) == 0.0, "No animal in reach -> no damage")
 	_check(is_equal_approx(world.melee_factor(swarm.position + Vector3(0.5, 0, 0), "hunter", 1.5), world.MELEE_MIN_ENGAGE), "Target inside the swarm keeps the minimum engagement")
 
-	# ---- Kill popups: bundled at the kill spot, capped, gone after ~0.9 s.
+	# ---- Collect popups (Etappe 16): one growing number at the swarm, capped, gone after ~0.9 s.
 	_fresh(25)
 	world._kill_prey(world.prey[0])
 	world._kill_prey(world.prey[0])
+	_check(world.kill_popups.is_empty(), "A kill shows no popup - its crystals do")
+	world.collect_loot_now()
 	world.evolution.offers.clear()
-	_check(world.kill_popups.size() == 2 and world.kill_popups[0].dna == 10 and world.kill_popups[0].biomass == int(round(TUNING.CORPSE_BIOMASS)), "Prey kill shows +10 DNA and its biomass")
-	var spot: Vector3 = world.kill_popups[0].at
-	world._add_popup(spot + Vector3(0.5, 0, 0), 20, 26.0)
-	_check(world.kill_popups[0].dna == 30 and world.kill_popups[0].biomass == 26 + int(round(TUNING.CORPSE_BIOMASS)), "Close kills merge into one popup")
+	_check(world.kill_popups.size() == 1 and world.kill_popups[0].dna == 20 and world.kill_popups[0].biomass == int(round(TUNING.CORPSE_BIOMASS * 2.0)), "Collected crystals add up into one number (%s)" % str(world.kill_popups))
+	world._add_collect_popup(26.0, 5)
+	_check(world.kill_popups.size() == 1 and world.kill_popups[0].dna == 25 and world.kill_popups[0].biomass == 26 + int(round(TUNING.CORPSE_BIOMASS * 2.0)), "Arrivals within the window grow the same number")
 	for index in 10:
-		world._add_popup(Vector3(index * 10.0, 0, 50), 10, 12.0)
+		world.model.elapsed += 0.5
+		world._add_collect_popup(12.0, 10)
 	_check(world.kill_popups.size() == world.POPUP_MAX, "At most %d popups at once" % world.POPUP_MAX)
 	world.step(1.0)
 	_check(world.kill_popups.is_empty(), "Popups vanish after their short life")

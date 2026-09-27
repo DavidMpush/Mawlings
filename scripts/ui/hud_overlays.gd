@@ -90,12 +90,14 @@ func _process(delta: float) -> void:
 	var moments: int = int(hud.get_meta("king_moments", 0))
 	if moments > _king_seen:
 		_king_time = 0.0
+		_push_king()
 	_king_seen = moments
 	if _king_time >= 0.0:
 		_king_time += delta / maxf(0.01, Engine.time_scale)
 		if _king_time > KING_TIME or hud.extinct:
 			_king_time = -1.0
 	_step_milestone(hud, delta / maxf(0.01, Engine.time_scale))
+	_step_brawl(hud, delta)
 	var key: Variant = _redraw_key(hud)
 	if key == null or typeof(key) != typeof(_last_key) or key != _last_key:
 		queue_redraw()
@@ -104,6 +106,8 @@ func _process(delta: float) -> void:
 
 # null = animating (repaint every frame); otherwise a key of what is shown.
 func _redraw_key(hud: Control) -> Variant:
+	if UiStyle.is_brawl():
+		return _brawl_redraw_key(hud)
 	if hud.extinct:
 		# After the count-up only the rays behind the skull turn (slowly).
 		return null if _result_time < 3.2 else ["result", int(_clock * 30.0), size, hud.run_stats]
@@ -129,16 +133,30 @@ func _draw() -> void:
 	var hud := get_parent()
 	if hud == null:
 		return
+	var brawl := UiStyle.is_brawl()
 	if hud.extinct:
-		_draw_result(hud)
+		if brawl:
+			_draw_result_backdrop()
+		else:
+			_draw_result(hud)
 		return
 	if hud.paused:
-		_draw_pause(hud)
+		if brawl:
+			Kit.dim(self, Rect2(Vector2.ZERO, size), 0.72 * _ease_out(clampf(_pause_time / 0.2, 0.0, 1.0)))
+		else:
+			_draw_pause(hud)
 		return
 	if _last_one(hud):
 		_draw_last_one(hud)
 	_draw_popups(hud)
 	_draw_loss(hud)
+	if brawl:
+		# Banners, milestones, king and evolution moments are ribbons on the
+		# banner layer (stage 15); only the full-screen flash stays here.
+		_draw_banner_flash()
+		if hud.boss_pointer.is_finite():
+			_draw_boss_pointer(hud)
+		return
 	if _milestone_time >= 0.0 and not _choosing(hud) and _king_time < 0.0:
 		_draw_milestone()
 	if _king_time >= 0.0 and not _choosing(hud):
@@ -338,6 +356,7 @@ func _step_milestone(hud: Control, real_delta: float) -> void:
 		_milestone_seen = mark
 		_milestone = mark
 		_milestone_time = 0.0
+		_push_milestone(mark)
 	if _milestone_time >= 0.0:
 		_milestone_time += real_delta
 		if _milestone_time > MILESTONE_TIME or hud.extinct:
@@ -1120,3 +1139,749 @@ func _ease_out(x: float) -> float:
 
 func _ease_in_out(x: float) -> float:
 	return x * x * (3.0 - 2.0 * x)
+
+
+# ================================================================ brawl skin (stage 15, package D)
+#
+# Result, pause and every in-run banner in the Supercell-style kit. The pieces
+# live on UiLayer children (drawn after this node): each section has its own
+# modulate/position/scale, so the kit blocks (which carry no alpha) can fade,
+# slide and pop. Input stays in touch_controls.gd; the buttons are drawn on
+# its _action_rect() / _hub_rect() / _share_rect() / _restart_rect().
+#
+# Result timeline (Höhepunkt – Ruhe – Auswertung, S10/S13):
+#   0.0  danger vignette over the still visible world (the moment)
+#   0.3  the world dims; 0.45 ribbon "AUSGESTORBEN" punches in
+#   0.8  survival time counts up (gold panel + badge on a new record)
+#   1.15 stat tiles, 1.55 build + essence, 1.85 tasks (bars fill from the
+#        progress before this run to the progress after it)
+#   0.9  buttons (live from the first frame, they are the touch areas)
+#
+# Banners: one ribbon at a time in the upper quarter (never the centre),
+# queued. Tones: flood/boss = danger, migration = info, victory/milestone =
+# loot, evolution = special, leader = ember. Flood start, apex victory and
+# arrival are still drawn by hud_flood / hud_objectives; this file draws them
+# once that component sets `banners_in_overlays = true` (or is missing).
+
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
+const UiLayer := preload("res://scripts/ui/ui_layer.gd")
+const PROFILE_PATH := "res://scripts/meta/profile.gd"
+const META_PATH := "res://scripts/meta/meta_data.gd"
+const SHARE_PATH := "res://scripts/ui/share_card.gd"
+const BASE_H := 1600.0
+const BANNER_Y := 400.0          # banner centre below the top HUD (upper quarter)
+const BANNER_TIME := 1.9         # real seconds per banner (queued ones get less)
+const BANNER_TITLE_W := 560.0
+const HANDOVER := {"flood": "hud_flood", "victory": "hud_objectives", "arrival": "hud_objectives"}
+# Same card tones as mutation_screen.gd (attack forms ember, evolutions special).
+const BRANCH_OF := {
+	"jaws": "attack", "pack": "attack",
+	"brood": "growth", "glutton": "growth", "lockduft": "growth",
+	"armor": "protect", "regeneration": "protect", "dornenhaut": "protect",
+	"scatter": "special",
+}
+const BRANCH_TONE := {"attack": "ember", "growth": "info", "protect": "action", "special": "special"}
+const ROMAN := ["I", "II", "III", "IV", "V"]
+# Section -> start time of its entry on the result screen.
+const R_SECTIONS := {"r_title": 0.45, "r_hero": 0.8, "r_stats": 1.15, "r_build": 1.55, "r_tasks": 1.85, "r_buttons": 0.9}
+const R_COUNT := 0.7             # count-up duration of numbers
+const R_BARS := 0.35             # task bars start this long after the task panel
+
+## Captures/tests: profile used for record and task preview instead of the
+## saved one (it is copied, never saved).
+var result_profile: RefCounted = null
+## Captures: draw the handed-over banner kinds too.
+var force_banners := false
+
+var _b: Dictionary = {}
+var _res: Dictionary = {}
+var _queue: Array = []
+var _banner: Dictionary = {}
+var _banner_t := 0.0
+var _flash := {}
+var _seen: Dictionary = {}
+var _share_state := ""
+var _share_t := 0.0
+var _world_node: Node
+
+
+# ---------------------------------------------------------------- layers and stepping
+
+func _ensure_layers() -> void:
+	if not _b.is_empty():
+		return
+	for id in ["r_title", "r_hero", "r_stats", "r_build", "r_tasks", "r_buttons", "pause", "banner"]:
+		var layer := UiLayer.make(self, "B_" + id, Callable(self, "_paint_" + id))
+		layer.visible = false
+		_b[id] = layer
+
+
+func _oy() -> float:
+	return (size.y - BASE_H) * 0.5
+
+
+func _step_brawl(hud: Control, delta: float) -> void:
+	if not UiStyle.is_brawl():
+		for layer in _b.values():
+			layer.visible = false
+		return
+	_ensure_layers()
+	var real := delta / maxf(0.01, Engine.time_scale)
+	# Result
+	if hud.extinct and _res.is_empty():
+		_res = _result_data(hud)
+	elif not hud.extinct:
+		_res = {}
+		_share_state = ""
+	if _share_state in ["saved", "failed"]:
+		_share_t += real
+		if _share_t > 2.5:
+			_share_state = ""
+	for id in R_SECTIONS:
+		_step_section(id, hud.extinct)
+	# Pause
+	var pause: Control = _b.pause
+	var pa := _ease_out(clampf(_pause_time / 0.22, 0.0, 1.0)) if hud.paused and not hud.extinct else 0.0
+	pause.visible = pa > 0.0
+	if pause.visible:
+		pause.modulate.a = pa
+		pause.pivot_offset = Vector2(size.x * 0.5, _oy() + 760.0)
+		pause.scale = Vector2.ONE * lerpf(0.9, 1.0, pa)
+		var evo: Variant = hud.evolution
+		pause.refresh([size, int(hud.elapsed), int(hud.population), str(evo.ranks) if evo != null else "", str(evo.evolutions) if evo != null else "", int(evo.level) if evo != null else 0])
+	# Banners
+	_detect_banners(hud)
+	_step_banner(hud, real)
+
+
+func _step_section(id: String, shown: bool) -> void:
+	var layer: Control = _b[id]
+	var t := _result_time
+	var a := clampf((t - float(R_SECTIONS[id])) / 0.28, 0.0, 1.0) if shown else 0.0
+	layer.visible = a > 0.0
+	if not layer.visible:
+		return
+	var e := _ease_out(a)
+	layer.modulate.a = e
+	if id == "r_title":
+		layer.pivot_offset = Vector2(size.x * 0.5, _oy() + 112.0)
+		layer.scale = Vector2.ONE * lerpf(1.7, 1.0, _ease_back(a))
+		layer.position = Vector2.ZERO
+	else:
+		layer.position = Vector2(0.0, 34.0 * (1.0 - e))
+	var key: Array = [size]
+	match id:
+		"r_hero":
+			key.append_array([int(_count(0.9, 1.0) * 200.0), bool(_res.get("record", false)) and t > 2.0, int(clampf((t - 2.0) / 0.25, 0.0, 1.0) * 20.0)])
+		"r_stats":
+			key.append(int(_count(1.2, R_COUNT + 0.3) * 100.0))
+		"r_build":
+			key.append(int(clampf((t - 1.55) / 0.6, 0.0, 1.0) * 20.0))
+		"r_tasks":
+			key.append(int(_count(float(R_SECTIONS.r_tasks) + R_BARS, 0.8) * 120.0))
+		"r_buttons":
+			key.append(_share_state)
+	layer.refresh(key)
+
+
+# 0..1 progress of a count-up that starts at `start` and runs `span` seconds.
+func _count(start: float, span: float) -> float:
+	return _ease_out(clampf((_result_time - start) / span, 0.0, 1.0))
+
+
+func _brawl_redraw_key(hud: Control) -> Variant:
+	if hud.extinct:
+		return null if _result_time < 1.0 else ["result", size]
+	if hud.paused:
+		return null if _pause_time < 0.3 else ["pause", size]
+	var popups: Array = hud.get_meta("kill_popups", [])
+	for popup in popups:
+		if float(popup.get("t", 1.0)) < 1.0:
+			return null
+	if _loss_visible() or float(hud.hit_feedback) > 0.0 or not _flash.is_empty() or _last_one(hud) or hud.boss_pointer.is_finite():
+		return null
+	return ["idle", size]
+
+
+# ---------------------------------------------------------------- result data
+
+func _result_data(hud: Control) -> Dictionary:
+	var stats: Dictionary = hud.run_stats if hud.run_stats is Dictionary else {}
+	var d := {
+		"stats": stats,
+		"seconds": float(stats.get("seconds", hud.elapsed)),
+		"peak": int(stats.get("peak_population", hud.peak_population)),
+		"kills": int(stats.get("kills", hud.kills)),
+		"biomass": int(float(stats.get("biomass", hud.consumed_biomass))),
+		"bosses": int(stats.get("bosses", 0)) + int(stats.get("apex_kills", 0)),
+		"lost": int(stats.get("lost", 0)),
+		"build": _build(hud, stats),
+		"record": false, "record_peak": false, "tasks": [],
+		"essence": 0, "crowns": 0, "context": "",
+	}
+	var meta: Variant = load(META_PATH) if ResourceLoader.exists(META_PATH) else null
+	var profile_script: Variant = load(PROFILE_PATH) if ResourceLoader.exists(PROFILE_PATH) else null
+	if meta != null:
+		var strain: Dictionary = meta.STRAINS.get(String(stats.get("strain_id", "")), {})
+		var diff := int(stats.get("difficulty", -1))
+		var parts: Array = []
+		if not strain.is_empty():
+			parts.append(String(strain.get("name", "")))
+		if diff >= 0 and diff < meta.DIFFICULTIES.size():
+			parts.append(String(meta.DIFFICULTIES[diff].name))
+		d.context = " · ".join(parts)
+	if profile_script == null or meta == null:
+		return d
+	d.essence = int(profile_script.run_essence(stats))
+	d.crowns = int(profile_script.run_crowns(stats))
+	var source: RefCounted = result_profile if result_profile != null else profile_script.load_or_create()
+	if source != null:
+		_task_preview(d, source, profile_script, meta, stats)
+	return d
+
+
+# Record flags and the three next open tasks (S13), read-only: works on an
+# in-memory copy of the profile that books this run the way record_run() will.
+func _task_preview(d: Dictionary, source: RefCounted, profile_script: Variant, meta: Variant, stats: Dictionary) -> void:
+	var copy: RefCounted = profile_script.new()
+	copy._apply(source.to_dict())
+	var records: Dictionary = copy.records
+	var runs := int(records.get("runs", 0))
+	d.record = runs > 0 and float(d.seconds) > float(records.get("best_seconds", 0.0)) + 0.01
+	d.record_peak = runs > 0 and int(d.peak) > int(records.get("best_peak", 0))
+	var before := {}
+	for q in meta.QUESTS:
+		if not copy.completed_quests.has(q.id):
+			before[q.id] = copy.quest_value(q.stat)
+	copy._update_records(stats)
+	var list: Array = []
+	for q in meta.QUESTS:
+		if not before.has(q.id):
+			continue
+		var target := maxf(1.0, float(q.target))
+		var now: float = copy.quest_value(q.stat)
+		list.append({"q": q, "from": clampf(float(before[q.id]) / target, 0.0, 1.0), "to": clampf(now / target, 0.0, 1.0), "value": now, "done": now >= target})
+	list.sort_custom(_task_order)
+	d.tasks = list.slice(0, 3)
+	for task in d.tasks:
+		if task.done:
+			d.essence += int(task.q.reward.get("essence", 0))
+			d.crowns += int(task.q.reward.get("crowns", 0))
+
+
+# Completed by this run first, then the closest open ones, then the smaller goal.
+static func _task_order(a: Dictionary, b: Dictionary) -> bool:
+	if a.done != b.done:
+		return a.done
+	if not is_equal_approx(a.to, b.to):
+		return a.to > b.to
+	return float(a.q.target) < float(b.q.target)
+
+
+# ---------------------------------------------------------------- result painters
+
+func _draw_result_backdrop() -> void:
+	var t := _result_time
+	var danger: Dictionary = UiStyle.brawl_tone("danger")
+	# The moment: a hard danger rim over the still visible world, then calm.
+	var hit := 1.0 - clampf((t - 0.25) / 0.6, 0.0, 1.0)
+	_vignette(Color(danger.face, 0.55 * hit + 0.16), 260.0)
+	Kit.dim(self, Rect2(Vector2.ZERO, size), 0.8 * _ease_out(clampf((t - 0.3) / 0.5, 0.0, 1.0)))
+
+
+func _paint_r_title(c: CanvasItem) -> void:
+	if _res.is_empty():
+		return
+	var cx := size.x * 0.5
+	var rect := Rect2(cx - 300.0, _oy() + 60.0, 600.0, 104.0)
+	Kit.ribbon(c, rect, "danger")
+	Kit.text_outlined(c, Vector2(cx, rect.get_center().y - 2.0), "AUSGESTORBEN", UiStyle.T_HERO, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, rect.size.x - 40.0)
+	var lost := int(_res.lost)
+	var sub := "DER SCHWARM IST ERLOSCHEN" if lost <= 0 else "%s MAWLINGS GEFALLEN" % Kit.format_int(lost)
+	if String(_res.context) != "":
+		sub += "  ·  " + String(_res.context).to_upper()
+	Kit.text_outlined(c, Vector2(cx, _oy() + 214.0), sub, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, 780.0)
+
+
+func _paint_r_hero(c: CanvasItem) -> void:
+	if _res.is_empty():
+		return
+	var t := _result_time
+	var cx := size.x * 0.5
+	var rect := Rect2(cx - 300.0, _oy() + 244.0, 600.0, 150.0)
+	var gold: bool = bool(_res.record) and t > 2.0
+	Kit.panel(c, rect, "loot" if gold else "dark", UiStyle.R_L)
+	var pc := Vector2(rect.position.x + 84.0, rect.get_center().y)
+	Kit.icon_plate(c, pc, 104.0, "dark" if gold else "loot")
+	_b_icon(c, "clock", Kit.plate_center(pc, 104.0), 64.0)
+	var x := rect.position.x + 156.0
+	Kit.text_outlined(c, Vector2(x, rect.position.y + 38.0), "ÜBERLEBT", UiStyle.T_LABEL, Color.WHITE if gold else UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+	var shown := float(_res.seconds) * _count(0.9, 1.0)
+	Kit.text_outlined(c, Vector2(x - 4.0, rect.position.y + 96.0), _clock_text(shown), 96, Color.WHITE, 18, 7, UiStyle.number_font(), Kit.LEFT | Kit.MIDDLE, rect.end.x - 24.0 - x)
+	if gold:
+		var pop := _ease_back(clampf((t - 2.0) / 0.25, 0.0, 1.0))
+		if pop > 0.05:
+			c.draw_set_transform(Vector2(rect.end.x - 92.0, rect.position.y - 2.0), -0.08, Vector2.ONE * pop)
+			Kit.badge(c, Vector2.ZERO, "NEUER REKORD!", "danger", UiStyle.T_LABEL)
+			c.draw_set_transform(Vector2.ZERO)
+
+
+func _paint_r_stats(c: CanvasItem) -> void:
+	if _res.is_empty():
+		return
+	var tiles := [
+		["mawling_head_color", "PEAK", int(_res.peak), "ember", bool(_res.record_peak)],
+		["jaws", "KILLS", int(_res.kills), "ember", false],
+		["biomass", "BIOMASSE", int(_res.biomass), "loot", false],
+		["bog_king", "BOSSE", int(_res.bosses), "danger", false],
+	]
+	var gap := UiStyle.SPACE_M
+	var w := (780.0 - gap * 3.0) / 4.0
+	var x0 := size.x * 0.5 - 390.0
+	var y := _oy() + 418.0
+	for i in tiles.size():
+		var rect := Rect2(x0 + i * (w + gap), y, w, 140.0)
+		Kit.panel(c, rect, "dark", UiStyle.R_L)
+		var cx := rect.get_center().x
+		var pc := Vector2(cx, rect.position.y + 40.0)
+		Kit.icon_plate(c, pc, 60.0, tiles[i][3])
+		_b_icon(c, tiles[i][0], Kit.plate_center(pc, 60.0), 46.0)
+		var value := int(roundf(float(tiles[i][2]) * _count(1.2 + i * 0.1, R_COUNT)))
+		Kit.number(c, Vector2(cx, rect.position.y + 92.0), value, UiStyle.T_TITLE, Color.WHITE, Kit.CENTER | Kit.MIDDLE, w - 24.0)
+		Kit.text_outlined(c, Vector2(cx, rect.end.y - 18.0), tiles[i][1], UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, w - 16.0)
+		if tiles[i][4] and _result_time > 1.2 + R_COUNT:
+			Kit.badge(c, Vector2(rect.end.x - 18.0, rect.position.y + 4.0), "REKORD", "danger", UiStyle.T_LABEL)
+
+
+func _paint_r_build(c: CanvasItem) -> void:
+	if _res.is_empty():
+		return
+	var cx := size.x * 0.5
+	var rect := Rect2(cx - 390.0, _oy() + 578.0, 780.0, 140.0)
+	Kit.panel(c, rect, "dark", UiStyle.R_L)
+	Kit.text_outlined(c, Vector2(rect.position.x + 24.0, rect.position.y + 30.0), "BUILD", UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+	_paint_build(c, Rect2(rect.position.x + 20.0, rect.position.y + 40.0, rect.size.x - 40.0, 94.0), _res.build, 76.0, (_result_time - 1.55) / 0.6)
+	# Essence (and crowns) this run earns, as reward pills under the build.
+	var crowns := int(_res.crowns)
+	var pills: Array = [["essence", "+%s ESSENZ" % Kit.format_int(int(_res.essence)), "special"]]
+	if crowns > 0:
+		pills.append(["crown_tooth", ("+%d KÖNIGSZAHN" % crowns) if crowns == 1 else ("+%d KÖNIGSZÄHNE" % crowns), "loot"])
+	var font := UiStyle.display_font()
+	var widths: Array = []
+	var total := 0.0
+	for p in pills:
+		var w := 66.0 + font.get_string_size(p[1], HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_HEAD).x + 26.0
+		widths.append(w)
+		total += w
+	total += UiStyle.SPACE_L * (pills.size() - 1)
+	var x := cx - total * 0.5
+	var y := _oy() + 740.0
+	for i in pills.size():
+		var r := Rect2(x, y, widths[i], 58.0)
+		Kit.pill(c, r, "dark", UiStyle.STROKE_M)
+		var pc := Vector2(r.position.x + 30.0, r.get_center().y)
+		Kit.icon_plate(c, pc, 54.0, pills[i][2])
+		_b_icon(c, pills[i][0], Kit.plate_center(pc, 54.0), 40.0)
+		Kit.text_outlined(c, Vector2(r.position.x + 66.0, r.get_center().y), pills[i][1], UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+		x += widths[i] + UiStyle.SPACE_L
+
+
+func _paint_r_tasks(c: CanvasItem) -> void:
+	if _res.is_empty():
+		return
+	var cx := size.x * 0.5
+	var rect := Rect2(cx - 390.0, _oy() + 816.0, 780.0, 412.0)
+	Kit.panel(c, rect, "dark", UiStyle.R_L)
+	var hx := rect.position.x + 24.0
+	_b_icon(c, "trophy", Vector2(hx + 20.0, rect.position.y + 40.0), 44.0)
+	Kit.text_outlined(c, Vector2(hx + 52.0, rect.position.y + 40.0), "AUFGABEN", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+	var tasks: Array = _res.tasks
+	if tasks.is_empty():
+		Kit.paragraph(c, Vector2(rect.position.x + 24.0, rect.position.y + 200.0), "Alle Trophäen erreicht. Die Horde ist vollkommen.", rect.size.x - 48.0, UiStyle.T_BODY, UiStyle.BRAWL_TEXT_DIM, true, Kit.CENTER, 2)
+		return
+	var fill := _count(float(R_SECTIONS.r_tasks) + R_BARS, 0.8)
+	for i in tasks.size():
+		var row := Rect2(rect.position.x + 20.0, rect.position.y + 74.0 + i * 108.0, rect.size.x - 40.0, 96.0)
+		_paint_task(c, row, tasks[i], fill)
+
+
+func _paint_task(c: CanvasItem, row: Rect2, task: Dictionary, fill: float) -> void:
+	var q: Dictionary = task.q
+	var shown: float = lerpf(float(task.from), float(task.to), fill)
+	var done: bool = bool(task.done) and fill >= 0.999
+	Kit.well(c, row, UiStyle.R_M)
+	var pc := Vector2(row.position.x + 50.0, row.get_center().y)
+	Kit.icon_plate(c, pc, 72.0, "action" if done else "loot")
+	_b_icon(c, "trophy", Kit.plate_center(pc, 72.0), 50.0)
+	# Reward chip on the right.
+	var reward := _task_reward(q)
+	var chip := Rect2(row.end.x - 146.0, row.position.y + 14.0, 132.0, 68.0)
+	Kit.chip(c, chip, "action" if done else "dark")
+	_b_icon(c, reward[0], Vector2(chip.position.x + 34.0, chip.get_center().y), 46.0)
+	var reward_text: String = reward[1]
+	Kit.text_outlined(c, Vector2(chip.position.x + 62.0, chip.get_center().y), reward_text, UiStyle.T_HEAD, Color.WHITE, -1, -1, UiStyle.number_font() if reward_text.begins_with("+") else null, Kit.LEFT | Kit.MIDDLE, chip.end.x - 10.0 - (chip.position.x + 62.0))
+	# Name, progress text and bar.
+	var x := row.position.x + 100.0
+	var right := chip.position.x - UiStyle.SPACE_L
+	var progress := "GESCHAFFT!" if done else _task_progress_text(q, float(task.value) if fill >= 0.999 else shown * float(q.target))
+	var pw := UiStyle.display_font().get_string_size(progress, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x
+	Kit.text_outlined(c, Vector2(right, row.position.y + 28.0), progress, UiStyle.T_LABEL, UiStyle.brawl_tone("action")["light"] if done else UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.RIGHT | Kit.MIDDLE)
+	Kit.text_outlined(c, Vector2(x, row.position.y + 28.0), String(q.name), UiStyle.T_BODY, Color.WHITE, 7, 3, UiStyle.body_bold_font(), Kit.LEFT | Kit.MIDDLE, right - pw - UiStyle.SPACE_M - x)
+	Kit.bar(c, Rect2(x, row.position.y + 50.0, right - x, 32.0), shown, "action" if done else "loot")
+
+
+func _task_reward(q: Dictionary) -> Array:
+	var reward: Dictionary = q.get("reward", {})
+	if int(reward.get("crowns", 0)) > 0:
+		return ["crown_tooth", "+%d" % int(reward.crowns)]
+	if int(reward.get("essence", 0)) > 0:
+		return ["essence", "+%d" % int(reward.essence)]
+	return ["lock", "NEU"]
+
+
+func _task_progress_text(q: Dictionary, value: float) -> String:
+	var stat := String(q.stat)
+	var target := float(q.target)
+	value = clampf(value, 0.0, target)
+	if stat.contains("seconds") or stat.contains("time"):
+		return "%s / %s" % [_short_time(value), _short_time(target)]
+	return "%s / %s" % [Kit.format_int(int(value)), Kit.format_int(int(target))]
+
+
+func _short_time(seconds: float) -> String:
+	var s := int(seconds)
+	return "%d:%02d" % [s / 60, s % 60]
+
+
+func _paint_r_buttons(c: CanvasItem) -> void:
+	var hud := get_parent()
+	if hud == null or _res.is_empty():
+		return
+	var action: Rect2 = hud._action_rect()
+	Kit.button(c, action, "action", false, UiStyle.R_XL)
+	_button_label(c, action, false, "restart", "NOCHMAL", UiStyle.T_TITLE, 64.0)
+	var hub: Rect2 = hud._hub_rect()
+	Kit.button(c, hub, "neutral", false, UiStyle.R_L)
+	_button_label(c, hub, false, "hub", "BRUTSTÄTTE", UiStyle.T_HEAD, 52.0)
+	if hud.has_method("_share_rect"):
+		var share: Rect2 = hud._share_rect()
+		if share.size.x > 0.0:
+			var busy := _share_state == "busy"
+			Kit.button(c, share, "info", busy, UiStyle.R_L)
+			var label: String = {"busy": "…", "saved": "GESPEICHERT", "failed": "FEHLER"}.get(_share_state, "TEILEN")
+			Kit.text_outlined(c, Kit.button_label_center(share, busy), label, UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, share.size.x - 28.0)
+
+
+# Icon + label centred on a button face.
+func _button_label(c: CanvasItem, rect: Rect2, pressed: bool, icon: String, label: String, font_size: int, icon_size: float) -> void:
+	var lc := Kit.button_label_center(rect, pressed)
+	var has_icon := _icons != null and bool(_icons.call("has", icon))
+	var extra := icon_size + 12.0 if has_icon else 0.0
+	var room := rect.size.x - 40.0 - extra
+	var tw := minf(UiStyle.display_font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x, room)
+	var x := lc.x - (tw + extra) * 0.5
+	if has_icon:
+		_b_icon(c, icon, Vector2(x + icon_size * 0.5, lc.y), icon_size)
+		x += extra
+	Kit.text_outlined(c, Vector2(x, lc.y), label, font_size, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE, room)
+
+
+# Build as icon plates with rank badges (roman numerals; EVO for evolutions).
+func _paint_build(c: CanvasItem, area: Rect2, build: Array, plate: float, reveal: float) -> void:
+	if build.is_empty():
+		Kit.text_outlined(c, area.get_center(), "Keine Mutationen gewählt", UiStyle.T_BODY, UiStyle.BRAWL_TEXT_DIM, 7, 3, UiStyle.body_bold_font(), Kit.CENTER | Kit.MIDDLE, area.size.x)
+		return
+	var n := build.size()
+	var step := minf(plate + 22.0, area.size.x / n)
+	var p := minf(plate, step - 12.0)
+	var x0 := area.get_center().x - (n - 1) * step * 0.5
+	var hud := get_parent()
+	var evo: Variant = hud.evolution if hud != null else null
+	for i in n:
+		if reveal * n < i * 0.6:
+			break
+		var id: String = build[i][0]
+		var evolved: bool = build[i][2]
+		var center := Vector2(x0 + i * step, area.get_center().y + 4.0)
+		Kit.icon_plate(c, center, p, _build_tone(evo, id, evolved))
+		_b_icon(c, id, Kit.plate_center(center, p), p * 0.76)
+		var rank := int(build[i][1])
+		var tag: String = "EVO" if evolved else ROMAN[clampi(rank, 1, ROMAN.size()) - 1]
+		Kit.badge(c, center + Vector2(p * 0.38, -p * 0.36), tag, "loot" if evolved else "neutral", UiStyle.T_LABEL)
+
+
+func _build_tone(evo: Variant, id: String, evolved: bool) -> String:
+	if evolved:
+		return "special"
+	var kind: String = evo.kind_of(id) if evo != null else ""
+	if kind == "evolved":
+		return "special"
+	if kind == "attack":
+		return "ember"
+	return BRANCH_TONE[BRANCH_OF.get(id, "special")]
+
+
+func _b_icon(c: CanvasItem, id: String, center: Vector2, side: float, tint: Color = Color.WHITE) -> bool:
+	if _icons == null or not bool(_icons.call("has", id)):
+		return false
+	_icons.call("draw", c, id, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), tint)
+	return true
+
+
+# ---------------------------------------------------------------- pause
+
+func _paint_pause(c: CanvasItem) -> void:
+	var hud := get_parent()
+	if hud == null:
+		return
+	var cx := size.x * 0.5
+	var oy := _oy()
+	var panel := Rect2(cx - 390.0, oy + 300.0, 780.0, 900.0)
+	Kit.panel(c, panel, "dark", UiStyle.R_XL, UiStyle.STROKE_L)
+	var ribbon := Rect2(cx - 190.0, panel.position.y - 50.0, 380.0, 100.0)
+	Kit.ribbon(c, ribbon, "info")
+	Kit.text_outlined(c, Vector2(cx, ribbon.get_center().y - 2.0), "PAUSE", UiStyle.T_HERO, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, ribbon.size.x - 40.0)
+	# Run so far: time, swarm, level.
+	var level: int = 0 if hud.evolution == null else int(hud.evolution.level)
+	var tiles := [
+		["clock", "ZEIT", _clock_text(hud.elapsed), "loot"],
+		["mawling_head_color", "SCHWARM", Kit.format_int(int(hud.population)), "ember"],
+		["dna", "STUFE", str(level), "info"],
+	]
+	var gap := UiStyle.SPACE_M
+	var w := (700.0 - gap * 2.0) / 3.0
+	for i in tiles.size():
+		var rect := Rect2(cx - 350.0 + i * (w + gap), oy + 400.0, w, 124.0)
+		Kit.well(c, rect, UiStyle.R_M)
+		var pc := Vector2(rect.position.x + 44.0, rect.position.y + 50.0)
+		Kit.icon_plate(c, pc, 60.0, tiles[i][3])
+		_b_icon(c, tiles[i][0], Kit.plate_center(pc, 60.0), 44.0)
+		Kit.number(c, Vector2(rect.position.x + 86.0, rect.position.y + 52.0), tiles[i][2], UiStyle.T_HEAD, Color.WHITE, Kit.LEFT | Kit.MIDDLE, rect.end.x - 12.0 - (rect.position.x + 86.0))
+		Kit.text_outlined(c, Vector2(rect.get_center().x, rect.end.y - 22.0), tiles[i][1], UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, w - 16.0)
+	Kit.text_outlined(c, Vector2(cx, oy + 572.0), "AKTUELLER BUILD", UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	var build_well := Rect2(cx - 350.0, oy + 600.0, 700.0, 130.0)
+	Kit.well(c, build_well, UiStyle.R_M)
+	_paint_build(c, build_well.grow(-8.0), _build(hud, {}), 80.0, 9.0)
+	var action: Rect2 = hud._action_rect()
+	Kit.button(c, action, "action", false, UiStyle.R_XL)
+	_button_label(c, action, false, "play", "WEITER", UiStyle.T_TITLE, 60.0)
+	if hud.has_method("_restart_rect"):
+		var restart: Rect2 = hud._restart_rect()
+		if restart.size.x > 0.0:
+			Kit.button(c, restart, "neutral", false, UiStyle.R_L)
+			_button_label(c, restart, false, "restart", "NEUSTART", UiStyle.T_HEAD, 48.0)
+	var hub: Rect2 = hud._hub_rect()
+	Kit.button(c, hub, "neutral", false, UiStyle.R_L)
+	_button_label(c, hub, false, "hub", "BRUTSTÄTTE", UiStyle.T_HEAD, 48.0)
+
+
+# ---------------------------------------------------------------- banners
+
+## Queues a ribbon banner. tone: kit tone name; icon: ui_icons id or "".
+## kind decides the hand-over rule (HANDOVER); captures call this directly.
+func push_banner(kind: String, title: String, tone: String, icon: String = "", kicker: String = "", sub: String = "", duration: float = BANNER_TIME, flash: bool = false) -> void:
+	if not UiStyle.is_brawl():
+		return
+	if HANDOVER.has(kind) and not force_banners and not _handed_over(kind):
+		return
+	_queue.append({"kind": kind, "title": title, "tone": tone, "icon": icon, "kicker": kicker, "sub": sub, "dur": duration, "flash": flash})
+
+
+func _handed_over(kind: String) -> bool:
+	var hud := get_parent()
+	if hud == null:
+		return true
+	var owner_node := hud.get_node_or_null(String(HANDOVER[kind]))
+	return owner_node == null or owner_node.get("banners_in_overlays") == true
+
+
+func _push_milestone(mark: int) -> void:
+	if mark <= 0:
+		return
+	push_banner("milestone", _milestone_text(mark), "loot", "mawling_head_color", "HORDE!" if mark >= 100 else "MEILENSTEIN", "", 1.7)
+
+
+func _push_king() -> void:
+	push_banner("king", "KÖNIG VERSCHLUNGEN", "loot", "bog_king", "SIEG!", "Der Bog King ist Beute", 2.4, true)
+
+
+func _world() -> Node:
+	if _world_node != null and is_instance_valid(_world_node):
+		return _world_node
+	var node: Node = get_parent()
+	while node != null:
+		var found := node.get_node_or_null("HuntWorld")
+		if found != null:
+			_world_node = found
+			return found
+		node = node.get_parent()
+	return null
+
+
+func _hud_value(hud: Control, key: String, fallback: Variant) -> Variant:
+	var value: Variant = hud.get(key)
+	if value == null and hud.has_meta(key):
+		value = hud.get_meta(key)
+	return fallback if value == null else value
+
+
+# Watches HUD values for the moments that get a banner. The first frame only
+# remembers the values (no banner for a state the run starts in).
+func _detect_banners(hud: Control) -> void:
+	if hud.extinct:
+		_queue.clear()
+		_banner = {}
+		return
+	var fresh := _seen.is_empty()
+	# Evolution: evolve_flash jumps up to EVOLVE_TIME.
+	var flash := float(hud.evolve_flash)
+	if not fresh and flash > float(_seen.get("evolve", 0.0)) + 0.5:
+		var evo: Variant = hud.evolution
+		var id := "alpha_core"
+		if evo != null and not evo.evolutions.is_empty():
+			id = String(evo.evolutions.back())
+		var name_text := String(hud.evolve_name).to_upper()
+		push_banner("evolution", name_text if name_text != "" else "EVOLUTION", "special", id, "EVOLUTION!", "", 2.2)
+	_seen["evolve"] = flash
+	# Bog King appears.
+	var boss_on := float(hud.boss_max_health) > 0.0
+	if not fresh and boss_on and not bool(_seen.get("boss", false)):
+		push_banner("boss", "BOG KING NAHT", "danger", "bog_king", "BOSS", "Weich dem Stampfer aus, dann zubeißen")
+	_seen["boss"] = boss_on
+	# Leader swap (RunModel.leader_swaps; the HUD has no counter of its own).
+	var world := _world()
+	var model: Variant = world.get("model") if world != null else null
+	if model != null:
+		var swaps := int(model.leader_swaps)
+		if not fresh and _seen.has("swaps") and swaps > int(_seen.swaps):
+			var lp := int(_hud_value(hud, "leader_max_hp", 1))
+			push_banner("leader", "NEUER ANFÜHRER", "ember", "mawling_head_color", "ANFÜHRER GEFALLEN", "Er führt mit %d LP" % lp)
+		_seen["swaps"] = swaps
+	# Flood start.
+	var flood: Variant = hud.get_meta("flood", {})
+	var flood_state := int(flood.get("state", 0)) if flood is Dictionary else 0
+	if not fresh and flood_state == 2 and int(_seen.get("flood", 0)) != 2:
+		push_banner("flood", "DIE FLUT BRICHT LOS", "danger", "skull", "GEFAHR", "In Bewegung bleiben, Brut zerbeißen")
+	_seen["flood"] = flood_state
+	# Apex: appears, is beaten, the swarm arrives in a new biome.
+	var obj: Variant = hud.get_meta("objectives", {})
+	if obj is Dictionary:
+		var apex_state := int(obj.get("apex_state", 0))
+		var apex_name := String(obj.get("apex_name", "APEX"))
+		if not fresh and apex_state == 2 and int(_seen.get("apex", 0)) != 2:
+			push_banner("apex", "%s ERSCHEINT" % apex_name, "danger", "skull", "APEX", "")
+		_seen["apex"] = apex_state
+		var wins := int(obj.get("apex_victories", 0))
+		if not fresh and _seen.has("wins") and wins > int(_seen.wins):
+			push_banner("victory", "%s BEZWUNGEN" % apex_name, "loot", "crown", "SIEG!", "Der Migrationsschlund öffnet sich", 2.6, true)
+		_seen["wins"] = wins
+		var arrivals := int(obj.get("arrivals", 0))
+		if not fresh and _seen.has("arrivals") and arrivals > int(_seen.arrivals):
+			var biome := String(obj.get("biome_id", ""))
+			var title := String(obj.get("biome_title", "")).to_upper()
+			push_banner("arrival", title if title != "" else "NEUES BIOM", "info", "biome_glutsumpf" if biome == "glutsumpf" else "biome_verdant", "MIGRATION", "", 2.2)
+		_seen["arrivals"] = arrivals
+
+
+func _step_banner(hud: Control, real_delta: float) -> void:
+	var layer: Control = _b.banner
+	var hold: bool = hud.paused or hud.extinct or _choosing(hud)
+	var obj: Variant = hud.get_meta("objectives", {})
+	var swirl: bool = obj is Dictionary and float(obj.get("migration", -1.0)) >= 0.0
+	if _banner.is_empty() and not _queue.is_empty() and not hold:
+		# An arrival waits until the migration swirl has opened again.
+		if not (String(_queue[0].kind) == "arrival" and swirl):
+			_banner = _queue.pop_front()
+			_banner_t = 0.0
+			if _banner.flash:
+				_flash = {"t": 0.0, "tone": _banner.tone}
+	if not _flash.is_empty():
+		_flash.t = float(_flash.t) + real_delta
+		if _flash.t > 0.4:
+			_flash = {}
+	if _banner.is_empty() or hold:
+		layer.visible = false
+		return
+	_banner_t += real_delta
+	# Queued banners shorten the current one so nothing piles up.
+	var dur: float = float(_banner.dur) if _queue.is_empty() else minf(float(_banner.dur), 1.2)
+	if _banner_t >= dur:
+		_banner = {}
+		layer.visible = false
+		return
+	var t := _banner_t
+	var pop := _ease_back(clampf(t / 0.24, 0.0, 1.0))
+	var out := clampf((t - (dur - 0.32)) / 0.32, 0.0, 1.0)
+	layer.visible = true
+	layer.modulate.a = clampf(t / 0.1, 0.0, 1.0) * (1.0 - out)
+	layer.pivot_offset = Vector2(size.x * 0.5, _oy() + BANNER_Y)
+	layer.scale = Vector2.ONE * lerpf(1.4, 1.0, pop)
+	layer.position = Vector2(0.0, -46.0 * _ease_out(out))
+	layer.refresh([size, _banner.title, _banner.kind, _banner.sub])
+
+
+func _paint_banner(c: CanvasItem) -> void:
+	if _banner.is_empty():
+		return
+	var b := _banner
+	var cx := size.x * 0.5
+	var cy := _oy() + BANNER_Y
+	var title := String(b.title)
+	var font := UiStyle.display_font()
+	var tw := minf(font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_TITLE).x, BANNER_TITLE_W)
+	var icon := String(b.icon)
+	var has_icon := icon != "" and _icons != null and bool(_icons.call("has", icon))
+	var plate := 76.0
+	var w := tw + 64.0 + (plate + 8.0 if has_icon else 0.0)
+	var rect := Rect2(cx - w * 0.5, cy - 46.0, w, 92.0)
+	Kit.ribbon(c, rect, b.tone)
+	var x := rect.position.x + 32.0
+	if has_icon:
+		var pc := Vector2(x + plate * 0.5 - 8.0, cy)
+		Kit.icon_plate(c, pc, plate, "dark")
+		_b_icon(c, icon, Kit.plate_center(pc, plate), plate * 0.8)
+		x += plate + 8.0
+	Kit.text_outlined(c, Vector2(x, cy - 2.0), title, UiStyle.T_TITLE, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE, BANNER_TITLE_W)
+	var kicker := String(b.kicker)
+	if kicker != "":
+		var kw := font.get_string_size(kicker, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x + 36.0
+		var chip := Rect2(cx - kw * 0.5, rect.position.y - 36.0, kw, 42.0)
+		Kit.chip(c, chip, "dark")
+		Kit.text_outlined(c, chip.get_center(), kicker, UiStyle.T_LABEL, UiStyle.brawl_tone(b.tone)["light"], -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	var sub := String(b.sub)
+	if sub != "":
+		Kit.text_outlined(c, Vector2(cx, rect.end.y + 48.0), sub, UiStyle.T_BODY, Color.WHITE, 7, 3, UiStyle.body_bold_font(), Kit.CENTER | Kit.MIDDLE, 760.0)
+
+
+# Full-screen flash of victory moments (king, apex): short, under the ribbon.
+func _draw_banner_flash() -> void:
+	if _flash.is_empty():
+		return
+	var k := 1.0 - clampf(float(_flash.t) / 0.4, 0.0, 1.0)
+	draw_rect(Rect2(Vector2.ZERO, size), Color(UiStyle.brawl_tone(_flash.tone)["light"], 0.32 * k))
+
+
+# ---------------------------------------------------------------- share
+
+## Renders the share card of the finished run (share_card.gd) into
+## user://shares/. The result button shows "…" while it draws, then
+## "GESPEICHERT". Real system sharing comes with the Android share plugin.
+func share_result() -> String:
+	if _share_state == "busy" or _res.is_empty() or not ResourceLoader.exists(SHARE_PATH):
+		return ""
+	_share_state = "busy"
+	_share_t = 0.0
+	var card: Node = load(SHARE_PATH).new()
+	card.name = "ShareCard"
+	add_child(card)
+	var path: String = await card.render(_res.stats)
+	card.queue_free()
+	_share_state = "saved" if path != "" else "failed"
+	_share_t = 0.0
+	return path
+
+
+func _ease_back(x: float) -> float:
+	var c1 := 1.70158
+	var c3 := c1 + 1.0
+	return 1.0 + c3 * pow(x - 1.0, 3.0) + c1 * pow(x - 1.0, 2.0)

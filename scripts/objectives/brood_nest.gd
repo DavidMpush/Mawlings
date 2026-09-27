@@ -2,7 +2,7 @@ extends Node3D
 
 # Brutnest (stage 06): a round zone of NEST_RADIUS metres. The share of visible
 # Mawlings inside fills it; progress stays when the swarm leaves. HuntWorld turns
-# a full nest into a clutch of ordinary corpses (resource rule) plus DNA.
+# a full nest into loot crystals (resource rule, Etappe 16) plus DNA.
 # Logic and animation run only in fill()/animate(), called from HuntWorld.step(),
 # so pause and mutation choice freeze the nest.
 

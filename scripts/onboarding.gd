@@ -23,7 +23,7 @@ const TIPS := {
 	"boss": "Der Bog King! Weiche dem Stampfen aus und beiß zu, wenn er erschöpft ist",
 	"rally": "Halte links RALLY: dichter Schwarm, stärkerer Biss",
 	"prey": "Umzingle die Beute – der Schwarm beißt automatisch",
-	"corpse": "Bleib auf dem Kadaver: Biomasse wird zu neuen Mawlings",
+	"corpse": "Sammle die Kristalle ein: Biomasse wird zu neuen Mawlings",
 	"alpha": "Alpha-Kern! Einsammeln – er lässt deinen Schwarm aufsteigen",
 	"mutation": "Mutation aktiv – mehr DNA aus Beute bringt die nächste Wahl",
 	"nest": "Brutnest! Bleib im Kreis, bis der Balken voll ist",
@@ -169,10 +169,11 @@ func _wanted(id: String) -> bool:
 		"prey":
 			return _nearest(world.get("prey"), PREY_RANGE)
 		"corpse":
-			for corpse in _model.get("corpses"):
-				if corpse.position.distance_to(swarm.position) <= CORPSE_RANGE:
-					return true
-			return false
+			# Etappe 16: loot crystals lying close by (id "corpse" kept for saved profiles).
+			var loot: Variant = world.get("loot")
+			if loot == null or not is_instance_valid(loot):
+				return false
+			return (loot.lying_near(swarm.position, CORPSE_RANGE) as Array).size() > 0
 		"alpha":
 			return _nearest(world.get("alpha_pickups"), ALPHA_RANGE)
 		"mutation":

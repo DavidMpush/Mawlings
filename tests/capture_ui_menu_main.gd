@@ -1,12 +1,14 @@
 extends SceneTree
-## Stage 04 / MENU_MAIN: renders the Brutstätte main view with the new component
-## (legacy blocks off) for three strain states, plus a side-by-side sheet with the
-## HUD concept. Run WITHOUT --headless (frame_post_draw needs a window).
-## Uses a scratch profile; the real player profile is never touched.
+## Stage 15 / MENU_MAIN (brawl skin): renders the Brutstätte main view with the
+## menu's own components at 900 x 1600 and 540 x 960 for the review states:
+## standard (Glutmaw), another owned strain (Sporling), a locked strain, a
+## buyable strain, the longest description (Ätzmaul), TAGES-BRUT played today + held down, and an open tab.
+## Run WITHOUT --headless (frame_post_draw needs a window), with
+## --audio-driver Dummy --screen 1. Uses a scratch profile; the real player
+## profile is never touched. Writes preview_ui_menu_main_<state>[_540].png.
 
 const TEST_PROFILE := "user://capture_ui_menu_main_profile.json"
-const COMPONENT := "res://scripts/ui/menu/menu_main.gd"
-const CONCEPT := "C:/Users/vrxby/Documents/Codex/Swarm/Design/MAWLINGS_ACTIVE_HUD_CONCEPT_PORTRAIT.png"
+const SIZES := [[Vector2i(900, 1600), ""], [Vector2i(540, 960), "_540"]]
 
 
 func _initialize() -> void:
@@ -14,19 +16,28 @@ func _initialize() -> void:
 
 
 func _capture() -> void:
-	root.size = Vector2i(540, 960)
+	for entry in SIZES:
+		await _capture_size(entry[0], entry[1])
+	print("Saved MENU_MAIN review frames")
+	quit()
+
+
+func _capture_size(window: Vector2i, suffix: String) -> void:
+	root.size = window
+	DisplayServer.window_set_size(window)
 	var session: Variant = load("res://scripts/meta/session.gd")
 	if FileAccess.file_exists(TEST_PROFILE):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROFILE))
-	var profile: Variant = load("res://scripts/meta/profile.gd").load_or_create(TEST_PROFILE)
-	profile.essence = 1240
+	var profile_script: Variant = load("res://scripts/meta/profile.gd")
+	var profile: Variant = profile_script.load_or_create(TEST_PROFILE)
+	profile.essence = 12480
 	profile.crowns = 4
 	profile.upgrades["brood_size"] = 3
 	profile.upgrades["rending"] = 2
 	profile.instinct_level = 3
 	profile.completed_quests.append_array(["survive_1", "survive_3", "peak_50", "kills_100"])
 	profile.records.best_seconds = 262.0
-	profile.records.best_peak = 88
+	profile.records.best_peak = 250
 	profile.records.total_kills = 340
 	profile.records.total_leapers = 6
 	profile.records.total_bosses = 0
@@ -35,25 +46,38 @@ func _capture() -> void:
 	var menu: Control = load("res://scenes/menu.tscn").instantiate()
 	menu.profile_path = TEST_PROFILE
 	menu.change_scene_on_play = false
-	var component: Control = load(COMPONENT).new()
-	for key in component.REPLACES:
-		menu.legacy[key] = false
-	menu.add_child(component)
+	menu.skip_menu_on_first_start = false
 	root.add_child(menu)
-	await _settle(20)
-	await _shot("res://preview_ui_menu_main_free.png")
+	await _settle(24)
+	await _shot("res://preview_ui_menu_main%s.png" % suffix)
+	menu.strain_index = menu.strain_ids.find("sporling")
+	await _settle(12)
+	await _shot("res://preview_ui_menu_main_other%s.png" % suffix)
 	menu.strain_index = menu.strain_ids.find("knochenkiefer")
-	await _settle(6)
-	await _shot("res://preview_ui_menu_main_locked.png")
+	await _settle(12)
+	await _shot("res://preview_ui_menu_main_locked%s.png" % suffix)
 	menu.profile.unlocked_strains.append("knochenkiefer")
-	await _settle(6)
-	await _shot("res://preview_ui_menu_main_buy.png")
-	_compare("res://preview_ui_menu_main_free.png", "res://preview_ui_menu_main_compare.png")
+	await _settle(12)
+	await _shot("res://preview_ui_menu_main_buy%s.png" % suffix)
+	# Longest description (Ätzmaul) as an owned strain: two lines + chips must fit.
+	menu.profile.unlocked_strains.append("aetzmaul")
+	menu.profile.owned_strains.append("aetzmaul")
+	menu.strain_index = menu.strain_ids.find("aetzmaul")
+	await _settle(12)
+	await _shot("res://preview_ui_menu_main_long%s.png" % suffix)
+	# TAGES-BRUT: today's record is booked and the button is held down.
+	menu.strain_index = menu.strain_ids.find("glutmaw")
+	menu.profile.daily_records[profile_script.today_key()] = {"seconds": 261.0, "peak": 180, "runs": 2}
+	menu.set("_press_pos", menu.daily_rect().get_center())
+	await _settle(12)
+	await _shot("res://preview_ui_menu_main_daily%s.png" % suffix)
+	menu.set("_press_pos", Vector2.INF)
+	menu.open_tab("upgrades")
+	await _settle(12)
+	await _shot("res://preview_ui_menu_main_tab%s.png" % suffix)
 	menu.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROFILE))
-	print("Saved MENU_MAIN review frames")
-	quit()
 
 
 func _settle(frames: int) -> void:
@@ -65,20 +89,3 @@ func _shot(path: String) -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(path)
-
-
-## Preview next to the concept at the same height for the design review.
-func _compare(preview_path: String, out_path: String) -> void:
-	var preview := Image.load_from_file(ProjectSettings.globalize_path(preview_path))
-	if preview == null or not FileAccess.file_exists(CONCEPT):
-		return
-	var concept := Image.load_from_file(CONCEPT)
-	if concept == null:
-		return
-	concept.convert(preview.get_format())
-	concept.resize(int(concept.get_width() * float(preview.get_height()) / concept.get_height()), preview.get_height(), Image.INTERPOLATE_BILINEAR)
-	var sheet := Image.create(preview.get_width() + concept.get_width() + 12, preview.get_height(), false, preview.get_format())
-	sheet.fill(Color.BLACK)
-	sheet.blit_rect(preview, Rect2i(Vector2i.ZERO, preview.get_size()), Vector2i.ZERO)
-	sheet.blit_rect(concept, Rect2i(Vector2i.ZERO, concept.get_size()), Vector2i(preview.get_width() + 12, 0))
-	sheet.save_png(ProjectSettings.globalize_path(out_path))

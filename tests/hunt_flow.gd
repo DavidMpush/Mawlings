@@ -21,26 +21,28 @@ func _run() -> void:
 			break
 		swarm.position = target.position
 		await create_timer(0.05).timeout
-	if world.model.corpses.size() != 1:
-		_fail("Hunting must leave one corpse")
-		return
-	var corpse_position: Vector3 = world.model.corpses[0].position
+	# Etappe 16: the kill bursts into loot crystals; leave at once so they stay.
+	var kill_spot: Vector3 = swarm.position
 	swarm.position = Vector3(20, 0, 20)
-	await create_timer(0.2).timeout
-	var remainder: float = world.model.corpses[0].remaining
-	await create_timer(0.3).timeout
-	if not is_equal_approx(world.model.corpses[0].remaining, remainder):
-		_fail("Biomass changed while the swarm was away")
+	if world.loot.count() < 2:
+		_fail("Hunting must burst into crystals (%d)" % world.loot.count())
 		return
-	swarm.position = corpse_position
-	for tick in 100:
-		if world.model.corpses.is_empty():
+	await create_timer(0.8).timeout
+	var lying: int = world.loot.lying_count()
+	var value: float = world.loot.total(0)
+	await create_timer(0.5).timeout
+	if lying == 0 or world.loot.lying_count() != lying or not is_equal_approx(world.loot.total(0), value):
+		_fail("Crystals changed while the swarm was away (%d / %d)" % [lying, world.loot.lying_count()])
+		return
+	swarm.position = kill_spot
+	for tick in 60:
+		if world.loot.count() == 0:
 			break
 		await create_timer(0.05).timeout
-	if not world.model.corpses.is_empty() or world.model.population <= 25:
-		_fail("Returning must finish harvest and grow the swarm")
+	if world.loot.count() != 0 or world.model.population <= 25:
+		_fail("Returning must pull in every crystal and grow the swarm")
 		return
-	print("PASS: hunt, persistent corpse, return, harvest, growth")
+	print("PASS: hunt, crystals burst out and stay, return, magnet, growth")
 	quit(0)
 
 

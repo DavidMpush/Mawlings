@@ -41,6 +41,8 @@ var _reward_t0 := 0.0
 var _last_tab := ""
 var _tab_t0 := 0.0
 var _last_key: Variant = null
+var _toast_node: Control = null
+var _toast_shown := false
 
 
 func _ready() -> void:
@@ -57,6 +59,13 @@ func _ready() -> void:
 		_list.clip_contents = true
 		_list.visible = false
 		add_child(_list)
+		# Toast on its own child above every sheet list (also the chronicle's).
+		_toast_node = get_script().new()
+		_toast_node.role = "toast"
+		_toast_node.menu = menu
+		_toast_node.z_index = 5
+		_toast_node.set_anchors_preset(Control.PRESET_FULL_RECT)
+		add_child(_toast_node)
 
 
 func _now() -> float:
@@ -75,14 +84,26 @@ func _process(_delta: float) -> void:
 	if menu.tab != _last_tab:
 		_last_tab = menu.tab
 		_tab_t0 = _now()
-	var show_list: bool = menu.profile != null and menu.tab == "trophies" and not open and not menu.legacy.get("sheet", true)
+	# The list child sits above this node's drawing, so it hides under the
+	# settings modal. Brawl also scrolls the Brutkammer inside it.
+	var list_tabs := ["trophies", "upgrades"] if S.is_brawl() else ["trophies"]
+	var show_list: bool = menu.profile != null and menu.tab in list_tabs and not open and not menu.legacy.get("sheet", true) and not bool(menu.get("settings_open"))
 	_list.visible = show_list
 	if show_list:
 		var area := _list_area()
 		_list.position = area.position
 		_list.size = area.size
-		_list._repaint([menu.trophy_scroll, area.size, menu.profile.completed_quests.size(), str(menu.profile.records), S.colorblind])
+		var p = menu.profile
+		var list_key: Array = [menu.tab, menu.trophy_scroll, area.size, p.completed_quests.size(), str(p.records), S.colorblind, S.skin]
+		if menu.tab == "upgrades":
+			list_key.append_array([p.essence, str(p.upgrades), menu.pressed_rect()])
+		_list._repaint(list_key)
 	_repaint(_state_key(open))
+	var toast_on: bool = menu.toast_time > 0.0 and menu.toast != "" and not menu.legacy.get("reward", true)
+	_toast_node.size = size
+	if toast_on or _toast_shown:
+		_toast_node.queue_redraw()
+	_toast_shown = toast_on
 
 
 # Stage 07 (performance): repaint only on change. Nothing open = nothing drawn
@@ -95,16 +116,18 @@ func _repaint(key: Variant) -> void:
 
 
 func _state_key(reward_open: bool) -> Variant:
-	var toast: bool = menu.toast_time > 0.0 and menu.toast != ""
 	var sheet: bool = menu.profile != null and menu.tab != ""
 	var settings: bool = menu.profile != null and bool(menu.get("settings_open"))
-	if not reward_open and not toast and not sheet and not settings:
+	if not reward_open and not sheet and not settings:
 		return ["idle", size]
-	if toast or (reward_open and _now() - _reward_t0 < 4.5):
+	if reward_open and _now() - _reward_t0 < 5.0:
 		return null
 	var p = menu.profile
 	var key: Array = [size, menu.tab, reward_open, settings, menu.pressed_rect(), menu.trophy_scroll, S.colorblind,
-		p.essence, p.crowns, str(p.upgrades), p.instinct_level, p.completed_quests.size(), str(p.settings)]
+		p.essence, p.crowns, str(p.upgrades), p.instinct_level, p.completed_quests.size(), str(p.settings), S.skin]
+	# Brawl sheets are static; only the organic glows and the reward shine move.
+	if S.is_brawl():
+		return key
 	# Buy-button glows, the instinct ring and the reward shine keep moving.
 	if reward_open or menu.tab in ["upgrades", "instinct"]:
 		key.append(int(_now() * 30.0))
@@ -112,6 +135,8 @@ func _state_key(reward_open: bool) -> Variant:
 
 
 func _list_area() -> Rect2:
+	if S.is_brawl():
+		return menu.upgrade_list_rect() if menu.tab == "upgrades" else menu.trophy_list_rect()
 	var s: Rect2 = menu.sheet_rect()
 	var top: float = menu._sheet_body_top()
 	return Rect2(s.position.x + 8, top - 4, s.size.x - 30, s.end.y - 20 - top + 8)
@@ -120,8 +145,21 @@ func _list_area() -> Rect2:
 func _draw() -> void:
 	if menu == null or menu.profile == null:
 		return
+	if role == "toast":
+		if menu.toast_time > 0.0 and menu.toast != "" and not menu.legacy.get("reward", true):
+			if S.is_brawl():
+				_b_toast()
+			else:
+				_draw_toast()
+		return
 	if role == "trophy_list":
-		_draw_trophy_rows()
+		if S.is_brawl():
+			_b_draw_list()
+		else:
+			_draw_trophy_rows()
+		return
+	if S.is_brawl():
+		_b_draw()
 		return
 	if menu.tab != "" and not menu.legacy.get("sheet", true):
 		_draw_sheet()
@@ -130,8 +168,7 @@ func _draw() -> void:
 	if not menu.legacy.get("reward", true):
 		if not menu.reward.is_empty():
 			_draw_reward()
-		if menu.toast_time > 0.0 and menu.toast != "":
-			_draw_toast()
+		pass
 
 # ================================================================ text + shapes
 
@@ -374,17 +411,9 @@ func _draw_sheet() -> void:
 	else:
 		_card(s, accent, "normal", 36, true)
 	var top := s.position.y
-	_txt(TAB_TITLE.get(tab, ""), Vector2(s.position.x + 40, top + 84), 52, S.color("text"), 0, 8)
-	var sub := ""
-	if tab == "upgrades":
-		sub = "Dauerhafte Stärken für jede Brut"
-	elif tab == "trophies":
-		sub = "Ziele für die Brut – Belohnungen gibt es sofort"
-	elif tab == "chronicle":
-		sub = "Deine letzten Jagden, Tagesliste und Bestwerte"
-	else:
-		sub = "Endlose Stufen für Schaden und Ernte"
-	_body(sub, Vector2(s.position.x + 42, top + 124), 22, Color(accent, 0.95).lerp(S.color("text"), 0.35))
+	# Stage 15 layout: the list starts 114 px below the sheet top, so the
+	# title strip is tighter than before (no subtitle line any more).
+	_txt(TAB_TITLE.get(tab, ""), Vector2(s.position.x + 40, top + 72), 48, S.color("text"), 0, 8)
 	# Close button (hit area from menu.gd).
 	var close: Rect2 = menu.sheet_close_rect()
 	var close_down: bool = menu.is_pressed(close)
@@ -394,7 +423,7 @@ func _draw_sheet() -> void:
 		draw_line(cc - d * 17, cc + d * 17, S.color("outline"), 11, true)
 		draw_line(cc - d * 17, cc + d * 17, S.color("bone"), 6, true)
 	# Divider with a centre diamond.
-	var y := top + 150
+	var y := top + 102
 	draw_line(Vector2(s.position.x + 30, y), Vector2(s.end.x - 30, y), Color(accent, 0.35), 2, true)
 	_rank_diamond(Vector2(s.get_center().x, y), 8, accent, true)
 	if tab == "upgrades":
@@ -434,6 +463,8 @@ func _upgrade_effect(id: String, rank: int) -> String:
 			return "+%d %% Ernte" % (6 * rank)
 		"geneflow":
 			return "+%d %% DNA" % (6 * rank)
+		"witterung":
+			return "+%d %% Sammelradius" % (8 * rank)
 		"attack_slot":
 			return "%d Angriffsslots" % (int(menu.meta.BASE_SLOTS.attack) + rank)
 		"trait_slot":
@@ -1119,8 +1150,7 @@ func _draw_settings() -> void:
 		_frames.panel(self, p, S.color("bone"), true)
 	else:
 		_card(p, S.color("bone"), "normal", 36, true)
-	_txt("EINSTELLUNGEN", Vector2(p.position.x + 40, p.position.y + 84), 48, S.color("text"), 0, 8)
-	_body("Wird im Profil gespeichert", Vector2(p.position.x + 42, p.position.y + 124), 22, S.color("text_dim"))
+	_txt("EINSTELLUNGEN", Vector2(p.position.x + 40, p.position.y + 62), 44, S.color("text"), 0, 8)
 	var close: Rect2 = menu.settings_close_rect()
 	var close_down: bool = menu.is_pressed(close)
 	_button(close.grow(-6), "off", 0.0, close_down)
@@ -1128,7 +1158,6 @@ func _draw_settings() -> void:
 	for d in [Vector2(1, 1), Vector2(1, -1)]:
 		draw_line(cc - d * 17, cc + d * 17, S.color("outline"), 11, true)
 		draw_line(cc - d * 17, cc + d * 17, S.color("bone"), 6, true)
-	draw_line(Vector2(p.position.x + 30, p.position.y + 150), Vector2(p.end.x - 30, p.position.y + 150), Color(S.color("bone"), 0.3), 2, true)
 	var accents := [S.color("cyan"), S.color("ember"), S.color("violet")]
 	for i in menu.SETTINGS.size():
 		var entry: Array = menu.SETTINGS[i]
@@ -1145,7 +1174,18 @@ func _draw_settings() -> void:
 		var desc := _fit(String(entry[2]), row.size.x - 116 - 190, [22], S.body_font())
 		_body(desc[0], row.position + Vector2(116, 92) + po, desc[1], Color(S.color("text_dim"), 0.95))
 		_switch(Rect2(Vector2(row.end.x - 164, row.get_center().y - 30) + po, Vector2(140, 60)), on, accent)
-	var note_y: float = menu.settings_row_rect(menu.SETTINGS.size() - 1).end.y + 46
+	# UI style row (stage 15), drawn in the old frame language too so a player
+	# on calm/organic can switch back.
+	var sr: Rect2 = menu.settings_skin_row_rect()
+	_setting_row(sr, S.color("cyan"), true, false)
+	_txt("UI-STIL", sr.position + Vector2(24, 44), 30, S.color("text"), 0, 6)
+	for k in menu.UI_SKINS.size():
+		var id: String = menu.UI_SKINS[k]
+		var rect: Rect2 = menu.settings_skin_rect(k)
+		var down: bool = menu.is_pressed(rect)
+		_button(rect, "ember" if id == menu.ui_skin() else "off", 0.0, down)
+		_txt(String(menu.UI_SKIN_NAMES[id]), rect.get_center() + Vector2(0, 10) + _press_offset(down), 26, S.color("text"), 1, 5)
+	var note_y: float = sr.end.y + 40
 	_paragraph_body("Farbenblind: Gefahren zusätzlich mit Muster und Kontur.", Vector2(p.get_center().x, note_y), p.size.x - 110, 22, Color(S.color("text_dim"), 0.85))
 
 
@@ -1256,3 +1296,656 @@ func _claw(base: Vector2, direction: Vector2, length: float, width: float, color
 	if UiStyleRef.is_calm():
 		return
 	super(base, direction, length, width, color, bend)
+
+
+# ================================================================ brawl skin (stage 15)
+# Supercell-style sheets drawn only with ui_kit_brawl.gd and UiStyle tokens:
+# the sheet is a Kit.card with a coloured title strip between the resource
+# header and the tab dock (both stay visible), rows are Kit.well strips with an
+# icon plate, and every button is a Kit 3D button. Settings and the reward are
+# centred modals with a Kit.ribbon title. Organic/calm keep the code above.
+
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
+const UiArtRef := preload("res://scripts/ui/ui_art.gd")
+const B_TAB_TONE := {"upgrades": "info", "trophies": "loot", "instinct": "ember", "chronicle": "special"}
+const B_TAB_ICON := {"upgrades": "brood", "trophies": "trophy", "instinct": "instinct", "chronicle": "clock"}
+## Plate tone per Brutkammer upgrade (own swarm ember, growth/DNA info, loot, evolution special).
+const B_UPGRADE_TONE := {"brood_size": "ember", "rending": "ember", "chitin": "action", "sprinter": "info",
+	"digestion": "loot", "witterung": "loot", "geneflow": "info", "attack_slot": "special", "trait_slot": "special"}
+const B_UPGRADE_ICON := {"brood_size": "brood", "rending": "jaws", "chitin": "armor", "sprinter": "scatter",
+	"digestion": "glutton", "witterung": "biomass", "geneflow": "dna", "attack_slot": "rudelbiss", "trait_slot": "pack"}
+const B_CATEGORY_TONE := {"time": "info", "swarm": "ember", "boss": "danger", "evolution": "special", "biomass": "loot", "runs": "action", "hunt": "ember"}
+const B_CATEGORY_ICON := {"time": "clock", "swarm": "mawling_head_color", "boss": "crown", "evolution": "branch_special", "biomass": "biomass", "runs": "trophy", "hunt": "skull"}
+const B_SETTING_TONE := {"sound": "info", "vibration": "ember", "colorblind": "special", "music_v1": "loot"}
+const B_DIFF_TONE := ["action", "ember", "danger"]
+
+
+func _b_text(pos: Vector2, value: String, font_size: int, color: Color = Color.WHITE, align: int = Kit.LEFT, max_w: float = 0.0, font: Font = null) -> float:
+	return Kit.text_outlined(self, pos, value, font_size, color, -1, -1, font, align, max_w)
+
+
+## Figtree label with a thin ink outline (secondary lines on dark wells).
+func _b_label(pos: Vector2, value: String, color: Color = S.BRAWL_TEXT_DIM, align: int = Kit.LEFT, max_w: float = 0.0, bold: bool = true) -> float:
+	return Kit.text_outlined(self, pos, value, S.T_LABEL, color, 4, 0, S.body_bold_font() if bold else S.body_font(), align, max_w)
+
+
+func _b_width(value: String, font_size: int, font: Font = null) -> float:
+	var face: Font = font if font != null else S.display_font()
+	return face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+
+
+func _b_icon(id: String, center: Vector2, side: float, tint: Color = Color.WHITE) -> bool:
+	if _icons == null or id == "" or not _icons.has(id):
+		return false
+	_icons.draw(self, id, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), tint)
+	return true
+
+
+func _b_light(tone: Variant) -> Color:
+	return S.brawl_tone(tone)["light"]
+
+
+## White X with an ink rim (close buttons).
+func _b_cross(c: Vector2, r: float) -> void:
+	for pass_i in 2:
+		for d in [Vector2(1, 1), Vector2(1, -1)]:
+			draw_line(c - d * r, c + d * r, S.BRAWL_INK if pass_i == 0 else Color.WHITE, 15.0 if pass_i == 0 else 8.0, true)
+
+
+func _b_check(c: Vector2, r: float) -> void:
+	var pts := PackedVector2Array([c + Vector2(-0.62, 0.02) * r, c + Vector2(-0.16, 0.46) * r, c + Vector2(0.66, -0.44) * r])
+	draw_polyline(pts, S.BRAWL_INK, maxf(6.0, r * 0.5), true)
+	draw_polyline(pts, Color.WHITE, maxf(3.0, r * 0.26), true)
+
+
+func _b_arrow(c: Vector2, r: float, color: Color = Color.WHITE) -> void:
+	var pts := PackedVector2Array([c + Vector2(0.6, 0.0) * r, c + Vector2(-0.4, -0.72) * r, c + Vector2(-0.4, 0.72) * r])
+	draw_colored_polygon(pts, color)
+	pts.append(pts[0])
+	draw_polyline(pts, S.BRAWL_INK, 4.0, true)
+
+
+## Round close button on `rect` (hit area from menu.gd).
+func _b_close(rect: Rect2) -> void:
+	var pressed: bool = menu.is_pressed(rect)
+	var c := rect.get_center()
+	Kit.round_button(self, c, 40.0, "neutral", pressed)
+	_b_cross(Kit.round_label_center(c, 40.0, pressed), 13.0)
+
+
+## Essence icon + price, centred on `center` (MIDDLE); returns the width.
+func _b_price(center: Vector2, cost: int, font_size: int, color: Color = Color.WHITE) -> void:
+	var nw := _b_width(Kit.format_int(cost), font_size, S.number_font())
+	var icon := font_size * 1.15
+	var x := center.x - (icon + 6.0 + nw) * 0.5
+	_b_icon("essence", Vector2(x + icon * 0.5, center.y), icon, Color.WHITE if color == Color.WHITE else Color(0.7, 0.7, 0.75))
+	Kit.number(self, Vector2(x + icon + 6.0, center.y), cost, font_size, color, Kit.LEFT | Kit.MIDDLE)
+
+
+## Thin scroll thumb right of a list (only when it scrolls).
+func _b_scrollbar(area: Rect2, tone: String) -> void:
+	var max_scroll: float = menu._trophy_scroll_max()
+	if max_scroll <= 0.0:
+		return
+	var track := Rect2(area.end.x + 3.0, area.position.y + 8.0, 7.0, area.size.y - 16.0)
+	Kit.rrect(self, track, 3.5, Color(S.BRAWL_INK, 0.55))
+	var h := maxf(48.0, track.size.y * track.size.y / (track.size.y + max_scroll))
+	var thumb := Rect2(track.position.x, track.position.y + (track.size.y - h) * clampf(menu.trophy_scroll / max_scroll, 0.0, 1.0), 7.0, h)
+	Kit.rrect(self, thumb, 3.5, _b_light(tone))
+
+
+# ---------------------------------------------------------------- dispatch
+
+func _b_draw() -> void:
+	if menu.tab != "" and not menu.legacy.get("sheet", true) and menu.reward.is_empty():
+		_b_sheet()
+	if menu.get("settings_open") and not menu.legacy.get("settings", true) and menu.reward.is_empty():
+		_b_settings()
+	if not menu.legacy.get("reward", true):
+		if not menu.reward.is_empty():
+			_b_reward()
+		pass
+
+
+## The clipped list child (role "trophy_list"): Brutkammer or trophy rows.
+func _b_draw_list() -> void:
+	if menu.tab == "upgrades":
+		_b_upgrade_rows()
+	elif menu.tab == "trophies":
+		_b_trophy_rows()
+
+
+# ---------------------------------------------------------------- sheet frame
+
+func _b_sheet() -> void:
+	var tab: String = menu.tab
+	var s: Rect2 = menu.sheet_rect()
+	var tone: String = B_TAB_TONE.get(tab, "info")
+	Kit.card(self, s, tone, "normal", menu.SHEET_HEADER, S.R_XL)
+	var cy: float = s.position.y + (12.0 + menu.SHEET_HEADER) * 0.5
+	var pc := Vector2(s.position.x + 62, cy)
+	Kit.icon_plate(self, pc, 72, "dark")
+	_b_icon(B_TAB_ICON.get(tab, ""), Kit.plate_center(pc, 72), 56)
+	var close: Rect2 = menu.sheet_close_rect()
+	_b_text(Vector2(pc.x + 50, cy + 2), String(TAB_TITLE.get(tab, "")), S.T_TITLE, Color.WHITE, Kit.LEFT | Kit.MIDDLE, close.position.x - pc.x - 70)
+	_b_close(close)
+	match tab:
+		"upgrades":
+			_b_scrollbar(menu.upgrade_list_rect(), tone)
+		"trophies":
+			_b_trophy_summary()
+			_b_scrollbar(menu.trophy_list_rect(), tone)
+		"instinct":
+			_b_instinct()
+
+
+# ---------------------------------------------------------------- Brutkammer
+
+func _b_upgrade_rows() -> void:
+	var meta = menu.meta
+	var origin: Vector2 = menu.upgrade_list_rect().position
+	for i in meta.UPGRADE_ORDER.size():
+		var row: Rect2 = menu.upgrade_row_rect(i)
+		if row.end.y < origin.y - 8 or row.position.y > origin.y + size.y + 8:
+			continue
+		_b_upgrade_row(String(meta.UPGRADE_ORDER[i]), Rect2(row.position - origin, row.size), menu.upgrade_buy_rect(i), origin)
+
+
+func _b_upgrade_row(id: String, row: Rect2, buy_menu: Rect2, origin: Vector2) -> void:
+	var meta = menu.meta
+	var profile = menu.profile
+	var u: Dictionary = meta.UPGRADES[id]
+	var rank := int(profile.upgrade_rank(id))
+	var max_rank := int(u.max)
+	var available: bool = profile.upgrade_available(id)
+	var maxed := rank >= max_rank
+	var cost := int(profile.upgrade_cost(id))
+	var affordable: bool = available and not maxed and profile.essence >= cost
+	var buy := Rect2(buy_menu.position - origin, buy_menu.size)
+	Kit.well(self, row, S.R_M)
+	# Icon plate (locked: neutral plate, dimmed icon, lock tag).
+	var tone: String = B_UPGRADE_TONE.get(id, "info") if available else "neutral"
+	var pc := Vector2(row.position.x + 60, row.get_center().y)
+	Kit.icon_plate(self, pc, 88, tone)
+	if not _b_icon(B_UPGRADE_ICON.get(id, ""), Kit.plate_center(pc, 88), 70, Color.WHITE if available else Color(0.55, 0.55, 0.62)):
+		_upgrade_glyph(id, Kit.plate_center(pc, 88), 26, Color.WHITE)
+	if not available:
+		var lc := pc + Vector2(30, 30)
+		Kit.icon_plate(self, lc, 40, "neutral")
+		_b_icon("lock", Kit.plate_center(lc, 40), 26)
+	var x := row.position.x + 122
+	var right := buy.position.x - 16
+	# Rank counter right-aligned on the name line.
+	var rank_text := "%d/%d" % [rank, max_rank]
+	var rw := 0.0
+	if available:
+		rw = Kit.number(self, Vector2(right, row.position.y + 34), rank_text, S.T_LABEL, S.BRAWL_TEXT_DIM, Kit.RIGHT | Kit.MIDDLE) + 12.0
+	_b_text(Vector2(x, row.position.y + 34), String(u.name).to_upper(), S.T_HEAD, Color.WHITE if available else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, right - x - rw)
+	if not available:
+		var q: Dictionary = meta.quest(String(u.get("requires", "")))
+		var reason := "Trophäe: %s – %s" % [String(q.get("name", "")), String(q.get("description", ""))]
+		Kit.paragraph(self, Vector2(x, row.position.y + 76), reason, right - x, S.T_LABEL, _b_light("loot"), true, Kit.LEFT, 2, 4)
+	else:
+		var bar := Rect2(x, row.position.y + 66, 176, 30)
+		Kit.bar(self, bar, float(rank) / maxf(1.0, max_rank), "loot", max_rank if max_rank <= 10 else 0)
+		var ex := bar.end.x + 14
+		var room := right - ex
+		var now := _upgrade_effect(id, rank)
+		if maxed:
+			_b_label(Vector2(ex, bar.get_center().y), now, Color.WHITE, Kit.LEFT | Kit.MIDDLE, room)
+		else:
+			var nxt := _upgrade_next_short(id, rank + 1)
+			var nw := _b_width(nxt, S.T_LABEL)
+			var used := _b_label(Vector2(ex, bar.get_center().y), now, Color.WHITE, Kit.LEFT | Kit.MIDDLE, maxf(40.0, room - nw - 38))
+			_b_arrow(Vector2(ex + used + 17, bar.get_center().y), 15.0, _b_light("action"))
+			_b_text(Vector2(ex + used + 32, bar.get_center().y), nxt, S.T_LABEL, _b_light("action"), Kit.LEFT | Kit.MIDDLE, maxf(30.0, right - (ex + used + 32)))
+	# Buy button.
+	var pressed: bool = menu.is_pressed(buy_menu)
+	if maxed:
+		Kit.button(self, buy, "loot", pressed, S.R_L)
+		_b_text(Kit.button_label_center(buy, pressed), "MAX", S.T_HEAD, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+	elif not available:
+		Kit.button(self, buy, "disabled", false, S.R_L)
+		var lc := Kit.button_label_center(buy, false)
+		var gw := _b_width("GESPERRT", S.T_LABEL)
+		_b_icon("lock", Vector2(lc.x - (gw + 36) * 0.5 + 14, lc.y), 30)
+		_b_text(Vector2(lc.x - (gw + 36) * 0.5 + 36, lc.y), "GESPERRT", S.T_LABEL, S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE)
+	else:
+		Kit.button(self, buy, "action" if affordable else "disabled", pressed, S.R_L)
+		_b_price(Kit.button_label_center(buy, pressed), cost, S.T_HEAD, Color.WHITE if affordable else S.BRAWL_TEXT_DIM)
+
+
+# ---------------------------------------------------------------- Trophäen
+
+func _b_trophy_summary() -> void:
+	var r: Rect2 = menu.trophy_summary_rect()
+	var done: int = menu.profile.completed_quests.size()
+	var total: int = menu.meta.QUESTS.size()
+	Kit.well(self, r, S.R_M)
+	var pc := Vector2(r.position.x + 48, r.get_center().y)
+	Kit.icon_plate(self, pc, 64, "loot")
+	_b_icon("trophy", Kit.plate_center(pc, 64), 50)
+	var x := pc.x + 48
+	x += Kit.number(self, Vector2(x, r.get_center().y), "%d / %d" % [done, total], S.T_HEAD, _b_light("loot"), Kit.LEFT | Kit.MIDDLE) + 12
+	_b_label(Vector2(x, r.get_center().y + 2), "ERLEDIGT", S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE)
+	var bar := Rect2(r.end.x - 24 - 300, r.get_center().y - 17, 300, 34)
+	Kit.bar(self, bar, float(done) / maxf(1.0, total), "loot")
+
+
+func _b_trophy_rows() -> void:
+	var pitch: float = menu._trophy_row_height()
+	var scroll: float = menu.trophy_scroll
+	var order := _trophy_order()
+	var first := int(scroll / pitch)
+	for k in range(maxi(0, first - 1), mini(order.size(), first + int(size.y / pitch) + 2)):
+		var row := Rect2(0, k * pitch - scroll, size.x - 14, pitch - 12)
+		if row.end.y < -10 or row.position.y > size.y + 10:
+			continue
+		_b_trophy_row(order[k], row)
+
+
+func _b_trophy_row(q: Dictionary, row: Rect2) -> void:
+	var profile = menu.profile
+	var done: bool = q.id in profile.completed_quests
+	var cat := _quest_category(String(q.stat))
+	if done:
+		Kit.card(self, row, "loot", "normal", 0.0, S.R_M)
+	else:
+		Kit.well(self, row, S.R_M)
+	var pc := Vector2(row.position.x + 64, row.get_center().y)
+	var icon: String = B_CATEGORY_ICON.get(cat, "trophy")
+	if done:
+		Kit.icon_plate(self, pc, 92, "loot")
+		_b_icon(icon, Kit.plate_center(pc, 92), 70)
+		var cc := pc + Vector2(32, 32)
+		Kit.icon_plate(self, cc, 40, "action")
+		_b_check(Kit.plate_center(cc, 40), 12)
+	else:
+		# Not reached yet: dark plate, icon as an ink silhouette.
+		Kit.icon_plate(self, pc, 92, "dark")
+		if not _b_icon(icon, Kit.plate_center(pc, 92), 70, Color(S.BRAWL_INK, 0.92)):
+			Kit.disc(self, Kit.plate_center(pc, 92), 22, S.BRAWL_INK)
+	var x := row.position.x + 128
+	var inner_right := row.end.x - (22.0 if done else 16.0)
+	# Currency reward chip on the name line.
+	var chip_left := inner_right
+	var r: Dictionary = q.get("reward", {})
+	var parts: Array = []
+	if int(r.get("essence", 0)) > 0:
+		parts.append(["essence", "+%d" % int(r.essence)])
+	if int(r.get("crowns", 0)) > 0:
+		parts.append(["crown_tooth", "+%d" % int(r.crowns)])
+	if not parts.is_empty():
+		var cw := 16.0
+		for p in parts:
+			cw += 34.0 + _b_width(String(p[1]), S.T_LABEL, S.number_font()) + 10.0
+		var chip := Rect2(inner_right - cw, row.position.y + (16.0 if done else 12.0), cw, 44)
+		Kit.chip(self, chip, "dark")
+		var cx := chip.position.x + 10
+		for p in parts:
+			_b_icon(String(p[0]), Vector2(cx + 16, chip.get_center().y), 34)
+			cx += 34 + Kit.number(self, Vector2(cx + 34, chip.get_center().y), String(p[1]), S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE) + 10
+		chip_left = chip.position.x - 12
+	var ny := row.position.y + (40.0 if done else 36.0)
+	_b_text(Vector2(x, ny), String(q.name), S.T_HEAD, _b_light("loot") if done else Color.WHITE, Kit.LEFT | Kit.MIDDLE, chip_left - x)
+	var desc_y := Kit.paragraph(self, Vector2(x, ny + 38), String(q.description), inner_right - x, S.T_LABEL, Color.WHITE if done else S.BRAWL_TEXT_DIM, false, Kit.LEFT, 2, 3)
+	var bar := Rect2(x, desc_y - 10, 240, 30)
+	var progress: Vector2 = profile.quest_progress(q.id)
+	Kit.bar(self, bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), "loot")
+	var used := bar.end.x + 12
+	if done:
+		used += _b_text(Vector2(used, bar.get_center().y), "ERLEDIGT", S.T_LABEL, _b_light("action"), Kit.LEFT | Kit.MIDDLE)
+	else:
+		used += Kit.number(self, Vector2(used, bar.get_center().y), menu._progress_text(q, progress), S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+	var unlocks: Array = r.get("unlock", [])
+	if not unlocks.is_empty():
+		var label := String(menu.meta.unlock_label(unlocks[0]))
+		if unlocks.size() > 1:
+			label += " +%d" % (unlocks.size() - 1)
+		var room := inner_right - used - 16
+		var tw := minf(_b_width(label, S.T_LABEL, S.body_bold_font()) + 24, room)
+		if tw > 80:
+			var tag := Rect2(inner_right - tw, bar.get_center().y - 20, tw, 40)
+			Kit.chip(self, tag, "special")
+			_b_label(tag.get_center(), label, Color.WHITE, Kit.CENTER | Kit.MIDDLE, tw - 16)
+
+
+# ---------------------------------------------------------------- Urinstinkt
+
+func _b_instinct() -> void:
+	var s: Rect2 = menu.sheet_rect()
+	var level := int(menu.profile.instinct_level)
+	var info: Dictionary = menu.meta.INSTINCT
+	var bonus := float(info.get("bonus", 0.01)) * 100.0
+	var cx := s.get_center().x
+	var top: float = menu._sheet_body_top()
+	# Big level plate.
+	var pc := Vector2(cx, top + 196)
+	Kit.icon_plate(self, pc, 320, "ember")
+	var fc := Kit.plate_center(pc, 320)
+	_b_text(fc + Vector2(0, -84), "STUFE", S.T_HEAD, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+	Kit.number(self, fc + Vector2(0, 8), level, 110, Color.WHITE, Kit.CENTER | Kit.MIDDLE, 250)
+	var circle := level / 10
+	var filled := level % 10
+	_b_label(fc + Vector2(0, 94), "KREIS %d" % (circle + 1), Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+	# Progress of the current circle (ten segments).
+	var bar := Rect2(cx - 300, top + 400, 600, 42)
+	Kit.bar(self, bar, filled / 10.0, "ember", 10)
+	_b_label(Vector2(cx, bar.end.y + 26), "Noch %d %s bis Kreis %d" % [10 - filled, "Stufe" if 10 - filled == 1 else "Stufen", circle + 2], S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE)
+	# Current bonus -> next level.
+	var ty := top + 510
+	var tw := (s.size.x - 48 - 72) * 0.5
+	var cur := Rect2(s.position.x + 24, ty, tw, 150)
+	var nxt := Rect2(cur.end.x + 72, ty, tw, 150)
+	for pair in [[cur, "AKTUELL", level, Color.WHITE], [nxt, "STUFE %d" % (level + 1), level + 1, _b_light("action")]]:
+		var r: Rect2 = pair[0]
+		Kit.well(self, r, S.R_M)
+		_b_label(Vector2(r.get_center().x, r.position.y + 30), String(pair[1]), S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE)
+		var v := roundi(bonus * int(pair[2]))
+		_b_text(Vector2(r.get_center().x, r.position.y + 76), "+%d %% Schaden" % v, 34, pair[3], Kit.CENTER | Kit.MIDDLE, r.size.x - 24)
+		_b_text(Vector2(r.get_center().x, r.position.y + 118), "+%d %% Ernte" % v, 34, pair[3], Kit.CENTER | Kit.MIDDLE, r.size.x - 24)
+	var ac := Vector2(cur.end.x + 36, ty + 75)
+	Kit.icon_plate(self, ac, 56, "action")
+	_b_arrow(Kit.plate_center(ac, 56) + Vector2(2, 0), 22.0)
+	# STÄRKEN.
+	var cost := int(menu._instinct_cost())
+	var buy: Rect2 = menu.instinct_buy_rect()
+	var affordable: bool = menu.profile.essence >= cost
+	var pressed: bool = menu.is_pressed(buy)
+	Kit.button(self, buy, "action" if affordable else "disabled", pressed, S.R_XL)
+	var lc := Kit.button_label_center(buy, pressed)
+	var col := Color.WHITE if affordable else S.BRAWL_TEXT_DIM
+	var label_w := _b_width("STÄRKEN", S.T_TITLE)
+	var price_w := _b_width(Kit.format_int(cost), S.T_HEAD, S.number_font()) + 50
+	var x0 := lc.x - (label_w + 28 + price_w) * 0.5
+	_b_text(Vector2(x0, lc.y), "STÄRKEN", S.T_TITLE, col, Kit.LEFT | Kit.MIDDLE)
+	_b_price(Vector2(x0 + label_w + 28 + price_w * 0.5, lc.y), cost, S.T_HEAD, col)
+	var note_y := buy.end.y + 40
+	if not affordable:
+		_b_label(Vector2(cx, note_y), "Noch %s Essenz" % Kit.format_int(cost - int(menu.profile.essence)), _b_light("loot"), Kit.CENTER | Kit.MIDDLE)
+		note_y += 40
+	Kit.paragraph(self, Vector2(s.position.x + 60, note_y + 10), "Urinstinkt hat keine Obergrenze. Jede Stufe kostet %d Essenz mehr – lohnt sich, wenn die Brutkammer ausgebaut ist." % int(info.get("step", 50)), s.size.x - 120, S.T_BODY, S.BRAWL_TEXT_DIM, false, Kit.CENTER, 3)
+
+
+# ---------------------------------------------------------------- Einstellungen
+
+func _b_settings() -> void:
+	var p: Rect2 = menu.settings_panel_rect()
+	Kit.dim(self, Rect2(Vector2.ZERO, size), 0.78)
+	Kit.panel(self, p, "dark", S.R_XL, S.STROKE_L)
+	var rib := Rect2(p.get_center().x - 230, p.position.y - 42, 460, 88)
+	Kit.ribbon(self, rib, "info")
+	_b_text(rib.get_center() + Vector2(0, -2), "EINSTELLUNGEN", S.T_TITLE, Color.WHITE, Kit.CENTER | Kit.MIDDLE, rib.size.x - 40)
+	_b_close(menu.settings_close_rect())
+	for i in menu.SETTINGS.size():
+		var entry: Array = menu.SETTINGS[i]
+		var row: Rect2 = menu.settings_row_rect(i)
+		var key := String(entry[0])
+		var on: bool = menu.setting(key)
+		var pressed: bool = menu.is_pressed(row)
+		Kit.well(self, row, S.R_M)
+		var pc := Vector2(row.position.x + 56, row.get_center().y)
+		Kit.icon_plate(self, pc, 80, B_SETTING_TONE.get(key, "info") if on else "neutral")
+		_setting_glyph(key, Kit.plate_center(pc, 80), Color.WHITE, on)
+		var sw := Rect2(row.end.x - 20 - 156, row.get_center().y - 32, 156, 64)
+		var x := row.position.x + 112
+		_b_text(Vector2(x, row.position.y + 36), String(entry[1]), S.T_HEAD, Color.WHITE if on else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, sw.position.x - x - 16)
+		Kit.paragraph(self, Vector2(x, row.position.y + 78), String(entry[2]), sw.position.x - x - 16, S.T_LABEL, S.BRAWL_TEXT_DIM, false, Kit.LEFT, 2, 3)
+		_b_switch(sw, on, pressed)
+	# UI style: three segment buttons.
+	var sr: Rect2 = menu.settings_skin_row_rect()
+	Kit.well(self, sr, S.R_M)
+	_b_text(Vector2(sr.position.x + 24, sr.position.y + 32), "UI-STIL", S.T_HEAD, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+	_b_label(Vector2(sr.end.x - 24, sr.position.y + 34), "wirkt sofort, auch im Run", S.BRAWL_TEXT_DIM, Kit.RIGHT | Kit.MIDDLE)
+	var current: String = menu.ui_skin()
+	for k in menu.UI_SKINS.size():
+		var id: String = menu.UI_SKINS[k]
+		var rect: Rect2 = menu.settings_skin_rect(k)
+		var pressed: bool = menu.is_pressed(rect)
+		var active := id == current
+		Kit.button(self, rect, "action" if active else "neutral", pressed, S.R_L)
+		var lc := Kit.button_label_center(rect, pressed)
+		if active:
+			var nw := _b_width(String(menu.UI_SKIN_NAMES[id]), S.T_BODY)
+			_b_check(Vector2(lc.x - (nw + 34) * 0.5 + 10, lc.y), 14)
+			_b_text(Vector2(lc.x - (nw + 34) * 0.5 + 34, lc.y), String(menu.UI_SKIN_NAMES[id]), S.T_BODY, Color.WHITE, Kit.LEFT | Kit.MIDDLE, rect.size.x - 60)
+		else:
+			_b_text(lc, String(menu.UI_SKIN_NAMES[id]), S.T_BODY, Color.WHITE, Kit.CENTER | Kit.MIDDLE, rect.size.x - 24)
+	Kit.paragraph(self, Vector2(p.position.x + 40, sr.end.y + 40), "Farbenblind: Gefahren zusätzlich mit Muster und Kontur.", p.size.x - 80, S.T_LABEL, S.BRAWL_TEXT_DIM, false, Kit.CENTER, 2)
+
+
+## Pill toggle: on = action with the knob right, off = neutral with the knob left.
+func _b_switch(rect: Rect2, on: bool, pressed: bool) -> void:
+	var r := rect
+	if pressed:
+		r = Rect2(rect.position + Vector2(0, 3), rect.size)
+	Kit.pill(self, r, "action" if on else "neutral")
+	var kr := r.size.y * 0.5 - 7.0
+	var kc := Vector2(r.end.x - kr - 7.0 if on else r.position.x + kr + 7.0, r.get_center().y)
+	Kit.disc(self, kc + Vector2(0, 3), kr, S.BRAWL_INK_SOFT)
+	Kit.disc(self, kc, kr, S.BRAWL_INK)
+	Kit.disc(self, kc, kr - 3.0, Color.WHITE)
+	Kit.fade_disc(self, kc, kr - 3.0, S.BRAWL_TEXT_DIM, 0.55, 1.0)
+	var free_c := Vector2(r.position.x + (r.size.x - kr * 2.0 - 7.0) * 0.5 if on else r.end.x - (r.size.x - kr * 2.0 - 7.0) * 0.5, r.get_center().y)
+	_b_text(free_c, "AN" if on else "AUS", S.T_LABEL, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+
+
+# ---------------------------------------------------------------- Belohnung
+
+func _b_reward() -> void:
+	var reward: Dictionary = menu.reward
+	var stats: Dictionary = menu.reward_stats
+	var meta = menu.meta
+	var cx := size.x * 0.5
+	var appear := _ease(0.0, 0.35)
+	Kit.dim(self, Rect2(Vector2.ZERO, size), 0.86 * appear)
+	var button: Rect2 = menu.reward_button_rect()
+	var share: Rect2 = menu.share_button_rect()
+	var oy := (1.0 - appear) * 60.0
+	var panel := Rect2(34, 176 + oy, size.x - 68, button.end.y + 28 - 176)
+	Kit.panel(self, panel, "dark", S.R_XL, S.STROKE_L)
+	# Title ribbon: pops in slightly larger, then settles.
+	var pop := 1.0 + 0.08 * (1.0 - _ease(0.15, 0.4))
+	var rw := 520.0 * pop
+	var rib := Rect2(cx - rw * 0.5, panel.position.y - 50, rw, 96)
+	Kit.ribbon(self, rib, "ember")
+	_b_text(rib.get_center() + Vector2(0, -2), "RUN BEENDET", S.T_TITLE, Color.WHITE, Kit.CENTER | Kit.MIDDLE, rib.size.x - 40)
+	var strain: Dictionary = meta.STRAINS.get(String(stats.get("strain_id", "")), {})
+	var diff_index := clampi(int(stats.get("difficulty", 0)), 0, meta.DIFFICULTIES.size() - 1)
+	var sub := "%s  ·  %s" % [String(strain.get("name", "")).to_upper(), String(meta.DIFFICULTIES[diff_index].name).to_upper()]
+	var daily: Dictionary = reward.get("daily", {})
+	if not daily.is_empty():
+		sub = "TAGES-BRUT  ·  " + sub + ("  ·  TAGESREKORD" if daily.get("new_best", false) else "")
+	var y := panel.position.y + 90
+	_b_text(Vector2(cx, y), sub, S.T_BODY, _b_light(Color(strain.get("tint", "#ff6a1f"))), Kit.CENTER | Kit.MIDDLE, panel.size.x - 60)
+	# Survival time counts up.
+	var seconds := float(stats.get("seconds", 0.0)) * _ease(0.25, 1.0)
+	_b_label(Vector2(cx, y + 50), "ÜBERLEBT", S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE)
+	Kit.number(self, Vector2(cx, y + 116), "%02d:%02d" % [int(seconds) / 60, int(seconds) % 60], 96, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+	# Stat wells.
+	var tiles := [["MAX. SCHWARM", float(stats.get("peak_population", 0)), "ember", "mawling_head_color"],
+		["KILLS", float(stats.get("kills", 0)), "info", "skull"], ["BOSSE", float(stats.get("bosses", 0)), "danger", "crown"]]
+	var ty := y + 190
+	var tw := (panel.size.x - 48 - 24) / 3.0
+	for i in tiles.size():
+		var tile := Rect2(panel.position.x + 24 + i * (tw + 12), ty, tw, 112)
+		Kit.well(self, tile, S.R_M)
+		var pc := Vector2(tile.position.x + 50, tile.get_center().y)
+		Kit.icon_plate(self, pc, 72, tiles[i][2])
+		_b_icon(String(tiles[i][3]), Kit.plate_center(pc, 72), 54)
+		var v := roundi(float(tiles[i][1]) * _ease(0.45 + i * 0.1, 1.0))
+		var tx := pc.x + 48
+		Kit.number(self, Vector2(tx, tile.position.y + 44), v, S.T_HEAD, _b_light(tiles[i][2]), Kit.LEFT | Kit.MIDDLE, tile.end.x - tx - 12)
+		_b_label(Vector2(tx, tile.position.y + 82), String(tiles[i][0]), S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, tile.end.x - tx - 12)
+	# Loot header.
+	var ly := ty + 158
+	var hw := _b_text(Vector2(cx, ly), "BEUTE FÜR DIE BRUT", S.T_BODY, _b_light("loot"), Kit.CENTER | Kit.MIDDLE) * 0.5
+	for sgn in [-1.0, 1.0]:
+		var a := Vector2(cx + sgn * (hw + 18), ly)
+		var b := Vector2(cx + sgn * (hw + 170), ly)
+		draw_line(a, b, S.BRAWL_INK, 7.0, true)
+		draw_line(a, b, _b_light("loot"), 3.0, true)
+	var loot := [
+		{"tone": "special", "value": int(reward.get("essence", 0)), "label": "ESSENZ", "icon": "essence",
+			"split": [int(reward.get("run_essence", 0)), int(reward.get("quest_essence", 0))]},
+		{"tone": "loot", "value": int(reward.get("crowns", 0)), "label": "KÖNIGSZÄHNE", "icon": "crown_tooth",
+			"split": [int(reward.get("run_crowns", 0)), int(reward.get("quest_crowns", 0))]},
+	]
+	var lw := (panel.size.x - 48 - 16) * 0.5
+	var loot_y := ly + 34
+	for i in loot.size():
+		var L: Dictionary = loot[i]
+		var tile := Rect2(panel.position.x + 24 + i * (lw + 16), loot_y, lw, 170)
+		var count_e := _ease(0.9 + i * 0.15, 1.2)
+		var landed := count_e >= 1.0
+		Kit.card(self, tile, L.tone, "selected" if landed else "normal", 0.0, S.R_L)
+		var body := Kit.card_inner(tile)
+		var pc := Vector2(body.position.x + 56, body.get_center().y)
+		var burst := 1.0 + (0.14 * (1.0 - _ease(2.1 + i * 0.15, 0.4)) if landed else 0.0)
+		Kit.icon_plate(self, pc, 96 * burst, L.tone)
+		_b_icon(String(L.icon), Kit.plate_center(pc, 96 * burst), 76 * burst)
+		var tx := pc.x + 64
+		var value := roundi(float(L.value) * count_e)
+		Kit.number(self, Vector2(tx, body.position.y + 44), "+" + Kit.format_int(value), S.T_TITLE, Color.WHITE, Kit.LEFT | Kit.MIDDLE, body.end.x - tx - 8)
+		_b_text(Vector2(tx, body.position.y + 90), String(L.label), S.T_LABEL, _b_light(L.tone), Kit.LEFT | Kit.MIDDLE, body.end.x - tx - 8)
+		var split: Array = L.split
+		if split[1] > 0:
+			var parts := "Run +%d · Trophäe +%d" % [split[0], split[1]]
+			if _b_width(parts, S.T_LABEL, S.body_bold_font()) > body.end.x - tx - 8:
+				parts = "+%d Run · +%d Tr." % [split[0], split[1]]
+			_b_label(Vector2(tx, body.position.y + 124), parts, S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, body.end.x - tx - 8)
+	# New trophies and unlocks, staggered.
+	var list_top := loot_y + 206
+	var bottom := share.position.y - 20
+	var new_quests: Array = reward.get("new_quests", [])
+	if new_quests.is_empty():
+		Kit.paragraph(self, Vector2(panel.position.x + 40, list_top + 40), "Keine neuen Trophäen – die nächste Jagd wartet.", panel.size.x - 80, S.T_BODY, S.BRAWL_TEXT_DIM, false, Kit.CENTER, 2)
+		var next: Dictionary = menu._next_quest()
+		if not next.is_empty():
+			_b_text(Vector2(cx, list_top + 100), "Nächstes Ziel: %s" % next.name, S.T_LABEL, _b_light("special"), Kit.CENTER | Kit.MIDDLE, panel.size.x - 80)
+	else:
+		var unlocked: Array = reward.get("unlocked", [])
+		_b_text(Vector2(panel.position.x + 30, list_top), "NEUE TROPHÄEN  %d" % new_quests.size(), S.T_BODY, _b_light("special"), Kit.LEFT | Kit.MIDDLE)
+		if not unlocked.is_empty():
+			_b_text(Vector2(panel.end.x - 30, list_top), "%d FREIGESCHALTET" % unlocked.size(), S.T_BODY, _b_light("loot"), Kit.RIGHT | Kit.MIDDLE)
+		var with_unlock: Array = []
+		var plain: Array = []
+		for id in new_quests:
+			var q: Dictionary = meta.quest(String(id))
+			if q.is_empty():
+				continue
+			if q.get("reward", {}).get("unlock", []).is_empty():
+				plain.append(q)
+			else:
+				with_unlock.append(q)
+		var cy := list_top + 30
+		var shown := 0
+		var total := with_unlock.size() + plain.size()
+		var left := panel.position.x + 24
+		var width := panel.size.x - 48
+		for k in with_unlock.size():
+			var need := 84.0 + (0.0 if total - shown == 1 else 40.0)
+			if cy + need > bottom:
+				break
+			_b_unlock_row(Rect2(left, cy, width, 76), with_unlock[k], shown)
+			cy += 84
+			shown += 1
+		var col := 0
+		for k in plain.size():
+			if col == 0 and cy + 64 + (0.0 if total - shown <= 2 else 40.0) > bottom:
+				break
+			var cw := (width - 12) * 0.5
+			_b_trophy_chip(Rect2(left + col * (cw + 12), cy, cw, 60), plain[k], shown)
+			shown += 1
+			col += 1
+			if col == 2:
+				col = 0
+				cy += 68
+		if col == 1:
+			cy += 68
+		if shown < total:
+			_b_label(Vector2(cx, cy + 18), "+ %d weitere in TROPHÄEN" % (total - shown), Color(_b_light("special"), _ease(2.0 + shown * 0.16, 0.3)), Kit.CENTER | Kit.MIDDLE)
+	# KARTE TEILEN (info) + WEITER (action) on the menu rectangles.
+	var busy: bool = menu.is_sharing()
+	var sp: bool = menu.is_pressed(share) or busy
+	Kit.button(self, share, "info", sp, S.R_L)
+	var sl := Kit.button_label_center(share, sp)
+	var ic := Vector2(share.position.x + 58, sl.y)
+	Kit.icon_plate(self, ic, 64, "dark")
+	_share_glyph(Kit.plate_center(ic, 64), 17, Color.WHITE)
+	var tx := share.position.x + 104
+	if busy:
+		_b_text(Vector2(tx, sl.y), "WIRD GEMALT", S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE, share.end.x - tx - 14)
+	else:
+		_b_text(Vector2(tx, sl.y - 17), "KARTE", S.T_BODY, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+		_b_text(Vector2(tx, sl.y + 17), "TEILEN", S.T_BODY, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+	var wp: bool = menu.is_pressed(button)
+	Kit.button(self, button, "action", wp, S.R_XL)
+	_b_text(Kit.button_label_center(button, wp), "WEITER", S.T_TITLE, Color.WHITE, Kit.CENTER | Kit.MIDDLE, button.size.x - 40)
+
+
+func _b_unlock_row(rect: Rect2, q: Dictionary, index: int) -> void:
+	var a := _stagger(index)
+	if a <= 0.0:
+		return
+	var r := Rect2(rect.position + Vector2((1.0 - a) * 60.0, 0), rect.size)
+	var unlocks: Array = q.reward.get("unlock", [])
+	var labels: Array = []
+	for token in unlocks:
+		labels.append(String(menu.meta.unlock_label(token)))
+	Kit.well(self, r, S.R_M)
+	var pc := Vector2(r.position.x + 40, r.get_center().y)
+	Kit.icon_plate(self, pc, 60, "loot")
+	var kind := String(unlocks[0]).split(":")[0]
+	var icon: String = {"strain": "mawling_head_color", "difficulty": "skull", "mutation": "dna", "upgrade": "brood"}.get(kind, "trophy")
+	_b_icon(icon, Kit.plate_center(pc, 60), 46)
+	Kit.badge(self, Vector2(r.end.x - 52, r.get_center().y), "NEU", "danger", S.T_LABEL)
+	var x := pc.x + 44
+	var room := r.end.x - 110 - x
+	_b_text(Vector2(x, r.position.y + 26), " · ".join(labels), S.T_LABEL, _b_light("loot"), Kit.LEFT | Kit.MIDDLE, room)
+	_b_label(Vector2(x, r.position.y + 54), "%s%s" % [q.name, _currency_suffix(q)], S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, room)
+
+
+func _b_trophy_chip(rect: Rect2, q: Dictionary, index: int) -> void:
+	var a := _stagger(index)
+	if a <= 0.0:
+		return
+	var r := Rect2(rect.position + Vector2((1.0 - a) * 60.0, 0), rect.size)
+	Kit.well(self, r, S.R_M)
+	var pc := Vector2(r.position.x + 32, r.get_center().y)
+	Kit.icon_plate(self, pc, 44, "action")
+	_b_check(Kit.plate_center(pc, 44), 12)
+	var rw: Dictionary = q.get("reward", {})
+	var right := r.end.x - 12
+	if int(rw.get("crowns", 0)) > 0:
+		right -= Kit.number(self, Vector2(right, r.get_center().y), "+%d" % int(rw.crowns), S.T_LABEL, Color.WHITE, Kit.RIGHT | Kit.MIDDLE)
+		_b_icon("crown_tooth", Vector2(right - 16, r.get_center().y), 30)
+		right -= 38
+	if int(rw.get("essence", 0)) > 0:
+		right -= Kit.number(self, Vector2(right, r.get_center().y), "+%d" % int(rw.essence), S.T_LABEL, Color.WHITE, Kit.RIGHT | Kit.MIDDLE)
+		_b_icon("essence", Vector2(right - 16, r.get_center().y), 30)
+		right -= 38
+	_b_text(Vector2(pc.x + 32, r.get_center().y), String(q.name), S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE, right - pc.x - 40)
+
+
+# ---------------------------------------------------------------- toast
+
+func _b_toast() -> void:
+	var text: String = menu.toast
+	var remaining: float = menu.toast_time
+	var fade_in := clampf((1.8 - remaining) / 0.15, 0.0, 1.0)
+	var bad := text.begins_with("Nicht") or text.begins_with("Gesperrt") or text.begins_with("Noch")
+	var w := minf(size.x - 60, _b_width(text, S.T_BODY, S.body_bold_font()) + 120)
+	# Kit shapes are opaque, so the toast slides in and out instead of fading.
+	var slide := (1.0 - fade_in) * 40.0 + (1.0 - clampf(remaining / 0.3, 0.0, 1.0)) * 40.0
+	# Above the tab dock; over the reward overlay at the top edge.
+	var y := 30.0 - slide if not menu.reward.is_empty() else 1398.0 + slide
+	var rect := Rect2(size.x * 0.5 - w * 0.5, y, w, 72)
+	Kit.pill(self, rect, "dark")
+	var pc := Vector2(rect.position.x + 40, rect.get_center().y)
+	Kit.icon_plate(self, pc, 52, "danger" if bad else "action")
+	if bad:
+		_b_text(Kit.plate_center(pc, 52), "!", S.T_HEAD, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+	else:
+		_b_check(Kit.plate_center(pc, 52), 14)
+	_b_text(Vector2(pc.x + 42, rect.get_center().y), text, S.T_BODY, Color.WHITE, Kit.LEFT | Kit.MIDDLE, rect.end.x - pc.x - 64, S.body_bold_font())

@@ -14,14 +14,17 @@ const GOLD := Color("f6cc70")
 const MUTED := Color("9fb6a6")
 const LEAF := Color("7fa86a")
 
-var _bold: FontVariation
+## Stage 15: the menu fonts come from UiStyle (Figtree 700 for labels from
+## 24 px, Figtree 500 below) instead of an emboldened theme fallback font.
+const _KIT_STYLE := preload("res://scripts/ui/ui_style.gd")
+var _bold: Font
+var _regular: Font
 
 
 func _ensure_font() -> void:
 	if _bold == null:
-		_bold = FontVariation.new()
-		_bold.base_font = ThemeDB.fallback_font
-		_bold.variation_embolden = 0.85
+		_bold = _KIT_STYLE.body_bold_font()
+		_regular = _KIT_STYLE.body_font()
 
 
 func _pulse(speed: float = 3.0) -> float:
@@ -30,7 +33,7 @@ func _pulse(speed: float = 3.0) -> float:
 
 func _font_for(font_size: int) -> Font:
 	_ensure_font()
-	return _bold if font_size >= 24 else ThemeDB.fallback_font
+	return _bold if font_size >= 24 else _regular
 
 
 func _text_width(value: String, font_size: int) -> float:

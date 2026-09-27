@@ -165,8 +165,8 @@ func _run() -> void:
 	quit(0)
 
 
-## Audio pack V1 calls inside the run scene (main.tscn): rally edge, feeding
-## harvest + loop, DNA popup, painful loss, threat, rustle, ui tap, music style.
+## Audio pack V1 calls inside the run scene (main.tscn): rally edge, collect
+## chain (Etappe 16), painful loss, threat, rustle, ui tap, music style.
 func _check_game_wiring() -> bool:
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -182,18 +182,26 @@ func _check_game_wiring() -> bool:
 	if not game_sfx.recently_played("rally", 500):
 		_fail("Rally press did not play 'rally'")
 		return false
-	world._set_feeding(true)
-	if not game_sfx.is_looping("feed") or not game_sfx.recently_played("harvest", 500):
-		_fail("Feeding did not start harvest + feed loop")
+	# Etappe 16: collected crystals play a rising collect chain (no feed loop any more).
+	world.drop_loot(swarm.position, 2.0, 0)
+	world.collect_loot_now()
+	if not game_sfx.recently_played("collect_bio", 500) or game_sfx.is_looping("feed"):
+		_fail("Collected biomass did not play 'collect_bio' (or a feed loop runs)")
 		return false
-	world._set_feeding(true)
-	world._set_feeding(false)
-	if game_sfx.is_looping("feed"):
-		_fail("Feed loop kept running after feeding stopped")
+	var chain_before: int = world.collect_chain
+	world.collect_sound_ms -= 1000
+	world.drop_loot(swarm.position, 0.0, 3)
+	world.collect_loot_now()
+	if not game_sfx.recently_played("collect_dna", 500) and not game_sfx.recently_played("collect_bio", 100):
+		_fail("Collected DNA did not play a collect sound")
 		return false
-	world._add_popup(Vector3.ZERO, 3, 10.0)
-	if not game_sfx.recently_played("dna", 500):
-		_fail("DNA popup did not play 'dna'")
+	if world.collect_chain != chain_before + 1:
+		_fail("Quick arrivals must climb the collect chain (%d -> %d)" % [chain_before, world.collect_chain])
+		return false
+	world.drop_loot(swarm.position, 2.0, 0)
+	world.collect_loot_now()
+	if world.collect_chain != chain_before + 1:
+		_fail("Collect sounds are throttled (chain %d)" % world.collect_chain)
 		return false
 	world.model.elapsed = world.model.pressure_doubling * 1.01
 	world._audio_threat()
@@ -247,7 +255,7 @@ func _check_game_wiring() -> bool:
 func _count_files(id: String) -> int:
 	var found := 0
 	for n in range(1, SfxScript.MAX_VARIANTS + 1):
-		var path := "res://assets/audio/%s_%d.wav" % [id, n]
+		var path := "res://assets/audio/%s_%d.wav" % [String(SfxScript.SOURCES.get(id, id)), n]
 		if not ResourceLoader.exists(path):
 			break
 		var stream := load(path) as AudioStream

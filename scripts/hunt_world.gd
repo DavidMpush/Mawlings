@@ -12,6 +12,7 @@ const FX = preload("res://scripts/fx.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
 const QUALITY = preload("res://scripts/quality.gd")
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
+const LOOT = preload("res://scripts/loot.gd")
 const ERUPTIONS = preload("res://scripts/eruptions.gd")
 const APEX_BOSS = preload("res://scripts/apex_boss.gd")
 const APEX_TOAD = preload("res://scripts/apex_toad.gd")
@@ -24,6 +25,10 @@ const HUD_OBJECTIVES_PATH := "res://scripts/ui/hud_objectives.gd"
 const NEST_COLOR := Color("3fe6d8")
 const CURSE_COLOR := Color("ff4a8a")
 const CORPSE_BIOMASS := TUNING.CORPSE_BIOMASS
+# Etappe 16: DNA per kill kind (now dropped as crystals).
+const KILL_DNA := {"prey": 10, "hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50, "apex": TUNING.APEX_DNA}
+# Loot spread / remains life by rank.
+const KIND_RANK := {"prey": "normal", "hunter": "normal", "skitter": "normal", "horde": "normal", "elite": "mini", "leaper": "mini", "boss": "boss", "apex": "boss", "apex_toad": "boss", "nest": "boss", "mawling": "special"}
 # Written by parallel modules; loaded at runtime so a missing file never breaks a run.
 const ATTACK_FORMS_PATH := "res://scripts/attack_forms.gd"
 const SESSION_PATH := "res://scripts/meta/session.gd"
@@ -39,9 +44,15 @@ const MELEE_FULL_SHARE := 0.6
 const MELEE_MIN_ENGAGE := 0.5
 const BODY_RADIUS := {"prey": 0.45, "hunter": 0.72, "elite": 1.05, "skitter": 0.55, "leaper": 0.7, "boss": 2.3, "apex": TUNING.APEX_BODY_RADIUS, "apex_toad": APEX_TOAD.BODY_RADIUS}
 const POPUP_SECONDS := 0.9
-const POPUP_MAX := 6
-const POPUP_MERGE_SECONDS := 0.3
-const POPUP_MERGE_DISTANCE := 2.5
+const POPUP_MAX := 3
+# Etappe 16 (S5): collected crystals add up into ONE growing number at the swarm
+# while they keep arriving within POPUP_MERGE_SECONDS.
+const POPUP_MERGE_SECONDS := 0.45
+# Collect sound chain: semitone steps (pentatonic) while crystals keep arriving
+# within COLLECT_CHAIN_SECONDS; at most one collect sound per COLLECT_SOUND_MS.
+const COLLECT_STEPS := [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24]
+const COLLECT_CHAIN_SECONDS := 0.45
+const COLLECT_SOUND_MS := 70
 # Die Flut (stage 08): the Moorbrut horde is written by a parallel module and
 # loaded at runtime; without it the flood still announces and counts, but spawns nothing.
 const HORDE_PATH := "res://scripts/horde.gd"
@@ -74,8 +85,25 @@ var skitters: Array[Node3D] = []
 var leapers: Array[Node3D] = []
 var boss: Node3D
 # Corpse display (Etappe 09): one design per animal and rank, batched per design
-# (scripts/corpse_visuals.gd). Display only; the corpses live in RunModel.
+# (scripts/corpse_visuals.gd). Etappe 16: empty decoration that sinks after
+# TUNING.CORPSE_LIFE; the biomass lies in the loot crystals (scripts/loot.gd).
 var corpse_view: Node3D
+var loot: Node3D
+# Remains bookkeeping: id -> {"age", "life"}; remains_order oldest first.
+var remains := {}
+var remains_order: Array[int] = []
+var next_remains_id := 1
+# Etappe 16 statistics and feel state.
+var crystals_collected := 0
+var lures_collected := 0
+var flood_lure_stage := 0
+var collect_chain := 0
+var collect_chain_at := -INF
+var collect_sound_ms := 0
+var lure_flash := 0.0
+# Seconds the collect hint stays after the last arrival (no flicker between frames).
+var collect_hint := 0.0
+var _map_loot_count := -1
 # Glutsumpf lava eruptions (scripts/eruptions.gd); quiet in other biomes.
 var eruptions: Node3D
 # Shared look of the Alpha-Kern and the curse aura (built once).
@@ -96,7 +124,9 @@ var focus_distance := INF
 # Visible unit world positions, rebuilt lazily once per step and after each hit.
 var unit_points := PackedVector3Array()
 var unit_points_valid := false
-# Floating kill rewards: {"at": Vector3, "dna": int, "biomass": int, "age": float}.
+# Floating rewards: {"at": Vector3, "dna": int, "biomass": int, "age": float,
+# "sum": float, "last": float}. Etappe 16: one growing number at the swarm per
+# collection burst (see _add_collect_popup).
 var kill_popups: Array[Dictionary] = []
 # Counts Bog King kills this run; HUD and Main react to changes (Königsmoment).
 var king_moments := 0
@@ -126,7 +156,7 @@ var flood_reached := false
 var horde_kills := 0
 var flood_waves := 0
 var flood_beep := -1
-# Horde kills waiting to become one corpse per cell: key -> {sum, n, biomass, dna}.
+# Horde kills waiting to burst into crystals per cell: key -> {sum, n, biomass, dna}.
 var flood_bundles: Dictionary = {}
 var flood_bundle_clock := 0.0
 # Soft, rate-limited swarm flash for horde bites (see _flood_bites).
@@ -136,10 +166,7 @@ var horde_flash_at := 0.0
 # Etappe 09 - Anfuehrer: HUD/feel state (rules live in RunModel.apply_hit()).
 const MILESTONE_SHOW_SECONDS := 2.5
 var last_loss_fraction := 0.0
-# Audio pack V1: feeding loop while the swarm harvests, one "threat" per
-# pressure doubling (see _audio_feed / _audio_threat).
-var feeding := false
-var feed_db := 0.0
+# Audio: one "threat" per pressure doubling (see _audio_threat).
 var threat_doublings := 0
 var milestone_value := 0
 var milestone_timer := 0.0
@@ -262,8 +289,16 @@ func reset_run() -> void:
 	enemy_states.clear()
 	boss = null
 	corpse_view = null
+	loot = null
 	eruptions = null
 	corpse_kinds.clear()
+	remains.clear()
+	remains_order.clear()
+	crystals_collected = 0
+	lures_collected = 0
+	collect_chain = 0
+	collect_chain_at = -INF
+	lure_flash = 0.0
 	_reset_apex()
 	evolution = EVOLUTION.new()
 	model = RUN_MODEL.new()
@@ -279,7 +314,6 @@ func reset_run() -> void:
 	hit_feedback = 0.0
 	last_loss = 0
 	last_loss_fraction = 0.0
-	_set_feeding(false)
 	threat_doublings = 0
 	milestone_value = 0
 	milestone_timer = 0.0
@@ -378,6 +412,7 @@ func _reset_flood() -> void:
 	flood_bundles.clear()
 	flood_bundle_clock = 0.0
 	horde_flash_at = 0.0
+	flood_lure_stage = 0
 
 
 # Difficulty multipliers (enemy HP/damage) ramp in over the first
@@ -454,6 +489,11 @@ func _step_flood(delta: float, damage: float) -> bool:
 	if flood_wave_clock <= 0.0:
 		flood_wave_clock = TUNING.FLOOD_WAVE_SECONDS
 		_spawn_flood_wave()
+	# Etappe 16: every new flood stage drops a Lockruf ahead of the swarm.
+	var stage := int(floor(flood_level()))
+	if stage > flood_lure_stage:
+		flood_lure_stage = stage
+		drop_lure(swarm.position + Vector3(0.0, 0.0, -TUNING.LURE_FLOOD_DISTANCE))
 	if horde == null:
 		return false
 	var points := _unit_points()
@@ -528,7 +568,7 @@ func _flood_bites(result: Dictionary, points: PackedVector3Array) -> bool:
 
 
 # Collects horde kills into per-cell bundles; every FLOOD_BUNDLE_SECONDS each
-# bundle becomes one persistent corpse (resource rule) with one popup.
+# bundle bursts into crystals (resource rule) and leaves small remains.
 func _flood_kills(delta: float) -> bool:
 	if horde != null and horde.has_method("take_kills"):
 		for kill in horde.take_kills():
@@ -553,67 +593,29 @@ func _flood_kills(delta: float) -> bool:
 	return flush_flood_bundles()
 
 
-# Turns every pending horde bundle into a corpse + DNA now. True when a
-# mutation offer opened (step() must stop).
+# Turns every pending horde bundle into crystals + remains now. Kept as a bool
+# for callers (DNA arrives later as crystals, so no offer opens here).
 func flush_flood_bundles() -> bool:
 	if flood_bundles.is_empty():
 		return false
-	var dna_total := 0
 	for key in flood_bundles:
 		var bundle: Dictionary = flood_bundles[key]
 		var location: Vector3 = get_parent().get_node("Arena").safe_spawn(bundle.sum / float(bundle.n), 0.4)
 		location.y = 0.0
 		var amount: float = float(bundle.biomass) * evolution.biomass_multiplier() * reward_multiplier()
-		# A long flood kills hundreds: feed an uneaten corpse close by instead of
-		# adding one more (keeps the corpse list short; the biomass stays).
-		var id := _grow_nearby_corpse(location, amount)
-		if id >= 0:
-			model.kills += int(bundle.n)
-			location = _corpse_position(id)
-		else:
-			id = _create_corpse(location, float(bundle.biomass) * evolution.biomass_multiplier(), "horde")
-			if id >= 0:
-				# add_corpse counted one kill; the bundle holds bundle.n of them.
-				model.kills += int(bundle.n) - 1
-		var dna := _reward_dna(int(bundle.dna))
-		dna_total += dna
-		# The horde draws its own death effect; the popup shows the reward.
-		_add_popup(location, dna, model.remaining_biomass(id) if id >= 0 else 0.0)
+		_add_remains(location, "horde")
+		# The horde draws its own death effect; the crystals show the reward.
+		if loot != null:
+			loot.burst(location, amount, _reward_dna(int(bundle.dna)), "normal")
 	flood_bundles.clear()
-	if dna_total > 0:
-		_sfx("kill", 10)
-		_award_dna(dna_total)
+	_sfx("kill", 10)
 	return choosing()
-
-
-# Adds biomass to the corpse within FLOOD_BUNDLE_CELL of `location`; -1 when none.
-func _grow_nearby_corpse(location: Vector3, amount: float, distance: float = TUNING.FLOOD_BUNDLE_CELL) -> int:
-	if amount <= 0.0 or model.extinct:
-		return -1
-	var reach := distance * distance
-	for index in model.corpses.size():
-		var corpse: Dictionary = model.corpses[index]
-		var offset: Vector3 = corpse.position - location
-		if offset.x * offset.x + offset.z * offset.z > reach:
-			continue
-		corpse.remaining += amount
-		corpse.initial += amount
-		_update_corpse(int(corpse.id), float(corpse.initial))
-		return int(corpse.id)
-	return -1
-
-
-func _corpse_position(id: int) -> Vector3:
-	for corpse in model.corpses:
-		if corpse.id == id:
-			return corpse.position
-	return swarm.position
 
 
 func _flood_message(message: String) -> String:
 	if flood_state == 1:
 		return "DIE FLUT KOMMT IN %d s!" % maxi(1, ceili(flood_start - model.elapsed))
-	if flood_state == 2 and (message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Biomasse") or message.begins_with("Schwarm voll")):
+	if flood_state == 2 and (message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Biomasse") or message.begins_with("Kristalle") or message.begins_with("Schwarm voll")):
 		return "DIE FLUT · in Bewegung bleiben, Brut zerbeißen"
 	return message
 
@@ -649,7 +651,6 @@ func _process(delta: float) -> void:
 func step(delta: float) -> void:
 	if paused or model.extinct or choosing():
 		swarm.clear_focus()
-		_set_feeding(false)
 		return
 	# Stage 10: while the migration swirl runs the world holds still (no time,
 	# no enemy step); pause and reset freeze or drop it like everything else.
@@ -663,6 +664,8 @@ func step(delta: float) -> void:
 	_map_corpse_clock -= delta
 	unit_points_valid = false
 	_age_popups(delta)
+	lure_flash = maxf(0.0, lure_flash - delta)
+	collect_hint = maxf(0.0, collect_hint - delta)
 	hit_feedback = maxf(0.0, hit_feedback - delta)
 	evolve_flash = maxf(0.0, evolve_flash - delta)
 	milestone_timer = maxf(0.0, milestone_timer - delta)
@@ -829,28 +832,8 @@ func step(delta: float) -> void:
 	if _step_flood(delta, damage):
 		return
 	_audio_threat()
-	var eating := false
-	for corpse in model.corpses.duplicate():
-		var id: int = corpse.id
-		if corpse.position.distance_to(swarm.position) > TUNING.HARVEST_RADIUS:
-			continue
-		var rate := TUNING.HARVEST_RATE * (1.35 if swarm.rally_pressed else 1.0)
-		var grown_from: int = model.population
-		var consumed: float = model.harvest(id, rate * evolution.harvest_multiplier() * delta)
-		if consumed > 0.0:
-			eating = true
-			swarm.set_population(model.population)
-			if model.population > grown_from:
-				_on_growth(model.population - grown_from)
-			if focus_mode == 0:
-				focus_mode = 2
-				focus_point = corpse.position
-			if not message.begins_with("RAUS"):
-				message = "Biomasse ernten · Rally beschleunigt"
-			_update_corpse(id, corpse.initial)
-		elif model.population >= RUN_MODEL.MAX_POPULATION:
-			message = "Schwarm voll — Biomasse bleibt liegen"
-	_set_feeding(eating)
+	message = _step_loot(delta, message)
+	_step_remains(delta)
 	_step_alpha_pickups(delta)
 	_audio_step(delta, population_before)
 	if focus_mode == 0:
@@ -937,7 +920,6 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 	if enemy == null or enemy.health > 0.0:
 		return false
 	var location: Vector3 = enemy.position
-	var corpses_before: int = model.corpses.size()
 	match kind:
 		"hunter":
 			if not hunters.has(enemy):
@@ -945,28 +927,32 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			hunters.erase(enemy)
 			if enemy.elite:
 				_kill_burst(location, Color("f5c86a"), 4.0, 0.35)
-				_create_corpse(location, TUNING.ELITE_BIOMASS * evolution.biomass_multiplier(), "elite")
+				_drop_rewards(location, "elite", TUNING.ELITE_BIOMASS, TUNING.ELITE_DNA)
 				_drop_alpha_core(location)
+				drop_lure(location)
 			else:
 				_kill_burst(location, Color("c58be0"), 2.6, 0.25)
-				_create_corpse(location, TUNING.HUNTER_BIOMASS * evolution.biomass_multiplier(), "hunter")
+				_drop_rewards(location, "hunter", TUNING.HUNTER_BIOMASS, KILL_DNA.hunter)
 				if model.pressure() >= 2.0 and drop_rng.randf() < 0.10:
 					_drop_alpha_core(location)
+				_maybe_lure(location)
 		"skitter":
 			if not skitters.has(enemy):
 				return false
 			skitters.erase(enemy)
 			_kill_burst(location, Color("7fb4ff"), 2.4, 0.2)
-			_create_corpse(location, TUNING.SKITTER_BIOMASS * evolution.biomass_multiplier(), "skitter")
+			_drop_rewards(location, "skitter", TUNING.SKITTER_BIOMASS, KILL_DNA.skitter)
+			_maybe_lure(location)
 			enemy.cleanup()
 		"leaper":
 			if not leapers.has(enemy):
 				return false
 			leapers.erase(enemy)
 			_kill_burst(location, Color("5fe0c8"), 2.4, 0.2)
-			_create_corpse(location, TUNING.LEAPER_BIOMASS * evolution.biomass_multiplier(), "leaper")
+			_drop_rewards(location, "leaper", TUNING.LEAPER_BIOMASS, KILL_DNA.leaper)
 			if drop_rng.randf() < 0.25:
 				_drop_alpha_core(location)
+			_maybe_lure(location)
 			enemy.cleanup()
 		"boss":
 			if enemy != boss:
@@ -974,9 +960,12 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			boss = null
 			_kill_burst(location, Color("ffe07a"), 7.5, 0.7)
 			_kill_burst(location, Color("d8b8ff"), 5.0, 0.0)
-			_create_corpse(location, TUNING.BOSS_BIOMASS * evolution.biomass_multiplier(), "boss")
+			# The curse (and its double reward) ends with the cursed boss; its own
+			# crystals are still doubled.
+			_drop_rewards(location, "boss", TUNING.BOSS_BIOMASS, KILL_DNA.boss)
 			boss_clock = TUNING.BOSS_RESPAWN_SECONDS
 			_drop_alpha_core(location)
+			drop_lure(location)
 		"apex":
 			if enemy != apex:
 				return false
@@ -985,13 +974,14 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			if toad:
 				_kill_burst(location, Color("ffb45a"), 9.0, 0.8)
 				_kill_burst(location, Color("ff6a2a"), 6.5, 0.0)
-				_create_corpse(location, TUNING.APEX_TOAD_BIOMASS * evolution.biomass_multiplier(), "apex_toad")
+				_drop_rewards(location, "apex_toad", TUNING.APEX_TOAD_BIOMASS, TUNING.APEX_TOAD_DNA)
 			else:
 				_kill_burst(location, Color("e8f59a"), 9.0, 0.8)
 				_kill_burst(location, Color("c8a0ff"), 6.5, 0.0)
-				_create_corpse(location, TUNING.APEX_BIOMASS * evolution.biomass_multiplier(), "apex")
+				_drop_rewards(location, "apex", TUNING.APEX_BIOMASS, KILL_DNA.apex)
 			for index in (TUNING.APEX_TOAD_ALPHA_CORES if toad else TUNING.APEX_ALPHA_CORES):
 				_drop_alpha_core(location)
+			drop_lure(location)
 		_:
 			return false
 	model.record_kill(kind)
@@ -1002,22 +992,12 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 		apex_dying_clock = TUNING.APEX_SINK_SECONDS
 	else:
 		enemy.queue_free()
-	var base_dna: int = {"hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50, "apex": TUNING.APEX_DNA}[kind]
-	if kind == "apex" and str(enemy.get("corpse_kind")) == "apex_toad":
-		base_dna = TUNING.APEX_TOAD_DNA
-	if kind == "hunter" and enemy.elite:
-		base_dna = TUNING.ELITE_DNA
-	var dna := _reward_dna(base_dna)
-	_add_popup(location, dna, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
 	if kind == "apex":
 		_apex_defeated(location, str(enemy.get("corpse_kind")) == "apex_toad")
 	if kind == "boss":
 		_king_moment(location)
-		# The curse (and its double reward) ends with the cursed boss; its own
-		# corpse and DNA above were still doubled.
 		if curse_state == 2:
 			curse_state = 0
-	_award_dna(dna)
 	return true
 
 
@@ -1092,37 +1072,76 @@ func _kill_prey(target: Node3D) -> void:
 		return
 	prey.erase(target)
 	_kill_burst(target.position, Color("7de6d2"), 1.8, 0.0)
-	var corpses_before: int = model.corpses.size()
-	_create_corpse(target.position, CORPSE_BIOMASS * evolution.biomass_multiplier(), "prey")
+	_drop_rewards(target.position, "prey", CORPSE_BIOMASS, KILL_DNA.prey)
 	model.record_kill("prey")
 	_note_kills(1)
 	target.queue_free()
-	var dna := _reward_dna(10)
-	_add_popup(target.position, dna, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
-	_award_dna(dna)
 
 
-# `kind` names the corpse design (corpse_kinds); `rewarded` applies the curse bonus.
-func _create_corpse(location: Vector3, biomass: float, kind: String = "prey", rewarded: bool = true) -> int:
-	# Fluch-Totem: doubled biomass until the cursed boss dies.
-	var id: int = model.add_corpse(location, biomass * (reward_multiplier() if rewarded else 1.0))
-	if id < 0:
-		return id
+# Etappe 16: a death leaves empty remains (decoration) and bursts into loot
+# crystals: biomass x biomass_multiplier (future kills) x curse, DNA x curse.
+# Returns the DNA dropped.
+func _drop_rewards(location: Vector3, kind: String, biomass: float, dna: int) -> int:
+	var at := Vector3(location.x, 0.0, location.z)
+	_add_remains(at, kind)
+	var amount := biomass * evolution.biomass_multiplier() * reward_multiplier()
+	var reward := _reward_dna(dna)
+	drop_loot(at, amount, reward, String(KIND_RANK.get(kind, "normal")))
+	return reward
+
+
+## Bursts `biomass` and `dna` into crystals at `location` (public for tests,
+## captures and the perf bench). Values are final (no multipliers applied).
+func drop_loot(location: Vector3, biomass: float, dna: int = 0, rank: String = "normal") -> void:
+	if loot == null or model.extinct:
+		return
+	loot.burst(Vector3(location.x, 0.0, location.z), biomass, dna, rank)
+
+
+# Empty remains of `kind` (corpse_visuals design); they sink after their life.
+# Returns the remains id (-1 without a corpse view).
+func _add_remains(location: Vector3, kind: String) -> int:
+	if corpse_view == null:
+		return -1
+	var id := next_remains_id
+	next_remains_id += 1
+	var rank := String(KIND_RANK.get(kind, "normal"))
+	var life: float = TUNING.CORPSE_HORDE_LIFE if kind == "horde" else float(TUNING.CORPSE_LIFE.get(rank, 25.0))
 	corpse_kinds[id] = kind
-	if corpse_view != null:
-		corpse_view.add(id, kind, location, float(model.corpses[-1].initial))
+	remains[id] = {"age": 0.0, "life": life, "at": location}
+	remains_order.append(id)
+	corpse_view.add(id, kind, location, 1.0)
+	# The oldest remains go first when too many lie around.
+	while remains_order.size() > TUNING.CORPSE_MAX:
+		_remove_remains(remains_order[0])
 	return id
 
 
-func _update_corpse(id: int, initial: float) -> void:
-	if corpse_view == null:
-		return
-	var remaining: float = model.remaining_biomass(id)
-	if remaining <= 0.0:
+func _remove_remains(id: int) -> void:
+	remains.erase(id)
+	remains_order.erase(id)
+	corpse_kinds.erase(id)
+	if corpse_view != null:
 		corpse_view.remove(id)
-		corpse_kinds.erase(id)
-	else:
-		corpse_view.set_fill(id, remaining / maxf(initial, 0.001))
+
+
+## Position of remains `id` (INF when gone).
+func remains_position(id: int) -> Vector3:
+	return remains[id].at if remains.has(id) else Vector3.INF
+
+
+# Remains age; in their last CORPSE_SINK_SECONDS they sink, then they vanish.
+func _step_remains(delta: float) -> void:
+	if remains_order.is_empty():
+		return
+	for id in remains_order.duplicate():
+		var entry: Dictionary = remains[id]
+		entry.age += delta
+		var left: float = float(entry.life) - float(entry.age)
+		if left <= 0.0:
+			_remove_remains(id)
+		elif left < TUNING.CORPSE_SINK_SECONDS and corpse_view != null:
+			corpse_view.set_decay(id, 1.0 - left / TUNING.CORPSE_SINK_SECONDS)
 
 
 # Corpse designs and lava eruptions live under HuntWorld, so reset_run() frees
@@ -1130,7 +1149,12 @@ func _update_corpse(id: int, initial: float) -> void:
 func _create_world_views() -> void:
 	corpse_view = CORPSE_VISUALS.new()
 	corpse_view.name = "CorpseView"
+	corpse_view.empty = true
 	add_child(corpse_view)
+	loot = LOOT.new()
+	loot.name = "Loot"
+	add_child(loot)
+	loot.setup(get_parent().get_node_or_null("Arena") as Node3D)
 	eruptions = ERUPTIONS.new()
 	eruptions.name = "Eruptions"
 	eruptions.arena = get_parent().get_node_or_null("Arena") as Node3D
@@ -1331,7 +1355,7 @@ func apex_loop() -> int:
 
 # Calm hints may be replaced by apex / migration hints; warnings never are.
 func _is_calm(message: String) -> bool:
-	for prefix in ["Jage", "Mawlings greifen", "Biomasse", "Schwarm voll", "DIE FLUT ·", "Fluch aktiv", "Brutnest füllen", "Alpha-Kern", "Mutation", "Neue Auswahl"]:
+	for prefix in ["Jage", "Mawlings greifen", "Biomasse", "Kristalle", "Schwarm voll", "DIE FLUT ·", "Fluch aktiv", "Brutnest füllen", "Alpha-Kern", "Mutation", "Neue Auswahl"]:
 		if message.begins_with(prefix):
 			return true
 	return message == ""
@@ -1671,7 +1695,7 @@ func _reward_dna(amount: int) -> int:
 
 # Runs nest, totem and elite schedules inside step(); returns the hint to show.
 func _step_objectives(delta: float, message: String) -> String:
-	var calm := message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Biomasse") or message.begins_with("Schwarm voll")
+	var calm := message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Biomasse") or message.begins_with("Kristalle") or message.begins_with("Schwarm voll")
 	# Brutnest: one at a time; a new one after the previous one hatched.
 	if nest == null:
 		nest_clock -= delta
@@ -1688,7 +1712,7 @@ func _step_objectives(delta: float, message: String) -> String:
 		nest.animate(delta, share > 0.0)
 		if full:
 			_complete_nest()
-			return "BRUTNEST GESCHLÜPFT · BIOMASSE FRESSEN!"
+			return "BRUTNEST GESCHLÜPFT · KRISTALLE SAMMELN!"
 		if share > 0.0 and calm:
 			message = "Brutnest füllen · %d Prozent" % int(nest.progress * 100.0)
 	# Fluch-Totem: rolled once per boss cycle while no boss is alive.
@@ -1742,30 +1766,21 @@ func spawn_elite(location: Vector3) -> Node3D:
 	return target
 
 
-# Full nest: a clutch of ordinary corpses (they stay until eaten) plus DNA.
+# Full nest: bursts into crystals (they stay until collected) plus DNA crystals.
 func _complete_nest() -> void:
 	var location: Vector3 = nest.position
 	nest.queue_free()
 	nest = null
 	nest_clock = TUNING.NEST_RESPAWN_SECONDS
-	var total: float = (TUNING.NEST_BIOMASS + TUNING.NEST_BIOMASS_GROWTH * float(nests_completed)) * evolution.biomass_multiplier()
+	var total: float = (TUNING.NEST_BIOMASS + TUNING.NEST_BIOMASS_GROWTH * float(nests_completed)) * evolution.biomass_multiplier() * reward_multiplier()
 	nests_completed += 1
-	var created := 0.0
-	for index in TUNING.NEST_CLUTCH:
-		var angle := TAU * float(index) / float(TUNING.NEST_CLUTCH) + 0.4
-		var id := _create_corpse(location + Vector3(cos(angle), 0.0, sin(angle)) * 0.55, total / float(TUNING.NEST_CLUTCH), "nest")
-		if id >= 0:
-			# A hatched nest is not a kill.
-			model.kills -= 1
-			created += model.remaining_biomass(id)
-	var dna := _reward_dna(TUNING.NEST_DNA)
+	_add_remains(location, "nest")
+	drop_loot(location, total, _reward_dna(TUNING.NEST_DNA), "boss")
 	FX.ring(self, location, Color(NEST_COLOR, 0.95), 0.6, TUNING.NEST_RADIUS + 3.0, 0.8)
 	FX.ring(self, location, Color("f5c86a", 0.8), 0.3, TUNING.NEST_RADIUS, 0.55)
 	_shake(0.2)
 	_sfx("grow")
 	_sfx("evolve", 60)
-	_add_popup(location, dna, created)
-	_award_dna(dna)
 
 
 func _accept_curse() -> void:
@@ -1880,7 +1895,7 @@ func _update_hud(message: String) -> void:
 	hud.evolution = evolution
 	hud.population = model.population
 	hud.biomass_bank = model.biomass_bank
-	hud.corpse_count = model.corpses.size()
+	hud.corpse_count = loot.count() if loot != null else 0
 	hud.kills = model.kills
 	hud.hunters = hunters.size()
 	hud.skitters = skitters.size()
@@ -1918,22 +1933,10 @@ func _update_hud(message: String) -> void:
 	hud.set_meta("objectives", objectives)
 	if "objectives" in hud:
 		hud.set("objectives", objectives)
+	# Etappe 16: no corpse chip any more (crystals fly in by themselves).
 	hud.nearest_corpse = ""
-	# Etappe 07: squared distances in the loop, the label is formatted once.
-	var nearest := INF
-	var nearest_offset := Vector3.ZERO
-	for corpse in model.corpses:
-		var offset: Vector3 = corpse.position - swarm.position
-		var distance_squared := offset.length_squared()
-		if distance_squared < nearest:
-			nearest = distance_squared
-			nearest_offset = offset
-	if nearest < INF:
-		var distance := sqrt(nearest)
-		var direction := "hier"
-		if distance > TUNING.HARVEST_RADIUS:
-			direction = ("oben" if nearest_offset.z < 0 else "unten") if absf(nearest_offset.z) > absf(nearest_offset.x) else ("links" if nearest_offset.x < 0 else "rechts")
-		hud.nearest_corpse = "Kadaver: %dm · %s" % [int(distance), direction]
+	hud.set_meta("lure_flash", lure_flash)
+	hud.set_meta("magnet_radius", magnet_radius())
 	hud.queue_redraw()
 
 
@@ -2056,31 +2059,45 @@ func _resolve_area_hit(enemy: Node3D, fallback_impact: Vector3, shake_amount: fl
 	return _apply_hit(maxi(0, loss), impact, shake_amount, enemy, leader_struck, enemy is PREY)
 
 
-# ---------------------------------------------------------------- kill popups
+# ---------------------------------------------------------------- collect popups
 
-# Bundles DNA and biomass of one kill into a floating reward at the kill spot;
-# kills close in time and space merge into one popup.
-func _add_popup(location: Vector3, dna: int, biomass: float) -> void:
-	var amount := int(round(biomass))
-	for popup in kill_popups:
-		if popup.age < POPUP_MERGE_SECONDS and Vector2(popup.at.x - location.x, popup.at.z - location.z).length() < POPUP_MERGE_DISTANCE:
-			popup.dna += dna
-			popup.biomass += amount
-			popup.age = 0.0
-			popup.at = (popup.at + location) * 0.5
+# Etappe 16 (S5): collected biomass/DNA add up into ONE number at the swarm
+# ("+36") while crystals keep arriving within POPUP_MERGE_SECONDS; every new
+# crystal restarts the little pop (hop) of the number. Afterwards it rises and fades.
+func _add_collect_popup(biomass: float, dna: int) -> void:
+	if biomass <= 0.0 and dna <= 0:
+		return
+	var now: float = model.elapsed
+	if not kill_popups.is_empty():
+		var last: Dictionary = kill_popups[-1]
+		if now - float(last.get("last", -INF)) <= POPUP_MERGE_SECONDS:
+			last.sum = float(last.sum) + biomass
+			last.biomass = int(round(float(last.sum)))
+			last.dna = int(last.dna) + dna
+			last.last = now
+			last.age = minf(float(last.age), 0.03)
+			last.at = _popup_anchor()
 			return
-	kill_popups.append({"at": location, "dna": dna, "biomass": amount, "age": 0.0})
-	# Rate-limited by the sfx rule (gap 350 ms): bursts of kills give one sound.
-	if dna > 0:
-		_sfx("dna")
+	kill_popups.append({"at": _popup_anchor(), "dna": dna, "biomass": int(round(biomass)), "sum": biomass, "age": 0.0, "last": now})
 	while kill_popups.size() > POPUP_MAX:
 		kill_popups.pop_front()
 
 
+# Just above the swarm (screen-up is -Z), so the number never hides the animals.
+func _popup_anchor() -> Vector3:
+	var reach: float = 1.6 + 0.35 * sqrt(float(model.population))
+	return swarm.position + Vector3(0.0, 0.0, -minf(reach, 4.5))
+
+
 func _age_popups(delta: float) -> void:
+	var now: float = model.elapsed
 	for index in range(kill_popups.size() - 1, -1, -1):
-		kill_popups[index].age += delta
-		if kill_popups[index].age >= POPUP_SECONDS:
+		var popup: Dictionary = kill_popups[index]
+		popup.age += delta
+		# A growing number follows the swarm; a finished one floats away.
+		if now - float(popup.get("last", -INF)) <= POPUP_MERGE_SECONDS:
+			popup.at = _popup_anchor()
+		if popup.age >= POPUP_SECONDS:
 			kill_popups.remove_at(index)
 
 
@@ -2096,6 +2113,127 @@ func _popup_screen() -> Array:
 			continue
 		result.append({"screen": camera.unproject_position(point), "dna": popup.dna, "biomass": popup.biomass, "t": popup.age / POPUP_SECONDS})
 	return result
+
+
+# ---------------------------------------------------------------- loot & magnet (Etappe 16)
+
+## Magnet radius around the swarm centre: grows with the swarm, x Witterung
+## (meta) x Lockduft (trait), x MAGNET_RALLY while Rally is held.
+func magnet_radius() -> float:
+	var radius := (TUNING.MAGNET_BASE + TUNING.MAGNET_PER_ROOT * sqrt(float(maxi(1, model.population)))) * evolution.magnet_multiplier()
+	if swarm != null and swarm.rally_pressed:
+		radius *= TUNING.MAGNET_RALLY
+	return radius
+
+
+# Magnet, flights and arrivals: biomass grows the swarm (x harvest_multiplier:
+# Schnelle Brut / Verdauung), DNA feeds the mutation offer. A full swarm leaves
+# biomass lying. Returns the hint to show.
+func _step_loot(delta: float, message: String) -> String:
+	if loot == null:
+		return message
+	var room: bool = model.biomass_capacity() > 0.0
+	var got: Dictionary = loot.step(delta, swarm.position, magnet_radius(), _unit_points(), room)
+	if loot.lures_taken > 0:
+		for index in loot.lures_taken:
+			_lure_moment()
+		message = "LOCKRUF · ALLE KRISTALLE KOMMEN!"
+	if int(got.crystals) > 0:
+		_credit_loot(got)
+		collect_hint = 1.0
+	if not room and loot.lying_count() > 0 and _is_calm(message):
+		return "Schwarm voll — Biomasse bleibt liegen"
+	if collect_hint > 0.0 and message.begins_with("Jage"):
+		return "Kristalle sammeln · Rally vergrößert den Sog"
+	return message
+
+
+## Credits every crystal on the map at once (tests and captures; a full swarm
+## keeps its biomass lying).
+func collect_loot_now() -> void:
+	if loot == null:
+		return
+	var got: Dictionary = loot.take_all(model.biomass_capacity() > 0.0)
+	if int(got.crystals) > 0:
+		_credit_loot(got)
+	_update_hud("")
+
+
+# Arrived crystals: biomass grows the swarm (x harvest_multiplier), a rest
+# beyond the cap lies down again at the swarm, DNA feeds the mutation offer;
+# one growing popup and the rising collect sound.
+func _credit_loot(got: Dictionary) -> void:
+	crystals_collected += int(got.crystals)
+	var biomass: float = float(got.biomass) * evolution.harvest_multiplier()
+	var taken := 0.0
+	if biomass > 0.0:
+		var grown_from: int = model.population
+		taken = model.absorb(biomass)
+		if model.population != grown_from:
+			swarm.set_population(model.population)
+			if model.population > grown_from:
+				_on_growth(model.population - grown_from)
+		# Arrived while the swarm filled up: the rest lies down again at the swarm.
+		if biomass - taken > 0.01:
+			loot.drop(LOOT.Kind.BIOMASS, biomass - taken, swarm.position, swarm.position + Vector3(drop_rng.randf_range(-1.0, 1.0), 0.0, drop_rng.randf_range(-1.0, 1.0)) * 1.5)
+	var dna: int = got.dna
+	_add_collect_popup(taken, dna)
+	_collect_sound(int(got.bio_crystals), int(got.dna_crystals))
+	if dna > 0:
+		_award_dna(dna)
+
+
+# Rising collect chain: every sound in quick succession one pentatonic step
+# higher (at most one per COLLECT_SOUND_MS; biomass and DNA alternate).
+func _collect_sound(bio_crystals: int, dna_crystals: int) -> void:
+	var now_ms := Time.get_ticks_msec()
+	if now_ms - collect_sound_ms < COLLECT_SOUND_MS:
+		return
+	collect_sound_ms = now_ms
+	if model.elapsed - collect_chain_at <= COLLECT_CHAIN_SECONDS:
+		collect_chain = mini(collect_chain + 1, COLLECT_STEPS.size() - 1)
+	else:
+		collect_chain = 0
+	collect_chain_at = model.elapsed
+	var pitch := pow(2.0, float(COLLECT_STEPS[collect_chain]) / 12.0)
+	var player := _sfx_node()
+	if player == null:
+		return
+	var id := "collect_dna" if dna_crystals > 0 and (bio_crystals == 0 or collect_chain % 2 == 1) else "collect_bio"
+	player.play(id, 0.0, 0.02, pitch)
+
+
+## Drops a Lockruf beside `location` (guaranteed: elite, Bog King, apex, each
+## new flood stage). Returns the lure node.
+func drop_lure(location: Vector3) -> Node3D:
+	if loot == null or model.extinct:
+		return null
+	var offset := Vector3(-1.6, 0.0, 0.0).rotated(Vector3.UP, drop_rng.randf() * TAU)
+	var node: Node3D = loot.add_lure(location + offset)
+	FX.ring(self, node.position, Color(LOOT.LURE_COLOR, 0.85), 0.3, 3.0, 0.7)
+	return node
+
+
+# Rare Lockruf from ordinary hunters/skitters/leapers once enough crystals lie around.
+func _maybe_lure(location: Vector3) -> void:
+	if loot != null and loot.lying_count() >= TUNING.LURE_MIN_LYING and drop_rng.randf() < TUNING.LURE_CHANCE:
+		drop_lure(location)
+
+
+# Lockruf collected: every crystal on the map flies in as a chain.
+func _lure_moment() -> void:
+	lures_collected += 1
+	lure_flash = 1.0
+	var called: int = loot.vacuum(swarm.position, _unit_points(), model.biomass_capacity() > 0.0)
+	# A short glow: one ring runs out over the map, one gold pulse at the swarm.
+	FX.ring(self, swarm.position, Color(LOOT.LURE_COLOR, 0.55), 1.0, 11.0, 0.7)
+	FX.ring(self, swarm.position, Color(LOOT.BIO_GLOW, 0.7), 0.3, 5.0, 0.5)
+	_shake(0.25)
+	_sfx("lure", 90)
+	if called > 0:
+		# The chain starts one step up: it is already a celebration.
+		collect_chain = 2
+		collect_chain_at = model.elapsed
 
 
 # Bog King eaten: big HUD moment, sound and vibration; Main adds slow motion and zoom.
@@ -2170,7 +2308,6 @@ func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3
 			player.stop_ambience()
 		_portal_hum(false)
 		var music := _music_node()
-		_set_feeding(false)
 		if music != null:
 			music.stop()
 		_update_hud("Ausgestorben")
@@ -2220,10 +2357,10 @@ func _on_growth(count: int) -> void:
 	_sync_leader()
 
 
-# Rückeroberung: fallen Mawlings leave FALLEN_BIOMASS each, bundled into a corpse
-# close by (like horde kills) so the list stays short; a new one otherwise.
+# Rückeroberung: fallen Mawlings leave FALLEN_BIOMASS each as one crystal where
+# they fell (it joins crowded crystals close by like any other).
 func _drop_fallen_biomass(location: Vector3, count: int) -> void:
-	if count <= 0 or model.extinct:
+	if count <= 0 or model.extinct or loot == null:
 		return
 	var amount := TUNING.FALLEN_BIOMASS * float(count)
 	var arena: Node3D = get_parent().get_node_or_null("Arena")
@@ -2231,11 +2368,7 @@ func _drop_fallen_biomass(location: Vector3, count: int) -> void:
 	if arena != null and arena.has_method("safe_spawn"):
 		spot = arena.safe_spawn(location, 0.4)
 	spot.y = 0.0
-	if _grow_nearby_corpse(spot, amount, TUNING.FALLEN_BUNDLE_REACH) >= 0:
-		return
-	if _create_corpse(spot, amount, "mawling", false) >= 0:
-		# Fallen Mawlings are no kills.
-		model.kills -= 1
+	loot.drop(LOOT.Kind.BIOMASS, amount, spot, spot + Vector3(drop_rng.randf_range(-0.8, 0.8), 0.0, drop_rng.randf_range(-0.8, 0.8)))
 
 
 # True when a Nibbler other than `except` is announcing a snap.
@@ -2280,6 +2413,9 @@ func run_stats() -> Dictionary:
 		"flood_seconds": flood_seconds(),
 		"horde_kills": horde_kills,
 		"leader_swaps": model.leader_swaps,
+		# Etappe 16: loot crystals collected, Lockrufe taken.
+		"crystals": crystals_collected,
+		"lures": lures_collected,
 		# Stage 10: apex and migration.
 		"apex_kills": apex_kills,
 		"toad_kills": toad_kills,
@@ -2345,30 +2481,6 @@ func _sfx(id: String, vibrate_ms: int = 0, volume_db: float = 0.0) -> void:
 	player.play(id, volume_db)
 	if vibrate_ms > 0:
 		player.vibrate(vibrate_ms)
-
-
-# Audio pack V1 "harvest" once when feeding starts, then the "feed" loop
-# (louder with the swarm size) until nobody eats any more.
-func _set_feeding(on: bool) -> void:
-	var player := _sfx_node()
-	if not on:
-		if feeding:
-			feeding = false
-			if player != null and player.has_method("stop_loop"):
-				player.stop_loop("feed")
-		return
-	var volume := lerpf(-8.0, 0.0, clampf(float(model.population) / 120.0, 0.0, 1.0))
-	if player == null or not player.has_method("start_loop"):
-		feeding = true
-		return
-	if not feeding:
-		feeding = true
-		feed_db = volume
-		player.play("harvest")
-		player.start_loop("feed", volume)
-	elif absf(volume - feed_db) > 0.5:
-		feed_db = volume
-		player.set_loop_volume("feed", volume)
 
 
 # "threat" once per pressure doubling (the flood start adds its own).
@@ -2513,6 +2625,7 @@ func _reset_map() -> void:
 	_map_clock = 0.0
 	_map_heading = Vector2(0.0, -1.0)
 	_map_corpse_count = -1
+	_map_loot_count = -1
 	_track_exploration()
 
 
@@ -2590,16 +2703,13 @@ func _map_state() -> Dictionary:
 				enemies.append(enemy.position.x)
 				enemies.append(enemy.position.z)
 				enemies.append(group[1])
-	if model.corpses.size() != _map_corpse_count or _map_corpse_clock <= 0.0:
-		_map_corpse_count = model.corpses.size()
+	# Etappe 16: the "corpses" layer marks where loot crystals lie (coarse cells,
+	# size by value) and the Lockruf drops; refreshed at 1 Hz or on a new count.
+	var loot_count: int = loot.lying_count() + loot.lures.size() if loot != null else 0
+	if loot_count != _map_loot_count or _map_corpse_clock <= 0.0:
+		_map_loot_count = loot_count
 		_map_corpse_clock = 1.0
-		_map_corpses = PackedFloat32Array()
-		for corpse in model.corpses:
-			var kind := String(corpse_kinds.get(corpse.id, "prey"))
-			var big := 2.0 if kind == "boss" or kind == "apex" else (1.0 if kind == "elite" or kind == "nest" or kind == "horde" else 0.0)
-			_map_corpses.append(corpse.position.x)
-			_map_corpses.append(corpse.position.z)
-			_map_corpses.append(big)
+		_map_corpses = loot.map_marks() if loot != null else PackedFloat32Array()
 	var cores := PackedVector3Array()
 	for pickup in alpha_pickups:
 		if is_instance_valid(pickup):

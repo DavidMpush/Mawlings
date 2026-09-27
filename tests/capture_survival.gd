@@ -16,7 +16,7 @@ func _capture() -> void:
 	world.set_process(false)
 	swarm.set_process(false)
 	world.model.elapsed = 60.0
-	world._create_corpse(Vector3(-3, 0, 1), 12.0)
+	world.drop_loot(Vector3(-3, 0, 1), 12.0)
 	var hunter: Variant = world._spawn_hunter(Vector3(2.5, 0, 0))
 	hunter.step(1.1, Vector3.ZERO, world.model.pressure())
 	hunter.step(0.01, Vector3.ZERO, world.model.pressure())

@@ -26,19 +26,19 @@ func _run() -> void:
 		var target: Vector3 = swarm.position
 		var best := INF
 		var harvesting := false
-		for corpse in world.model.corpses:
-			var distance: float = corpse.position.distance_to(swarm.position)
-			if distance < best:
-				best = distance
-				target = corpse.position
-				harvesting = true
+		# Etappe 16: the nearest lying crystal (the magnet does the rest).
+		var crystal: Vector3 = world.loot.nearest_lying(swarm.position, 30.0)
+		if crystal.is_finite():
+			best = Vector2(crystal.x - swarm.position.x, crystal.z - swarm.position.z).length()
+			target = crystal
+			harvesting = true
 		if not harvesting:
 			for prey in world.prey:
 				var distance: float = prey.position.distance_to(swarm.position)
 				if distance < best:
 					best = distance
 					target = prey.position
-		# Brutnest: go there when no corpse is close and no hunter warns.
+		# Brutnest: go there when no crystal is close and no hunter warns.
 		var calm := true
 		for hunter in world.hunters:
 			if hunter.get("state") == HUNTER.State.WARNING:
@@ -47,7 +47,7 @@ func _run() -> void:
 			target = world.nest.position if world.nest.position.distance_to(swarm.position) > 1.2 else swarm.position
 			harvesting = false
 		var direction: Vector3 = target - swarm.position
-		if harvesting and direction.length() < 1.0:
+		if harvesting and direction.length() < world.magnet_radius() * 0.5:
 			direction = Vector3.ZERO
 		# Stage 09: dodge with the leader (units[0]) and wait for stragglers.
 		var points: PackedVector3Array = swarm.unit_world_points()
@@ -88,7 +88,7 @@ func _run() -> void:
 		hud.movement_vector = Vector2(direction.x, direction.z).limit_length(1.0)
 		hud.rally_pressed = best < 1.05 and not avoiding
 		await process_frame
-	print("PLAYTEST seconds=%.1f population=%d peak=%d kills=%d lost=%d corpses=%d hunters=%d skitters=%d nests=%d leader=%d/%d swaps=%d extinct=%s" % [world.model.elapsed, world.model.population, world.model.peak_population, world.model.kills, world.model.lost_population, world.model.corpses.size(), world.hunters.size(), world.skitters.size(), world.nests_completed, world.model.leader_hp, world.model.leader_max_hp, world.model.leader_swaps, world.model.extinct])
+	print("PLAYTEST seconds=%.1f population=%d peak=%d kills=%d lost=%d crystals=%d hunters=%d skitters=%d nests=%d leader=%d/%d swaps=%d extinct=%s" % [world.model.elapsed, world.model.population, world.model.peak_population, world.model.kills, world.model.lost_population, world.loot.count(), world.hunters.size(), world.skitters.size(), world.nests_completed, world.model.leader_hp, world.model.leader_max_hp, world.model.leader_swaps, world.model.extinct])
 	print("EVOLUTION level=%d build=%s" % [world.evolution.level, world.evolution.summary()])
 	# Stage 09 lone start: from one Mawling the loop must grow to at least 15.
 	if world.evolution.level < 1 or world.model.kills < 3 or world.model.peak_population < 15 or world.model.elapsed < 60.0:

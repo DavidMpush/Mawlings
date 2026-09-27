@@ -19,8 +19,12 @@ extends RefCounted
 #   V2 kit (assets/ui/v2/frames, built by assets/ui/v2/build_calm_frames.py)
 #   and maps accent colours onto the V2 palette (calm_color). Same signatures,
 #   same rect conventions; claws, teeth and card cells are left out in calm.
+# - UiStyle.skin = "brawl" (default since stage 15) routes card/panel/pill/
+#   button/bar to the code-drawn kit in ui_kit_brawl.gd; accent colours become
+#   kit tones (brawl_tone()). New screens should call ui_kit_brawl.gd directly.
 
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 
 const DIR := "res://assets/ui/frames/"
 const SVG_SCALE := 2.0
@@ -69,6 +73,9 @@ static var _boxes: Dictionary = {}
 
 # Mutation card. state: "normal", "pressed", "disabled", "selected" (extra glow).
 static func card(canvas: CanvasItem, rect: Rect2, accent: Color, state: String = "normal") -> void:
+	if UiStyle.is_brawl():
+		Kit.card(canvas, rect, brawl_tone(accent), state)
+		return
 	if UiStyle.is_calm():
 		_calm_card(canvas, rect, accent, state)
 		return
@@ -132,6 +139,10 @@ static func halo(canvas: CanvasItem, center: Vector2, radius: float, color: Colo
 
 # Quiet HUD panel; claws adds small bone hooks at the chamfered corners.
 static func panel(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle.PANEL_EDGE, claws: bool = true) -> void:
+	if UiStyle.is_brawl():
+		Kit.panel(canvas, rect, "dark", minf(UiStyle.R_L, rect.size.y * 0.3))
+		_brawl_accent_line(canvas, rect, accent, minf(UiStyle.R_L, rect.size.y * 0.3))
+		return
 	if UiStyle.is_calm():
 		_calm_panel(canvas, rect, accent, "panel", CALM_PANEL_MARGINS)
 		return
@@ -148,6 +159,8 @@ static func panel_plain(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle
 
 
 static func panel_inner(rect: Rect2) -> Rect2:
+	if UiStyle.is_brawl():
+		return rect.grow(-UiStyle.STROKE_M - UiStyle.SPACE_S)
 	if UiStyle.is_calm():
 		return rect.grow(-PANEL_INSET * _fit(rect, CALM_PANEL_MARGINS, 0.0))
 	return rect.grow(-PANEL_INSET * _fit(rect, PANEL_MARGINS, PANEL_PAD))
@@ -155,6 +168,10 @@ static func panel_inner(rect: Rect2) -> Rect2:
 
 # Capsule chip; radius always follows the rect height.
 static func pill(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle.PANEL_EDGE) -> void:
+	if UiStyle.is_brawl():
+		Kit.pill(canvas, rect, "dark", UiStyle.STROKE_S if rect.size.y < 44.0 else UiStyle.STROKE_M)
+		_brawl_accent_line(canvas, rect, accent, rect.size.y * 0.5)
+		return
 	if UiStyle.is_calm():
 		_calm_panel(canvas, rect, accent, "pill", CALM_PILL_MARGINS)
 		return
@@ -167,6 +184,13 @@ static func pill(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle.PANEL_
 # kind: "primary" (glowing ember), "secondary" (dark with bone rim), "round"
 # (ring with claws, uses the largest centred circle; accent tints ring + glow).
 static func button(canvas: CanvasItem, rect: Rect2, kind: String, pressed: bool = false, accent: Color = UiStyle.EMBER) -> void:
+	if UiStyle.is_brawl():
+		if kind == "round":
+			var r := minf(rect.size.x, rect.size.y) * 0.5
+			Kit.round_button(canvas, rect.get_center(), r, brawl_tone(accent), pressed)
+		else:
+			Kit.button(canvas, rect, "action" if kind == "primary" else "neutral", pressed)
+		return
 	if kind == "round":
 		_round(canvas, rect, accent, pressed)
 		return
@@ -187,6 +211,8 @@ static func button(canvas: CanvasItem, rect: Rect2, kind: String, pressed: bool 
 
 # Where a caller should centre the label so it moves with the pressed state.
 static func button_label_center(rect: Rect2, pressed: bool = false) -> Vector2:
+	if UiStyle.is_brawl():
+		return Kit.button_label_center(rect, pressed)
 	var k := rect.size.y / BUTTON_HEIGHT
 	return rect.get_center() + (Vector2(0.0, 3.0 * k) if pressed else Vector2.ZERO)
 
@@ -211,6 +237,9 @@ static func _round(canvas: CanvasItem, rect: Rect2, accent: Color, pressed: bool
 
 # Progress bar. segments > 0 draws separate capsules (danger meter, DNA pips).
 static func bar(canvas: CanvasItem, rect: Rect2, fraction: float, color: Color, segments: int = 0) -> void:
+	if UiStyle.is_brawl():
+		Kit.bar(canvas, rect, fraction, brawl_tone(color), segments)
+		return
 	fraction = clampf(fraction, 0.0, 1.0)
 	color = UiStyle.tone(color)
 	var k := minf(rect.size.y / BAR_HEIGHT, rect.size.x / (BAR_MARGINS.x + BAR_MARGINS.z))
@@ -445,3 +474,40 @@ static func _calm_button(canvas: CanvasItem, rect: Rect2, kind: String, pressed:
 		box = Rect2(rect.position + Vector2(0.0, 3.0 * k), rect.size).grow(-2.0 * k)
 	var file := "button_primary" if kind == "primary" else "button_secondary"
 	_calm_slice(canvas, file, box, CALM_BUTTON_MARGINS, Color(0.82, 0.8, 0.78) if pressed else Color.WHITE)
+
+
+# ------------------------------------------------------------------ brawl skin
+
+const _BRAWL_TONE_OF := {"ember": "ember", "ember_glow": "ember", "cyan": "info", "violet": "special",
+	"toxic": "action", "danger": "danger", "gold": "loot", "amber": "loot"}
+
+
+## Accent colour of any skin -> brawl kit tone name ("ember", "info", ...);
+## dark/neutral colours -> "dark"; other colours are passed through.
+static func brawl_tone(accent: Color) -> Variant:
+	var key := Color(accent.r, accent.g, accent.b)
+	var best := 0.02
+	var found := ""
+	for skin_name in UiStyle.TOKENS:
+		var table: Dictionary = UiStyle.TOKENS[skin_name]
+		for token in _BRAWL_TONE_OF:
+			var ref: Color = table[token]
+			var d := Vector3(key.r - ref.r, key.g - ref.g, key.b - ref.b).length_squared()
+			if d < best:
+				best = d
+				found = _BRAWL_TONE_OF[token]
+	if found != "":
+		return found
+	if key.v < 0.45 or key.s < 0.2:
+		return "dark"
+	return key
+
+
+# Thin coloured line inside a dark brawl panel, so the accent keeps its meaning.
+static func _brawl_accent_line(canvas: CanvasItem, rect: Rect2, accent: Color, radius: float) -> void:
+	var tone: Variant = brawl_tone(accent)
+	if tone is String and tone == "dark":
+		return
+	var face: Color = UiStyle.brawl_tone(tone)["face"]
+	var inset := UiStyle.STROKE_M
+	Kit.ring(canvas, rect.grow(-inset), maxf(radius - inset, 0.0), 3.0, Color(face, 0.9 * accent.a))

@@ -2,16 +2,15 @@ extends RefCounted
 
 const TUNING = preload("res://scripts/tuning.gd")
 
-# Gameplay data stays independent of the 3D nodes. A corpse is removed only
-# when its last biomass has actually been consumed. apply_loss() is the raw loss
+# Gameplay data stays independent of the 3D nodes. Etappe 16: biomass arrives
+# through collected loot crystals (scripts/loot.gd) and absorb(); the crystals
+# lying on the map are the run's stored resources. apply_loss() is the raw loss
 # (tests, direct use); HuntWorld resolves hits through apply_hit() (leader rules).
 const MAX_POPULATION := 250
 const BIOMASS_PER_MAWLING: float = TUNING.BIOMASS_PER_MAWLING
 
 var population: int = TUNING.START_POPULATION
 var biomass_bank := 0.0
-var corpses: Array[Dictionary] = []
-var next_corpse_id := 1
 var kills := 0
 var elapsed := 0.0
 var peak_population: int = TUNING.START_POPULATION
@@ -120,6 +119,7 @@ func apply_hit(followers: int, leader_struck: bool, nonlethal: bool = false) -> 
 
 # Counts one defeated creature by type; called exactly once per death.
 func record_kill(kind: String) -> void:
+	kills += 1
 	kills_by_type[kind] = int(kills_by_type.get(kind, 0)) + 1
 	if kind == "boss":
 		bosses += 1
@@ -148,46 +148,28 @@ func apply_loss(amount: int) -> int:
 	return loss
 
 
-func add_corpse(location: Vector3, biomass: float) -> int:
-	if biomass <= 0.0 or extinct:
-		return -1
-	var id := next_corpse_id
-	next_corpse_id += 1
-	corpses.append({"id": id, "position": location, "remaining": biomass, "initial": biomass})
-	kills += 1
-	return id
-
-
-func remaining_biomass(id: int) -> float:
-	for corpse in corpses:
-		if corpse.id == id:
-			return corpse.remaining
-	return 0.0
-
-
-func harvest(id: int, amount: float) -> float:
-	if extinct or amount <= 0.0 or population >= MAX_POPULATION:
+# Biomass the swarm can still take before it reaches MAX_POPULATION.
+func biomass_capacity() -> float:
+	if extinct:
 		return 0.0
-	for index in corpses.size():
-		var corpse := corpses[index]
-		if corpse.id != id:
-			continue
-		var capacity := float(MAX_POPULATION - population) * BIOMASS_PER_MAWLING - biomass_bank
-		var consumed: float = minf(amount, minf(corpse.remaining, maxf(0.0, capacity)))
-		if consumed <= 0.0:
-			return 0.0
-		corpse.remaining -= consumed
-		biomass_bank += consumed
-		consumed_biomass += consumed
-		var newborn := mini(int(floor((biomass_bank + 0.00001) / BIOMASS_PER_MAWLING)), MAX_POPULATION - population)
-		population += newborn
-		peak_population = maxi(peak_population, population)
-		biomass_bank -= float(newborn) * BIOMASS_PER_MAWLING
-		if newborn > 0:
-			_note_growth()
-		if corpse.remaining <= 0.00001:
-			corpses.remove_at(index)
-		else:
-			corpses[index] = corpse
-		return consumed
-	return 0.0
+	return maxf(0.0, float(MAX_POPULATION - population) * BIOMASS_PER_MAWLING - biomass_bank)
+
+
+# Collected biomass (a loot crystal reached the swarm): banks it and grows one
+# Mawling per BIOMASS_PER_MAWLING. Returns the amount taken (never above the
+# capacity; the caller drops the rest back as a crystal).
+func absorb(amount: float) -> float:
+	if extinct or amount <= 0.0:
+		return 0.0
+	var consumed: float = minf(amount, biomass_capacity())
+	if consumed <= 0.0:
+		return 0.0
+	biomass_bank += consumed
+	consumed_biomass += consumed
+	var newborn := mini(int(floor((biomass_bank + 0.00001) / BIOMASS_PER_MAWLING)), MAX_POPULATION - population)
+	population += newborn
+	peak_population = maxi(peak_population, population)
+	biomass_bank -= float(newborn) * BIOMASS_PER_MAWLING
+	if newborn > 0:
+		_note_growth()
+	return consumed

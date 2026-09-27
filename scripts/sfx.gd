@@ -49,7 +49,14 @@ const RULES := {
 	"dna": {"gap": 350, "voices": 1, "db": -11.5},
 	"threat": {"gap": 2000, "voices": 1, "db": -2.0},
 	"loss": {"gap": 700, "voices": 1, "db": 0.0},
+	# Etappe 16: collected loot crystals, a chain with rising pitch (play(..., pitch)).
+	# Short gap, few voices: a fast chain stays a pleasant ripple, not a wall.
+	"collect_bio": {"gap": 65, "voices": 3, "db": -13.0},
+	"collect_dna": {"gap": 80, "voices": 2, "db": -12.5},
+	"lure": {"gap": 1500, "voices": 1, "db": -2.0},
 }
+## Ids that reuse the files of another id (no own recordings yet).
+const SOURCES := {"collect_bio": "pickup", "collect_dna": "dna", "lure": "evolve"}
 ## Loops (start_loop/stop_loop), one voice each outside the pool.
 const LOOP_RULES := {
 	"heartbeat": {"db": -4.0},
@@ -108,7 +115,8 @@ func _ready() -> void:
 		_player_end.append(0)
 
 
-func play(id: String, volume_db := 0.0, pitch_jitter := 0.08) -> void:
+## `pitch` (Etappe 16) scales the playback rate on top of the jitter (collect chains).
+func play(id: String, volume_db := 0.0, pitch_jitter := 0.08, pitch := 1.0) -> void:
 	if not sfx_enabled or not RULES.has(id) or _players.is_empty():
 		return
 	var variants: Array = _streams.get(id, [])
@@ -127,7 +135,7 @@ func play(id: String, volume_db := 0.0, pitch_jitter := 0.08) -> void:
 	player.stop()
 	var stream: AudioStream = variants[_pick_variant(id, variants.size())]
 	player.stream = stream
-	player.pitch_scale = maxf(0.5, 1.0 + randf_range(-pitch_jitter, pitch_jitter))
+	player.pitch_scale = clampf(pitch * (1.0 + randf_range(-pitch_jitter, pitch_jitter)), 0.5, 4.0)
 	# Stacked voices of the same id get quieter so bursts stay pleasant.
 	player.volume_db = float(rule["db"]) + volume_db + master_volume_db - 2.5 * active
 	_player_ids[slot] = id
@@ -273,7 +281,7 @@ func _load_variants(id: String) -> void:
 	# Probe fixed names instead of DirAccess: exported builds only list .import files.
 	var list: Array = []
 	for n in range(1, MAX_VARIANTS + 1):
-		var path := "%s%s_%d.wav" % [AUDIO_DIR, id, n]
+		var path := "%s%s_%d.wav" % [AUDIO_DIR, String(SOURCES.get(id, id)), n]
 		if not ResourceLoader.exists(path):
 			break
 		var stream := load(path) as AudioStream

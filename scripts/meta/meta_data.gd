@@ -17,7 +17,7 @@ extends RefCounted
 ## das Endergebnis in RunConfig.mods.armor wird auf 0.0..0.6 gekappt (keine Zusatzverluste).
 ## Glutmaws Rally-Bonus steht zusätzlich als mods.rally_damage (Multiplikator, sonst 1.0).
 
-const TRAIT_IDS := ["jaws", "brood", "glutton", "pack", "scatter", "armor"]
+const TRAIT_IDS := ["jaws", "brood", "glutton", "pack", "scatter", "armor", "lockduft"]
 const START_ATTACKS := ["rudelbiss", "sporenwolke"]
 const BASE_SLOTS := {"attack": 2, "trait": 3}
 const BASE_REROLLS := 1
@@ -86,14 +86,16 @@ const UPGRADES := {
 	"rending": {"name": "Reißkraft", "description": "+5 % Schaden", "max": 10, "base": 40, "growth": 1.5, "requires": ""},
 	"chitin": {"name": "Chitin", "description": "+3 % Panzer (max. 30 %)", "max": 10, "base": 45, "growth": 1.5, "requires": ""},
 	"sprinter": {"name": "Sprinter", "description": "+3 % Tempo", "max": 8, "base": 35, "growth": 1.5, "requires": ""},
-	"digestion": {"name": "Verdauung", "description": "+6 % Ernte", "max": 10, "base": 40, "growth": 1.5, "requires": ""},
+	"digestion": {"name": "Verdauung", "description": "+6 % Biomasse je Kristall", "max": 10, "base": 40, "growth": 1.5, "requires": ""},
+	# Etappe 16: größerer Magnetradius für Beute-Kristalle.
+	"witterung": {"name": "Witterung", "description": "+8 % Sammelradius", "max": 5, "base": 60, "growth": 1.6, "requires": ""},
 	"geneflow": {"name": "Genfluss", "description": "+6 % DNA", "max": 10, "base": 50, "growth": 1.5, "requires": ""},
 	"attack_slot": {"name": "Angriffsslot", "description": "+1 Slot für Angriffsformen", "max": 1, "base": 2500, "growth": 1.0, "requires": "survive_10"},
 	"trait_slot": {"name": "Anlagenslot", "description": "+1 Slot für Anlagen", "max": 2, "base": 800, "growth": 2.0, "requires": ""},
 }
-const UPGRADE_ORDER := ["brood_size", "rending", "chitin", "sprinter", "digestion", "geneflow", "attack_slot", "trait_slot"]
+const UPGRADE_ORDER := ["brood_size", "rending", "chitin", "sprinter", "digestion", "witterung", "geneflow", "attack_slot", "trait_slot"]
 const INSTINCT_ID := "instinct"
-const INSTINCT := {"name": "Urinstinkt", "description": "Endlos: je Stufe +1 % Schaden und Ernte", "base": 500, "step": 50, "bonus": 0.01}
+const INSTINCT := {"name": "Urinstinkt", "description": "Endlos: je Stufe +1 % Schaden und Biomasse", "base": 500, "step": 50, "bonus": 0.01}
 
 ## Quest-Statistiken (Profile.quest_value):
 ##   best_seconds, best_peak, best_no_rally_seconds, runs,

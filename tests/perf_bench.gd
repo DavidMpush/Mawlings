@@ -6,11 +6,12 @@ extends SceneTree
 #
 # Aufruf (einzeln):
 #   Godot_console.exe --path <projekt> --script res://tests/perf_bench.gd -- scene=worst secs=20
-#   Weitere Schalter: off=units,shadows,decor,arena,enemies,corpses,fx,forms,popups,hud,swarmcpu
+#   Weitere Schalter: off=units,shadows,decor,arena,enemies,corpses,loot,fx,forms,popups,hud,swarmcpu
 #                     (off=units blendet das Schwarm-MultiMesh "Mawlings" samt Geistern aus)
 #                     cap=60 (nur die ersten N Mawling-Instanzen sichtbar), scale3d=0.7
 #                     (3D-Renderskalierung), msaa=0|2|4, trace=1 (Speicher alle 5 s), res=540x1170 (Fenstergröße), warm=3
-#                     corpses=30 (liegende Kadaver im Worst Case), quality=low|medium|high (Stufe erzwingen;
+#                     loot=1000 (liegende Beute-Kristalle im Worst Case, Etappe 16; Standard 300),
+#                     quality=low|medium|high (Stufe erzwingen;
 #                     sonst wählt main.gd sie wie im Spiel per Heuristik – Desktop = HOCH)
 # Szenen: worst (Worst Case), calm (ruhiger Spielstart), menu (Brutstätte mit
 #         SubViewport-Rudel), menu2d (Brutstätte ohne 3D-Rudel), flood (Etappe 08:
@@ -145,10 +146,18 @@ func _build_worst_case() -> void:
 		world._spawn_leaper(origin + Vector3(cos(angle + 2.0), 0.0, sin(angle + 2.0)) * 9.0)
 	for enemy in _enemies():
 		_toughen(enemy)
-	# A late run leaves persistent corpses along the way (a full swarm cannot eat).
-	for index in int(args.get("corpses", "30")):
-		var angle := float(index) * 2.39996
-		world._create_corpse(origin + Vector3(cos(angle), 0.0, sin(angle)) * (4.0 + float(index % 6) * 2.5 + float(index / 30) * 1.2), 12.0)
+	# Etappe 16: a late run leaves loot crystals along the way (a full swarm
+	# leaves biomass lying); spread over the map, a spiral of them on screen.
+	var loot: Variant = world.get("loot")
+	if loot != null:
+		loot.soft_cap = 100000
+		for index in int(args.get("loot", "300")):
+			var angle := float(index) * 2.39996
+			var at: Vector3 = origin + Vector3(cos(angle), 0.0, sin(angle)) * (7.0 + sqrt(float(index)) * 2.6)
+			loot.drop(0 if index % 4 else 1, 2.0 + float(index % 7), at, at, false)
+	for index in 12:
+		var angle := float(index) * TAU / 12.0
+		world._add_remains(origin + Vector3(cos(angle), 0.0, sin(angle)) * 9.0, ["hunter", "skitter", "prey", "leaper"][index % 4])
 
 
 # Full flood at stage ~3 (k = 120 s / 40 s): the horde is kept at its cap of 160
@@ -255,8 +264,7 @@ func _drive_worst_case(delta: float) -> void:
 	popup_clock -= delta
 	if popup_clock <= 0.0 and not _is_off("popups"):
 		popup_clock = 0.35
-		var spot := origin + Vector3(randf_range(-6.0, 6.0), 0.0, randf_range(-6.0, 6.0))
-		world._add_popup(spot, 10 + randi() % 30, randf_range(4.0, 20.0))
+		world._add_collect_popup(randf_range(4.0, 20.0), 10 + randi() % 30)
 
 
 func _hold_spawn_clocks() -> void:
@@ -302,6 +310,8 @@ func _apply_switches_to_tree(node: Node) -> void:
 		world.attack_forms.visible = false
 	if _is_off("corpses") and world.get("corpse_view") != null:
 		world.corpse_view.visible = false
+	if _is_off("loot") and world.get("loot") != null:
+		world.loot.visible = false
 	if _is_off("forms") and world.attack_forms != null:
 		world.evolution.ranks = {"jaws": 3, "pack": 3, "glutton": 3}
 		world._sync_attack_forms()
@@ -395,8 +405,8 @@ func _measure() -> void:
 		total += value
 	var p95: float = sorted[mini(sorted.size() - 1, int(sorted.size() * 0.95))] if not sorted.is_empty() else 0.0
 	var label := scene_name
-	if args.has("corpses"):
-		label += "-corpses_%s" % String(args.corpses)
+	if args.has("loot"):
+		label += "-loot_%s" % String(args.loot)
 	if args.has("quality"):
 		label += "-q_%s" % String(args.quality)
 	if not off.is_empty():
@@ -437,9 +447,12 @@ func _print_node_breakdown(label: String) -> void:
 			corpses = view.active_batches()
 	var forms := _geometry(world.attack_forms) if world.attack_forms != null else 0
 	var swarm_geo := _geometry(swarm)
-	print("PERF_NODES scene=%s swarm_geo=%d mawling_units=%d ghosts=%d arena_chunks=%d arena_geo=%d enemy_geo=%d corpse_geo=%d corpses=%d attack_fx_geo=%d world_geo_total=%d unique_materials_hint=corpses:%d" % [
+	var loot: Variant = world.get("loot")
+	var loot_count: int = loot.count() if loot != null else 0
+	var loot_geo := _geometry(loot) if loot != null else 0
+	print("PERF_NODES scene=%s swarm_geo=%d mawling_units=%d ghosts=%d arena_chunks=%d arena_geo=%d enemy_geo=%d corpse_geo=%d corpses=%d loot=%d loot_geo=%d attack_fx_geo=%d world_geo_total=%d unique_materials_hint=corpses:%d" % [
 		label, swarm_geo, swarm.units.size(), swarm.ghosts.size(), arena.get_child_count(), chunk_props, enemies, corpses,
-		corpse_count, forms, _geometry(world), corpses])
+		corpse_count, loot_count, loot_geo, forms, _geometry(world), corpses])
 
 
 # Visible GeometryInstance3D nodes below `node` (MultiMesh counts once).

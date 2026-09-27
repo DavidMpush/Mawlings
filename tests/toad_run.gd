@@ -262,7 +262,7 @@ func _check_kill_and_circle() -> void:
 	toad.cooldown = 999.0
 	toad.phase = 2
 	toad.health = 0.5
-	var corpses_before: int = world.model.corpses.size()
+	var remains_before: int = world.remains.size()
 	var pickups_before: int = world.alpha_pickups.size()
 	world.evolution.ranks["jaws"] = 3
 	toad.position = swarm.position + Vector3(0, 0, -(toad.body_radius + 0.5))
@@ -273,7 +273,7 @@ func _check_kill_and_circle() -> void:
 	for id in world.corpse_kinds:
 		if world.corpse_kinds[id] == "apex_toad":
 			toad_corpses += 1
-	_check(toad_corpses == 1 and world.model.corpses.size() >= corpses_before + 1, "Exactly one apex_toad corpse (%d)" % toad_corpses)
+	_check(toad_corpses == 1 and world.remains.size() >= remains_before + 1, "Exactly one apex_toad corpse (%d)" % toad_corpses)
 	_check(world.corpse_view != null and world.corpse_view.has_method("add"), "Corpse view present")
 	_check(world.alpha_pickups.size() == pickups_before + TUNING.APEX_TOAD_ALPHA_CORES, "Toad drops %d Alpha-Kerne" % TUNING.APEX_TOAD_ALPHA_CORES)
 	_check(int(world.model.kills_by_type.get("apex", 0)) == 1, "Counted as apex kill")
@@ -316,7 +316,7 @@ func _check_kill_and_circle() -> void:
 		for id in world.corpse_kinds:
 			if world.corpse_kinds[id] == "apex":
 				moss_corpses += 1
-		_check(moss_corpses == 1, "Moosschlund leaves its own corpse design")
+		_check(moss_corpses >= 1 and world.corpse_kinds[world.remains_order[-1]] == "apex", "Moosschlund leaves its own corpse design")
 		_steps(TUNING.APEX_PORTAL_DELAY + 0.2)
 		_check(world.portal != null and String(world.portal.target_biome) == "glutsumpf", "... and the circle goes on to the Glutsumpf")
 		_migrate()

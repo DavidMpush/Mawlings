@@ -19,7 +19,7 @@ func _capture() -> void:
 	camera.position = swarm.position + Vector3(0, 23, 15)
 	camera.look_at(swarm.position, Vector3.UP)
 	world._spawn_prey(swarm.position + Vector3(-4, 0, -2))
-	world._create_corpse(swarm.position + Vector3(2.5, 0, -3), 12)
+	world.drop_loot(swarm.position + Vector3(2.5, 0, -3), 12)
 	world._update_hud("Offene Arena · breite Wege")
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_arena.png")

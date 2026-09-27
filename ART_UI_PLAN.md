@@ -29,3 +29,32 @@ Beide gelieferten Modelle nutzen jetzt `shaders/creature.gdshader`: Scheitelpunk
 4. **Referenz Swarm:** Beobachtungen zu Farbregeln, Gefahrenformen, Trefferzahlen, Belohnungsmomenten und HUD in `stages/REFERENCE_SWARM.md`; die Übertragung ist als Etappe 14 im Backlog geplant.
 5. **Geräteprüfung:** Touchabstände und Leistung auf dem Samsung S25 prüfen. Bei hohen Populationen zuerst Modellanzahl, Material-/Draw-Calls und Deckung durch Dekoration messen und anpassen.
 
+
+## Icon-Standard (Supercell-Stil)
+
+Stand 27.09.2026. Gilt für alle Icons in `UiIcons` (`scripts/ui/ui_icons.gd`). Richtung: Brawl Stars / Clash Royale – kräftig, bunt, dicke dunkle Kontur, Glanzlicht. Umsetzung heute: `assets/ui/v4/build_icons_v4.py` erzeugt `assets/ui/v4/icons/<id>.png` aus den Projektkopien (V2, V3, gemalte SVGs); die Originale des Nutzers bleiben unberührt. Prüfblätter: `tests/capture_ui_icons.gd` → `preview_ui_icons.png` (nachher), `preview_ui_icons_before.png`, `preview_ui_icons_compare.png`.
+
+**Zwei Arten von Icons**
+
+- **Gemalt** (Inhalt, trägt eigene Farbe): Anlagen, Angriffsformen, Evolutionen, Gegner, Bosse, Biome, Schwierigkeiten, Währungen (DNA, Biomasse, Essenz, Königszahn), Belohnungen (Krone, Pokal, Alpha-Kern), Objekte (Nest, Totem). Aufrufer zeichnen sie mit weißem Tint; Währungen ignorieren fremde Farbtints (`FIXED_COLOUR`).
+- **Glyphe** (Bedienung, einfarbig): Pause, Weiter/Play, Uhr, Schloss, Neu würfeln, Neustart, Verbannen, Überspringen. Weiße Fläche mit leichtem kühlem Schatten im unteren Drittel, dicke dunkle Kontur, kleine Unterkante. Der Aufrufer färbt sie per Tint (Gold, Cyan …); die Kontur bleibt dunkel.
+
+**Maße und Beschnitt**
+
+- Textur 256 × 256 px, transparent. Motiv inklusive Kontur füllt die längere Seite zu 89 % (≈ 14 px Rand je Seite) und ist auf die Bounding-Box zentriert. Keine eigenen Kreise, Karten oder Glows ums Motiv – die **Hintergrundplakette liefert das UI-Fundament** (`ui_frames.gd`/Brawl-Kit).
+- Zielgrößen im Spiel: 96 px (Karten, Ergebnis), 56–64 px (HUD, Menü), **40 px Mindestgröße**; alles muss bei 40 px auf dunklem Panel und auf hellem Moos erkennbar sein.
+
+**Licht, Kontur, Farbe**
+
+- Licht von oben links: helle Kante/Glanzlicht oben links, dunklere Fläche unten rechts.
+- Kontur: warmes Fast-Schwarz `#180e0c`, gemalt ≈ 5 px zusätzlich zur gemalten Linie, Glyphen ≈ 11 px bei 256 px; darunter 5–7 px Unterkante in derselben Farbe (Supercell-„Sockel“).
+- 3–4 breite Farbflächen, keine feinen Texturen, keine Partikelwolken.
+- Kategoriefarbe (Hauptfläche des Motivs): **Angriff = Orange/Rot**, **Wachstum/Brut = Türkis**, **Schutz = Grün**, **Spezial/Evolution = Violett**, **Beute/Währung = Gold/Bernstein**. Gegner behalten ihre Weltfarbe (Beute Türkis, Jäger Violett, Skitter Blau/Magenta).
+
+**Unterscheidbarkeitsregel**
+
+- Zwei Icons derselben Ansicht dürfen nicht dasselbe Grundmotiv in derselben Farbe haben. Jedes Icon braucht **ein eigenes Silhouettenmerkmal** (Form, nicht nur Farbe), das bei 40 px als schwarze Silhouette noch unterscheidbar ist.
+- Zahn-Motive: nur **Reißzähne** zeigt das offene Maul frontal. Andere Zahn-Icons brauchen ein zweites dominantes Element (Pfeil, Welle, Beute, Mehrfach-Rudel) und eine andere Kategoriefarbe. Soforthilfe in V4: Vielfraß Gold, Rudelinstinkt Karmesin, Meute Violett, Knochenpanzer-Sockel Grün.
+- Kreisläufe: **Neu würfeln** = zwei jagende Pfeile, **Neustart** = ein Pfeil oben offen.
+
+Bewertung aller Icons und Nachlieferliste mit Generator-Prompts: `stages/ICON_REQUESTS.md`.

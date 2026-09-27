@@ -29,14 +29,13 @@ func _run() -> void:
 	check(slide.z > start.z + 1, "Can slide past stone")
 	var safe: Vector3 = arena.safe_spawn(rock, 0.9)
 	check(safe.distance_to(rock) >= arena.OBSTACLE_RADIUS + 0.9 - 0.001, "Spawn pushed outside stone")
-	world._create_corpse(Vector3(0, 0, 0), 12)
-	var corpse_id: int = world.model.corpses[0].id
+	world.drop_loot(Vector3(0, 0, 0), 12)
 	for location in [Vector3(57, 0, -85), Vector3(-88, 0, 56), Vector3.ZERO]:
 		swarm.position = location
 		arena.sync(swarm.position)
 		check(arena.chunks.size() == 9, "Visual chunk budget across endless map")
 	check(arena.obstacle_centers(key) == centers, "Layout stable after travel")
-	check(world.model.remaining_biomass(corpse_id) == 12, "Travel does not remove resources")
+	check(is_equal_approx(world.loot.total(0), 12.0), "Travel does not remove resources")
 	var prey: Node3D = world.prey[0]
 	prey.position = rock + Vector3(3.5, 0, 0)
 	swarm.position = rock + Vector3(5, 0, 0)
@@ -52,7 +51,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 	else:
-		print("PASS arena: bounded chunks, deterministic travel, slide, safe spawn, persistent corpses, prey collision, seeds (classic layout, determinism, start zone, passages, collision share, clear trails, runtime switch), staggered biome switch, glutsumpf part budget, decor density, verdant exact")
+		print("PASS arena: bounded chunks, deterministic travel, slide, safe spawn, persistent loot crystals, prey collision, seeds (classic layout, determinism, start zone, passages, collision share, clear trails, runtime switch), staggered biome switch, glutsumpf part budget, decor density, verdant exact")
 		quit(0)
 
 # --- Seeds ---------------------------------------------------------------------

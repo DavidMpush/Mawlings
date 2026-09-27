@@ -31,7 +31,7 @@ var settings: Dictionary = {}
 ## Einstieg: IDs der bereits gezeigten Tipps (jeder Tipp einmal pro Profil).
 var seen_tips: Array = []
 
-const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false, "music_v1": false}
+const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false, "music_v1": false, "skin_calm": false, "skin_organic": false}
 ## So viele Tage bleiben in daily_records erhalten (älteste fallen heraus).
 const DAILY_KEEP := 30
 
@@ -363,6 +363,8 @@ func build_run_config(strain_id: String, biome_id: String, difficulty: int, run_
 		"dna": float(base.dna) * (1.0 + 0.06 * upgrade_rank("geneflow")),
 		"growth": float(base.growth),
 		"rally_damage": float(strain.get("rally_damage", 1.0)),
+		# Etappe 16: Witterung vergrößert den Magnetradius der Beute-Kristalle.
+		"magnet": 1.0 + 0.08 * upgrade_rank("witterung"),
 	}
 	var pool: Array[String] = []
 	for id in DATA.TRAIT_IDS:

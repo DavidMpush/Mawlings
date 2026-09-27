@@ -24,6 +24,7 @@ const UiStyle := preload("res://scripts/ui/ui_style.gd")
 const UiLayer := preload("res://scripts/ui/ui_layer.gd")
 const UiFrames := preload("res://scripts/ui/ui_frames.gd")
 const UiIcons := preload("res://scripts/ui/ui_icons.gd")
+const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const Biomes := preload("res://scripts/biomes.gd")
 const RegionNames := preload("res://scripts/region_names.gd")
 
@@ -35,6 +36,9 @@ const WINDOW := 2                  # minimap window: centre chunk +- 2
 const WINDOW_CHUNKS := 5
 const RADIUS_M := 50.0             # world radius shown by the minimap
 const MAP_FILL := 0.83             # map disc radius / frame radius
+# Skin brawl (stage 15): the plaque is drawn smaller inside the tap rect of
+# touch_controls (same centre, so taps and tests keep working).
+const BRAWL_SCALE := 0.8
 const DOT_HZ := 12.0
 const BIG_HZ := 10.0
 const BIG_SCALE := 2.1             # big map px per metre (fixed zoom)
@@ -267,10 +271,15 @@ func _layout(hud: Node) -> void:
 		return
 	_frame = rect
 	_disc_c = rect.get_center()
-	_disc_r = rect.size.x * 0.5 * MAP_FILL
+	_disc_r = _frame_radius() * MAP_FILL
 	_scale = _disc_r / RADIUS_M
 	_horde_bins.resize(int(ceil(_disc_r * 2.0 / HORDE_BIN)) * int(ceil(_disc_r * 2.0 / HORDE_BIN)))
 	_terrain_key = 0
+
+
+# Radius of the drawn minimap plaque (brawl: smaller than the tap rect).
+func _frame_radius() -> float:
+	return _frame.size.x * 0.5 * (BRAWL_SCALE if UiStyle.is_brawl() else 1.0)
 
 
 func _bind_arena(value: Variant) -> void:
@@ -665,7 +674,15 @@ func _add_poi(kind: int, world: Vector3) -> void:
 # ------------------------------------------------------------------ minimap painters
 
 func _paint_back(cv: CanvasItem) -> void:
-	var radius := _frame.size.x * 0.5
+	var radius := _frame_radius()
+	if UiStyle.is_brawl():
+		# Kit plaque: hard shadow, ink disc, dark face with a lit upper half.
+		Kit.disc(cv, _disc_c + Vector2(0, UiStyle.SHADOW_Y), radius, UiStyle.BRAWL_INK_SOFT)
+		Kit.disc(cv, _disc_c, radius, UiStyle.BRAWL_INK)
+		Kit.disc(cv, _disc_c, radius - UiStyle.STROKE_M + 0.5, UiStyle.BRAWL_PANEL_BOTTOM)
+		Kit.fade_disc(cv, _disc_c, radius - UiStyle.STROKE_M, UiStyle.BRAWL_PANEL_RIM, 0.0, 0.6)
+		Kit.disc(cv, _disc_c, _disc_r + 1.0, _palette(_biome).fog)
+		return
 	cv.draw_circle(_disc_c + Vector2(0, 5), radius, UiStyle.color("shadow"))
 	if UiStyle.is_calm():
 		var tex := UiStyle.tex(UiFrames.CALM_DIR + "round_body.svg")
@@ -716,7 +733,13 @@ func _paint_dots(cv: CanvasItem) -> void:
 
 
 func _paint_top(cv: CanvasItem) -> void:
-	var radius := _frame.size.x * 0.5
+	var radius := _frame_radius()
+	if UiStyle.is_brawl():
+		# Ink seam between map and rim, outer ink contour, "N" as a small badge.
+		Kit.circle_ring(cv, _disc_c, _disc_r + 2.0, UiStyle.STROKE_S, UiStyle.BRAWL_INK)
+		Kit.circle_ring(cv, _disc_c, radius, UiStyle.STROKE_M, UiStyle.BRAWL_INK)
+		Kit.badge(cv, _disc_c + Vector2(0, -radius + 2.0), "N", "neutral", UiStyle.T_LABEL)
+		return
 	var accent := FRAME_ACCENT
 	if UiStyle.is_calm():
 		accent = UiFrames.calm_color(UiStyle.CYAN)
@@ -746,7 +769,7 @@ func _paint_top(cv: CanvasItem) -> void:
 func _paint_self(cv: CanvasItem) -> void:
 	if _tip_active(get_parent()):
 		var beat := 0.5 + 0.5 * sin(_time * 5.0)
-		var ring := _frame.size.x * 0.5 + 8.0 + 8.0 * beat
+		var ring := _frame_radius() + 8.0 + 8.0 * beat
 		cv.draw_arc(_disc_c, ring, 0.0, TAU, 64, Color(UiStyle.color("outline"), 0.5), 8.0, true)
 		cv.draw_arc(_disc_c, ring, 0.0, TAU, 64, Color(UiStyle.color("gold"), 0.55 + 0.4 * beat), 4.0, true)
 	_swarm_arrow(cv, _disc_c, _heading, 1.0)
@@ -754,7 +777,9 @@ func _paint_self(cv: CanvasItem) -> void:
 
 func _paint_label(cv: CanvasItem) -> void:
 	var text := String(_state.get("region", ""))
-	if text == "":
+	# Brawl: no permanent name plate; the region name appears only in the
+	# short banner on a region change (and on the big map).
+	if text == "" or UiStyle.is_brawl():
 		return
 	var font := UiStyle.body_font()
 	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.SIZE_LABEL).x
@@ -948,7 +973,7 @@ func _paint_banner(cv: CanvasItem) -> void:
 	var body := UiStyle.body_font()
 	var name_w := font.get_string_size(_banner_name, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.SIZE_HEAD).x
 	var phrase_w := body.get_string_size(_banner_phrase, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.SIZE_LABEL).x if _banner_phrase != "" else 0.0
-	var w := clampf(maxf(name_w, phrase_w) + 80.0, 300.0, size.x - 80.0)
+	var w := clampf(maxf(name_w, phrase_w) + (110.0 if UiStyle.is_brawl() else 80.0), 300.0, size.x - 80.0)
 	var h := 92.0 if _banner_phrase != "" else 66.0
 	var rect := Rect2(size.x * 0.5 - w * 0.5, _frame.end.y + 46.0, w, h)
 	UiFrames.panel(cv, rect, UiStyle.color("gold"), not UiStyle.is_calm())

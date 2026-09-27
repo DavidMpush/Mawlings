@@ -85,8 +85,12 @@ const AMBER_EDGE := Color("c0650f")
 const AMBER_MID := Color("f7a62a")
 const AMBER_CORE := Color("ffe189")
 
-# id -> {kind, design, position, yaw, phase, fill, scale}
+# id -> {kind, design, position, yaw, phase, fill, scale, decay}
 var corpses := {}
+# Etappe 16: remains are empty decoration (the biomass lies in scripts/loot.gd
+# crystals): no crystal shards, only a small dark stain instead of the amber pool,
+# no halo; set_decay() lets them sink before HuntWorld removes them.
+var empty := false
 # layer name -> Layer
 var layers := {}
 
@@ -107,7 +111,8 @@ func add(id: int, kind: String, location: Vector3, biomass: float) -> void:
 	corpses[id] = {
 		"kind": kind, "design": design_name, "position": location,
 		"yaw": rng.randf() * TAU, "pool_yaw": rng.randf() * TAU, "phase": rng.randf(),
-		"fill": 1.0, "scale": size, "drops": _drop_layout(design, size, rng),
+		"fill": 1.0, "scale": size, "drops": [] if empty else _drop_layout(design, size, rng),
+		"decay": 0.0,
 	}
 	_apply(id)
 
@@ -122,6 +127,19 @@ func set_fill(id: int, fraction: float) -> void:
 	if is_equal_approx(fill, corpse.fill):
 		return
 	corpse.fill = fill
+	_apply(id)
+
+
+## Etappe 16: 0..1 of the sinking at the end of a remains' life (0 = lying,
+## 1 = gone into the ground: lower, smaller, darker).
+func set_decay(id: int, amount: float) -> void:
+	if not corpses.has(id):
+		return
+	var corpse: Dictionary = corpses[id]
+	var value := clampf(amount, 0.0, 1.0)
+	if absf(value - float(corpse.decay)) < 0.02 and value < 1.0:
+		return
+	corpse.decay = value
 	_apply(id)
 
 
@@ -191,19 +209,28 @@ func _apply(id: int) -> void:
 	var design: Dictionary = DESIGNS[corpse.design]
 	var fill: float = corpse.fill
 	var origin: Vector3 = corpse.position
-	var custom := Color(fill, float(design.glow), float(corpse.phase), float(design.pulse))
+	var decay: float = corpse.get("decay", 0.0)
+	if decay > 0.0:
+		origin.y -= decay * decay * 0.9 * float(corpse.scale)
+	# Empty remains read as dead: darker and duller than any living animal.
+	var custom := Color((0.15 if empty else fill) * (1.0 - 0.6 * decay), float(design.glow) * (0.35 if empty else 1.0), float(corpse.phase), float(design.pulse))
 	# Remains: the animal's own leftovers.
-	var remains_scale := lerpf(float(design.remains_min), 1.0, fill)
+	var remains_scale := lerpf(float(design.remains_min), 1.0, fill) * (1.0 - 0.35 * decay)
 	var basis := Basis(Vector3.UP, corpse.yaw).scaled(Vector3.ONE * remains_scale)
 	_layer(corpse.design).put(id, Transform3D(basis, origin), custom)
 	# Amber biomass pool (flat, slightly domed); flattens and dims while eaten.
+	# Empty remains: a small spent stain only.
 	if float(design.pool) > 0.0:
-		var radius := float(design.pool) * float(corpse.scale) * lerpf(0.28, 1.0, fill)
-		var height := pow(radius, 0.72) * lerpf(0.45, 1.0, fill)
+		var pool_fill := 0.3 * (1.0 - decay) if empty else fill
+		var radius := float(design.pool) * float(corpse.scale) * lerpf(0.28, 1.0, pool_fill)
+		var height := pow(radius, 0.72) * lerpf(0.45, 1.0, pool_fill)
 		var pool_basis := Basis(Vector3.UP, corpse.pool_yaw).scaled(Vector3(radius, height, radius))
-		_layer(POOL_LAYER).put(id, Transform3D(pool_basis, origin), custom)
+		var pool_custom := custom
+		if empty:
+			pool_custom.r = 0.0
+		_layer(POOL_LAYER).put(id, Transform3D(pool_basis, origin), pool_custom)
 	# Soft light on the ground under mini-bosses, bosses and fallen Mawlings.
-	if float(design.halo) > 0.0:
+	if float(design.halo) > 0.0 and not empty:
 		var halo_size := float(design.halo) * float(corpse.scale) * lerpf(0.45, 1.0, fill)
 		var strength := float(design.halo_strength) * lerpf(0.25, 1.0, fill)
 		var halo_custom := Color(fill, strength, float(corpse.phase), float(design.pulse))
