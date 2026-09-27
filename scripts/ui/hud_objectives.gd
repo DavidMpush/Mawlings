@@ -17,6 +17,7 @@ const APEX_BAR_BOTTOM := 470.0   # bar sits this far above the bottom edge (hint
 const VICTORY_SECONDS := 3.2
 const ARRIVAL_SECONDS := 2.8
 const CURSE := Color("ff4a8a")
+const MINIMAP_PLATE := 46.0             # region name plate below the minimap disc
 const CHIP_Y := 392.0          # left column, below corpse and biomass hints
 const POINTER_GAP := 128.0     # minimum distance between two edge markers
 
@@ -93,7 +94,7 @@ func _draw() -> void:
 	var curse := int(state.get("curse", 0))
 	if curse > 0:
 		_draw_curse_chip(curse)
-	# Stage 10 - Moosschlund and migration.
+	# Stage 10 - apex (Moosschlund / Aschenkröte) and migration.
 	var apex_state := int(state.get("apex_state", 0))
 	if apex_state == 1 or apex_state == 2:
 		_draw_apex_bar(state)
@@ -101,13 +102,13 @@ func _draw() -> void:
 		if apex_at.is_finite():
 			apex_at = _separate(apex_at, taken)
 			taken.append(apex_at)
-			_draw_apex_pointer(apex_at, bool(state.get("apex_vulnerable", false)))
+			_draw_apex_pointer(apex_at, bool(state.get("apex_vulnerable", false)), state)
 	if bool(state.get("portal_active", false)) and float(state.get("migration", -1.0)) < 0.0:
 		var portal_at: Vector2 = state.get("portal_pointer", Vector2.INF)
 		if portal_at.is_finite():
 			_draw_portal_pointer(_separate(portal_at, taken), float(state.get("portal_hold", 0.0)), String(state.get("portal_target", "")))
 	if _victory_time >= 0.0:
-		_draw_victory()
+		_draw_victory(state)
 	if _arrival_time >= 0.0:
 		_draw_arrival(state)
 	var migration := float(state.get("migration", -1.0))
@@ -126,7 +127,16 @@ func _separate(at: Vector2, taken: Array[Vector2]) -> Vector2:
 
 
 func _keep_on_screen(at: Vector2, reach: float) -> Vector2:
-	return Vector2(clampf(at.x, reach, size.x - reach), clampf(at.y, reach, size.y - reach))
+	at = Vector2(clampf(at.x, reach, size.x - reach), clampf(at.y, reach, size.y - reach))
+	# The minimap (top left) and its region name plate stay clear: a pointer
+	# (medallion + label below it) that would overlap slides down along the edge.
+	var hud := get_parent()
+	if hud != null and bool(hud.get("minimap_enabled")) and hud.has_method("_minimap_rect"):
+		var map: Rect2 = hud._minimap_rect()
+		var keep_out := Rect2(map.position, map.size + Vector2(0, MINIMAP_PLATE)).grow(reach)
+		if keep_out.has_point(at):
+			at.y = keep_out.end.y + 4.0
+	return at
 
 
 func _draw_nest_pointer(at: Vector2, progress: float) -> void:
@@ -134,15 +144,15 @@ func _draw_nest_pointer(at: Vector2, progress: float) -> void:
 	at = _keep_on_screen(at, 70.0)
 	var pulse := 0.5 + 0.5 * sin(_time * 3.2)
 	var r := 44.0
-	draw_circle(at, r + 12 + 5 * pulse, Color(UiStyle.CYAN, 0.10 + 0.08 * pulse))
-	_arrow(at, direction, r, UiStyle.CYAN)
-	draw_circle(at + Vector2(0, 4), r, UiStyle.SHADOW)
-	draw_circle(at, r, UiStyle.PANEL)
-	draw_arc(at, r - 3, 0.0, TAU, 48, Color(UiStyle.CYAN, 0.35), 5.0, true)
+	_glow_disc(at, r + 12 + 5 * pulse, Color(UiStyle.color("cyan"), 0.10 + 0.08 * pulse))
+	_arrow(at, direction, r, UiStyle.color("cyan"))
+	draw_circle(at + Vector2(0, 4), r, UiStyle.color("shadow"))
+	draw_circle(at, r, UiStyle.color("panel"))
+	draw_arc(at, r - 3, 0.0, TAU, 48, Color(UiStyle.color("cyan"), 0.35), 5.0, true)
 	if progress > 0.0:
-		draw_arc(at, r - 3, -PI * 0.5, -PI * 0.5 + TAU * progress, 48, UiStyle.CYAN.lightened(0.2), 7.0, true)
-	UiIcons.draw(self, "brood", Rect2(at - Vector2(29, 29), Vector2(58, 58)), Color.WHITE)
-	_label("BRUTNEST", at + Vector2(0, r + 28), UiStyle.CYAN.lightened(0.35))
+		draw_arc(at, r - 3, -PI * 0.5, -PI * 0.5 + TAU * progress, 48, UiStyle.color("cyan").lightened(0.2), 7.0, true)
+	UiIcons.draw(self, "nest" if UiIcons.has("nest") else "brood", Rect2(at - Vector2(29, 29), Vector2(58, 58)), Color.WHITE)
+	_label("BRUTNEST", at + Vector2(0, r + 28), UiStyle.color("cyan").lightened(0.35))
 
 
 func _draw_totem_pointer(at: Vector2, hold: float) -> void:
@@ -150,12 +160,12 @@ func _draw_totem_pointer(at: Vector2, hold: float) -> void:
 	at = _keep_on_screen(at, 64.0)
 	var pulse := 0.5 + 0.5 * sin(_time * 4.0)
 	var r := 38.0
-	draw_circle(at, r + 10 + 4 * pulse, Color(CURSE, 0.10 + 0.08 * pulse))
-	_arrow(at, direction, r, UiStyle.VIOLET)
-	draw_circle(at + Vector2(0, 4), r, UiStyle.SHADOW)
-	draw_circle(at, r, UiStyle.PANEL)
-	draw_arc(at, r - 3, 0.0, TAU, 40, UiStyle.VIOLET.lerp(CURSE, hold), 4.0, true)
-	UiIcons.draw(self, "skull", Rect2(at - Vector2(25, 25), Vector2(50, 50)), Color("ffd3e4"))
+	_glow_disc(at, r + 10 + 4 * pulse, Color(CURSE, 0.10 + 0.08 * pulse))
+	_arrow(at, direction, r, UiStyle.color("violet"))
+	draw_circle(at + Vector2(0, 4), r, UiStyle.color("shadow"))
+	draw_circle(at, r, UiStyle.color("panel"))
+	draw_arc(at, r - 3, 0.0, TAU, 40, UiStyle.color("violet").lerp(CURSE, hold), 4.0, true)
+	_totem_icon(Rect2(at - Vector2(28, 28), Vector2(56, 56)))
 	_label("TOTEM", at + Vector2(0, r + 28), CURSE.lightened(0.45))
 
 
@@ -165,12 +175,20 @@ func _draw_totem_hold(at: Vector2, hold: float) -> void:
 	var pulse := 0.5 + 0.5 * sin(_time * 9.0)
 	at += Vector2(0, -150)
 	draw_circle(at, r + 8 + 6 * pulse * hold, Color(CURSE, 0.14 + 0.12 * hold))
-	draw_circle(at + Vector2(0, 4), r, UiStyle.SHADOW)
-	draw_circle(at, r, Color(UiStyle.PANEL, 0.9))
-	draw_arc(at, r - 5, 0.0, TAU, 56, Color(UiStyle.VIOLET, 0.35), 8.0, true)
+	draw_circle(at + Vector2(0, 4), r, UiStyle.color("shadow"))
+	draw_circle(at, r, Color(UiStyle.color("panel"), 0.9))
+	draw_arc(at, r - 5, 0.0, TAU, 56, Color(UiStyle.color("violet"), 0.35), 8.0, true)
 	draw_arc(at, r - 5, -PI * 0.5, -PI * 0.5 + TAU * hold, 56, CURSE.lerp(Color.WHITE, 0.25 * pulse), 10.0, true)
-	UiIcons.draw(self, "skull", Rect2(at - Vector2(32, 32), Vector2(64, 64)), Color("ffd3e4"))
-	_label("FLUCH ANNEHMEN", at + Vector2(0, r + 30), Color("ffd3e4"))
+	_totem_icon(Rect2(at - Vector2(36, 36), Vector2(72, 72)))
+	_label("FLUCH ANNEHMEN", at + Vector2(0, r + 30), UiStyle.tone(Color("ffd3e4")))
+
+
+## V2 Fluch-Totem icon (painted, untinted); the pink skull is the fallback.
+func _totem_icon(rect: Rect2) -> void:
+	if UiIcons.has("totem"):
+		UiIcons.draw(self, "totem", rect, Color.WHITE)
+	else:
+		UiIcons.draw(self, "skull", rect.grow(-rect.size.x * 0.06), UiStyle.tone(Color("ffd3e4")))
 
 
 func _draw_curse_chip(curse: int) -> void:
@@ -180,13 +198,13 @@ func _draw_curse_chip(curse: int) -> void:
 	var rect := Rect2(16, CHIP_Y, w, 46)
 	var pulse := 0.5 + 0.5 * sin(_time * 3.0)
 	var points := _pill_points(rect)
-	draw_colored_polygon(points, Color(UiStyle.PANEL.darkened(0.2), 0.94).lerp(CURSE, 0.10 + 0.06 * pulse))
+	draw_colored_polygon(points, Color(UiStyle.color("panel").darkened(0.2), 0.94).lerp(CURSE, 0.10 + 0.06 * pulse))
 	points.append(points[0])
-	draw_polyline(points, CURSE.lerp(UiStyle.VIOLET, 0.4), 3.0, true)
+	draw_polyline(points, CURSE.lerp(UiStyle.color("violet"), 0.4), 3.0, true)
 	var icon_c := rect.position + Vector2(26, 23)
-	draw_circle(icon_c, 18, Color(CURSE, 0.18 + 0.14 * pulse))
-	UiIcons.draw(self, "skull", Rect2(icon_c - Vector2(17, 17), Vector2(34, 34)), Color("ffd3e4"))
-	UiStyle.text(self, text, rect.position + Vector2(48, 31), UiStyle.SIZE_LABEL + 1, Color("ffd3e4"), false, 5, font)
+	_glow_disc(icon_c, 18, Color(CURSE, 0.18 + 0.14 * pulse))
+	_totem_icon(Rect2(icon_c - Vector2(19, 19), Vector2(38, 38)))
+	UiStyle.text(self, text, rect.position + Vector2(48, 31), UiStyle.SIZE_LABEL + 1, UiStyle.tone(Color("ffd3e4")), false, 5, font)
 
 
 func _arrow(center: Vector2, direction: Vector2, r: float, color: Color) -> void:
@@ -195,7 +213,7 @@ func _arrow(center: Vector2, direction: Vector2, r: float, color: Color) -> void
 	var side := Vector2(-direction.y, direction.x)
 	var tip := center + direction * (r + 24)
 	var base := center + direction * (r - 4)
-	draw_colored_polygon(PackedVector2Array([tip + direction * 2 + Vector2(0, 3), base + side * 17 + Vector2(0, 3), base - side * 17 + Vector2(0, 3)]), UiStyle.SHADOW)
+	draw_colored_polygon(PackedVector2Array([tip + direction * 2 + Vector2(0, 3), base + side * 17 + Vector2(0, 3), base - side * 17 + Vector2(0, 3)]), UiStyle.color("shadow"))
 	draw_colored_polygon(PackedVector2Array([tip, base + side * 16, base - side * 16]), color)
 
 
@@ -203,7 +221,38 @@ func _label(text: String, at: Vector2, color: Color) -> void:
 	UiStyle.text(self, text, at, UiStyle.SIZE_LABEL + 1, color, true, 6, UiStyle.body_font())
 
 
+# Soft pulsing disc behind a marker; the calm skin keeps markers flat.
+func _glow_disc(at: Vector2, radius: float, color: Color) -> void:
+	if not UiStyle.is_calm():
+		draw_circle(at, radius, color)
+
+
+func _apex_green() -> Color:
+	return UiStyle.CALM_LEAF if UiStyle.is_calm() else APEX_GREEN
+
+
+# Second apex: the Aschenkröte (Glutsumpf) uses glut orange instead of moss green.
+func _is_toad(state: Dictionary) -> bool:
+	return String(state.get("apex_kind", "apex")) == "apex_toad"
+
+
+func _apex_name(state: Dictionary) -> String:
+	return String(state.get("apex_name", "MOOSSCHLUND"))
+
+
+## Base colour of the current apex (moss green or glut orange).
+func _apex_color(state: Dictionary) -> Color:
+	return UiStyle.color("ember") if _is_toad(state) else _apex_green()
+
+
+# Capsule outline (organic) or the kit's chamfered chip (calm).
 func _pill_points(rect: Rect2) -> PackedVector2Array:
+	if UiStyle.is_calm():
+		var cut := minf(14.0, rect.size.y * 0.3)
+		var p := rect.position
+		var e := rect.end
+		return PackedVector2Array([Vector2(p.x + cut, p.y), Vector2(e.x - cut, p.y), Vector2(e.x, p.y + cut), Vector2(e.x, e.y - cut),
+			Vector2(e.x - cut, e.y), Vector2(p.x + cut, e.y), Vector2(p.x, e.y - cut), Vector2(p.x, p.y + cut)])
 	var points := PackedVector2Array()
 	var r := rect.size.y * 0.5
 	for index in 13:
@@ -237,7 +286,7 @@ func _step_banners(state: Dictionary, real_delta: float) -> void:
 			_arrival_time = -1.0
 
 
-# Moosschlund health above the hint banner (the top boss bar belongs to the Bog
+# Apex (Moosschlund / Aschenkröte) health above the hint banner (the top boss bar belongs to the Bog
 # King): name, phase tag, segmented health with the phase-2 mark at 50 %.
 func _draw_apex_bar(state: Dictionary) -> void:
 	var warning := int(state.get("apex_state", 0)) == 1
@@ -246,19 +295,21 @@ func _draw_apex_bar(state: Dictionary) -> void:
 	var w := minf(640.0, size.x - 120.0)
 	var rect := Rect2(size.x * 0.5 - w * 0.5, size.y - APEX_BAR_BOTTOM, w, 80)
 	var pulse := 0.5 + 0.5 * sin(_time * (8.0 if vulnerable or warning else 3.0))
-	var accent := UiStyle.GOLD if vulnerable else (UiStyle.EMBER if phase == 2 else APEX_GREEN)
-	if vulnerable or warning:
+	var base := _apex_color(state)
+	var phase_color := UiStyle.color("danger") if _is_toad(state) else UiStyle.color("ember")
+	var accent := UiStyle.color("gold") if vulnerable else (phase_color if phase == 2 else base)
+	if (vulnerable or warning) and not UiStyle.is_calm():
 		draw_rect(rect.grow(6 + 4 * pulse), Color(accent, 0.12 + 0.12 * pulse))
 	var points := _pill_points(rect)
-	draw_colored_polygon(_offset(points, Vector2(0, 5)), UiStyle.SHADOW)
-	draw_colored_polygon(points, Color(UiStyle.PANEL.darkened(0.25), 0.95))
+	draw_colored_polygon(_offset(points, Vector2(0, 5)), UiStyle.color("shadow"))
+	draw_colored_polygon(points, Color(UiStyle.color("panel").darkened(0.25), 0.95))
 	points.append(points[0])
 	draw_polyline(points, accent, 3.0, true)
 	var icon_c := rect.position + Vector2(44, 40)
-	draw_circle(icon_c, 30, Color(accent, 0.2 + 0.1 * pulse))
+	_glow_disc(icon_c, 30, Color(accent, 0.2 + 0.1 * pulse))
 	UiIcons.draw(self, "crown", Rect2(icon_c - Vector2(24, 24), Vector2(48, 48)), accent.lightened(0.2))
 	var x := rect.position.x + 84
-	UiStyle.text(self, "MOOSSCHLUND", Vector2(x, rect.position.y + 34), 30, UiStyle.TEXT, false, 6)
+	UiStyle.text(self, _apex_name(state), Vector2(x, rect.position.y + 34), 30, UiStyle.color("text"), false, 6)
 	var tag := "ERWACHT" if warning else ("ERSCHÖPFT" if vulnerable else ("PHASE 2" if phase == 2 else ""))
 	if tag != "":
 		var font := UiStyle.body_font()
@@ -274,30 +325,30 @@ func _draw_apex_bar(state: Dictionary) -> void:
 	var seg_w := (bar.size.x - gap * float(segments - 1)) / float(segments)
 	for index in segments:
 		var seg := Rect2(bar.position.x + float(index) * (seg_w + gap), bar.position.y, seg_w, bar.size.y)
-		draw_rect(seg, Color(UiStyle.OUTLINE, 0.9))
+		draw_rect(seg, Color(UiStyle.color("outline"), 0.9))
 		var fill := clampf(share * float(segments) - float(index), 0.0, 1.0)
 		if fill > 0.0:
-			var color := accent if not warning else APEX_GREEN.lerp(Color.WHITE, 0.25 * pulse)
+			var color := accent if not warning else base.lerp(Color.WHITE, 0.25 * pulse)
 			draw_rect(Rect2(seg.position + Vector2(1, 1), Vector2((seg.size.x - 2) * fill, seg.size.y - 2)), color)
 	if not warning:
 		# Phase-2 mark: the boss roars at half health.
 		var mark_x := bar.position.x + bar.size.x * 0.5
-		draw_line(Vector2(mark_x, bar.position.y - 6), Vector2(mark_x, bar.end.y + 6), Color(UiStyle.BONE, 0.9), 3.0)
+		draw_line(Vector2(mark_x, bar.position.y - 6), Vector2(mark_x, bar.end.y + 6), Color(UiStyle.color("bone"), 0.9), 3.0)
 
 
-func _draw_apex_pointer(at: Vector2, vulnerable: bool) -> void:
+func _draw_apex_pointer(at: Vector2, vulnerable: bool, state: Dictionary) -> void:
 	var direction := (at - size * 0.5).normalized()
 	at = _keep_on_screen(at, 70.0)
-	var accent := UiStyle.GOLD if vulnerable else APEX_GREEN
+	var accent := UiStyle.color("gold") if vulnerable else _apex_color(state)
 	var pulse := 0.5 + 0.5 * sin(_time * (8.0 if vulnerable else 4.0))
 	var r := 44.0
-	draw_circle(at, r + 12 + 5 * pulse, Color(accent, 0.12 + 0.1 * pulse))
+	_glow_disc(at, r + 12 + 5 * pulse, Color(accent, 0.12 + 0.1 * pulse))
 	_arrow(at, direction, r, accent)
-	draw_circle(at + Vector2(0, 4), r, UiStyle.SHADOW)
-	draw_circle(at, r, UiStyle.PANEL)
+	draw_circle(at + Vector2(0, 4), r, UiStyle.color("shadow"))
+	draw_circle(at, r, UiStyle.color("panel"))
 	draw_arc(at, r - 3, 0.0, TAU, 48, accent, 4.0, true)
 	UiIcons.draw(self, "crown", Rect2(at - Vector2(28, 28), Vector2(56, 56)), accent.lightened(0.15))
-	_label("VERWUNDBAR!" if vulnerable else "MOOSSCHLUND", at + Vector2(0, (-r - 18) if direction.y > 0.6 else (r + 28)), accent.lightened(0.35))
+	_label("VERWUNDBAR!" if vulnerable else _apex_name(state), at + Vector2(0, (-r - 18) if direction.y > 0.6 else (r + 28)), accent.lightened(0.35))
 
 
 func _draw_portal_pointer(at: Vector2, hold: float, target: String) -> void:
@@ -305,10 +356,10 @@ func _draw_portal_pointer(at: Vector2, hold: float, target: String) -> void:
 	at = _keep_on_screen(at, 70.0)
 	var pulse := 0.5 + 0.5 * sin(_time * 3.4)
 	var r := 44.0
-	draw_circle(at, r + 12 + 6 * pulse, Color(MIGRATION_PINK, 0.12 + 0.1 * pulse))
+	_glow_disc(at, r + 12 + 6 * pulse, Color(MIGRATION_PINK, 0.12 + 0.1 * pulse))
 	_arrow(at, direction, r, MIGRATION_PINK)
-	draw_circle(at + Vector2(0, 4), r, UiStyle.SHADOW)
-	draw_circle(at, r, UiStyle.PANEL)
+	draw_circle(at + Vector2(0, 4), r, UiStyle.color("shadow"))
+	draw_circle(at, r, UiStyle.color("panel"))
 	draw_arc(at, r - 3, 0.0, TAU, 48, Color(MIGRATION_PINK, 0.45), 5.0, true)
 	if hold > 0.0:
 		draw_arc(at, r - 3, -PI * 0.5, -PI * 0.5 + TAU * hold, 48, Color.WHITE, 7.0, true)
@@ -317,28 +368,30 @@ func _draw_portal_pointer(at: Vector2, hold: float, target: String) -> void:
 	_label("MIGRATION", at + Vector2(0, (-r - 18) if direction.y > 0.6 else (r + 28)), MIGRATION_PINK.lightened(0.3))
 
 
-# Gold-green ribbon: the apex is beaten, the maw opens (Main adds slow motion).
-func _draw_victory() -> void:
+# Gold ribbon in the apex colour: the apex is beaten, the maw opens (Main adds
+# slow motion). apex_kind / apex_name keep the fallen apex until the next rises.
+func _draw_victory(state: Dictionary) -> void:
 	var t := _victory_time
+	var tint := _apex_color(state)
 	var burst := 1.0 - pow(1.0 - clampf(t / 0.3, 0.0, 1.0), 3.0)
 	var fade := burst * (1.0 - clampf((t - (VICTORY_SECONDS - 0.5)) / 0.5, 0.0, 1.0))
 	var flash := 1.0 - clampf(t / 0.35, 0.0, 1.0)
 	if flash > 0.0:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(APEX_GREEN, 0.3 * flash))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(tint, 0.3 * flash))
 	var scale := lerpf(1.5, 1.0, burst)
 	var c := Vector2(size.x * 0.5, size.y * 0.5 - 380)
 	var rect := Rect2(c - Vector2(390, 70) * scale, Vector2(780, 140) * scale)
 	var points := _pill_points(rect)
-	draw_colored_polygon(_offset(points, Vector2(0, 8)), Color(UiStyle.SHADOW, 0.6 * fade))
-	draw_colored_polygon(points, Color(UiStyle.PANEL.darkened(0.3), 0.94 * fade))
+	draw_colored_polygon(_offset(points, Vector2(0, 8)), Color(UiStyle.color("shadow"), 0.6 * fade))
+	draw_colored_polygon(points, Color(UiStyle.color("panel").darkened(0.3), 0.94 * fade))
 	points.append(points[0])
-	draw_polyline(points, Color(UiStyle.GOLD, fade), 4.0, true)
+	draw_polyline(points, Color(UiStyle.color("gold"), fade), 4.0, true)
 	var icon_c := c + Vector2(0, -92) * scale
-	draw_circle(icon_c, 52 * scale, Color(UiStyle.PANEL, 0.95 * fade))
-	draw_arc(icon_c, 50 * scale, 0.0, TAU, 48, Color(APEX_GREEN, fade), 4.0, true)
-	UiIcons.draw(self, "crown", Rect2(icon_c - Vector2(36, 36) * scale, Vector2(72, 72) * scale), Color(UiStyle.GOLD, fade))
-	UiStyle.text(self, "MOOSSCHLUND BEZWUNGEN", c + Vector2(0, 8), 48, Color(1, 1, 1, fade), true, 8)
-	UiStyle.text(self, "Der Migrationsschlund öffnet sich", c + Vector2(0, 50), 26, Color(APEX_GREEN.lightened(0.3), fade), true, 5, UiStyle.body_font())
+	draw_circle(icon_c, 52 * scale, Color(UiStyle.color("panel"), 0.95 * fade))
+	draw_arc(icon_c, 50 * scale, 0.0, TAU, 48, Color(tint, fade), 4.0, true)
+	UiIcons.draw(self, "crown", Rect2(icon_c - Vector2(36, 36) * scale, Vector2(72, 72) * scale), Color(UiStyle.color("gold"), fade))
+	UiStyle.text(self, "%s BEZWUNGEN" % _apex_name(state), c + Vector2(0, 8), 48, Color(1, 1, 1, fade), true, 8)
+	UiStyle.text(self, "Der Migrationsschlund öffnet sich", c + Vector2(0, 50), 26, Color(tint.lightened(0.3), fade), true, 5, UiStyle.body_font())
 
 
 # New biome title after the swirl opened again.
@@ -351,7 +404,7 @@ func _draw_arrival(state: Dictionary) -> void:
 	var c := Vector2(size.x * 0.5, size.y * 0.5 - 360)
 	var rect := Rect2(c - Vector2(330, 58), Vector2(660, 116))
 	var points := _pill_points(rect)
-	draw_colored_polygon(points, Color(UiStyle.PANEL.darkened(0.3), 0.9 * fade))
+	draw_colored_polygon(points, Color(UiStyle.color("panel").darkened(0.3), 0.9 * fade))
 	points.append(points[0])
 	draw_polyline(points, Color(accent, fade), 4.0, true)
 	var icon_c := rect.position + Vector2(62, 58)
@@ -405,7 +458,7 @@ func _draw_swirl(state: Dictionary, progress: float) -> void:
 func _biome_colors(id: String) -> Array:
 	var data: Dictionary = Biomes.get_data(id)
 	if data.has("ember"):
-		return [Color("2a0c22"), Color(data.ember.lava_mid), Color(data.ember.lava_core)]
+		return [UiStyle.tone(Color("2a0c22")), Color(data.ember.lava_mid), Color(data.ember.lava_core)]
 	return [Color(data.ground).darkened(0.7), Color(data.pool), Color(data.pool).lightened(0.45)]
 
 

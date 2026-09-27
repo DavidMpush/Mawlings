@@ -36,6 +36,9 @@ extends RefCounted
 # from lava pools and glow channels with their own ring telegraph.
 
 const DEFAULT := "verdant_maw"
+# Biome circle of a run: every Migrationsschlund leads to the next entry and the
+# last one back to the first (Glutsumpf -> Verdant Maw), so a run can loop forever;
+# each visit brings its apex ("apex" in DATA) once, stronger on every loop (HuntWorld).
 const ORDER := ["verdant_maw", "glutsumpf"]
 
 const DATA := {

@@ -14,6 +14,8 @@ extends "res://scripts/menu/ui_kit.gd"
 ## reine Darstellung; Scrollhöhe und Zeilenhöhe bleiben die von menu.gd.
 
 const S := preload("res://scripts/ui/ui_style.gd")
+const UiStyleRef := preload("res://scripts/ui/ui_style.gd")
+const UiFramesRef := preload("res://scripts/ui/ui_frames.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 
@@ -148,8 +150,8 @@ func _txt(value: String, at: Vector2, px: int, color: Color = S.TEXT, align: int
 	elif align == 2:
 		origin.x -= width
 	if outline > 0:
-		draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, px, outline, Color(S.OUTLINE, 0.9 * color.a))
-	draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, px, color)
+		draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, px, outline, Color(S.color("outline"), 0.9 * color.a))
+	draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, px, S.tone(color))
 	return width
 
 
@@ -215,14 +217,14 @@ func _card(rect: Rect2, accent: Color, state: String = "normal", cut: float = 22
 		_frames.card(self, rect, accent, mapped)
 		return
 	var glow := {"normal": 0.55, "active": 1.0, "dim": 0.0, "gold": 0.8}.get(state, 0.5) as float
-	var edge := accent if state != "dim" else Color("4a574f")
-	draw_colored_polygon(_shape(Rect2(rect.position + Vector2(0, 6), rect.size), cut), Color(S.SHADOW, 0.55))
+	var edge := accent if state != "dim" else S.tone(Color("4a574f"))
+	draw_colored_polygon(_shape(Rect2(rect.position + Vector2(0, 6), rect.size), cut), Color(S.color("shadow"), 0.55))
 	if glow > 0.0:
 		for i in 3:
 			_outline(_shape(rect.grow(3 + i * 4), cut + 2 + i * 2), Color(edge, glow * (0.16 - i * 0.045)), 5.0)
 	var shape := _shape(rect, cut)
-	var top := Color("15302a").lerp(accent, 0.07 if state != "dim" else 0.0)
-	_gradient_fill(shape, rect, top, Color("07130f"))
+	var top := S.tone(Color("15302a")).lerp(accent, 0.07 if state != "dim" else 0.0)
+	_gradient_fill(shape, rect, top, S.tone(Color("07130f")))
 	# Soft inner light along the top edge.
 	var sheen := Rect2(rect.position + Vector2(cut, 3), Vector2(rect.size.x - cut * 1.6, 3))
 	draw_rect(sheen, Color(edge, 0.10))
@@ -230,21 +232,27 @@ func _card(rect: Rect2, accent: Color, state: String = "normal", cut: float = 22
 	var pore := Vector2(rect.end.x - 44, rect.position.y + 22)
 	for o in [Vector2(0, 0), Vector2(15, 4), Vector2(6, 15), Vector2(21, 17)]:
 		var pc: Vector2 = pore + o
-		draw_circle(pc, 5.0, Color("030806"))
+		draw_circle(pc, 5.0, S.tone(Color("030806")))
 		draw_arc(pc, 5.0, 0, TAU, 12, Color(edge, 0.25), 1.2, true)
 	var inner := _shape(rect.grow(-6), cut - 4)
 	_outline(inner, Color(edge, 0.16), 1.5)
-	_outline(shape, edge.lightened(0.1), 3.0, edge.lerp(S.VIOLET if accent != S.VIOLET else S.CYAN, 0.35) if state != "dim" else Color(0, 0, 0, 0))
+	_outline(shape, edge.lightened(0.1), 3.0, edge.lerp(S.color("violet") if accent != S.color("violet") else S.color("cyan"), 0.35) if state != "dim" else Color(0, 0, 0, 0))
 	if claws and state != "dim":
-		_claw(Vector2(rect.end.x - 10, rect.position.y + 10), Vector2(0.55, -1), 20, 6, S.BONE, 0.45)
-		_claw(Vector2(rect.position.x + 10, rect.end.y - 10), Vector2(-0.55, 1), 20, 6, S.BONE, 0.45)
+		_claw(Vector2(rect.end.x - 10, rect.position.y + 10), Vector2(0.55, -1), 20, 6, S.color("bone"), 0.45)
+		_claw(Vector2(rect.position.x + 10, rect.end.y - 10), Vector2(-0.55, 1), 20, 6, S.color("bone"), 0.45)
 
 
 ## Round medallion behind icons: glow, dark well, bright rim.
 func _medallion(c: Vector2, r: float, accent: Color, glow: float = 1.0) -> void:
+	if S.is_calm():
+		# V2: octagonal petrol plate with one accent stroke, no glow.
+		var plate := UiFramesRef.chamfer_points(Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0), r * 0.42)
+		draw_colored_polygon(plate, Color(S.CALM_BG, 0.97))
+		_outline(plate, S.tone(accent), 3.0)
+		return
 	for i in 4:
 		draw_circle(c, r + 4 + i * 5, Color(accent, 0.05 * glow))
-	draw_circle(c, r, Color("040b08"))
+	draw_circle(c, r, S.tone(Color("040b08")))
 	draw_circle(c + Vector2(0, -r * 0.18), r * 0.8, Color(accent, 0.10 * maxf(glow, 0.3)))
 	draw_arc(c, r, 0, TAU, 48, accent, 3.0, true)
 	draw_arc(c, r - 6, 0, TAU, 48, Color(accent, 0.25), 1.5, true)
@@ -257,21 +265,21 @@ func _button(rect: Rect2, kind: String, glow: float = 0.0, pressed: bool = false
 		glow *= 0.4
 	if _frames != null:
 		if kind == "ember":
-			if glow > 0.0:
+			if glow > 0.0 and not S.is_calm():
 				for i in 3:
-					draw_colored_polygon(_shape(rect.grow(6 + i * 6), 20 + i * 3), Color(S.EMBER_GLOW, glow * (0.10 - i * 0.03)))
+					draw_colored_polygon(_shape(rect.grow(6 + i * 6), 20 + i * 3), Color(S.color("ember_glow"), glow * (0.10 - i * 0.03)))
 			_frames.button(self, rect, "primary", pressed)
 		else:
 			_frames.button(self, rect, "secondary", pressed)
 			if kind == "max" or kind == "gold" or kind == "cyan":
-				var tint: Color = {"max": S.TOXIC, "gold": S.GOLD, "cyan": S.CYAN}[kind]
+				var tint: Color = {"max": S.color("toxic"), "gold": S.color("gold"), "cyan": S.color("cyan")}[kind]
 				var inner := rect.grow(-7)
 				_gradient_fill(_rounded_points(inner, 14, 5), inner, Color(tint, 0.26), Color(tint, 0.06))
 		return
 	if pressed:
 		rect = Rect2(rect.position + Vector2(0, 3), rect.size).grow(-2)
-	var base: Color = {"ember": Color("c4521f"), "gold": Color("a8791f"), "cyan": Color("1d8a80"), "off": Color("1c2621"), "max": Color("2c5a2c")}.get(kind, Color("1c2621"))
-	var edge: Color = {"ember": S.EMBER_GLOW, "gold": S.GOLD, "cyan": S.CYAN, "off": Color("46524a"), "max": S.TOXIC}.get(kind, Color("46524a"))
+	var base: Color = {"ember": S.tone(Color("c4521f")), "gold": S.tone(Color("a8791f")), "cyan": S.tone(Color("1d8a80")), "off": S.tone(Color("1c2621")), "max": S.tone(Color("2c5a2c"))}.get(kind, S.tone(Color("1c2621")))
+	var edge: Color = {"ember": S.color("ember_glow"), "gold": S.color("gold"), "cyan": S.color("cyan"), "off": S.tone(Color("46524a")), "max": S.color("toxic")}.get(kind, S.tone(Color("46524a")))
 	if glow > 0.0:
 		for i in 4:
 			draw_colored_polygon(_shape(rect.grow(4 + i * 5), 18 + i * 3), Color(edge, glow * (0.12 - i * 0.025)))
@@ -294,7 +302,7 @@ func _bar_fill(rect: Rect2, fraction: float, color: Color) -> void:
 	if _frames != null:
 		_frames.bar(self, rect, fraction, color)
 		return
-	draw_colored_polygon(_rounded_points(rect, rect.size.y * 0.5 - 0.5, 4), Color("050c09"))
+	draw_colored_polygon(_rounded_points(rect, rect.size.y * 0.5 - 0.5, 4), S.tone(Color("050c09")))
 	_outline(_rounded_points(rect, rect.size.y * 0.5 - 0.5, 4), Color(color, 0.35), 1.5)
 	if fraction > 0.0:
 		var fill := Rect2(rect.position + Vector2(2, 2), Vector2(maxf(rect.size.y - 4, (rect.size.x - 4) * minf(fraction, 1.0)), rect.size.y - 4))
@@ -306,29 +314,32 @@ func _bar_fill(rect: Rect2, fraction: float, color: Color) -> void:
 func _rank_diamond(c: Vector2, r: float, color: Color, filled: bool) -> void:
 	var pts := PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.8, 0), c + Vector2(0, r), c + Vector2(-r * 0.8, 0)])
 	if filled:
+		if S.is_calm():
+			draw_colored_polygon(pts, S.tone(color))
+			return
 		draw_circle(c, r * 1.3, Color(color, 0.18))
 		draw_colored_polygon(pts, color)
 		draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r * 0.6), c + Vector2(r * 0.35, 0), c + Vector2(0, -r * 0.1)]), Color(1, 1, 1, 0.45))
 	else:
-		draw_colored_polygon(pts, Color("050c09"))
+		draw_colored_polygon(pts, S.tone(Color("050c09")))
 		_outline(pts, Color(color, 0.4), 1.5)
 
 
 ## Essence colour follows the painted icon (violet drop) when the icon set exists.
 func _ess() -> Color:
-	return S.VIOLET if _icons != null and _icons.has("essence") else S.CYAN
+	return S.color("violet") if _icons != null and _icons.has("essence") else S.color("cyan")
 
 
 func _essence_icon(c: Vector2, r: float, enabled: bool = true) -> void:
 	if _icon(["essence"], Rect2(c - Vector2(r, r) * 1.3, Vector2(r, r) * 2.6), Color.WHITE if enabled else Color(0.6, 0.65, 0.63)):
 		return
-	_essence_drop(c, r, S.CYAN if enabled else Color("6d807b"))
+	_essence_drop(c, r, S.color("cyan") if enabled else S.tone(Color("6d807b")))
 
 
 func _crown_icon(c: Vector2, r: float) -> void:
 	if _icon(["king_tooth", "crown_tooth", "tooth", "koenigszahn"], Rect2(c - Vector2(r, r) * 1.3, Vector2(r, r) * 2.6), Color.WHITE):
 		return
-	_fang(c, r, Color("ffe7a8"))
+	_fang(c, r, S.tone(Color("ffe7a8")))
 
 
 ## Draws the first UiIcons id that exists; false when none (caller falls back).
@@ -355,15 +366,15 @@ func _sweep(poly: PackedVector2Array, bounds: Rect2, phase: float, alpha: float)
 func _draw_sheet() -> void:
 	var tab: String = menu.tab
 	var s: Rect2 = menu.sheet_rect()
-	var accent: Color = TAB_ACCENT.get(tab, S.GOLD)
+	var accent: Color = S.tone(TAB_ACCENT.get(tab, S.GOLD))
 	# Dim the menu behind and lay the big organic panel.
-	draw_rect(Rect2(Vector2.ZERO, size), Color(S.DIM, 0.35))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(S.color("dim"), 0.35))
 	if _frames != null:
 		_frames.panel(self, s, accent, true)
 	else:
 		_card(s, accent, "normal", 36, true)
 	var top := s.position.y
-	_txt(TAB_TITLE.get(tab, ""), Vector2(s.position.x + 40, top + 84), 52, S.TEXT, 0, 8)
+	_txt(TAB_TITLE.get(tab, ""), Vector2(s.position.x + 40, top + 84), 52, S.color("text"), 0, 8)
 	var sub := ""
 	if tab == "upgrades":
 		sub = "Dauerhafte Stärken für jede Brut"
@@ -373,15 +384,15 @@ func _draw_sheet() -> void:
 		sub = "Deine letzten Jagden, Tagesliste und Bestwerte"
 	else:
 		sub = "Endlose Stufen für Schaden und Ernte"
-	_body(sub, Vector2(s.position.x + 42, top + 124), 22, Color(accent, 0.95).lerp(S.TEXT, 0.35))
+	_body(sub, Vector2(s.position.x + 42, top + 124), 22, Color(accent, 0.95).lerp(S.color("text"), 0.35))
 	# Close button (hit area from menu.gd).
 	var close: Rect2 = menu.sheet_close_rect()
 	var close_down: bool = menu.is_pressed(close)
 	_button(close.grow(-6), "off", 0.0, close_down)
 	var cc := close.get_center() + _press_offset(close_down)
 	for d in [Vector2(1, 1), Vector2(1, -1)]:
-		draw_line(cc - d * 17, cc + d * 17, S.OUTLINE, 11, true)
-		draw_line(cc - d * 17, cc + d * 17, S.BONE, 6, true)
+		draw_line(cc - d * 17, cc + d * 17, S.color("outline"), 11, true)
+		draw_line(cc - d * 17, cc + d * 17, S.color("bone"), 6, true)
 	# Divider with a centre diamond.
 	var y := top + 150
 	draw_line(Vector2(s.position.x + 30, y), Vector2(s.end.x - 30, y), Color(accent, 0.35), 2, true)
@@ -402,10 +413,10 @@ func _essence_pill(right_mid: Vector2) -> void:
 	var value := "%d" % int(menu.profile.essence)
 	var w := _w(value, 30) + 76
 	var rect := Rect2(right_mid.x - w, right_mid.y - 28, w, 56)
-	draw_colored_polygon(_rounded_points(rect, 26, 5), Color("050c09e0"))
+	draw_colored_polygon(_rounded_points(rect, 26, 5), S.tone(Color("050c09e0")))
 	_outline(_rounded_points(rect, 26, 5), Color(_ess(), 0.6), 2.0)
 	_essence_icon(rect.position + Vector2(32, 30), 14)
-	_txt(value, rect.position + Vector2(56, 39), 30, S.TEXT, 0, 5)
+	_txt(value, rect.position + Vector2(56, 39), 30, S.color("text"), 0, 5)
 
 # ================================================================ Brutkammer
 
@@ -454,39 +465,39 @@ func _draw_upgrades() -> void:
 		var maxed := rank >= max_rank
 		var cost := int(profile.upgrade_cost(id))
 		var affordable: bool = available and not maxed and profile.essence >= cost
-		var accent: Color = UPGRADE_ACCENT.get(id, S.GOLD)
+		var accent: Color = S.tone(UPGRADE_ACCENT.get(id, S.GOLD))
 		var state := "dim" if not available else "normal"
-		_card(row, accent if available else Color("5b675f"), state, 22, false)
+		_card(row, accent if available else S.tone(Color("5b675f")), state, 22, false)
 		# Icon medallion.
 		var ic := row.position + Vector2(62, row.size.y * 0.5)
-		_medallion(ic, 44, accent if available else Color("56625a"), 1.0 if available else 0.0)
+		_medallion(ic, 44, accent if available else S.tone(Color("56625a")), 1.0 if available else 0.0)
 		var icon_rect := Rect2(ic - Vector2(32, 32), Vector2(64, 64))
 		if not _icon(UPGRADE_ICONS.get(id, []), icon_rect, Color.WHITE if available else Color(0.55, 0.6, 0.57)):
-			_upgrade_glyph(id, ic, 27, accent.lightened(0.15) if available else Color("6f7d74"))
+			_upgrade_glyph(id, ic, 27, accent.lightened(0.15) if available else S.tone(Color("6f7d74")))
 		if not available:
-			draw_circle(ic + Vector2(28, 28), 17, Color("050c09"))
-			_lock(ic + Vector2(28, 27), 13, S.BONE)
+			draw_circle(ic + Vector2(28, 28), 17, S.tone(Color("050c09")))
+			_lock(ic + Vector2(28, 27), 13, S.color("bone"))
 		# Name with rank diamonds, divider, effect now -> next rank.
 		var x := row.position.x + 124
 		var right := buy.position.x - 18
-		var name_color: Color = accent.lightened(0.3) if available else Color("9aa69c")
+		var name_color: Color = accent.lightened(0.3) if available else S.tone(Color("9aa69c"))
 		var nw := _txt(String(u.name).to_upper(), Vector2(x, row.position.y + 50), 31, name_color, 0, 6)
-		draw_line(Vector2(x, row.position.y + 62), Vector2(right, row.position.y + 62), Color(accent if available else Color("56625a"), 0.3), 2, true)
+		draw_line(Vector2(x, row.position.y + 62), Vector2(right, row.position.y + 62), Color(accent if available else S.tone(Color("56625a")), 0.3), 2, true)
 		if available:
 			var gap := 17.0 if max_rank > 4 else 24.0
 			var dx := x + nw + 22
 			for k in max_rank:
 				_rank_diamond(Vector2(dx + k * gap, row.position.y + 39), 7.0, accent, k < rank)
-			_body("%d/%d" % [rank, max_rank], Vector2(dx + max_rank * gap + 2, row.position.y + 47), 22, Color(S.TEXT_DIM, 0.9))
+			_body("%d/%d" % [rank, max_rank], Vector2(dx + max_rank * gap + 2, row.position.y + 47), 22, Color(S.color("text_dim"), 0.9))
 		if not available:
 			var q: Dictionary = meta.quest(String(u.get("requires", "")))
 			var line := _fit("Trophäe: %s – %s" % [String(q.get("name", "")), String(q.get("description", ""))], right - x - 30, [22], S.body_font())
-			_lock(Vector2(x + 11, row.position.y + 88), 11, S.GOLD)
-			_body(line[0], Vector2(x + 30, row.position.y + 96), line[1], S.GOLD)
+			_lock(Vector2(x + 11, row.position.y + 88), 11, S.color("gold"))
+			_body(line[0], Vector2(x + 30, row.position.y + 96), line[1], S.color("gold"))
 		else:
-			var wx := _body(_upgrade_effect(id, rank), Vector2(x, row.position.y + 96), 24, S.TEXT)
+			var wx := _body(_upgrade_effect(id, rank), Vector2(x, row.position.y + 96), 24, S.color("text"))
 			if maxed:
-				_body("  ·  maximal", Vector2(x + wx, row.position.y + 96), 22, Color(S.TOXIC, 0.9))
+				_body("  ·  maximal", Vector2(x + wx, row.position.y + 96), 22, Color(S.color("toxic"), 0.9))
 			else:
 				var ax := x + wx + 12
 				_arrow(Vector2(ax + 8, row.position.y + 88), 12, 1.0, accent)
@@ -494,24 +505,24 @@ func _draw_upgrades() -> void:
 		# Buy button.
 		if maxed:
 			_button(buy, "max")
-			_crown(buy.get_center() + Vector2(0, -24), 16, S.GOLD)
-			_txt("MAX", buy.get_center() + Vector2(0, 30), 40, Color("e4ffc8"), 1, 6)
+			_crown(buy.get_center() + Vector2(0, -24), 16, S.color("gold"))
+			_txt("MAX", buy.get_center() + Vector2(0, 30), 40, S.tone(Color("e4ffc8")), 1, 6)
 		elif not available:
 			_button(buy, "off")
-			_lock(buy.get_center() + Vector2(0, -14), 17, Color("7d8a80"))
-			_txt("GESPERRT", buy.get_center() + Vector2(0, 34), 22, Color("8d998f"), 1, 4)
+			_lock(buy.get_center() + Vector2(0, -14), 17, S.tone(Color("7d8a80")))
+			_txt("GESPERRT", buy.get_center() + Vector2(0, 34), 22, S.tone(Color("8d998f")), 1, 4)
 		else:
 			var pulse := 0.6 + 0.4 * sin(now * 3.0 + i * 0.7)
 			var down: bool = menu.is_pressed(buy)
 			var po := _press_offset(down)
 			_button(buy, "ember" if affordable else "off", pulse if affordable else 0.0, down)
-			var label_color := S.TEXT if affordable else Color("9aa39c")
+			var label_color := S.color("text") if affordable else S.tone(Color("9aa39c"))
 			_txt("KAUFEN", Vector2(buy.get_center().x, buy.position.y + 38) + po, 24, label_color, 1, 5)
 			var cost_text := "%d" % cost
 			var cw := _w(cost_text, 34)
 			var cx := buy.get_center().x - (cw + 34) * 0.5
 			_essence_icon(Vector2(cx + 11, buy.position.y + 70) + po, 12, affordable)
-			_txt(cost_text, Vector2(cx + 32, buy.position.y + 83) + po, 34, Color.WHITE if affordable else Color("8d998f"), 0, 6)
+			_txt(cost_text, Vector2(cx + 32, buy.position.y + 83) + po, 34, Color.WHITE if affordable else S.tone(Color("8d998f")), 0, 6)
 
 
 func _upgrade_glyph(id: String, c: Vector2, r: float, color: Color) -> void:
@@ -526,8 +537,8 @@ func _upgrade_glyph(id: String, c: Vector2, r: float, color: Color) -> void:
 		"chitin":
 			var shield := PackedVector2Array([c + Vector2(0, -0.95) * r, c + Vector2(0.8, -0.55) * r, c + Vector2(0.65, 0.45) * r, c + Vector2(0, 1.0) * r, c + Vector2(-0.65, 0.45) * r, c + Vector2(-0.8, -0.55) * r])
 			draw_colored_polygon(shield, color)
-			draw_line(c + Vector2(-0.55, -0.05) * r, c + Vector2(0.55, -0.05) * r, S.OUTLINE, 3)
-			draw_line(c + Vector2(0, -0.8) * r, c + Vector2(0, 0.85) * r, S.OUTLINE, 3)
+			draw_line(c + Vector2(-0.55, -0.05) * r, c + Vector2(0.55, -0.05) * r, S.color("outline"), 3)
+			draw_line(c + Vector2(0, -0.8) * r, c + Vector2(0, 0.85) * r, S.color("outline"), 3)
 		"sprinter":
 			for k in 3:
 				var y := (-0.5 + k * 0.5) * r
@@ -576,20 +587,20 @@ func _draw_trophy_header(s: Rect2, accent: Color) -> void:
 	var label := "%d / %d" % [done, total]
 	var lw := _w(label, 34)
 	_icon_trophy(Vector2(right - lw - 40, y - 12), 20)
-	_txt(label, Vector2(right, y), 34, S.GOLD, 2, 6)
-	_body("erledigt", Vector2(right, y + 30), 22, Color(S.GOLD, 0.8), 2)
-	_bar_fill(Rect2(right - 170, y + 44, 170, 14), float(done) / maxf(1.0, total), S.GOLD)
+	_txt(label, Vector2(right, y), 34, S.color("gold"), 2, 6)
+	_body("erledigt", Vector2(right, y + 30), 22, Color(S.color("gold"), 0.8), 2)
+	_bar_fill(Rect2(right - 170, y + 44, 170, 14), float(done) / maxf(1.0, total), S.color("gold"))
 
 
 func _icon_trophy(c: Vector2, r: float) -> void:
 	if _icon(["trophy"], Rect2(c - Vector2(r, r) * 1.2, Vector2(r, r) * 2.4)):
 		return
 	# Cup with handles and a small crown.
-	draw_colored_polygon(PackedVector2Array([c + Vector2(-0.75, -0.7) * r, c + Vector2(0.75, -0.7) * r, c + Vector2(0.5, 0.15) * r, c + Vector2(0.15, 0.35) * r, c + Vector2(-0.15, 0.35) * r, c + Vector2(-0.5, 0.15) * r]), S.GOLD)
-	draw_arc(c + Vector2(-0.75, -0.35) * r, 0.3 * r, PI * 0.5, PI * 1.5, 10, S.GOLD, 3, true)
-	draw_arc(c + Vector2(0.75, -0.35) * r, 0.3 * r, -PI * 0.5, PI * 0.5, 10, S.GOLD, 3, true)
-	draw_rect(Rect2(c + Vector2(-0.12, 0.3) * r, Vector2(0.24, 0.4) * r), S.GOLD)
-	draw_rect(Rect2(c + Vector2(-0.5, 0.7) * r, Vector2(1.0, 0.25) * r), S.GOLD.darkened(0.2))
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-0.75, -0.7) * r, c + Vector2(0.75, -0.7) * r, c + Vector2(0.5, 0.15) * r, c + Vector2(0.15, 0.35) * r, c + Vector2(-0.15, 0.35) * r, c + Vector2(-0.5, 0.15) * r]), S.color("gold"))
+	draw_arc(c + Vector2(-0.75, -0.35) * r, 0.3 * r, PI * 0.5, PI * 1.5, 10, S.color("gold"), 3, true)
+	draw_arc(c + Vector2(0.75, -0.35) * r, 0.3 * r, -PI * 0.5, PI * 0.5, 10, S.color("gold"), 3, true)
+	draw_rect(Rect2(c + Vector2(-0.12, 0.3) * r, Vector2(0.24, 0.4) * r), S.color("gold"))
+	draw_rect(Rect2(c + Vector2(-0.5, 0.7) * r, Vector2(1.0, 0.25) * r), S.color("gold").darkened(0.2))
 	draw_line(c + Vector2(-0.4, -0.55) * r, c + Vector2(-0.25, 0.05) * r, Color(1, 1, 1, 0.5), 2, true)
 
 
@@ -610,16 +621,21 @@ func _quest_category(stat: String) -> String:
 
 
 const CATEGORY_COLOR := {"time": S.CYAN, "swarm": S.EMBER, "boss": S.GOLD, "evolution": S.VIOLET, "biomass": S.AMBER, "runs": S.TOXIC, "hunt": S.DANGER}
-const CATEGORY_ICONS := {"time": ["clock"], "swarm": ["mawling_head", "mawling"], "boss": ["crown"], "evolution": ["dna", "dna_helix"], "biomass": ["alpha_core", "biomass"], "runs": ["trophy"], "hunt": ["skull"]}
+const CATEGORY_ICONS := {"time": ["clock"], "swarm": ["mawling_head", "mawling"], "boss": ["crown"], "evolution": ["branch_special", "dna", "dna_helix"], "biomass": ["alpha_core", "biomass"], "runs": ["trophy"], "hunt": ["skull"]}
 
 
 func _category_glyph(cat: String, c: Vector2, r: float, color: Color) -> void:
-	if _icon(CATEGORY_ICONS.get(cat, []), Rect2(c - Vector2(r, r) * 1.25, Vector2(r, r) * 2.5), color.lightened(0.4)):
+	var ids: Array = CATEGORY_ICONS.get(cat, [])
+	# Painted V2 icons (evolution branch) keep their own colours.
+	if _icons != null and not ids.is_empty() and _icons.has(ids[0]) and _icons.is_painted(ids[0]):
+		_icons.draw(self, ids[0], Rect2(c - Vector2(r, r) * 1.3, Vector2(r, r) * 2.6), Color.WHITE)
+		return
+	if _icon(ids, Rect2(c - Vector2(r, r) * 1.25, Vector2(r, r) * 2.5), color.lightened(0.4)):
 		return
 	match cat:
 		"time":
 			draw_circle(c, r, color)
-			draw_circle(c, r * 0.78, Color("06110d"))
+			draw_circle(c, r * 0.78, S.tone(Color("06110d")))
 			draw_line(c, c + Vector2(0, -0.6) * r, color, 3, true)
 			draw_line(c, c + Vector2(0.45, 0.1) * r, color, 3, true)
 			draw_circle(c, r * 0.12, color)
@@ -652,29 +668,29 @@ func _draw_trophy_rows() -> void:
 			continue
 		var done: bool = q.id in profile.completed_quests
 		var cat := _quest_category(String(q.stat))
-		var cat_color: Color = CATEGORY_COLOR.get(cat, S.VIOLET)
-		var accent: Color = S.GOLD if done else cat_color
+		var cat_color: Color = S.tone(CATEGORY_COLOR.get(cat, S.VIOLET))
+		var accent: Color = S.color("gold") if done else cat_color
 		_card(row, accent, "gold" if done else "normal", 20, false)
 		var ic := row.position + Vector2(56, row.size.y * 0.5)
 		_medallion(ic, 38, accent, 0.9 if done else 0.6)
-		_category_glyph(cat, ic, 20, cat_color if not done else S.GOLD)
+		_category_glyph(cat, ic, 20, cat_color if not done else S.color("gold"))
 		if done:
-			draw_circle(ic + Vector2(27, 26), 15, S.GOLD)
-			draw_circle(ic + Vector2(27, 26), 12, Color("3a2a08"))
-			_check(ic + Vector2(27, 26), 10, S.GOLD)
+			draw_circle(ic + Vector2(27, 26), 15, S.color("gold"))
+			draw_circle(ic + Vector2(27, 26), 12, S.tone(Color("3a2a08")))
+			_check(ic + Vector2(27, 26), 10, S.color("gold"))
 		var x := row.position.x + 110
-		_txt(String(q.name), Vector2(x, row.position.y + 38), 29, S.GOLD.lightened(0.25) if done else S.TEXT, 0, 6)
-		_body(String(q.description), Vector2(x, row.position.y + 66), 22, Color(S.TEXT_DIM, 0.95))
+		_txt(String(q.name), Vector2(x, row.position.y + 38), 29, S.color("gold").lightened(0.25) if done else S.color("text"), 0, 6)
+		_body(String(q.description), Vector2(x, row.position.y + 66), 22, Color(S.color("text_dim"), 0.95))
 		var progress: Vector2 = profile.quest_progress(q.id)
 		# Currency rewards right-aligned on the name line (clear of the frame pores).
 		_draw_reward_chips(q, Vector2(row.end.x - 70, row.position.y + 40), done)
 		var used_right := x
 		if done:
-			used_right += _txt("ERLEDIGT", Vector2(x, row.position.y + 95), 22, S.GOLD, 0, 4)
+			used_right += _txt("ERLEDIGT", Vector2(x, row.position.y + 95), 22, S.color("gold"), 0, 4)
 		else:
 			var bar := Rect2(x, row.position.y + 78, 210, 16)
 			_bar_fill(bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), cat_color)
-			used_right = bar.end.x + 12 + _body(menu._progress_text(q, progress), Vector2(bar.end.x + 12, row.position.y + 94), 22, S.TEXT)
+			used_right = bar.end.x + 12 + _body(menu._progress_text(q, progress), Vector2(bar.end.x + 12, row.position.y + 94), 22, S.color("text"))
 		var unlocks: Array = q.get("reward", {}).get("unlock", [])
 		if not unlocks.is_empty():
 			var label := String(menu.meta.unlock_label(unlocks[0]))
@@ -684,11 +700,11 @@ func _draw_trophy_rows() -> void:
 			var fitted := _fit(label, room, [22], S.body_font())
 			var tw := _w(fitted[0], fitted[1], S.body_font()) + 34
 			var tag := Rect2(row.end.x - 26 - tw, row.position.y + 70, tw, 32)
-			draw_colored_polygon(_rounded_points(tag, 15, 4), Color("050c09", 0.85))
-			draw_colored_polygon(_rounded_points(tag, 15, 4), Color(S.GOLD, 0.10 if done else 0.2))
-			_outline(_rounded_points(tag, 15, 4), Color(S.GOLD, 0.45 if done else 0.85), 1.5)
-			_rank_diamond(tag.position + Vector2(16, 16), 6, S.GOLD, true)
-			_body(fitted[0], tag.position + Vector2(27, 23), fitted[1], Color(S.GOLD, 0.7) if done else S.GOLD.lightened(0.35))
+			draw_colored_polygon(_rounded_points(tag, 15, 4), S.tone(Color("050c09", 0.85)))
+			draw_colored_polygon(_rounded_points(tag, 15, 4), Color(S.color("gold"), 0.10 if done else 0.2))
+			_outline(_rounded_points(tag, 15, 4), Color(S.color("gold"), 0.45 if done else 0.85), 1.5)
+			_rank_diamond(tag.position + Vector2(16, 16), 6, S.color("gold"), true)
+			_body(fitted[0], tag.position + Vector2(27, 23), fitted[1], Color(S.color("gold"), 0.7) if done else S.color("gold").lightened(0.35))
 
 
 func _draw_reward_chips(q: Dictionary, right_base: Vector2, done: bool) -> void:
@@ -697,7 +713,7 @@ func _draw_reward_chips(q: Dictionary, right_base: Vector2, done: bool) -> void:
 	var alpha := 0.6 if done else 1.0
 	if int(r.get("crowns", 0)) > 0:
 		var t := "+%d" % int(r.crowns)
-		x -= _txt(t, Vector2(x, right_base.y), 27, Color(S.GOLD.lightened(0.3), alpha), 2, 5)
+		x -= _txt(t, Vector2(x, right_base.y), 27, Color(S.color("gold").lightened(0.3), alpha), 2, 5)
 		_crown_icon(Vector2(x - 16, right_base.y - 10), 13)
 		x -= 44
 	if int(r.get("essence", 0)) > 0:
@@ -721,8 +737,8 @@ func _draw_trophy_scrollbar(s: Rect2, accent: Color) -> void:
 		var y0: float = e[0]
 		var dir: float = e[1]
 		var band := Rect2(area.position.x, y0 if dir > 0 else y0 - 18, area.size.x, 18)
-		var top_c := Color("0b1a15", 0.9 if dir > 0 else 0.0)
-		var bot_c := Color("0b1a15", 0.0 if dir > 0 else 0.9)
+		var top_c := S.tone(Color("0b1a15", 0.9 if dir > 0 else 0.0))
+		var bot_c := S.tone(Color("0b1a15", 0.0 if dir > 0 else 0.9))
 		_gradient_fill(PackedVector2Array([band.position, Vector2(band.end.x, band.position.y), band.end, Vector2(band.position.x, band.end.y)]), band, top_c, bot_c)
 
 # ================================================================ Urinstinkt
@@ -740,13 +756,13 @@ func _draw_instinct() -> void:
 	draw_set_transform(c - c * ring_scale, 0.0, Vector2(ring_scale, ring_scale))
 	# Glow halo.
 	for i in 8:
-		draw_circle(c, 290 - i * 18, Color(S.CYAN, 0.018 + i * 0.004 + breathe * 0.006))
+		draw_circle(c, 290 - i * 18, Color(S.color("cyan"), 0.018 + i * 0.004 + breathe * 0.006))
 	# Rotating rune ticks.
 	for i in 36:
 		var a := now * 0.15 + i * TAU / 36.0
 		var p := c + Vector2(cos(a), sin(a)) * 252
-		draw_circle(p, 3.0 if i % 3 == 0 else 1.6, Color(S.CYAN, 0.35 if i % 3 == 0 else 0.18))
-	draw_arc(c, 238, 0, TAU, 96, Color(S.CYAN, 0.3), 2, true)
+		draw_circle(p, 3.0 if i % 3 == 0 else 1.6, Color(S.color("cyan"), 0.35 if i % 3 == 0 else 0.18))
+	draw_arc(c, 238, 0, TAU, 96, Color(S.color("cyan"), 0.3), 2, true)
 	# Level ring: ten segments per circle.
 	var filled := level % 10
 	var circle_index := level / 10
@@ -754,40 +770,40 @@ func _draw_instinct() -> void:
 		var a0 := -PI * 0.5 + i * TAU / 10.0 + 0.035
 		var a1 := a0 + TAU / 10.0 - 0.07
 		if i < filled:
-			_ring_sector(c, 186, 232, a0, a1, Color(S.CYAN, 0.2))
-			_ring_sector(c, 192, 226, a0, a1, S.CYAN.darkened(0.1))
-			_ring_sector(c, 212, 224, a0, a1, S.CYAN.lightened(0.45))
+			_ring_sector(c, 186, 232, a0, a1, Color(S.color("cyan"), 0.2))
+			_ring_sector(c, 192, 226, a0, a1, S.color("cyan").darkened(0.1))
+			_ring_sector(c, 212, 224, a0, a1, S.color("cyan").lightened(0.45))
 		elif i == filled:
-			_ring_sector(c, 192, 226, a0, a1, Color(S.CYAN, 0.18 + 0.2 * breathe))
+			_ring_sector(c, 192, 226, a0, a1, Color(S.color("cyan"), 0.18 + 0.2 * breathe))
 		else:
-			_ring_sector(c, 192, 226, a0, a1, Color("10261f"))
+			_ring_sector(c, 192, 226, a0, a1, S.tone(Color("10261f")))
 	# Inner well.
-	draw_circle(c, 176, Color("040b08"))
+	draw_circle(c, 176, S.tone(Color("040b08")))
 	for i in 5:
-		draw_circle(c + Vector2(0, -20), 160 - i * 26, Color(S.CYAN, 0.035))
-	draw_arc(c, 176, 0, TAU, 96, S.CYAN, 3, true)
-	draw_arc(c, 166, 0, TAU, 96, Color(S.CYAN, 0.25), 1.5, true)
-	if not _icon(["mawling_head", "mawling"], Rect2(c + Vector2(-58, -150), Vector2(116, 116)), S.EMBER_GLOW):
-		_mawling_head(c + Vector2(-6, -86), 58, S.EMBER)
-	_txt("STUFE", c + Vector2(0, 2), 26, Color(S.CYAN.lightened(0.4), 0.95), 1, 5)
+		draw_circle(c + Vector2(0, -20), 160 - i * 26, Color(S.color("cyan"), 0.035))
+	draw_arc(c, 176, 0, TAU, 96, S.color("cyan"), 3, true)
+	draw_arc(c, 166, 0, TAU, 96, Color(S.color("cyan"), 0.25), 1.5, true)
+	if not _icon(["mawling_head", "mawling"], Rect2(c + Vector2(-58, -150), Vector2(116, 116)), S.color("ember_glow")):
+		_mawling_head(c + Vector2(-6, -86), 58, S.color("ember"))
+	_txt("STUFE", c + Vector2(0, 2), 26, Color(S.color("cyan").lightened(0.4), 0.95), 1, 5)
 	_txt("%d" % level, c + Vector2(0, 108), 110, Color.WHITE, 1, 10)
 	if circle_index > 0:
-		_body("Kreis %d" % (circle_index + 1), c + Vector2(0, 148), 23, Color(S.CYAN, 0.8), 1)
+		_body("Kreis %d" % (circle_index + 1), c + Vector2(0, 148), 23, Color(S.color("cyan"), 0.8), 1)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# Current bonus and next level tiles.
 	var tiles_y := s.position.y + 668
 	var tw := (s.size.x - 100) * 0.5
 	var cur := Rect2(s.position.x + 40, tiles_y, tw, 136)
 	var nxt := Rect2(cur.end.x + 20, tiles_y, tw, 136)
-	_card(cur, S.CYAN, "normal", 18, false)
-	_card(nxt, S.EMBER, "normal", 18, false)
-	_body("AKTUELL", cur.position + Vector2(32, 48), 22, Color(S.CYAN, 0.9))
-	_txt("+%d %% Schaden" % roundi(bonus * level), cur.position + Vector2(32, 86), 28, S.TEXT, 0, 5)
-	_txt("+%d %% Ernte" % roundi(bonus * level), cur.position + Vector2(32, 118), 28, S.TEXT, 0, 5)
-	_body("STUFE %d" % (level + 1), nxt.position + Vector2(32, 48), 22, Color(S.EMBER_GLOW, 0.95))
-	_txt("+%d %% Schaden" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 86), 28, S.EMBER_GLOW.lightened(0.3), 0, 5)
-	_txt("+%d %% Ernte" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 118), 28, S.EMBER_GLOW.lightened(0.3), 0, 5)
-	_arrow(Vector2(cur.end.x + 10, tiles_y + 68), 16, 1.0, S.EMBER_GLOW)
+	_card(cur, S.color("cyan"), "normal", 18, false)
+	_card(nxt, S.color("ember"), "normal", 18, false)
+	_body("AKTUELL", cur.position + Vector2(32, 48), 22, Color(S.color("cyan"), 0.9))
+	_txt("+%d %% Schaden" % roundi(bonus * level), cur.position + Vector2(32, 86), 28, S.color("text"), 0, 5)
+	_txt("+%d %% Ernte" % roundi(bonus * level), cur.position + Vector2(32, 118), 28, S.color("text"), 0, 5)
+	_body("STUFE %d" % (level + 1), nxt.position + Vector2(32, 48), 22, Color(S.color("ember_glow"), 0.95))
+	_txt("+%d %% Schaden" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 86), 28, S.color("ember_glow").lightened(0.3), 0, 5)
+	_txt("+%d %% Ernte" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 118), 28, S.color("ember_glow").lightened(0.3), 0, 5)
+	_arrow(Vector2(cur.end.x + 10, tiles_y + 68), 16, 1.0, S.color("ember_glow"))
 	# STÄRKEN button on the menu rectangle.
 	var cost := int(menu._instinct_cost())
 	var buy: Rect2 = menu.instinct_buy_rect()
@@ -795,7 +811,7 @@ func _draw_instinct() -> void:
 	var down: bool = menu.is_pressed(buy)
 	var po := _press_offset(down)
 	_button(buy, "ember" if affordable else "off", (0.6 + 0.4 * breathe) if affordable else 0.0, down)
-	var col := Color.WHITE if affordable else Color("9aa39c")
+	var col := Color.WHITE if affordable else S.tone(Color("9aa39c"))
 	_txt("STÄRKEN", Vector2(buy.get_center().x, buy.position.y + 58) + po, 46, col, 1, 7)
 	var cost_text := "%d" % cost
 	var cw := _w(cost_text, 32)
@@ -803,9 +819,9 @@ func _draw_instinct() -> void:
 	_essence_icon(Vector2(cx + 11, buy.position.y + 90) + po, 12, affordable)
 	_txt(cost_text, Vector2(cx + 32, buy.position.y + 103) + po, 32, col, 0, 5)
 	if not affordable:
-		_body("Noch %d Essenz" % (cost - int(menu.profile.essence)), Vector2(buy.get_center().x, buy.end.y + 40), 22, S.DANGER.lightened(0.3), 1)
+		_body("Noch %d Essenz" % (cost - int(menu.profile.essence)), Vector2(buy.get_center().x, buy.end.y + 40), 22, S.color("danger").lightened(0.3), 1)
 	var note_y := buy.end.y + (84 if not affordable else 56)
-	_paragraph_body("Urinstinkt hat keine Obergrenze. Jede Stufe kostet %d Essenz mehr – lohnt sich, wenn die Brutkammer ausgebaut ist." % int(info.get("step", 50)), Vector2(s.get_center().x, note_y), s.size.x - 140, 22, Color(S.TEXT_DIM, 0.85))
+	_paragraph_body("Urinstinkt hat keine Obergrenze. Jede Stufe kostet %d Essenz mehr – lohnt sich, wenn die Brutkammer ausgebaut ist." % int(info.get("step", 50)), Vector2(s.get_center().x, note_y), s.size.x - 140, 22, Color(S.color("text_dim"), 0.85))
 
 
 func _paragraph_body(value: String, at: Vector2, width: float, px: int, color: Color) -> void:
@@ -836,13 +852,13 @@ func _draw_reward() -> void:
 	var meta = menu.meta
 	var cx := size.x * 0.5
 	var appear := _ease(0.0, 0.35)
-	draw_rect(Rect2(Vector2.ZERO, size), Color("040b08", 0.9 * appear))
+	draw_rect(Rect2(Vector2.ZERO, size), S.tone(Color("040b08", 0.9 * appear)))
 	var button: Rect2 = menu.reward_button_rect()
 	var panel := Rect2(34, 66, size.x - 68, button.end.y + 44 - 66)
 	var pivot := panel.get_center()
 	var scale := lerpf(0.94, 1.0, appear)
 	draw_set_transform(pivot - pivot * scale, 0.0, Vector2(scale, scale))
-	_card(panel, S.GOLD, "gold", 40, true)
+	_card(panel, S.color("gold"), "gold", 40, true)
 	# Rays behind the emblem.
 	var em := Vector2(cx, 150)
 	var t := _now() - _reward_t0
@@ -851,11 +867,11 @@ func _draw_reward() -> void:
 		var tip := em + Vector2(cos(a), sin(a)) * 120
 		var l := em + Vector2(cos(a - 0.08), sin(a - 0.08)) * 50
 		var r := em + Vector2(cos(a + 0.08), sin(a + 0.08)) * 50
-		draw_colored_polygon(PackedVector2Array([l, tip, r]), Color(S.GOLD, 0.07))
-	_medallion(em, 54, S.DANGER, 1.0)
-	if not _icon(["skull"], Rect2(em - Vector2(36, 36), Vector2(72, 72)), S.BONE):
-		_skull(em + Vector2(0, 4), 34, S.BONE)
-	_txt("RUN BEENDET", Vector2(cx, 272), 66, S.TEXT, 1, 9)
+		draw_colored_polygon(PackedVector2Array([l, tip, r]), Color(S.color("gold"), 0.07))
+	_medallion(em, 54, S.color("danger"), 1.0)
+	if not _icon(["skull"], Rect2(em - Vector2(36, 36), Vector2(72, 72)), S.color("bone")):
+		_skull(em + Vector2(0, 4), 34, S.color("bone"))
+	_txt("RUN BEENDET", Vector2(cx, 272), 66, S.color("text"), 1, 9)
 	var strain: Dictionary = meta.STRAINS.get(String(stats.get("strain_id", "")), {})
 	var diff_index := clampi(int(stats.get("difficulty", 0)), 0, meta.DIFFICULTIES.size() - 1)
 	var sub := "%s  ·  %s" % [String(strain.get("name", "")).to_upper(), String(meta.DIFFICULTIES[diff_index].name).to_upper()]
@@ -865,28 +881,28 @@ func _draw_reward() -> void:
 	_txt(sub, Vector2(cx, 314), 24, Color(strain.get("tint", "#9ed5b3")).lightened(0.4), 1, 5)
 	# Survival time counts up.
 	var seconds := float(stats.get("seconds", 0.0)) * _ease(0.25, 1.0)
-	_body("ÜBERLEBT", Vector2(cx, 364), 22, Color(S.TEXT_DIM, 0.95), 1)
+	_body("ÜBERLEBT", Vector2(cx, 364), 22, Color(S.color("text_dim"), 0.95), 1)
 	_txt("%02d:%02d" % [int(seconds) / 60, int(seconds) % 60], Vector2(cx, 440), 84, Color.WHITE, 1, 9)
 	# Stat tiles.
-	var tiles := [["MAX. SCHWARM", float(stats.get("peak_population", 0)), S.EMBER], ["KILLS", float(stats.get("kills", 0)), S.CYAN], ["BOSSE", float(stats.get("bosses", 0)), S.GOLD]]
+	var tiles := [["MAX. SCHWARM", float(stats.get("peak_population", 0)), S.color("ember")], ["KILLS", float(stats.get("kills", 0)), S.color("cyan")], ["BOSSE", float(stats.get("bosses", 0)), S.color("gold")]]
 	var tw := (panel.size.x - 60 - 40) / 3.0
 	for i in tiles.size():
 		var tile := Rect2(panel.position.x + 30 + i * (tw + 20), 470, tw, 108)
 		_card(tile, tiles[i][2], "normal", 16, false)
-		_body(tiles[i][0], Vector2(tile.get_center().x, tile.position.y + 44), 22, Color(S.TEXT_DIM, 0.95), 1)
+		_body(tiles[i][0], Vector2(tile.get_center().x, tile.position.y + 44), 22, Color(S.color("text_dim"), 0.95), 1)
 		var v := roundi(float(tiles[i][1]) * _ease(0.45 + i * 0.1, 1.0))
 		_txt("%d" % v, Vector2(tile.get_center().x, tile.position.y + 88), 44, (tiles[i][2] as Color).lightened(0.25), 1, 6)
 	# Loot header.
 	var ly := 628.0
 	var hw := _w("BEUTE FÜR DIE BRUT", 26) * 0.5
-	_txt("BEUTE FÜR DIE BRUT", Vector2(cx, ly), 26, S.GOLD, 1, 5)
+	_txt("BEUTE FÜR DIE BRUT", Vector2(cx, ly), 26, S.color("gold"), 1, 5)
 	for sgn in [-1.0, 1.0]:
-		draw_line(Vector2(cx + sgn * (hw + 16), ly - 9), Vector2(cx + sgn * (hw + 150), ly - 9), Color(S.GOLD, 0.45), 2, true)
-		_rank_diamond(Vector2(cx + sgn * (hw + 158), ly - 9), 6, S.GOLD, true)
+		draw_line(Vector2(cx + sgn * (hw + 16), ly - 9), Vector2(cx + sgn * (hw + 150), ly - 9), Color(S.color("gold"), 0.45), 2, true)
+		_rank_diamond(Vector2(cx + sgn * (hw + 158), ly - 9), 6, S.color("gold"), true)
 	var loot := [
 		{"color": _ess(), "value": int(reward.get("essence", 0)), "label": "ESSENZ", "icon": "essence",
 			"split": [int(reward.get("run_essence", 0)), int(reward.get("quest_essence", 0))]},
-		{"color": S.GOLD, "value": int(reward.get("crowns", 0)), "label": "KÖNIGSZÄHNE", "icon": "crowns",
+		{"color": S.color("gold"), "value": int(reward.get("crowns", 0)), "label": "KÖNIGSZÄHNE", "icon": "crowns",
 			"split": [int(reward.get("run_crowns", 0)), int(reward.get("quest_crowns", 0))]},
 	]
 	var lw := (panel.size.x - 60 - 20) * 0.5
@@ -918,7 +934,7 @@ func _draw_reward() -> void:
 				parts = "+%d Run · +%d Tr." % [split[0], split[1]]
 			if _w(parts, 22, S.body_font()) > room:
 				parts = "+%d · +%d" % [split[0], split[1]]
-			_body(parts, Vector2(tile.position.x + 138, tile.position.y + 138), 22, Color(S.TEXT_DIM, 0.9), 0)
+			_body(parts, Vector2(tile.position.x + 138, tile.position.y + 138), 22, Color(S.color("text_dim"), 0.9), 0)
 		# Shine sweep once the count lands, then every few seconds.
 		var since := _now() - _reward_t0 - (2.1 + i * 0.15)
 		if since > 0.0:
@@ -927,15 +943,15 @@ func _draw_reward() -> void:
 	var new_quests: Array = reward.get("new_quests", [])
 	var y := 866.0
 	if new_quests.is_empty():
-		_body("Keine neuen Trophäen – die nächste Jagd wartet.", Vector2(cx, y + 40), 22, Color(S.TEXT_DIM, 0.9), 1)
+		_body("Keine neuen Trophäen – die nächste Jagd wartet.", Vector2(cx, y + 40), 22, Color(S.color("text_dim"), 0.9), 1)
 		var next: Dictionary = menu._next_quest()
 		if not next.is_empty():
-			_body("Nächstes Ziel: %s" % next.name, Vector2(cx, y + 76), 22, S.VIOLET.lightened(0.3), 1)
+			_body("Nächstes Ziel: %s" % next.name, Vector2(cx, y + 76), 22, S.color("violet").lightened(0.3), 1)
 	else:
 		var unlocked: Array = reward.get("unlocked", [])
-		_txt("NEUE TROPHÄEN  %d" % new_quests.size(), Vector2(panel.position.x + 34, y), 24, S.VIOLET.lightened(0.35), 0, 5)
+		_txt("NEUE TROPHÄEN  %d" % new_quests.size(), Vector2(panel.position.x + 34, y), 24, S.color("violet").lightened(0.35), 0, 5)
 		if not unlocked.is_empty():
-			_txt("%d FREIGESCHALTET" % unlocked.size(), Vector2(panel.end.x - 34, y), 24, S.GOLD, 2, 5)
+			_txt("%d FREIGESCHALTET" % unlocked.size(), Vector2(panel.end.x - 34, y), 24, S.color("gold"), 2, 5)
 		var with_unlock: Array = []
 		var plain: Array = []
 		for id in new_quests:
@@ -978,7 +994,7 @@ func _draw_reward() -> void:
 			cy += chip_h + 8
 		if shown < total:
 			var a := _ease(2.0 + shown * 0.16, 0.3)
-			_body("+ %d weitere in TROPHÄEN" % (total - shown), Vector2(cx, cy + 22), 22, Color(S.VIOLET.lightened(0.35), a), 1)
+			_body("+ %d weitere in TROPHÄEN" % (total - shown), Vector2(cx, cy + 22), 22, Color(S.color("violet").lightened(0.35), a), 1)
 	# WEITER on the menu rectangle.
 	var pulse := 0.5 + 0.5 * sin(_now() * 2.5)
 	var down: bool = menu.is_pressed(button)
@@ -996,10 +1012,10 @@ func _draw_share_button() -> void:
 	_button(rect, "cyan", 0.0, down)
 	var po := _press_offset(down)
 	var ic := Vector2(rect.position.x + 58, rect.get_center().y) + po
-	_share_glyph(ic, 22, S.CYAN.lightened(0.35))
+	_share_glyph(ic, 22, S.color("cyan").lightened(0.35))
 	var x := rect.position.x + 96
-	_txt("KARTE", Vector2(x, rect.position.y + 54) + po, 34, S.TEXT, 0, 6)
-	_txt("TEILEN" if not busy else "WIRD GEMALT", Vector2(x, rect.position.y + 92) + po, 30 if not busy else 22, S.CYAN.lightened(0.4), 0, 5)
+	_txt("KARTE", Vector2(x, rect.position.y + 54) + po, 34, S.color("text"), 0, 6)
+	_txt("TEILEN" if not busy else "WIRD GEMALT", Vector2(x, rect.position.y + 92) + po, 30 if not busy else 22, S.color("cyan").lightened(0.4), 0, 5)
 
 
 ## Share glyph: three linked nodes.
@@ -1008,10 +1024,10 @@ func _share_glyph(c: Vector2, r: float, color: Color) -> void:
 	var b := c + Vector2(-r * 0.75, 0)
 	var d := c + Vector2(r * 0.7, r * 0.8)
 	for seg in [[a, b], [b, d]]:
-		draw_line(seg[0], seg[1], S.OUTLINE, 9.0, true)
+		draw_line(seg[0], seg[1], S.color("outline"), 9.0, true)
 		draw_line(seg[0], seg[1], color, 5.0, true)
 	for p in [a, b, d]:
-		draw_circle(p, r * 0.42, S.OUTLINE)
+		draw_circle(p, r * 0.42, S.color("outline"))
 		draw_circle(p, r * 0.32, color)
 
 
@@ -1029,19 +1045,19 @@ func _unlock_card(rect: Rect2, q: Dictionary, index: int) -> void:
 	var labels: Array = []
 	for token in unlocks:
 		labels.append(String(menu.meta.unlock_label(token)))
-	_card(r, S.GOLD, "gold" if a >= 1.0 else "normal", 18, false)
+	_card(r, S.color("gold"), "gold" if a >= 1.0 else "normal", 18, false)
 	var ic := r.position + Vector2(38, r.size.y * 0.5)
-	_medallion(ic, 24, S.GOLD, 0.8)
+	_medallion(ic, 24, S.color("gold"), 0.8)
 	_unlock_glyph(String(unlocks[0]), ic, 14)
 	var tag := Rect2(r.end.x - 120, r.position.y + 18, 66, 30)
-	draw_colored_polygon(_rounded_points(tag, 14, 4), Color(S.GOLD, 0.25 + 0.15 * sin(_now() * 4.0)))
-	_txt("NEU", tag.get_center() + Vector2(0, 9), 22, S.GOLD.lightened(0.4), 1, 4)
+	draw_colored_polygon(_rounded_points(tag, 14, 4), Color(S.color("gold"), 0.25 + 0.15 * sin(_now() * 4.0)))
+	_txt("NEU", tag.get_center() + Vector2(0, 9), 22, S.color("gold").lightened(0.4), 1, 4)
 	var text := " · ".join(labels)
 	var fitted := _fit(text, r.size.x - 180, [25, 23, 22])
-	_txt(fitted[0], r.position + Vector2(76, 30), fitted[1], S.GOLD.lightened(0.35), 0, 5)
+	_txt(fitted[0], r.position + Vector2(76, 30), fitted[1], S.color("gold").lightened(0.35), 0, 5)
 	var line := "%s%s" % [q.name, _currency_suffix(q)]
 	var f2 := _fit(line, r.size.x - 180, [22], S.body_font())
-	_body(f2[0], r.position + Vector2(76, 57), f2[1], Color(S.TEXT_DIM, 0.95))
+	_body(f2[0], r.position + Vector2(76, 57), f2[1], Color(S.color("text_dim"), 0.95))
 
 
 func _currency_suffix(q: Dictionary) -> String:
@@ -1061,13 +1077,13 @@ func _unlock_glyph(token: String, c: Vector2, r: float) -> void:
 		"strain":
 			_mawling_head(c, r * 1.05, Color(String(menu.meta.STRAINS.get(arg, {}).get("tint", "#d9401f"))).lightened(0.2))
 		"difficulty":
-			_skull(c, r * 0.95, S.DANGER.lightened(0.2))
+			_skull(c, r * 0.95, S.color("danger").lightened(0.2))
 		"mutation":
-			_upgrade_glyph("geneflow", c, r, S.VIOLET.lightened(0.3))
+			_upgrade_glyph("geneflow", c, r, S.color("violet").lightened(0.3))
 		"upgrade":
-			_upgrade_glyph("attack_slot", c, r, S.EMBER)
+			_upgrade_glyph("attack_slot", c, r, S.color("ember"))
 		_:
-			_diamond(c, r * 0.8, S.GOLD)
+			_diamond(c, r * 0.8, S.color("gold"))
 
 
 func _trophy_chip(rect: Rect2, q: Dictionary, index: int) -> void:
@@ -1076,16 +1092,16 @@ func _trophy_chip(rect: Rect2, q: Dictionary, index: int) -> void:
 		return
 	var r := rect
 	r.position.x += (1.0 - a) * 60.0
-	_card(r, S.TOXIC, "normal", 14, false)
+	_card(r, S.color("toxic"), "normal", 14, false)
 	var ic := r.position + Vector2(28, r.size.y * 0.5)
-	draw_circle(ic, 15, Color(S.TOXIC, 0.25))
-	_check(ic, 11, S.TOXIC.lightened(0.3))
+	draw_circle(ic, 15, Color(S.color("toxic"), 0.25))
+	_check(ic, 11, S.color("toxic").lightened(0.3))
 	var fitted := _fit(String(q.name), r.size.x - 150, [23, 22])
-	_txt(fitted[0], r.position + Vector2(52, 34), fitted[1], S.TEXT, 0, 4)
+	_txt(fitted[0], r.position + Vector2(52, 34), fitted[1], S.color("text"), 0, 4)
 	var rw: Dictionary = q.get("reward", {})
 	var right := r.end.x - 14
 	if int(rw.get("crowns", 0)) > 0:
-		right -= _txt("+%d" % int(rw.crowns), Vector2(right, r.position.y + 35), 23, S.GOLD.lightened(0.3), 2, 4)
+		right -= _txt("+%d" % int(rw.crowns), Vector2(right, r.position.y + 35), 23, S.color("gold").lightened(0.3), 2, 4)
 		_crown_icon(Vector2(right - 12, r.position.y + 26), 10)
 		right -= 30
 	if int(rw.get("essence", 0)) > 0:
@@ -1098,22 +1114,22 @@ func _trophy_chip(rect: Rect2, q: Dictionary, index: int) -> void:
 
 func _draw_settings() -> void:
 	var p: Rect2 = menu.settings_panel_rect()
-	draw_rect(Rect2(Vector2.ZERO, size), Color(S.DIM, 0.8))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(S.color("dim"), 0.8))
 	if _frames != null:
-		_frames.panel(self, p, S.BONE, true)
+		_frames.panel(self, p, S.color("bone"), true)
 	else:
-		_card(p, S.BONE, "normal", 36, true)
-	_txt("EINSTELLUNGEN", Vector2(p.position.x + 40, p.position.y + 84), 48, S.TEXT, 0, 8)
-	_body("Wird im Profil gespeichert", Vector2(p.position.x + 42, p.position.y + 124), 22, S.TEXT_DIM)
+		_card(p, S.color("bone"), "normal", 36, true)
+	_txt("EINSTELLUNGEN", Vector2(p.position.x + 40, p.position.y + 84), 48, S.color("text"), 0, 8)
+	_body("Wird im Profil gespeichert", Vector2(p.position.x + 42, p.position.y + 124), 22, S.color("text_dim"))
 	var close: Rect2 = menu.settings_close_rect()
 	var close_down: bool = menu.is_pressed(close)
 	_button(close.grow(-6), "off", 0.0, close_down)
 	var cc := close.get_center() + _press_offset(close_down)
 	for d in [Vector2(1, 1), Vector2(1, -1)]:
-		draw_line(cc - d * 17, cc + d * 17, S.OUTLINE, 11, true)
-		draw_line(cc - d * 17, cc + d * 17, S.BONE, 6, true)
-	draw_line(Vector2(p.position.x + 30, p.position.y + 150), Vector2(p.end.x - 30, p.position.y + 150), Color(S.BONE, 0.3), 2, true)
-	var accents := [S.CYAN, S.EMBER, S.VIOLET]
+		draw_line(cc - d * 17, cc + d * 17, S.color("outline"), 11, true)
+		draw_line(cc - d * 17, cc + d * 17, S.color("bone"), 6, true)
+	draw_line(Vector2(p.position.x + 30, p.position.y + 150), Vector2(p.end.x - 30, p.position.y + 150), Color(S.color("bone"), 0.3), 2, true)
+	var accents := [S.color("cyan"), S.color("ember"), S.color("violet")]
 	for i in menu.SETTINGS.size():
 		var entry: Array = menu.SETTINGS[i]
 		var row: Rect2 = menu.settings_row_rect(i)
@@ -1123,26 +1139,26 @@ func _draw_settings() -> void:
 		var po := _press_offset(down)
 		_setting_row(row, accent, on, down)
 		var ic := row.position + Vector2(58, row.size.y * 0.5) + po
-		_medallion(ic, 36, accent if on else Color("56625a"), 0.7 if on else 0.0)
-		_setting_glyph(String(entry[0]), ic, accent.lightened(0.2) if on else Color("7d8a80"), on)
-		_txt(String(entry[1]), row.position + Vector2(116, 56) + po, 32, S.TEXT if on else S.TEXT_DIM, 0, 6)
+		_medallion(ic, 36, accent if on else S.tone(Color("56625a")), 0.7 if on else 0.0)
+		_setting_glyph(String(entry[0]), ic, accent.lightened(0.2) if on else S.tone(Color("7d8a80")), on)
+		_txt(String(entry[1]), row.position + Vector2(116, 56) + po, 32, S.color("text") if on else S.color("text_dim"), 0, 6)
 		var desc := _fit(String(entry[2]), row.size.x - 116 - 190, [22], S.body_font())
-		_body(desc[0], row.position + Vector2(116, 92) + po, desc[1], Color(S.TEXT_DIM, 0.95))
+		_body(desc[0], row.position + Vector2(116, 92) + po, desc[1], Color(S.color("text_dim"), 0.95))
 		_switch(Rect2(Vector2(row.end.x - 164, row.get_center().y - 30) + po, Vector2(140, 60)), on, accent)
 	var note_y: float = menu.settings_row_rect(menu.SETTINGS.size() - 1).end.y + 46
-	_paragraph_body("Farbenblind: Gefahren zusätzlich mit Muster und Kontur.", Vector2(p.get_center().x, note_y), p.size.x - 110, 22, Color(S.TEXT_DIM, 0.85))
+	_paragraph_body("Farbenblind: Gefahren zusätzlich mit Muster und Kontur.", Vector2(p.get_center().x, note_y), p.size.x - 110, 22, Color(S.color("text_dim"), 0.85))
 
 
 ## Light settings row (stage 06): flat dark strip with a thin rim and an accent
 ## stripe when on – no claw frame per row, the switch carries the state.
 func _setting_row(row: Rect2, accent: Color, on: bool, down: bool) -> void:
 	var shape := _rounded_points(row, 18, 5)
-	draw_colored_polygon(shape, Color("06110c", 0.72 if on else 0.5))
+	draw_colored_polygon(shape, S.tone(Color("06110c", 0.72 if on else 0.5)))
 	if on:
 		_gradient_fill(_rounded_points(row.grow(-2), 16, 5), row, Color(accent, 0.10), Color(accent, 0.02))
 	if down:
 		draw_colored_polygon(shape, Color(1, 1, 1, 0.05))
-	_outline(shape, Color(accent, 0.45) if on else Color(S.PANEL_EDGE, 0.9), 1.5)
+	_outline(shape, Color(accent, 0.45) if on else Color(S.color("panel_edge"), 0.9), 1.5)
 	if on:
 		var stripe := Rect2(row.position + Vector2(0, 22), Vector2(5, row.size.y - 44))
 		draw_colored_polygon(_rounded_points(stripe, 2.5, 2), accent)
@@ -1151,18 +1167,18 @@ func _setting_row(row: Rect2, accent: Color, on: bool, down: bool) -> void:
 ## Toggle switch: capsule track, sliding knob, AN/AUS written inside.
 func _switch(rect: Rect2, on: bool, accent: Color) -> void:
 	var r := rect.size.y * 0.5
-	draw_colored_polygon(_rounded_points(rect.grow(3), r + 3, 6), S.OUTLINE)
+	draw_colored_polygon(_rounded_points(rect.grow(3), r + 3, 6), S.color("outline"))
 	var track := _rounded_points(rect, r, 6)
-	_gradient_fill(track, rect, (accent.darkened(0.05) if on else Color("1c2621")), (accent.darkened(0.45) if on else Color("0c1410")))
-	_outline(track, accent.lightened(0.3) if on else Color("5b675f"), 2.0)
+	_gradient_fill(track, rect, (accent.darkened(0.05) if on else S.tone(Color("1c2621"))), (accent.darkened(0.45) if on else S.tone(Color("0c1410"))))
+	_outline(track, accent.lightened(0.3) if on else S.tone(Color("5b675f")), 2.0)
 	var knob := Vector2(rect.end.x - r if on else rect.position.x + r, rect.get_center().y)
 	draw_circle(knob + Vector2(0, 3), r - 5, Color(0, 0, 0, 0.45))
-	draw_circle(knob, r - 5, S.BONE if on else Color("8d998f"))
+	draw_circle(knob, r - 5, S.color("bone") if on else S.tone(Color("8d998f")))
 	draw_circle(knob + Vector2(-5, -6), 6, Color(1, 1, 1, 0.4))
 	var label := "AN" if on else "AUS"
 	var free := rect.size.x - 2.0 * r
 	var lx := rect.position.x + free * 0.5 + (0.0 if on else 2.0 * r)
-	_txt(label, Vector2(lx, rect.get_center().y + 9), 24, S.OUTLINE if on else S.TEXT_DIM, 1, 0 if on else 4)
+	_txt(label, Vector2(lx, rect.get_center().y + 9), 24, S.color("outline") if on else S.color("text_dim"), 1, 0 if on else 4)
 
 
 func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
@@ -1180,12 +1196,21 @@ func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
 			# Phone with shake marks.
 			var body := Rect2(c + Vector2(-10, -18), Vector2(20, 36))
 			draw_colored_polygon(_rounded_points(body, 5, 3), color)
-			draw_rect(Rect2(body.position + Vector2(4, 5), Vector2(12, 22)), S.OUTLINE)
+			draw_rect(Rect2(body.position + Vector2(4, 5), Vector2(12, 22)), S.color("outline"))
 			if on:
 				for sgn in [-1.0, 1.0]:
 					draw_line(c + Vector2(sgn * 17, -10), c + Vector2(sgn * 21, -4), color, 3, true)
 					draw_line(c + Vector2(sgn * 21, -4), c + Vector2(sgn * 17, 2), color, 3, true)
 					draw_line(c + Vector2(sgn * 17, 2), c + Vector2(sgn * 21, 8), color, 3, true)
+		"music_v1":
+			# Two beamed notes; a third, small one when the V1 pack is on.
+			for x in [-12.0, 10.0]:
+				draw_circle(c + Vector2(x - 5, 12), 7, color)
+				draw_line(c + Vector2(x + 1, 12), c + Vector2(x + 1, -16), color, 4, true)
+			draw_line(c + Vector2(-11, -16), c + Vector2(11, -12), color, 6, true)
+			if on:
+				draw_circle(c + Vector2(22, -2), 4, color)
+				draw_line(c + Vector2(25, -2), c + Vector2(25, -18), color, 3, true)
 		_:
 			# Eye with a striped iris (pattern, not only colour).
 			var pts := PackedVector2Array()
@@ -1196,7 +1221,7 @@ func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
 				var t := float(i) / 16.0
 				pts.append(c + Vector2(lerpf(-22, 22, t), sin(t * PI) * 13))
 			draw_colored_polygon(pts, color)
-			draw_circle(c, 9, S.OUTLINE)
+			draw_circle(c, 9, S.color("outline"))
 			for k in 3:
 				draw_line(c + Vector2(-6 + k * 5, -7), c + Vector2(-9 + k * 5, 7), color, 2, true)
 
@@ -1210,10 +1235,24 @@ func _draw_toast() -> void:
 	var fitted := _fit(text, size.x - 140, [24, 22], S.body_font())
 	var w := _w(fitted[0], fitted[1], S.body_font()) + 84
 	var rect := Rect2(size.x * 0.5 - w * 0.5, 30 - (1.0 - fade_in) * 16, w, 56)
-	var accent := S.DANGER if text.begins_with("Nicht") or text.begins_with("Gesperrt") or text.begins_with("Noch") else S.TOXIC
+	var accent := S.color("danger") if text.begins_with("Nicht") or text.begins_with("Gesperrt") or text.begins_with("Noch") else S.color("toxic")
 	var pts := _rounded_points(rect, 26, 6)
 	draw_colored_polygon(_rounded_points(Rect2(rect.position + Vector2(0, 4), rect.size), 26, 6), Color(0, 0, 0, 0.4 * a))
-	draw_colored_polygon(pts, Color("08140f", 0.94 * a))
+	draw_colored_polygon(pts, S.tone(Color("08140f", 0.94 * a)))
 	_outline(pts, Color(accent, 0.7 * a), 2.0)
 	_rank_diamond(rect.position + Vector2(30, 28), 8, Color(accent, a), true)
-	_body(fitted[0], rect.position + Vector2(50, 36), fitted[1], Color(S.TEXT, a))
+	_body(fitted[0], rect.position + Vector2(50, 36), fitted[1], Color(S.color("text"), a))
+
+
+# Calm skin (V2 kit): rounded chips and capsules become chamfered, bone claws
+# disappear. The organic skin keeps the ui_kit.gd shapes unchanged.
+func _rounded_points(rect: Rect2, radius: float, steps: int = 6) -> PackedVector2Array:
+	if UiStyleRef.is_calm():
+		return UiFramesRef.chamfer_points(rect, minf(radius, minf(rect.size.x, rect.size.y) * 0.5) * 0.62)
+	return super(rect, radius, steps)
+
+
+func _claw(base: Vector2, direction: Vector2, length: float, width: float, color: Color, bend: float = 0.35) -> void:
+	if UiStyleRef.is_calm():
+		return
+	super(base, direction, length, width, color, bend)

@@ -3,6 +3,14 @@ extends Node3D
 const TUNING = preload("res://scripts/tuning.gd")
 const TG = preload("res://scripts/telegraph_style.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
+const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
+# The user's Hunter Beetle (Hunyuan, reduced by tools/optimize_characters.py).
+# Loaded at runtime so the primitive look remains as fallback without the file.
+const BEETLE_PATH := "res://assets/gameplay/characters/HunterBeetle_game.glb"
+const BEETLE_LENGTH := 2.0
+static var _beetle_mesh: Mesh
+static var _beetle_base := Transform3D.IDENTITY
+static var _beetle_checked := false
 # Shared meshes/materials of every hunter (built once, see _shared_parts()).
 static var _parts := {}
 enum State { ARRIVING, CHASE, WARNING, RECOVERY }
@@ -17,7 +25,9 @@ var attack_power := 6
 var resolved_power := 0
 var hit_flash := 0.0
 var warning: Node3D
-var body: MeshInstance3D
+var body: Node3D
+var body_base_y := 0.6
+var skin: ShaderMaterial
 var health_fill: MeshInstance3D
 # Patterned ground telegraph (telegraph_style.gd "hunter") inside `warning`.
 var warning_zone: MeshInstance3D
@@ -35,11 +45,14 @@ func _ready() -> void:
 	# Etappe 07: meshes and materials are shared by every hunter; both horns and
 	# both eyes are one merged mesh each (fewer draw calls, same look).
 	var parts := _shared_parts()
-	var shell: Material = FX_BATCH.shared_material(Color("834c9f"), false, false, 0.85)
-	body = _part(self, parts.armor, shell, Vector3(0, 0.6, 0))
-	_part(self, parts.horns, shell, Vector3.ZERO)
-	_part(self, parts.face, FX_BATCH.shared_material(Color("4d345f")), Vector3(0, 0.65, 0.56))
-	_part(self, parts.eyes, FX_BATCH.shared_material(Color("ff9a55"), true), Vector3.ZERO)
+	if _load_beetle():
+		_build_beetle()
+	else:
+		var shell: Material = FX_BATCH.shared_material(Color("834c9f"), false, false, 0.85)
+		body = _part(self, parts.armor, shell, Vector3(0, 0.6, 0))
+		_part(self, parts.horns, shell, Vector3.ZERO)
+		_part(self, parts.face, FX_BATCH.shared_material(Color("4d345f")), Vector3(0, 0.65, 0.56))
+		_part(self, parts.eyes, FX_BATCH.shared_material(Color("ff9a55"), true), Vector3.ZERO)
 	health_fill = _part(self, parts.bar, FX_BATCH.shared_material(Color("f17e91"), true), Vector3(0, 1.6, 0))
 	warning = Node3D.new()
 	add_child(warning)
@@ -84,7 +97,14 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 	resolved_power = 0
 	hit_flash = maxf(0.0, hit_flash - delta)
 	body.scale = Vector3.ONE * (1.12 if hit_flash > 0.0 else 1.0)
+	if skin != null:
+		skin.set_shader_parameter("flash", 0.3 if hit_flash > 0.0 else 0.0)
 	health_fill.scale.x = clampf(health / max_health, 0.0, 1.0)
+	# Face the swarm; the health bar stays screen-aligned.
+	var facing := swarm_position - global_position
+	if state != State.WARNING and Vector2(facing.x, facing.z).length() > 0.2:
+		rotation.y = lerp_angle(rotation.y, atan2(facing.x, facing.z), minf(1.0, delta * 8.0))
+	health_fill.rotation.y = -rotation.y
 	if state == State.CHASE:
 		var offset := swarm_position - global_position
 		offset.y = 0.0
@@ -112,7 +132,7 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 		# Area keeps its full footprint; the pattern fills with the wind-up.
 		TG.set_armed(warning_zone, true)
 		TG.set_progress(warning_zone, 1.0 - remaining / TUNING.HUNTER_WARNING_SECONDS)
-		body.position.y = 0.6 + 0.14 * sin((1.0 - remaining / TUNING.HUNTER_WARNING_SECONDS) * PI)
+		body.position.y = body_base_y + 0.14 * sin((1.0 - remaining / TUNING.HUNTER_WARNING_SECONDS) * PI)
 	if remaining > 0.0:
 		return 0
 	if state == State.ARRIVING:
@@ -122,7 +142,7 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 		state = State.RECOVERY
 		remaining = TUNING.recovery(TUNING.HUNTER_RECOVERY_SECONDS, pressure, 0.55)
 		warning.visible = false
-		body.position.y = 0.6
+		body.position.y = body_base_y
 		resolved_power = attack_power
 		if swarm_position.distance_to(attack_center) <= TUNING.HUNTER_ATTACK_RADIUS:
 			return attack_power
@@ -219,3 +239,49 @@ func _part(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) ->
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(part)
 	return part
+
+
+static func _load_beetle() -> bool:
+	if not _beetle_checked:
+		_beetle_checked = true
+		if ResourceLoader.exists(BEETLE_PATH):
+			var root: Node = (load(BEETLE_PATH) as PackedScene).instantiate()
+			var found := root.find_children("*", "MeshInstance3D", true, false)
+			if not found.is_empty():
+				var source: MeshInstance3D = found[0]
+				var base := Transform3D.IDENTITY
+				var node: Node = source
+				while node != root and node is Node3D:
+					base = (node as Node3D).transform * base
+					node = node.get_parent()
+				_beetle_mesh = source.mesh
+				_beetle_base = base
+			root.free()
+	return _beetle_mesh != null
+
+
+# Beetle model under a pivot `body` at the feet, head along +Z, scaled so its
+# longest ground extent is BEETLE_LENGTH (same footprint as the old shell).
+func _build_beetle() -> void:
+	body = Node3D.new()
+	body.name = "Hunter Beetle"
+	body_base_y = 0.0
+	add_child(body)
+	skin = ShaderMaterial.new()
+	skin.shader = CREATURE_SHADER
+	skin.set_shader_parameter("brightness", 1.35)
+	skin.set_shader_parameter("saturation", 1.25)
+	skin.set_shader_parameter("shape_light", 0.3)
+	skin.set_shader_parameter("rim_power", 3.2)
+	skin.set_shader_parameter("rim_color", Color("ff9a55"))
+	skin.set_shader_parameter("rim_strength", 0.6)
+	var model := MeshInstance3D.new()
+	model.mesh = _beetle_mesh
+	model.material_override = skin
+	model.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var raw: AABB = Transform3D(_beetle_base.basis, Vector3.ZERO) * _beetle_mesh.get_aabb()
+	var extent := maxf(raw.size.x, raw.size.z)
+	var shape := Basis.from_scale(Vector3.ONE * (BEETLE_LENGTH / maxf(0.01, extent))) * _beetle_base.basis
+	var bounds: AABB = Transform3D(shape, Vector3.ZERO) * _beetle_mesh.get_aabb()
+	model.transform = Transform3D(shape, Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z))
+	body.add_child(model)

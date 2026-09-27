@@ -11,9 +11,28 @@ const FX_BATCH = preload("res://scripts/fx_batch.gd")
 static var _parts := {}
 const VIOLET := Color("b07ae8")
 const CURSE := Color("ff4a8a")
-const STONE := Color("3a2a48")
-const BONE := Color("efe2c0")
-const HEAD_HEIGHT := 2.25
+const MODEL := preload("res://assets/gameplay/props/CurseTotem_game.glb")
+## Height of the optimised model (1.04 m upright) scaled to the old primitive
+## totem (~2.8 m), and its yaw so the carved face looks at the game camera.
+const MODEL_SCALE := 2.7
+const MODEL_YAW := 0.0
+# Totem look: creature_look (vertex colours, key light, contour) plus glowing
+# violet veins picked out of the vertex colours (blue clearly above green).
+const SHADER_CODE := """
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+#define OUTLINE_DEFAULT 0.3
+#include "res://shaders/creature_look.gdshaderinc"
+uniform vec4 vein_color : source_color = vec4(0.8, 0.45, 1.0, 1.0);
+uniform float vein_glow = 1.0;
+void fragment() {
+	vec3 look = creature_look(COLOR.rgb, NORMAL, VIEW, FRONT_FACING);
+	float vein = smoothstep(0.1, 0.28, COLOR.b - COLOR.g) * step(COLOR.r, COLOR.b);
+	ALBEDO = mix(look, vein_color.rgb * (0.9 + 0.8 * vein_glow), vein * 0.85);
+}
+"""
+static var _shader: Shader
+static var _model_mesh: Array = []
 
 var radius: float = TUNING.TOTEM_RADIUS
 var hold := 0.0            # 0..1 share of the required hold time
@@ -23,9 +42,8 @@ var _time := 0.0
 var _fill_disc: MeshInstance3D
 var _fill_material: StandardMaterial3D
 var _ring_material: StandardMaterial3D
-var _eye_material: StandardMaterial3D
 var _beam_material: StandardMaterial3D
-var _head: Node3D
+var _totem_material: ShaderMaterial
 
 
 func _ready() -> void:
@@ -43,13 +61,11 @@ func _ready() -> void:
 	# skull + horns, eyes), built once per radius and shared.
 	var parts := _shared_parts(radius)
 	_part(self, parts.shards, _ring_material, Vector3.ZERO)
-	_part(self, parts.stack, FX_BATCH.shared_material(STONE, false, false, 0.9), Vector3.ZERO)
-	_head = Node3D.new()
-	_head.position = Vector3(0, HEAD_HEIGHT, 0)
-	add_child(_head)
-	_part(_head, parts.skull, FX_BATCH.shared_material(BONE, false, false, 0.6), Vector3.ZERO)
-	_eye_material = _flat(CURSE, false)
-	_part(_head, parts.eyes, _eye_material, Vector3.ZERO)
+	_totem_material = _make_totem_material()
+	var model_mesh := _totem_mesh()
+	var totem := _part(self, model_mesh[0], _totem_material, Vector3.ZERO)
+	totem.name = "Totem"
+	totem.transform = Transform3D(Basis(Vector3.UP, MODEL_YAW).scaled(Vector3.ONE * MODEL_SCALE), Vector3.ZERO) * model_mesh[1]
 	_beam_material = _flat(Color(VIOLET, 0.22))
 	_part(self, parts.beam, _beam_material, Vector3(0, 2.5, 0))
 	var icon := UI_ICONS.texture("skull")
@@ -94,10 +110,9 @@ func _apply(_delta: float) -> void:
 	var pulse := 0.5 + 0.5 * sin(_time * (9.0 if inside else 2.5))
 	_fill_disc.scale = Vector3(maxf(0.001, hold), 1.0, maxf(0.001, hold))
 	_ring_material.albedo_color = Color(VIOLET.lerp(CURSE, hold), 0.75 + 0.25 * pulse)
-	_eye_material.albedo_color = CURSE.lerp(Color.WHITE, 0.4 * pulse)
 	_beam_material.albedo_color = Color(VIOLET.lerp(CURSE, hold), 0.14 + 0.1 * pulse)
-	_head.position.y = HEAD_HEIGHT + 0.08 * sin(_time * 1.8)
-	_head.rotation.y = 0.25 * sin(_time * 0.9)
+	_totem_material.set_shader_parameter("vein_glow", pulse * (0.6 + 0.4 * hold))
+	_totem_material.set_shader_parameter("vein_color", VIOLET.lerp(CURSE, hold * 0.8).lightened(0.15))
 
 
 static func _shared_parts(zone_radius: float) -> Dictionary:
@@ -114,36 +129,6 @@ static func _shared_parts(zone_radius: float) -> Dictionary:
 	for index in 9:
 		var angle := TAU * float(index) / 9.0
 		shards.append([shard, Transform3D(Basis.from_euler(Vector3(0.0, -angle, 0.35)), Vector3(cos(angle) * zone_radius, 0.2, sin(angle) * zone_radius))])
-	var stack: Array = []
-	for entry in [[0.62, 0.62, 0.31], [0.5, 0.6, 0.92], [0.4, 0.58, 1.5]]:
-		var block := CylinderMesh.new()
-		block.top_radius = entry[0] * 0.8
-		block.bottom_radius = entry[0]
-		block.height = entry[1]
-		block.radial_segments = 7
-		block.rings = 1
-		stack.append([block, Transform3D(Basis(Vector3.UP, entry[2] * 2.0), Vector3(0, entry[2], 0))])
-	var skull := SphereMesh.new()
-	skull.radius = 0.42
-	skull.height = 0.72
-	skull.radial_segments = 20
-	skull.rings = 10
-	var horn := CylinderMesh.new()
-	horn.top_radius = 0.0
-	horn.bottom_radius = 0.14
-	horn.height = 0.7
-	horn.radial_segments = 12
-	horn.rings = 1
-	var head: Array = [[skull, Transform3D.IDENTITY]]
-	var eye := SphereMesh.new()
-	eye.radius = 0.09
-	eye.height = 0.14
-	eye.radial_segments = 10
-	eye.rings = 5
-	var eyes: Array = []
-	for side in [-1.0, 1.0]:
-		head.append([horn, Transform3D(Basis(Vector3.BACK, -side * 0.7), Vector3(side * 0.42, 0.28, 0))])
-		eyes.append([eye, Transform3D(Basis.IDENTITY, Vector3(side * 0.15, 0.02, 0.36))])
 	var beam := CylinderMesh.new()
 	beam.top_radius = 0.05
 	beam.bottom_radius = 0.32
@@ -152,13 +137,39 @@ static func _shared_parts(zone_radius: float) -> Dictionary:
 	beam.rings = 1
 	var result := {
 		"shards": FX_BATCH.merge(shards),
-		"stack": FX_BATCH.merge(stack),
-		"skull": FX_BATCH.merge(head),
-		"eyes": FX_BATCH.merge(eyes),
 		"beam": beam,
 	}
 	_parts[key] = result
 	return result
+
+
+## [mesh, node transform] of the optimised CurseTotem model, loaded once.
+static func _totem_mesh() -> Array:
+	if _model_mesh.is_empty():
+		var root := MODEL.instantiate()
+		var model: MeshInstance3D = root.find_children("*", "MeshInstance3D", true, false)[0]
+		var base := Transform3D.IDENTITY
+		var node: Node = model
+		while node != root and node is Node3D:
+			base = (node as Node3D).transform * base
+			node = node.get_parent()
+		_model_mesh = [model.mesh, base]
+		root.free()
+	return _model_mesh
+
+
+func _make_totem_material() -> ShaderMaterial:
+	if _shader == null:
+		_shader = Shader.new()
+		_shader.code = SHADER_CODE
+	var material := ShaderMaterial.new()
+	material.shader = _shader
+	material.set_shader_parameter("brightness", 1.35)
+	material.set_shader_parameter("saturation", 1.1)
+	material.set_shader_parameter("shape_light", 0.45)
+	material.set_shader_parameter("rim_color", VIOLET)
+	material.set_shader_parameter("rim_strength", 0.35)
+	return material
 
 
 func _flat(color: Color, transparent := true) -> StandardMaterial3D:

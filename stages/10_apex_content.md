@@ -42,3 +42,14 @@ Matrix (3 Stämme, mit Apex/Migration; Standard = greedy + attack_first × 6 See
 Hinweis: Die `form:regeneration`-Strategie nimmt keine weiteren Angriffsformen-Ränge und liegt deshalb unter dem Standard-Median; die Anlage heilt weiter spürbar (R3 höchstens 3 LP je Minute), dominiert aber nicht mehr.
 
 Offen: Apex-Kampf mit 15–22 s kurz; Formen messen zur Körpermitte (große Bosse schwerer zu treffen); zweiter Apex (Aschenkröte) fehlt.
+
+## Ergebnis Teil 3 (27.09.2026) – Aschenkröte im Run, Randtreffer, Biom-Kreislauf
+
+- **Aschenkröte** (`apex_toad.gd`) über denselben Pfad wie der Moosschlund (`HuntWorld.apex`, `_step_apex`, ein Apex gleichzeitig): ein Apex je Biom-Besuch. Der Apex des Startbioms kommt nach `APEX_SPAWN_SECONDS`, nach jeder Migration der Apex des neuen Bioms `APEX_ARRIVAL_DELAY` = 100 s nach der Ankunft (Glutsumpf → Kröte ab 40 Tieren, Verdant Maw → Moosschlund ab 30; spätestens 30 s später). Bodenbeben in Orange, Stinger/Boss-Musik, `boss_roar`. Glutpfützen: nach `apex.step()` `_resolve_area_hit(apex.puddles, …)` (Treffer pro Tier, Anführer-LP-Regel).
+- **Randtreffer:** `attack_forms._target_distance()` und `melee_factor(…, target)` messen über `body_distance()` zum Körperrand (Moosschlund bekam `body_distance`).
+- **Sieg:** Kadaver `apex_toad` (Aschenknochen, verkohlte Haut, erloschene Glutblasen mit wenigen Restgluten, Lavazunge, oranger Halo, BigDrop), 80 Biomasse, 150 DNA, 2 Alpha-Kerne, Königsmoment + Fanfare, Schlund zurück in den Verdant Maw (`BIOMES.ORDER` ist ein Kreis). Jeder weitere Durchlauf: LP × 1,6, Verluste × 1,25 (`APEX_LOOP_*`). RunStats `apex_kills` (beide) + `toad_kills`; Trophäe „Aschenkröte bezwungen“ (`total_toads`).
+- **HP:** Moosschlund 650 → 1400 × `APEX_HEALTH_DIFFICULTY` [1,0; 0,75; 0,6]; Kröte 3600 (`APEX_TOAD_HEALTH`, Begründung in `tuning.gd`).
+- **Kampfdauer (Bot, gewonnene Kämpfe, Median):** Moosschlund vorher ~13 s (mit Randtreffern, 650 LP) → Wild 25 s, Brutal 20 s, Apex 18 s (Streuung 12–67 s). Kröte: in Flut-Läufen erreichen nur starke Läufe sie (~390–400 s, Schwarm schrumpft in der Flut; der Bot flieht vor der Moorbrut und greift sie nicht an). Ohne Flut (`balance_sim … noflood`, Obergrenze der Schwarm-DPS, Pop ~250): 13–32 s, Median 16 s.
+- **Balance-Matrix** (3 Stämme × 2 Strategien × 4 Seeds): Wild 392 s (Pop 12,5/37/124), Brutal 310 s, Apex 242 s – TARGETS MET. Tests: neu `toad_run`, `capture_toad_run` (Bilder `preview_toad_run_*.png`); `tools/test.ps1` komplett grün.
+
+Offen: `hud_objectives.gd` zeigt in Leiste, Zeiger und Siegesbanner fest „MOOSSCHLUND“ – `objectives.apex_name`/`apex_kind` liegen bereit. Die Kröte-Kampfdauer im Ziel 35–50 s ist nur geschätzt (Flut-Läufe), die Trophäe „Moosschlund bezwungen“ zählt weiter `total_apex` (auch eine Kröte in einem Glutsumpf-Start).

@@ -161,12 +161,17 @@ func _check_transition() -> void:
 	var tinted := 0
 	var materials := {}
 	var second: Variant = world._spawn_hunter(arrival + Vector3(-9, 0, 0))
+	# Beetle hunters carry a creature-shader skin (body_tint uniform); the
+	# primitive fallback swaps to shared tinted StandardMaterials.
+	var skinned := 0
 	for target in [hunter, second]:
+		if target.skin != null and (target.skin.get_shader_parameter("body_tint") as Color).a > 0.0:
+			skinned += 1
 		for mesh in target.find_children("*", "MeshInstance3D", true, false):
 			if mesh.has_meta("base_material") and mesh.material_override != mesh.get_meta("base_material"):
 				tinted += 1
 				materials[mesh.material_override.get_instance_id()] = true
-	_check(tinted >= 4 and materials.size() <= 3, "Hunters tinted with shared materials (%d parts, %d materials)" % [tinted, materials.size()])
+	_check(skinned == 2 or (tinted >= 4 and materials.size() <= 3), "Hunters tinted (%d skins, %d parts, %d materials)" % [skinned, tinted, materials.size()])
 	# Safe arrival: eruptions never pick a source inside the arrival zone.
 	_move_swarm(arrival)
 	world.eruptions.erupt_soon()

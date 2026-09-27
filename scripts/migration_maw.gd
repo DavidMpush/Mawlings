@@ -4,7 +4,7 @@ extends Node3D
 # the swarm walks in (resource rule: it never expires; ignoring it is allowed,
 # the run stays endless). Purely a landmark: no collision, never hurts.
 #
-# Look: a fleshy violet lip with a ring of bone teeth that breathes slowly, a
+# Look: the delivered pit model as the rim (was: violet lip + bone teeth), a
 # swirling vortex that shows the destination biome's colours (Glutsumpf: lava
 # gold/orange, Verdant: pool teal) and a tall soft light column, so it reads
 # from far away and never like a danger telegraph (those are dark fills with a
@@ -22,12 +22,21 @@ extends Node3D
 const TUNING = preload("res://scripts/tuning.gd")
 const BIOMES = preload("res://scripts/biomes.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
+const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
+## Optimised "migration pit" model (tools/optimize_characters.py migration_pit):
+## a crater 1.12 m wide whose rim crest (0.38 m high) sits at 0.25 m from the
+## centre. At load the bowl is flattened (the vortex must stay visible inside)
+## and the outer slope pulled in, then the crest is scaled to just outside the
+## radius and PIT_CREST_HEIGHT high.
+const PIT_MODEL = preload("res://assets/gameplay/props/MigrationPit_game.glb")
+const PIT_CREST := 0.25
+const PIT_CREST_OUT := 1.15       # crest radius in units of the maw radius
+const PIT_CREST_HEIGHT := 0.6    # metres
+const PIT_MODEL_HEIGHT := 0.383
+const PIT_SLOPE_PULL := 0.5       # outer slope width factor (smaller footprint)
 
 const OPEN_SECONDS := 1.2
-const LIP_COLOR := Color("7a3558")
 const LIP_RIM := Color("ffb8d8")
-const TOOTH_COLOR := Color("f2e8cc")
-const TEETH := 9
 const BEAM_HEIGHT := 9.0
 
 const VORTEX_CODE := """
@@ -81,7 +90,7 @@ void fragment() {
 }
 """
 static var _vortex_shader: Shader
-static var _teeth_mesh: ArrayMesh
+static var _pit_mesh: Array = []
 
 var radius := TUNING.MIGRATION_RADIUS
 var target_biome := "glutsumpf"
@@ -116,22 +125,22 @@ func _ready() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(radius * 2.0, radius * 2.0)
 	vortex = _part(self, "Vortex", plane, vortex_material, Vector3(0, 0.1, 0))
-	var torus := TorusMesh.new()
-	torus.inner_radius = radius - 0.25
-	torus.outer_radius = radius + 0.55
-	torus.rings = 40
-	torus.ring_segments = 8
-	var lip_material := StandardMaterial3D.new()
-	lip_material.albedo_color = LIP_COLOR
-	lip_material.roughness = 0.55
-	lip_material.rim_enabled = true
-	lip_material.rim = 0.6
-	lip_material.rim_tint = 0.2
-	lip_material.emission_enabled = true
-	lip_material.emission = LIP_COLOR.darkened(0.4)
-	lip = _part(rim, "Lip", torus, lip_material, Vector3(0, 0.12, 0))
-	lip.scale = Vector3(1.0, 0.45, 1.0)
-	teeth = _part(rim, "Teeth", _teeth(), FX_BATCH.shared_material(TOOTH_COLOR, false, false, 0.7), Vector3.ZERO)
+	# Rim: the delivered pit model (vertex colours, creature look with a pink
+	# rim light); `lip` and `teeth` both point at it (kept for callers).
+	var pit := _pit()
+	var lip_material := ShaderMaterial.new()
+	lip_material.shader = CREATURE_SHADER
+	lip_material.set_shader_parameter("brightness", 1.3)
+	lip_material.set_shader_parameter("saturation", 0.7)
+	# Calm the mottled texture towards the fleshy violet of the stage 10 lip.
+	lip_material.set_shader_parameter("body_tint", Color(0.62, 0.36, 0.52, 0.45))
+	lip_material.set_shader_parameter("shape_light", 0.45)
+	lip_material.set_shader_parameter("rim_color", LIP_RIM)
+	lip_material.set_shader_parameter("rim_strength", 0.35)
+	var k := radius * PIT_CREST_OUT / PIT_CREST
+	lip = _part(rim, "Lip", pit[0], lip_material, Vector3.ZERO)
+	lip.transform = Transform3D(Basis.from_scale(Vector3(k, PIT_CREST_HEIGHT / PIT_MODEL_HEIGHT, k)), Vector3.ZERO) * pit[1]
+	teeth = lip
 	var column := CylinderMesh.new()
 	column.top_radius = radius * 0.25
 	column.bottom_radius = radius * 0.62
@@ -160,27 +169,44 @@ func _apply_target_colors() -> void:
 	vortex_material.set_shader_parameter("hold_color", Color("fff6e0"))
 
 
-static func _teeth() -> ArrayMesh:
-	if _teeth_mesh != null:
-		return _teeth_mesh
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.0
-	cone.bottom_radius = 0.3
-	cone.height = 1.2
-	cone.radial_segments = 6
-	cone.rings = 1
-	var parts: Array = []
-	var ring := TUNING.MIGRATION_RADIUS + 0.1
-	for index in TEETH:
-		var angle := TAU * float(index) / float(TEETH)
-		var out := Vector3(cos(angle), 0.0, sin(angle))
-		# Teeth lean inward over the throat, alternating long and short.
-		var tilt := Basis(out.cross(Vector3.UP).normalized(), -0.55)
-		var size := 1.0 if index % 2 == 0 else 0.72
-		var basis := tilt * Basis.from_scale(Vector3.ONE * size)
-		parts.append([cone, Transform3D(basis, out * ring + Vector3(0, 0.45 * size, 0))])
-	_teeth_mesh = FX_BATCH.merge(parts)
-	return _teeth_mesh
+## [mesh, node transform] of the pit model, loaded once.
+static func _pit() -> Array:
+	if _pit_mesh.is_empty():
+		var root := PIT_MODEL.instantiate()
+		var model: MeshInstance3D = root.find_children("*", "MeshInstance3D", true, false)[0]
+		var base := Transform3D.IDENTITY
+		var node: Node = model
+		while node != root and node is Node3D:
+			base = (node as Node3D).transform * base
+			node = node.get_parent()
+		_pit_mesh = [_reshape(model.mesh), base]
+		root.free()
+	return _pit_mesh
+
+
+## Model space: x/y is the ground plane, -z is up (the node turns it upright).
+## Inside the crest the height falls off steeply towards a flat floor; outside
+## it the slope is pulled towards the crest.
+static func _reshape(source: Mesh) -> ArrayMesh:
+	var arrays := source.surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	for i in points.size():
+		var v := points[i]
+		var flat := Vector2(v.x, v.y)
+		var r := flat.length()
+		if r < PIT_CREST:
+			# Flat floor out to 90 % of the crest, then a short steep inner wall.
+			var wall := clampf((r / PIT_CREST - 0.9) / 0.1, 0.0, 1.0)
+			v.z *= wall * wall
+		elif r > 0.0:
+			flat *= (PIT_CREST + (r - PIT_CREST) * PIT_SLOPE_PULL) / r
+			v.x = flat.x
+			v.y = flat.y
+		points[i] = v
+	arrays[Mesh.ARRAY_VERTEX] = points
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
 func contains(point: Vector3) -> bool:
@@ -224,7 +250,7 @@ func _animate(delta: float) -> void:
 	vortex_material.set_shader_parameter("time", _time)
 	beam.scale = Vector3(1.0, maxf(0.01, grow), 1.0)
 	beam.position.y = BEAM_HEIGHT * 0.5 * grow
-	teeth.rotation.y = 0.05 * sin(_time * 1.3)
+	rim.rotation.y = 0.05 * sin(_time * 1.3)
 
 
 func _part(parent: Node3D, label: String, mesh: Mesh, material: Material, location: Vector3) -> MeshInstance3D:

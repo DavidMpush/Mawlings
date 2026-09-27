@@ -39,6 +39,14 @@ var alpha_cores := 0
 var evolve_flash := 0.0
 var evolve_name := ""
 var run_stats: Dictionary = {}
+# Minimap stage: the round minimap under the swarm panel (hud_minimap.gd) and
+# the big map overlay it opens. Tapping the minimap opens the big map; tapping
+# the minimap spot or the X again closes it. Steering and Rally stay active.
+const MINIMAP_SIZE := 184.0
+const MAP_TOGGLE_GAP_MS := 250
+var minimap_enabled := false
+var map_open := false
+var _map_toggled_at := -100000
 
 # Palette shared by all HUD parts.
 const INK := Color("0a1a17")
@@ -61,6 +69,7 @@ var _bold: FontVariation
 # Stage 04 components; order matters: overlays and the mutation dimmer sit on top.
 const COMPONENTS := [
 	["res://scripts/ui/hud_top.gd", ["top", "badges"]],
+	["res://scripts/ui/hud_minimap.gd", ["minimap"]],
 	["res://scripts/ui/hud_controls.gd", ["controls"]],
 	["res://scripts/ui/mutation_screen.gd", ["mutations"]],
 	["res://scripts/ui/hud_overlays.gd", ["result", "banner", "feedback", "pointer"]],
@@ -78,6 +87,8 @@ func _ready() -> void:
 		add_child(component)
 		for key in entry[1]:
 			legacy[key] = false
+		if component.name == "hud_minimap":
+			minimap_enabled = true
 	queue_redraw()
 
 
@@ -102,6 +113,7 @@ func clear_pointers() -> void:
 	rally_pressed = false
 	movement_pointer = -1
 	rally_pointer = -1
+	map_open = false
 	_redraw_legacy()
 
 
@@ -125,6 +137,8 @@ func _input(event: InputEvent) -> void:
 			restart_requested.emit()
 		elif extinct and event.keycode in [KEY_H, KEY_M]:
 			hub_requested.emit()
+		elif not extinct and not paused and not _choosing() and event.keycode in [KEY_M, KEY_TAB]:
+			set_map_open(not map_open)
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_press(event.index, event.position)
@@ -144,28 +158,38 @@ func _input(event: InputEvent) -> void:
 func _press(pointer: int, location: Vector2) -> void:
 	if extinct or paused:
 		if _action_rect().has_point(location):
+			_tap_sound()
 			if extinct:
 				restart_requested.emit()
 			else:
 				pause_requested.emit()
 		elif (extinct or paused) and _hub_rect().has_point(location):
+			_tap_sound()
 			hub_requested.emit()
 		return
 	if _pause_rect().has_point(location):
+		_tap_sound()
 		pause_requested.emit()
 		return
 	if _choosing():
 		for slot in evolution.offers.size():
 			if _count("banishes") > 0 and _banish_rect(slot).has_point(location):
+				_tap_sound()
 				banish_requested.emit(slot)
 				return
 			if _mutation_rect(slot).has_point(location):
+				_tap_sound()
 				mutation_chosen.emit(slot)
 				return
 		if _count("rerolls") > 0 and _reroll_rect().has_point(location):
+			_tap_sound()
 			reroll_requested.emit()
 		elif _count("skips") > 0 and _skip_rect().has_point(location):
+			_tap_sound()
 			skip_requested.emit()
+		return
+	if _map_tap(location):
+		_tap_sound()
 		return
 	if movement_pointer == -1 and location.distance_to(_movement_center()) < 125.0:
 		movement_pointer = pointer
@@ -174,6 +198,18 @@ func _press(pointer: int, location: Vector2) -> void:
 		rally_pointer = pointer
 		rally_pressed = true
 		_redraw_legacy()
+
+
+# Audio pack V1 "ui" for button taps (pause, cards, map); never for the joystick
+# or the Rally pad. Sfx lives under Main (HUD/Controls -> Main/Sfx).
+func _tap_sound() -> void:
+	var node: Node = get_parent()
+	while node != null:
+		var sfx := node.get_node_or_null("Sfx")
+		if sfx != null and sfx.has_method("play"):
+			sfx.play("ui")
+			return
+		node = node.get_parent()
 
 
 func _release(pointer: int) -> void:
@@ -198,6 +234,42 @@ func _movement_center() -> Vector2:
 func _rally_center() -> Vector2:
 	return Vector2(125.0, size.y - 145.0)
 
+
+# Minimap (round, top left below the swarm panel) and big map overlay.
+func _minimap_rect() -> Rect2:
+	return Rect2(Vector2(16, 130), Vector2(MINIMAP_SIZE, MINIMAP_SIZE))
+
+func _bigmap_rect() -> Rect2:
+	return Rect2(Vector2(20, 130), Vector2(size.x - 40, maxf(400.0, size.y - 130 - 370)))
+
+func _map_close_rect() -> Rect2:
+	var panel := _bigmap_rect()
+	return Rect2(Vector2(panel.end.x - 96, panel.position.y + 12), Vector2(84, 84))
+
+## Opens or closes the big map (touch debounce: an emulated mouse click of the
+## same tap must not toggle it straight back).
+func set_map_open(value: bool) -> void:
+	if not minimap_enabled or value == map_open:
+		return
+	var now := Time.get_ticks_msec()
+	if now - _map_toggled_at < MAP_TOGGLE_GAP_MS:
+		return
+	_map_toggled_at = now
+	map_open = value
+
+# Taps on the minimap / big map; true when the tap was used.
+func _map_tap(location: Vector2) -> bool:
+	if not minimap_enabled:
+		return false
+	if map_open:
+		if _map_close_rect().has_point(location) or _minimap_rect().has_point(location):
+			set_map_open(false)
+			return true
+		return false
+	if _minimap_rect().grow(6).has_point(location):
+		set_map_open(true)
+		return true
+	return false
 
 func _pause_rect() -> Rect2:
 	return Rect2(Vector2(size.x - 98, 18), Vector2(82, 100))

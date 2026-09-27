@@ -43,7 +43,7 @@ const FALLBACK_KIND := "prey"
 const KIND_DESIGN := {
 	"prey": "prey", "hunter": "hunter", "skitter": "skitter", "horde": "horde",
 	"elite": "elite", "leaper": "leaper",
-	"boss": "boss", "apex": "apex",
+	"boss": "boss", "apex": "apex", "apex_toad": "apex_toad",
 	"mawling": "mawling", "nest": "nest",
 }
 
@@ -63,6 +63,8 @@ const DESIGNS := {
 	"leaper": {"rank": "mini", "pool": 1.35, "glow": 0.8, "halo": 4.2, "halo_color": Color(0.95, 0.8, 0.35), "halo_strength": 0.75, "pulse": 2.1, "ref": 10.0, "remains_min": 0.75, "drop": "drop_medium", "drop_size": 0.95, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.9},
 	"boss": {"rank": "boss", "pool": 2.7, "glow": 1.0, "halo": 10.0, "halo_color": Color(1.0, 0.66, 0.24), "halo_strength": 0.9, "pulse": 1.3, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 1.9, "drop_count": 1, "drop_at": Vector3(2.35, 0.0, 0.4), "drop_lift": 0.35},
 	"apex": {"rank": "boss", "pool": 3.1, "glow": 1.0, "halo": 11.0, "halo_color": Color(0.95, 0.8, 0.32), "halo_strength": 0.9, "pulse": 1.1, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(-2.55, 0.0, 0.6), "drop_lift": 0.35},
+	# Aschenkröte (second apex, Glutsumpf): as big as the Moosschlund, orange halo.
+	"apex_toad": {"rank": "boss", "pool": 3.3, "glow": 1.0, "halo": 11.5, "halo_color": Color(1.0, 0.56, 0.2), "halo_strength": 0.95, "pulse": 1.0, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(2.6, 0.0, -0.8), "drop_lift": 0.35},
 	"mawling": {"rank": "special", "pool": 0.0, "glow": 1.0, "halo": 1.6, "halo_color": Color(1.0, 0.5, 0.18), "halo_strength": 0.9, "pulse": 4.0, "ref": 1.0, "remains_min": 0.6, "drop": ""},
 	"nest": {"rank": "special", "pool": 1.1, "glow": 0.6, "halo": 0.0, "pulse": 2.0, "ref": 18.0, "remains_min": 0.7, "drop": "drop_big", "drop_size": 0.95, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.3},
 }
@@ -70,6 +72,7 @@ const DESIGNS := {
 # Palette (living colours, the shader darkens and desaturates the remains).
 const BONE := Color("efe2c0")
 const BONE_MOSS := Color("d3d6a2")
+const ASH_BONE := Color("c9c0b8")
 const AMBER_EDGE := Color("c0650f")
 const AMBER_MID := Color("f7a62a")
 const AMBER_CORE := Color("ffe189")
@@ -499,6 +502,7 @@ static func _mesh(layer_name: String) -> Mesh:
 			"leaper": _build_leaper(b)
 			"boss": _build_boss(b)
 			"apex": _build_apex(b)
+			"apex_toad": _build_apex_toad(b)
 			"mawling": _build_mawling(b)
 			"nest": _build_nest(b)
 		mesh = b.commit()
@@ -702,6 +706,33 @@ static func _build_apex(b: Builder) -> void:
 	b.blob(Vector3(0.4, 0.55, 0.6), Vector3(0.7, 0.6, 0.65), Color("d6b4ff"), Basis.IDENTITY, true)
 	b.blob(Vector3(-0.5, 0.35, -0.3), Vector3(0.38, 0.32, 0.36), Color("c49cff"), Basis.IDENTITY, true)
 	b.frame = Transform3D.IDENTITY
+
+
+# Aschenkröte (apex_toad): a squat, wide skeleton of ash-grey bones, charred
+# hide scraps, burnt-out ember bubbles on the back (dark crust, only a few
+# embers still glowing) and a cracked lava tongue.
+static func _build_apex_toad(b: Builder) -> void:
+	b.frame = Transform3D(Basis.from_scale(Vector3(1.3, 0.72, 1.02)), Vector3.ZERO)
+	_skeleton(b, ASH_BONE)
+	b.frame = Transform3D.IDENTITY
+	var hide := Color("3a3032")
+	for spec in [[Vector3(1.5, 0.08, -0.8), 0.95], [Vector3(-1.6, 0.08, 0.5), 0.9], [Vector3(0.6, 0.07, 2.1), 0.75], [Vector3(-0.5, 0.08, -2.4), 0.85], [Vector3(2.0, 0.06, 1.3), 0.6]]:
+		var size: float = spec[1]
+		b.blob(spec[0], Vector3(size * 1.1, 0.24, size * 0.8), hide, Basis(Vector3.UP, size * 5.0))
+	# Burnt-out ember bubbles along the back: dark crust, cracked grey caps.
+	var crust := Color("2a2224")
+	var cap := Color("6a6060")
+	var bubbles := [Vector3(0.0, 1.22, -1.3), Vector3(0.7, 1.1, -0.2), Vector3(-0.75, 1.12, 0.3), Vector3(0.0, 1.25, 0.9), Vector3(0.9, 0.95, 1.5), Vector3(-0.95, 0.9, -1.2), Vector3(0.45, 1.0, -2.1)]
+	for index in bubbles.size():
+		var size := 0.32 + 0.1 * float(index % 3)
+		b.blob(bubbles[index], Vector3(size, size * 0.8, size), crust, Basis(Vector3.UP, float(index)))
+		b.blob(bubbles[index] + Vector3(0.0, size * 0.55, 0.0), Vector3(size * 0.72, size * 0.28, size * 0.72), cap, Basis(Vector3.UP, float(index) * 1.7))
+	# A few embers still glowing in the cracks.
+	for spot in [Vector3(0.7, 1.32, -0.2), Vector3(0.0, 1.5, 0.9), Vector3(-0.95, 1.05, -1.2)]:
+		b.blob(spot, Vector3.ONE * 0.16, Color("ff8a1e"), Basis.IDENTITY, true)
+	# Cracked lava tongue lolling from the skull.
+	b.tube([Vector3(0.0, 0.2, 3.6), Vector3(0.35, 0.08, 4.6), Vector3(0.1, 0.05, 5.5), Vector3(-0.4, 0.04, 6.0)], 0.28, 0.14, Color("7a2a30"), 7)
+	b.blob(Vector3(-0.42, 0.06, 6.05), Vector3(0.24, 0.08, 0.2), Color("ff9a3a"), Basis.IDENTITY, true)
 
 
 # Fallen Mawling: a small dark stain, a scrap and hovering orange sparks.

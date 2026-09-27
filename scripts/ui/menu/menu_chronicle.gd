@@ -77,10 +77,10 @@ func _draw_segments() -> void:
 		var rect: Rect2 = menu.chronicle_segment_rect(i)
 		var active: bool = menu.chronicle_view == id
 		var down: bool = menu.is_pressed(rect)
-		var accent: Color = SEGMENT_ACCENT.get(id, S.VIOLET)
+		var accent: Color = S.tone(SEGMENT_ACCENT.get(id, S.VIOLET))
 		var shape := _rounded_points(rect, 24, 5)
 		draw_colored_polygon(_rounded_points(Rect2(rect.position + Vector2(0, 5), rect.size), 24, 5), Color(0, 0, 0, 0.35))
-		_gradient_fill(shape, rect, Color(accent, 0.30) if active else Color("10231c"), Color(accent, 0.08) if active else Color("07120e"))
+		_gradient_fill(shape, rect, Color(accent, 0.30) if active else S.tone(Color("10231c")), Color(accent, 0.08) if active else S.tone(Color("07120e")))
 		if down:
 			draw_colored_polygon(shape, Color(1, 1, 1, 0.06))
 		_outline(shape, accent if active else Color(accent, 0.35), 3.0 if active else 1.5)
@@ -89,7 +89,7 @@ func _draw_segments() -> void:
 		_segment_glyph(id, ic, accent if active else Color(accent, 0.6))
 		var label: String = menu.CHRONICLE_VIEW_NAMES[id]
 		var fitted := _fit(label, rect.size.x - 86, [26, 24, 22])
-		_txt(fitted[0], Vector2(rect.position.x + 74, rect.get_center().y + 9) + po, fitted[1], S.TEXT if active else S.TEXT_DIM, 0, 5)
+		_txt(fitted[0], Vector2(rect.position.x + 74, rect.get_center().y + 9) + po, fitted[1], S.color("text") if active else S.color("text_dim"), 0, 5)
 		if active:
 			draw_line(Vector2(rect.position.x + 26, rect.end.y - 8), Vector2(rect.end.x - 26, rect.end.y - 8), accent, 3.0, true)
 
@@ -126,14 +126,14 @@ func _draw_list_scrollbar() -> void:
 		var dir: float = e[1]
 		var band := Rect2(area.position.x, y0 if dir > 0 else y0 - 16, area.size.x, 16)
 		_gradient_fill(PackedVector2Array([band.position, Vector2(band.end.x, band.position.y), band.end, Vector2(band.position.x, band.end.y)]), band,
-			Color("0b1a15", 0.85 if dir > 0 else 0.0), Color("0b1a15", 0.0 if dir > 0 else 0.85))
+			S.tone(Color("0b1a15", 0.85 if dir > 0 else 0.0)), S.tone(Color("0b1a15", 0.0 if dir > 0 else 0.85)))
 	if max_scroll <= 0.0:
 		return
 	var track := Rect2(area.end.x + 4, area.position.y + 6, 6, area.size.y - 12)
 	draw_colored_polygon(_rounded_points(track, 2.5, 3), Color(1, 1, 1, 0.06))
 	var h := track.size.y * track.size.y / (track.size.y + max_scroll)
 	var thumb := Rect2(track.position.x, track.position.y + (track.size.y - h) * menu.trophy_scroll / max_scroll, 6, h)
-	draw_colored_polygon(_rounded_points(thumb, 2.5, 3), S.VIOLET)
+	draw_colored_polygon(_rounded_points(thumb, 2.5, 3), S.color("violet"))
 
 # ================================================================ rows
 
@@ -226,7 +226,7 @@ func _run_row(rect: Rect2, run: Dictionary, down: bool) -> void:
 	var id := String(run.get("strain_id", ""))
 	var tint := _readable(_strain_color(id))
 	var shape := _rounded_points(rect, 20, 5)
-	_gradient_fill(shape, rect, Color("10251d"), Color("08140f"))
+	_gradient_fill(shape, rect, S.tone(Color("10251d")), S.tone(Color("08140f")))
 	if down:
 		draw_colored_polygon(shape, Color(1, 1, 1, 0.06))
 	_outline(shape, Color(tint, 0.45), 1.5)
@@ -234,12 +234,12 @@ func _run_row(rect: Rect2, run: Dictionary, down: bool) -> void:
 	draw_colored_polygon(_rounded_points(stripe, 3, 2), tint)
 	_strain_badge(rect.position + Vector2(62, rect.size.y * 0.5), id)
 	var x := rect.position.x + 116
-	_txt(_time(float(run.get("seconds", 0.0))), Vector2(x, rect.position.y + 54), 44, S.TEXT, 0, 6)
+	_txt(_time(float(run.get("seconds", 0.0))), Vector2(x, rect.position.y + 54), 44, S.color("text"), 0, 6)
 	var line := "Peak %d  ·  %d Kills" % [int(run.get("peak_population", 0)), int(run.get("kills", 0))]
-	_body(line, Vector2(x, rect.position.y + 92), 22, Color(S.TEXT_DIM, 0.95))
+	_body(line, Vector2(x, rect.position.y + 92), 22, Color(S.color("text_dim"), 0.95))
 	# Right side: share glyph, date, tags.
 	var right := rect.end.x - 20
-	_share_glyph(Vector2(right - 22, rect.get_center().y), 15, Color(S.CYAN, 0.8))
+	_share_glyph(Vector2(right - 22, rect.get_center().y), 15, Color(S.color("cyan"), 0.8))
 	right -= 60
 	# Local date and clock time of the run (the stored date is the UTC day key).
 	var when := _short_date(String(run.get("date", "")))
@@ -247,16 +247,16 @@ func _run_row(rect: Rect2, run: Dictionary, down: bool) -> void:
 	if t > 0:
 		var local := Time.get_datetime_dict_from_unix_time(t + _utc_offset())
 		when = "%02d.%02d.  %02d:%02d" % [int(local.day), int(local.month), int(local.hour), int(local.minute)]
-	_body(when, Vector2(right, rect.position.y + 42), 22, Color(S.TEXT_DIM, 0.9), 2)
+	_body(when, Vector2(right, rect.position.y + 42), 22, Color(S.color("text_dim"), 0.9), 2)
 	var tag_right := right
 	var diff := int(run.get("difficulty", 0))
 	var diff_name := String(menu.meta.DIFFICULTIES[clampi(diff, 0, menu.meta.DIFFICULTIES.size() - 1)].name).to_upper()
-	tag_right = _tag(tag_right, rect.position.y + 60, diff_name, [S.TOXIC, S.AMBER, S.DANGER][clampi(diff, 0, 2)]) - 8
+	tag_right = _tag(tag_right, rect.position.y + 60, diff_name, [S.color("toxic"), S.color("amber"), S.color("danger")][clampi(diff, 0, 2)]) - 8
 	if int(run.get("flood_stage", 0)) > 0:
-		tag_right = _tag(tag_right, rect.position.y + 60, "FLUT %d" % int(run.flood_stage), S.VIOLET, "flood") - 8
+		tag_right = _tag(tag_right, rect.position.y + 60, "FLUT %d" % int(run.flood_stage), S.color("violet"), "flood") - 8
 	if bool(run.get("daily", false)):
 		var label := "#%d" % int(run.get("daily_rank", 0)) if int(run.get("daily_rank", 0)) > 0 else "TAG"
-		_tag(tag_right, rect.position.y + 60, label, S.GOLD, "sun")
+		_tag(tag_right, rect.position.y + 60, label, S.color("gold"), "sun")
 
 
 ## Local clock offset for the row times (dates are stored in UTC like the daily key).
@@ -267,62 +267,62 @@ func _utc_offset() -> int:
 func _header_row(rect: Rect2, data: Dictionary) -> void:
 	var text := String(data.get("text", ""))
 	var y := rect.position.y + 40
-	var w := _txt(text, Vector2(rect.position.x + 8, y), 26, S.GOLD, 0, 5)
+	var w := _txt(text, Vector2(rect.position.x + 8, y), 26, S.color("gold"), 0, 5)
 	var date := String(data.get("date", ""))
 	var right := rect.end.x - 8
 	if date != "":
 		var profile_script: Variant = load(PROFILE_SCRIPT)
 		var code := "KARTE %s" % menu.seed_code(profile_script.daily_seed())
-		right -= _body(code, Vector2(right, y), 22, Color(S.TEXT_DIM, 0.95), 2) + 18
-		_body(_short_date(date), Vector2(rect.position.x + 24 + w, y), 22, Color(S.GOLD, 0.8))
-	draw_line(Vector2(rect.position.x + 8, rect.end.y - 8), Vector2(rect.end.x - 8, rect.end.y - 8), Color(S.GOLD, 0.3), 2.0, true)
+		right -= _body(code, Vector2(right, y), 22, Color(S.color("text_dim"), 0.95), 2) + 18
+		_body(_short_date(date), Vector2(rect.position.x + 24 + w, y), 22, Color(S.color("gold"), 0.8))
+	draw_line(Vector2(rect.position.x + 8, rect.end.y - 8), Vector2(rect.end.x - 8, rect.end.y - 8), Color(S.color("gold"), 0.3), 2.0, true)
 
 
 func _rank_row(rect: Rect2, item: Dictionary, rank: int) -> void:
-	var color: Color = MEDAL[rank - 1] if rank <= 3 else S.TEXT_DIM
+	var color: Color = S.tone(MEDAL[rank - 1]) if rank <= 3 else S.color("text_dim")
 	var shape := _rounded_points(rect, 20, 5)
-	_gradient_fill(shape, rect, Color(color, 0.14) if rank == 1 else Color("10251d"), Color("08140f"))
+	_gradient_fill(shape, rect, Color(color, 0.14) if rank == 1 else S.tone(Color("10251d")), S.tone(Color("08140f")))
 	_outline(shape, Color(color, 0.6 if rank <= 3 else 0.3), 2.0 if rank == 1 else 1.5)
 	var mc := rect.position + Vector2(52, rect.size.y * 0.5)
 	if rank <= 3:
-		draw_circle(mc, 30, S.OUTLINE)
+		draw_circle(mc, 30, S.color("outline"))
 		draw_circle(mc, 27, color)
 		draw_circle(mc, 20, color.darkened(0.25))
-		_txt(str(rank), mc + Vector2(0, 12), 34, S.OUTLINE, 1, 0)
+		_txt(str(rank), mc + Vector2(0, 12), 34, S.color("outline"), 1, 0)
 	else:
-		_txt(str(rank), mc + Vector2(0, 12), 34, S.TEXT_DIM, 1, 5)
+		_txt(str(rank), mc + Vector2(0, 12), 34, S.color("text_dim"), 1, 5)
 	var id := String(item.get("strain_id", ""))
 	_strain_badge(rect.position + Vector2(134, rect.size.y * 0.5), id, 28)
 	var x := rect.position.x + 180
-	_txt(_time(float(item.get("seconds", 0.0))), Vector2(x, rect.position.y + 52), 42, S.TEXT if rank > 1 else S.GOLD.lightened(0.3), 0, 6)
+	_txt(_time(float(item.get("seconds", 0.0))), Vector2(x, rect.position.y + 52), 42, S.color("text") if rank > 1 else S.color("gold").lightened(0.3), 0, 6)
 	var strain_name := String(menu.meta.STRAINS.get(id, {}).get("name", id))
-	_body("Peak %d  ·  %s" % [int(item.get("peak", 0)), strain_name], Vector2(x, rect.position.y + 86), 22, Color(S.TEXT_DIM, 0.95))
+	_body("Peak %d  ·  %s" % [int(item.get("peak", 0)), strain_name], Vector2(x, rect.position.y + 86), 22, Color(S.color("text_dim"), 0.95))
 	if int(item.get("flood_stage", 0)) > 0:
-		_tag(rect.end.x - 20, rect.position.y + 33, "FLUT %d" % int(item.flood_stage), S.VIOLET, "flood")
+		_tag(rect.end.x - 20, rect.position.y + 33, "FLUT %d" % int(item.flood_stage), S.color("violet"), "flood")
 
 
 func _day_row(rect: Rect2, item: Dictionary, date: String, count: int) -> void:
 	var shape := _rounded_points(rect, 20, 5)
-	_gradient_fill(shape, rect, Color("10251d"), Color("08140f"))
-	_outline(shape, Color(S.GOLD, 0.3), 1.5)
-	_sun_glyph(rect.position + Vector2(48, rect.size.y * 0.5), 13, Color(S.GOLD, 0.8))
-	_txt(_short_date(date), Vector2(rect.position.x + 88, rect.position.y + 60), 34, S.TEXT, 0, 5)
+	_gradient_fill(shape, rect, S.tone(Color("10251d")), S.tone(Color("08140f")))
+	_outline(shape, Color(S.color("gold"), 0.3), 1.5)
+	_sun_glyph(rect.position + Vector2(48, rect.size.y * 0.5), 13, Color(S.color("gold"), 0.8))
+	_txt(_short_date(date), Vector2(rect.position.x + 88, rect.position.y + 60), 34, S.color("text"), 0, 5)
 	var x := rect.position.x + 250
-	_txt(_time(float(item.get("seconds", 0.0))), Vector2(x, rect.position.y + 52), 38, S.GOLD.lightened(0.25), 0, 6)
-	_body("Peak %d" % int(item.get("peak", 0)), Vector2(x, rect.position.y + 84), 22, Color(S.TEXT_DIM, 0.95))
-	_body("%d %s" % [count, "Versuch" if count == 1 else "Versuche"], Vector2(rect.end.x - 24, rect.position.y + 60), 22, Color(S.TEXT_DIM, 0.9), 2)
+	_txt(_time(float(item.get("seconds", 0.0))), Vector2(x, rect.position.y + 52), 38, S.color("gold").lightened(0.25), 0, 6)
+	_body("Peak %d" % int(item.get("peak", 0)), Vector2(x, rect.position.y + 84), 22, Color(S.color("text_dim"), 0.95))
+	_body("%d %s" % [count, "Versuch" if count == 1 else "Versuche"], Vector2(rect.end.x - 24, rect.position.y + 60), 22, Color(S.color("text_dim"), 0.9), 2)
 
 
 func _total_row(rect: Rect2, best: Dictionary) -> void:
 	var shape := _rounded_points(rect, 22, 5)
-	_gradient_fill(shape, rect, Color(S.VIOLET, 0.16), Color("08140f"))
-	_outline(shape, Color(S.VIOLET, 0.7), 2.0)
-	_outline(_rounded_points(rect.grow(-6), 17, 5), Color(S.VIOLET, 0.18), 1.5)
+	_gradient_fill(shape, rect, Color(S.color("violet"), 0.16), S.tone(Color("08140f")))
+	_outline(shape, Color(S.color("violet"), 0.7), 2.0)
+	_outline(_rounded_points(rect.grow(-6), 17, 5), Color(S.color("violet"), 0.18), 1.5)
 	var cells := [
-		["RUNS", str(int(best.get("runs", 0))), S.TOXIC],
-		["BESTZEIT", _time(float(best.get("seconds", 0.0))), S.CYAN],
-		["MAX. SCHWARM", str(int(best.get("peak", 0))), S.EMBER],
-		["HÖCHSTE FLUT", str(int(best.get("flood_stage", 0))) if int(best.get("flood_stage", 0)) > 0 else "–", S.VIOLET],
+		["RUNS", str(int(best.get("runs", 0))), S.color("toxic")],
+		["BESTZEIT", _time(float(best.get("seconds", 0.0))), S.color("cyan")],
+		["MAX. SCHWARM", str(int(best.get("peak", 0))), S.color("ember")],
+		["HÖCHSTE FLUT", str(int(best.get("flood_stage", 0))) if int(best.get("flood_stage", 0)) > 0 else "–", S.color("violet")],
 	]
 	var inner := rect.grow(-24)
 	var w := inner.size.x / cells.size()
@@ -332,15 +332,15 @@ func _total_row(rect: Rect2, best: Dictionary) -> void:
 		var value := _fit(String(cells[i][1]), w - 12, [48, 44, 38])
 		_txt(value[0], Vector2(cx, rect.position.y + 78), value[1], col.lightened(0.3), 1, 6)
 		var label := _fit(String(cells[i][0]), w - 8, [22], S.body_font())
-		_body(label[0], Vector2(cx, rect.position.y + 114), label[1], Color(S.TEXT_DIM, 0.95), 1)
+		_body(label[0], Vector2(cx, rect.position.y + 114), label[1], Color(S.color("text_dim"), 0.95), 1)
 		if i > 0:
-			draw_line(Vector2(inner.position.x + w * i, rect.position.y + 36), Vector2(inner.position.x + w * i, rect.end.y - 36), Color(S.VIOLET, 0.25), 2.0)
+			draw_line(Vector2(inner.position.x + w * i, rect.position.y + 36), Vector2(inner.position.x + w * i, rect.end.y - 36), Color(S.color("violet"), 0.25), 2.0)
 
 
 func _best_row(rect: Rect2, id: String) -> void:
 	var tint := _readable(_strain_color(id))
 	var shape := _rounded_points(rect, 22, 5)
-	_gradient_fill(shape, rect, Color(tint, 0.10), Color("08140f"))
+	_gradient_fill(shape, rect, Color(tint, 0.10), S.tone(Color("08140f")))
 	_outline(shape, Color(tint, 0.5), 1.5)
 	var col_w := 196.0
 	_strain_badge(rect.position + Vector2(col_w * 0.5 + 6, 60), id, 32)
@@ -352,25 +352,25 @@ func _best_row(rect: Rect2, id: String) -> void:
 	var w := (rect.end.x - 16 - left) / n
 	for d in n:
 		var cell := Rect2(left + d * w + 4, rect.position.y + 14, w - 8, rect.size.y - 28)
-		var col: Color = [S.TOXIC, S.AMBER, S.DANGER][clampi(d, 0, 2)]
+		var col: Color = [S.color("toxic"), S.color("amber"), S.color("danger")][clampi(d, 0, 2)]
 		var b: Dictionary = menu.chronicle.best(id, d)
 		var pts := _rounded_points(cell, 16, 4)
-		draw_colored_polygon(pts, Color("050c09", 0.7))
+		draw_colored_polygon(pts, S.tone(Color("050c09", 0.7)))
 		_outline(pts, Color(col, 0.45 if not b.is_empty() else 0.15), 1.5)
 		var cx := cell.get_center().x
 		_body(String(menu.meta.DIFFICULTIES[d].name).to_upper(), Vector2(cx, cell.position.y + 30), 22, Color(col, 0.95), 1)
 		if b.is_empty():
-			_txt("–", Vector2(cx, cell.position.y + 80), 38, Color(S.TEXT_DIM, 0.5), 1, 4)
+			_txt("–", Vector2(cx, cell.position.y + 80), 38, Color(S.color("text_dim"), 0.5), 1, 4)
 			continue
-		_txt(_time(float(b.get("seconds", 0.0))), Vector2(cx, cell.position.y + 76), 36, S.TEXT, 1, 5)
-		_body("Peak %d" % int(b.get("peak", 0)), Vector2(cx, cell.position.y + 106), 22, Color(S.TEXT_DIM, 0.95), 1)
+		_txt(_time(float(b.get("seconds", 0.0))), Vector2(cx, cell.position.y + 76), 36, S.color("text"), 1, 5)
+		_body("Peak %d" % int(b.get("peak", 0)), Vector2(cx, cell.position.y + 106), 22, Color(S.color("text_dim"), 0.95), 1)
 
 
 func _empty_row(rect: Rect2, data: Dictionary) -> void:
 	var shape := _rounded_points(rect, 22, 5)
-	draw_colored_polygon(shape, Color("050c09", 0.5))
-	_outline(shape, Color(S.PANEL_EDGE, 0.9), 1.5)
+	draw_colored_polygon(shape, S.tone(Color("050c09", 0.5)))
+	_outline(shape, Color(S.color("panel_edge"), 0.9), 1.5)
 	var c := rect.get_center()
-	_txt(String(data.get("text", "")), Vector2(c.x, c.y - 6), 30, S.TEXT_DIM, 1, 5)
+	_txt(String(data.get("text", "")), Vector2(c.x, c.y - 6), 30, S.color("text_dim"), 1, 5)
 	var hint := _fit(String(data.get("hint", "")), rect.size.x - 60, [22], S.body_font())
-	_body(hint[0], Vector2(c.x, c.y + 34), hint[1], Color(S.TEXT_DIM, 0.8), 1)
+	_body(hint[0], Vector2(c.x, c.y + 34), hint[1], Color(S.color("text_dim"), 0.8), 1)

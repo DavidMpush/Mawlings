@@ -15,7 +15,13 @@ const UiStyle := preload("res://scripts/ui/ui_style.gd")
 const UiLayer := preload("res://scripts/ui/ui_layer.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
+const UiFrames := preload("res://scripts/ui/ui_frames.gd")
+const UiIcons := preload("res://scripts/ui/ui_icons.gd")
 const DIR := "res://assets/ui/controls/"
+# Calm skin (V2 kit): rally_button_base / joystick_base have their outer ring at
+# r 89 of 192 units, the Rally core at r 76, joystick_knob r 38 of 84 units.
+const KIT_RALLY_K := (FRAME_R - 2.0) / 89.0
+const KIT_JOY_K := (JOY_R + 16.0) / 89.0
 
 # Visual radii in base-viewport pixels. The touch radius in the parent is 125.
 const FRAME_R := 126.0
@@ -214,14 +220,14 @@ func _claws(c: Vector2, side: float, alpha: float) -> void:
 		# Texture: base at the bottom, tip at the top curling toward +x.
 		var flip := side if inward else -side
 		_cv.draw_set_transform(base, angle, Vector2(flip, 1.0))
-		_cv.draw_texture_rect(texture, Rect2(Vector2(-length * 0.24, -length), Vector2(length * 0.5, length)), false, Color(UiStyle.BONE, alpha))
+		_cv.draw_texture_rect(texture, Rect2(Vector2(-length * 0.24, -length), Vector2(length * 0.5, length)), false, Color(UiStyle.color("bone"), alpha))
 		_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _frame_ring(c: Vector2, alpha: float, spin: float) -> void:
 	if not _tex_at("frame_ring.svg", c, Vector2.ONE * FRAME_R * 2.0, Color(1, 1, 1, alpha), spin):
-		_cv.draw_circle(c, FRAME_R, Color(UiStyle.PANEL, alpha))
-		_cv.draw_arc(c, FRAME_R - 2.0, 0.0, TAU, 64, Color(UiStyle.PANEL_EDGE, alpha), 3.0, true)
+		_cv.draw_circle(c, FRAME_R, Color(UiStyle.color("panel"), alpha))
+		_cv.draw_arc(c, FRAME_R - 2.0, 0.0, TAU, 64, Color(UiStyle.color("panel_edge"), alpha), 3.0, true)
 
 
 # ---------------------------------------------------------------- rally
@@ -230,37 +236,40 @@ func _frame_ring(c: Vector2, alpha: float, spin: float) -> void:
 # and core light) are applied by _refresh_layers() through scale/modulate, so
 # the parts below draw them at rest size with full alpha.
 func _draw_rally(c: Vector2, pressed: bool) -> void:
+	if UiStyle.is_calm():
+		_draw_rally_calm(c, pressed)
+		return
 	var core_r := RALLY_R - (5.0 if pressed else 0.0)
 	match _paint:
 		"rally_glow":
 			if pressed:
-				_glow(c, FRAME_R + 40.0, Color(UiStyle.EMBER_GLOW, 0.7))
+				_glow(c, FRAME_R + 40.0, Color(UiStyle.color("ember_glow"), 0.7))
 			else:
-				_glow(c, FRAME_R + 26.0, Color(UiStyle.EMBER, 1.0))
+				_glow(c, FRAME_R + 26.0, Color(UiStyle.color("ember"), 1.0))
 		"rally_base":
 			_frame_ring(c, 0.96, 0.0)
 			_claws(c, 1.0, 1.0)
 			# Core disc with its ember ring; the whole disc sinks a little when held.
 			if not _tex_at("rally_core.svg", c, Vector2.ONE * core_r * 2.0):
-				_cv.draw_circle(c, core_r, Color("5e200c"))
-				_cv.draw_arc(c, core_r - 5.0, 0.0, TAU, 64, UiStyle.EMBER, 8.0, true)
+				_cv.draw_circle(c, core_r, UiStyle.tone(Color("5e200c")))
+				_cv.draw_arc(c, core_r - 5.0, 0.0, TAU, 64, UiStyle.color("ember"), 8.0, true)
 		"rally_rim":
 			# Warm rim light breathes at rest (alpha 0.35 + 0.45 * breathe).
-			_cv.draw_arc(c, core_r - 5.0, 0.0, TAU, 72, Color(UiStyle.EMBER_GLOW, 1.0), 4.0, true)
+			_cv.draw_arc(c, core_r - 5.0, 0.0, TAU, 72, Color(UiStyle.color("ember_glow"), 1.0), 4.0, true)
 		"rally_core":
 			# Held, the core flares up; at rest a soft glow breathes (0.18 + 0.14 * breathe).
 			if pressed:
-				_cv.draw_circle(c, core_r - 9.0, Color(UiStyle.EMBER, 0.92))
-				_glow(c + Vector2(0, -8), core_r * 0.95, Color(UiStyle.EMBER_GLOW, 1.0))
-				_glow(c + Vector2(0, -12), 52.0, Color(UiStyle.TEXT, 0.95))
+				_cv.draw_circle(c, core_r - 9.0, Color(UiStyle.color("ember"), 0.92))
+				_glow(c + Vector2(0, -8), core_r * 0.95, Color(UiStyle.color("ember_glow"), 1.0))
+				_glow(c + Vector2(0, -12), 52.0, Color(UiStyle.color("text"), 0.95))
 			else:
-				_glow(c + Vector2(0, -14), 58.0, Color(UiStyle.EMBER, 1.0))
+				_glow(c + Vector2(0, -14), 58.0, Color(UiStyle.color("ember"), 1.0))
 		"rally_heads":
 			var heads_size := Vector2(180, 155)
 			# Held: the heads turn into dark silhouettes against the flaring core.
 			var heads_tint := Color(0.42, 0.16, 0.07) if pressed else Color.WHITE
 			if not _tex_at("rally_heads.svg", c + Vector2(-6, -30), heads_size, heads_tint):
-				_cv.draw_circle(c + Vector2(0, -24), 34, UiStyle.EMBER)
+				_cv.draw_circle(c + Vector2(0, -24), 34, UiStyle.color("ember"))
 		"rally_text":
 			_draw_rally_text(c, pressed)
 	# Held: bright rings contract from the rim toward the heads (the swarm pulls in).
@@ -269,44 +278,116 @@ func _draw_rally(c: Vector2, pressed: bool) -> void:
 			var phase := fposmod(_t() * 1.4 + i / 3.0, 1.0)
 			var r := lerpf(core_r + 18.0, core_r - 34.0, phase)
 			var fade := sin(phase * PI)
-			_cv.draw_arc(c, r, 0.0, TAU, 72, Color(UiStyle.TEXT, 0.9 * fade), lerpf(9.0, 3.0, phase), true)
+			_cv.draw_arc(c, r, 0.0, TAU, 72, Color(UiStyle.color("text"), 0.9 * fade), lerpf(9.0, 3.0, phase), true)
+
+
+# Calm skin: V2 rally_button_base with the kit's Rally glyph. At rest the
+# amber core is dark and only its rim breathes; held, the core fills with
+# orange, glyph and label turn dark and cream rings pull inward.
+func _draw_rally_calm(c: Vector2, pressed: bool) -> void:
+	var k := KIT_RALLY_K * (0.96 if pressed else 1.0)
+	var core_r := 76.0 * k
+	var hot := UiStyle.color("ember")
+	var light := UiStyle.color("ember_glow")
+	match _paint:
+		"rally_glow":
+			if pressed:
+				UiFrames.halo(_cv, c, FRAME_R + 34.0, Color(light, 0.9))
+		"rally_base":
+			var side := 192.0 * k
+			if not UiFrames.kit_at(_cv, "rally_button_base", c, Vector2(side, side)):
+				_cv.draw_circle(c, 89.0 * k, Color(UiStyle.CALM_BG, 0.88))
+				_cv.draw_circle(c, core_r, UiStyle.tone(Color("2a1b16")))
+				_cv.draw_arc(c, core_r, 0.0, TAU, 64, UiStyle.tone(Color("d69a55")), 5.0, true)
+		"rally_rim":
+			_cv.draw_arc(c, core_r - 1.0, 0.0, TAU, 72, light, 3.0, true)
+		"rally_core":
+			if pressed:
+				_cv.draw_circle(c, core_r - 2.5, Color(hot, 0.95))
+				_cv.draw_arc(c, core_r - 12.0, 0.0, TAU, 72, Color(UiStyle.CALM_CREAM, 0.55), 2.0, true)
+		"rally_heads":
+			var glyph := Rect2(c + Vector2(-34.0, -66.0), Vector2(68.0, 68.0))
+			UiIcons.draw(_cv, "v2_rally", glyph, Color(0.14, 0.14, 0.14) if pressed else Color.WHITE)
+		"rally_text":
+			var ink := UiStyle.tone(Color("1b100b")) if pressed else light
+			UiStyle.text(_cv, "RALLY", c + Vector2(0, 32), UiStyle.SIZE_HEAD, ink, true, 0 if pressed else 5)
+			var sub := "AKTIV" if pressed else "HALTEN"
+			UiStyle.text(_cv, sub, c + Vector2(0, 60), UiStyle.SIZE_LABEL, UiStyle.tone(Color("2a160c")) if pressed else UiStyle.color("text_dim"), true, 0 if pressed else 4)
+	if pressed and _paint == "rally_rings":
+		for i in 3:
+			var phase := fposmod(_t() * 1.4 + i / 3.0, 1.0)
+			var r := lerpf(89.0 * k, core_r - 30.0, phase)
+			var fade := sin(phase * PI)
+			_cv.draw_arc(c, r, 0.0, TAU, 72, Color(UiStyle.CALM_CREAM, 0.85 * fade), lerpf(6.0, 2.0, phase), true)
 
 
 func _draw_rally_text(c: Vector2, pressed: bool) -> void:
-	UiStyle.text(_cv, "RALLY", c + Vector2(0, 58), UiStyle.SIZE_HEAD, UiStyle.TEXT, true, 7)
+	UiStyle.text(_cv, "RALLY", c + Vector2(0, 58), UiStyle.SIZE_HEAD, UiStyle.color("text"), true, 7)
 	var sub := "AKTIV" if pressed else "HALTEN"
-	var sub_color: Color = UiStyle.EMBER_GLOW.lerp(Color.WHITE, 0.55) if pressed else UiStyle.TEXT_DIM.lerp(UiStyle.EMBER_GLOW, 0.35)
+	var sub_color: Color = UiStyle.color("ember_glow").lerp(Color.WHITE, 0.55) if pressed else UiStyle.color("text_dim").lerp(UiStyle.color("ember_glow"), 0.35)
 	UiStyle.text(_cv, sub, c + Vector2(0, 84), UiStyle.SIZE_LABEL, sub_color, true, 5)
 
 
 # ---------------------------------------------------------------- joystick
 
 func _draw_joystick(c: Vector2, move: Vector2) -> void:
+	if UiStyle.is_calm():
+		_draw_joystick_calm(c, move)
+		return
 	var strength := clampf(move.length(), 0.0, 1.0)
 	# Bark crescent on the outer (screen-edge) side carries the claws.
-	_cv.draw_arc(c, JOY_R + 10.0, -PI * 0.62, PI * 0.62, 48, Color(UiStyle.PANEL, 0.92), 20.0, true)
-	_cv.draw_arc(c, JOY_R + 19.0, -PI * 0.6, PI * 0.6, 48, Color(UiStyle.PANEL_EDGE, 0.8), 2.5, true)
-	_cv.draw_arc(c, JOY_R + 3.0, 0.0, TAU, 72, Color(UiStyle.OUTLINE, 0.55), 5.0, true)
+	_cv.draw_arc(c, JOY_R + 10.0, -PI * 0.62, PI * 0.62, 48, Color(UiStyle.color("panel"), 0.92), 20.0, true)
+	_cv.draw_arc(c, JOY_R + 19.0, -PI * 0.6, PI * 0.6, 48, Color(UiStyle.color("panel_edge"), 0.8), 2.5, true)
+	_cv.draw_arc(c, JOY_R + 3.0, 0.0, TAU, 72, Color(UiStyle.color("outline"), 0.55), 5.0, true)
 	_claws(c, -1.0, 0.95)
 	if not _tex_at("joy_base.svg", c, Vector2.ONE * JOY_R * 2.0):
-		_cv.draw_circle(c, JOY_R, Color("0c1d1a88"))
+		_cv.draw_circle(c, JOY_R, UiStyle.tone(Color("0c1d1a88")))
 		_cv.draw_arc(c, JOY_R - 3.0, 0.0, TAU, 64, Color(1, 1, 1, 0.42), 3.0, true)
 	# Direction wedge glow under the knob.
 	if strength > 0.05:
-		_glow(c + move.normalized() * 58.0, 64.0, Color(UiStyle.EMBER_GLOW, 0.3 * strength))
+		_glow(c + move.normalized() * 58.0, 64.0, Color(UiStyle.color("ember_glow"), 0.3 * strength))
 	for i in 4:
 		var dir := Vector2.RIGHT.rotated(i * PI * 0.5)
 		var lit := clampf(move.dot(dir), 0.0, 1.0)
 		var tip := c + dir * 80.0
 		if lit > 0.15:
-			_glow(tip, 30.0 + 10.0 * lit, Color(UiStyle.EMBER_GLOW, 0.55 * lit))
-		var tint := Color(1, 1, 1, 0.42).lerp(Color(UiStyle.EMBER_GLOW, 1.0), lit)
+			_glow(tip, 30.0 + 10.0 * lit, Color(UiStyle.color("ember_glow"), 0.55 * lit))
+		var tint := Color(1, 1, 1, 0.42).lerp(Color(UiStyle.color("ember_glow"), 1.0), lit)
 		if not _tex_at("arrow.svg", tip, Vector2(38, 38) * (1.0 + 0.3 * lit), tint, dir.angle()):
 			var side := Vector2(-dir.y, dir.x)
 			_cv.draw_colored_polygon(PackedVector2Array([tip + dir * 8, tip - dir * 8 + side * 11, tip - dir * 8 - side * 11]), tint)
 	var knob := c + move.limit_length(1.0) * KNOB_TRAVEL
 	if not _tex_at("joy_knob.svg", knob + Vector2(0, 4), Vector2.ONE * KNOB_R * 2.46):
-		_cv.draw_circle(knob, KNOB_R, Color("d8e6e0f0"))
+		_cv.draw_circle(knob, KNOB_R, UiStyle.tone(Color("d8e6e0f0")))
+
+
+# Calm skin: V2 joystick_base (translucent ring with four arrows) and knob.
+# The arrow in the pushed direction lights up; no claws, no bark.
+func _draw_joystick_calm(c: Vector2, move: Vector2) -> void:
+	var k := KIT_JOY_K
+	var side := 192.0 * k
+	if not UiFrames.kit_at(_cv, "joystick_base", c, Vector2(side, side)):
+		_cv.draw_circle(c, 89.0 * k, UiStyle.tone(Color("07191d73")))
+		_cv.draw_arc(c, 89.0 * k, 0.0, TAU, 72, UiStyle.tone(Color("89b7ae8c")), 4.0, true)
+	var light := UiStyle.color("ember_glow")
+	var strength := clampf(move.length(), 0.0, 1.0)
+	if strength > 0.05:
+		_cv.draw_arc(c, 62.0 * k, move.angle() - 0.5, move.angle() + 0.5, 24, Color(light, 0.75 * strength), 4.0, true)
+	for i in 4:
+		var dir := Vector2.RIGHT.rotated(i * PI * 0.5)
+		var lit := clampf(move.dot(dir), 0.0, 1.0)
+		if lit < 0.15:
+			continue
+		# Same wedge as the kit arrow (tip at 82 units, base 67 units, 9 wide).
+		var ortho := Vector2(-dir.y, dir.x)
+		var tip := c + dir * 82.0 * k
+		var base := c + dir * 67.0 * k
+		_cv.draw_colored_polygon(PackedVector2Array([tip, base + ortho * 9.0 * k, base - ortho * 9.0 * k]), Color(light, lit))
+	var knob := c + move.limit_length(1.0) * KNOB_TRAVEL
+	var knob_side := 84.0 * KNOB_R / 38.0
+	if not UiFrames.kit_at(_cv, "joystick_knob", knob, Vector2(knob_side, knob_side)):
+		_cv.draw_circle(knob, KNOB_R, UiStyle.tone(Color("17363aeb")))
+		_cv.draw_arc(knob, KNOB_R, 0.0, TAU, 48, UiStyle.tone(Color("b8d8cd")), 4.0, true)
 
 
 # ---------------------------------------------------------------- tutorial tip
@@ -345,21 +426,28 @@ func _ease(x: float) -> float:
 	return x * x * (3.0 - 2.0 * x)
 
 
+func _chamfer(rect: Rect2, cut: float) -> PackedVector2Array:
+	var p := rect.position
+	var e := rect.end
+	return PackedVector2Array([Vector2(p.x + cut, p.y), Vector2(e.x - cut, p.y), Vector2(e.x, p.y + cut), Vector2(e.x, e.y - cut),
+		Vector2(e.x - cut, e.y), Vector2(p.x + cut, e.y), Vector2(p.x, e.y - cut), Vector2(p.x, p.y + cut)])
+
+
 func _tip_accent(id: String) -> Color:
 	match id:
 		"rally":
-			return UiStyle.EMBER
+			return UiStyle.color("ember")
 		"warning":
-			return UiStyle.DANGER
+			return UiStyle.color("danger")
 		"boss":
-			return UiStyle.GOLD
+			return UiStyle.color("gold")
 		"corpse", "alpha":
-			return UiStyle.AMBER
+			return UiStyle.color("amber")
 		"mutation":
-			return UiStyle.VIOLET
+			return UiStyle.color("violet")
 		"nest":
-			return UiStyle.TOXIC
-	return UiStyle.CYAN
+			return UiStyle.color("toxic")
+	return UiStyle.color("cyan")
 
 
 # Panel rect of the tip: always above the banner slot so the screen centre stays free.
@@ -405,7 +493,8 @@ func _draw_tip() -> void:
 	var layer := _tip_layer
 	var rect := tip_rect()
 	var accent := _tip_accent(_tip_icon)
-	var beat := _pulse(3.0)
+	var calm := UiStyle.is_calm()
+	var beat := 0.35 * _pulse(3.0) if calm else _pulse(3.0)
 	_draw_tip_pointer(layer, hud, rect, accent, beat)
 	var frames := _frames_script()
 	if frames != null and ResourceLoader.exists("res://assets/ui/frames/panel_body.svg"):
@@ -414,16 +503,22 @@ func _draw_tip() -> void:
 		layer.draw_colored_polygon(_banner_points(frames.panel_inner(rect).grow(-4.0), 10.0), Color(accent, 0.1 + 0.04 * beat))
 	else:
 		var pts := _banner_points(rect, 18.0)
-		layer.draw_colored_polygon(_offset(pts, Vector2(0, 5)), UiStyle.SHADOW)
-		layer.draw_colored_polygon(pts, UiStyle.PANEL)
+		layer.draw_colored_polygon(_offset(pts, Vector2(0, 5)), UiStyle.color("shadow"))
+		layer.draw_colored_polygon(pts, UiStyle.color("panel"))
 		layer.draw_polyline(_closed(pts), accent, 3.0, true)
 	# Icon medallion on the left.
 	var icon_c := Vector2(rect.position.x + 70.0, rect.get_center().y)
 	var medal_r := 42.0
-	if not _tex_at_on(layer, "glow.svg", icon_c, Vector2.ONE * (medal_r + 22.0 + 6.0 * beat) * 2.0, Color(accent, 0.45)):
-		layer.draw_circle(icon_c, medal_r + 10.0, Color(accent, 0.18))
-	layer.draw_circle(icon_c, medal_r, Color("0a1712f2"))
-	layer.draw_arc(icon_c, medal_r, 0.0, TAU, 48, accent, 3.5, true)
+	if calm:
+		# Quiet icon plate: chamfered square with a thin accent stroke, no glow.
+		var plate := Rect2(icon_c - Vector2.ONE * medal_r, Vector2.ONE * medal_r * 2.0)
+		layer.draw_colored_polygon(_chamfer(plate, 12.0), UiStyle.color("panel"))
+		layer.draw_polyline(_closed(_chamfer(plate, 12.0)), accent, 3.0, true)
+	else:
+		if not _tex_at_on(layer, "glow.svg", icon_c, Vector2.ONE * (medal_r + 22.0 + 6.0 * beat) * 2.0, Color(accent, 0.45)):
+			layer.draw_circle(icon_c, medal_r + 10.0, Color(accent, 0.18))
+		layer.draw_circle(icon_c, medal_r, UiStyle.tone(Color("0a1712f2")))
+		layer.draw_arc(icon_c, medal_r, 0.0, TAU, 48, accent, 3.5, true)
 	var icons := _icons_script()
 	var icon_id: String = TIP_ICONS.get(_tip_icon, "")
 	if icons != null and icon_id != "" and icons.has(icon_id):
@@ -436,14 +531,14 @@ func _draw_tip() -> void:
 	if frames != null and ResourceLoader.exists("res://assets/ui/frames/pill_body.svg"):
 		frames.pill(layer, tag, accent)
 	else:
-		layer.draw_rect(tag, Color("0a1712f2"))
+		layer.draw_rect(tag, UiStyle.tone(Color("0a1712f2")))
 		layer.draw_rect(tag, accent, false, 2.0)
 	UiStyle.text(layer, "TIPP", tag.get_center() + Vector2(0, 8), UiStyle.SIZE_LABEL, accent.lerp(Color.WHITE, 0.35), true, 5)
 	var lines := _wrap(_tip_text, UiStyle.display_font(), UiStyle.SIZE_BODY, _tip_text_width())
 	var text_x := rect.position.x + 128.0
 	var first_baseline := rect.get_center().y - (lines.size() - 1) * 17.0 + UiStyle.SIZE_BODY * 0.36
 	for i in lines.size():
-		UiStyle.text(layer, lines[i], Vector2(text_x, first_baseline + i * 34.0), UiStyle.SIZE_BODY, UiStyle.TEXT, false, 6)
+		UiStyle.text(layer, lines[i], Vector2(text_x, first_baseline + i * 34.0), UiStyle.SIZE_BODY, UiStyle.color("text"), false, 6)
 
 
 # Bewegen/Rally: animated chevrons from the panel down to the matching control,
@@ -467,10 +562,10 @@ func _draw_tip_pointer(layer: Control, hud: Control, rect: Rect2, accent: Color,
 		var p := from + along * phase
 		var fade := sin(phase * PI)
 		var pts := PackedVector2Array([p - dir * 10.0 + side * 16.0, p + dir * 6.0, p - dir * 10.0 - side * 16.0])
-		layer.draw_polyline(pts, Color(UiStyle.OUTLINE, 0.7 * fade), 9.0, true)
+		layer.draw_polyline(pts, Color(UiStyle.color("outline"), 0.7 * fade), 9.0, true)
 		layer.draw_polyline(pts, Color(accent.lerp(Color.WHITE, 0.3), fade), 5.0, true)
 	var ring_r := FRAME_R + 12.0 + 10.0 * beat
-	layer.draw_arc(target, ring_r, 0.0, TAU, 72, Color(UiStyle.OUTLINE, 0.5), 8.0, true)
+	layer.draw_arc(target, ring_r, 0.0, TAU, 72, Color(UiStyle.color("outline"), 0.5), 8.0, true)
 	layer.draw_arc(target, ring_r, 0.0, TAU, 72, Color(accent, 0.55 + 0.4 * beat), 4.0, true)
 	var finger: Vector2
 	var finger_r := 22.0
@@ -480,9 +575,9 @@ func _draw_tip_pointer(layer: Control, hud: Control, rect: Rect2, accent: Color,
 	else:
 		finger = target + Vector2(0.0, -16.0)
 		finger_r = 20.0 + 6.0 * beat
-		layer.draw_arc(target, 36.0 + 40.0 * (1.0 - beat), 0.0, TAU, 48, Color(UiStyle.TEXT, 0.6 * beat), 3.0, true)
-	layer.draw_circle(finger + Vector2(0, 4), finger_r + 3.0, Color(UiStyle.OUTLINE, 0.55))
-	layer.draw_circle(finger, finger_r, Color(UiStyle.TEXT, 0.92))
+		layer.draw_arc(target, 36.0 + 40.0 * (1.0 - beat), 0.0, TAU, 48, Color(UiStyle.color("text"), 0.6 * beat), 3.0, true)
+	layer.draw_circle(finger + Vector2(0, 4), finger_r + 3.0, Color(UiStyle.color("outline"), 0.55))
+	layer.draw_circle(finger, finger_r, Color(UiStyle.color("text"), 0.92))
 	layer.draw_arc(finger, finger_r, 0.0, TAU, 32, accent, 3.0, true)
 
 
@@ -515,26 +610,26 @@ func _draw_hint(text: String, top: float) -> void:
 	var height := 66.0 if warn else 60.0
 	var rect := Rect2(Vector2(size.x * 0.5 - width * 0.5, top), Vector2(width, height))
 	var beat := _pulse(9.0) if warn else 0.0
-	var accent: Color = UiStyle.DANGER if warn else UiStyle.TOXIC.lerp(UiStyle.BONE, 0.35)
+	var accent: Color = UiStyle.color("danger") if warn else UiStyle.color("toxic").lerp(UiStyle.color("bone"), 0.35)
 	var frames := _frames_script()
 	if frames != null and ResourceLoader.exists("res://assets/ui/frames/panel_body.svg"):
 		# Shared organic panel from the frame kit; warnings add a pulsing red fill and halo.
-		if warn:
+		if warn and not UiStyle.is_calm():
 			for k in 2:
 				var halo := _banner_points(rect.grow(4.0 + 5.0 * k + 3.0 * beat), 18.0)
-				_cv.draw_polyline(_closed(halo), Color(UiStyle.DANGER, (0.85 - 0.4 * k) * (0.45 + 0.55 * beat)), 5.0 - k, true)
+				_cv.draw_polyline(_closed(halo), Color(UiStyle.color("danger"), (0.85 - 0.4 * k) * (0.45 + 0.55 * beat)), 5.0 - k, true)
 		frames.panel(_cv, rect, accent.lerp(Color.WHITE, 0.25 * beat), true)
 		if warn:
 			var inner_rect: Rect2 = frames.panel_inner(rect)
-			_cv.draw_colored_polygon(_banner_points(inner_rect, 8.0), Color(UiStyle.DANGER, 0.42 + 0.22 * beat))
+			_cv.draw_colored_polygon(_banner_points(inner_rect, 8.0), Color(UiStyle.color("danger"), 0.42 + 0.22 * beat))
 	else:
 		_draw_banner_fallback(rect, warn, accent, beat)
 	var content_w := text_w + icon_space
 	var x := rect.get_center().x - content_w * 0.5
 	var baseline := rect.position.y + height * 0.5 + font_size * 0.36
 	if warn:
-		_warn_icon(Vector2(x + 18.0, rect.get_center().y), 19.0 + 2.0 * beat, UiStyle.DANGER.lerp(UiStyle.GOLD, 0.35 * beat))
-	var text_color: Color = Color.WHITE.lerp(Color("ffd9c8"), beat) if warn else UiStyle.TEXT
+		_warn_icon(Vector2(x + 18.0, rect.get_center().y), 19.0 + 2.0 * beat, UiStyle.color("danger").lerp(UiStyle.color("gold"), 0.35 * beat))
+	var text_color: Color = Color.WHITE.lerp(UiStyle.tone(Color("ffd9c8")), beat) if warn else UiStyle.color("text")
 	UiStyle.text(_cv, text, Vector2(x + icon_space, baseline), font_size, text_color, false, 7)
 
 
@@ -542,9 +637,9 @@ func _draw_banner_fallback(rect: Rect2, warn: bool, accent: Color, beat: float) 
 	var height := rect.size.y
 	var outer := _banner_points(rect, 16.0)
 	var inner := _banner_points(rect.grow(-5.0), 12.0)
-	_cv.draw_colored_polygon(_offset(outer, Vector2(0, 5)), UiStyle.SHADOW)
-	_cv.draw_colored_polygon(outer, Color("2a0c08f0") if warn else UiStyle.PANEL)
-	_cv.draw_colored_polygon(inner, Color(UiStyle.DANGER, 0.16 + 0.18 * beat) if warn else Color(UiStyle.PANEL_SOFT, 0.9))
+	_cv.draw_colored_polygon(_offset(outer, Vector2(0, 5)), UiStyle.color("shadow"))
+	_cv.draw_colored_polygon(outer, UiStyle.tone(Color("2a0c08f0")) if warn else UiStyle.color("panel"))
+	_cv.draw_colored_polygon(inner, Color(UiStyle.color("danger"), 0.16 + 0.18 * beat) if warn else Color(UiStyle.color("panel_soft"), 0.9))
 	_veins(rect, Color(accent, 0.22))
 	var edge := accent.lerp(Color.WHITE, 0.25 * beat)
 	_cv.draw_polyline(_closed(outer), edge, 3.0 if not warn else 4.0, true)
@@ -555,8 +650,8 @@ func _draw_banner_fallback(rect: Rect2, warn: bool, accent: Color, beat: float) 
 		for k in 2:
 			var y := rect.position.y + height * (0.32 + 0.36 * k)
 			var tip := Vector2(base_x + s * 16.0, y)
-			_cv.draw_colored_polygon(PackedVector2Array([Vector2(base_x - s * 4.0, y - 8), tip, Vector2(base_x - s * 4.0, y + 8)]), UiStyle.BONE)
-			_cv.draw_polyline(PackedVector2Array([Vector2(base_x - s * 4.0, y - 8), tip, Vector2(base_x - s * 4.0, y + 8)]), UiStyle.OUTLINE, 1.5, true)
+			_cv.draw_colored_polygon(PackedVector2Array([Vector2(base_x - s * 4.0, y - 8), tip, Vector2(base_x - s * 4.0, y + 8)]), UiStyle.color("bone"))
+			_cv.draw_polyline(PackedVector2Array([Vector2(base_x - s * 4.0, y - 8), tip, Vector2(base_x - s * 4.0, y + 8)]), UiStyle.color("outline"), 1.5, true)
 
 
 func _frames_script() -> Script:
@@ -569,14 +664,17 @@ func _frames_script() -> Script:
 
 func _warn_icon(center: Vector2, radius: float, color: Color) -> void:
 	var icons := _icons_script()
+	if icons != null and UiStyle.is_calm() and icons.has("v2_threat"):
+		icons.draw(_cv, "v2_threat", Rect2(center - Vector2.ONE * radius * 1.15, Vector2.ONE * radius * 2.3), Color.WHITE)
+		return
 	if icons != null and icons.has("skull"):
 		icons.draw(_cv, "skull", Rect2(center - Vector2.ONE * radius, Vector2.ONE * radius * 2.0), color)
 		return
 	var pts := PackedVector2Array([center + Vector2(0, -radius), center + Vector2(radius * 1.05, radius * 0.8), center + Vector2(-radius * 1.05, radius * 0.8)])
 	_cv.draw_colored_polygon(pts, color)
-	_cv.draw_polyline(_closed(pts), UiStyle.OUTLINE, 2.0, true)
-	_cv.draw_rect(Rect2(center + Vector2(-2.5, -radius * 0.45), Vector2(5, radius * 0.7)), UiStyle.OUTLINE)
-	_cv.draw_circle(center + Vector2(0, radius * 0.5), 3.0, UiStyle.OUTLINE)
+	_cv.draw_polyline(_closed(pts), UiStyle.color("outline"), 2.0, true)
+	_cv.draw_rect(Rect2(center + Vector2(-2.5, -radius * 0.45), Vector2(5, radius * 0.7)), UiStyle.color("outline"))
+	_cv.draw_circle(center + Vector2(0, radius * 0.5), 3.0, UiStyle.color("outline"))
 
 
 func _icons_script() -> Script:

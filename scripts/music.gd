@@ -7,6 +7,12 @@ extends Node
 ## frame, so they stay sample-aligned; only their volumes change.
 ## With the Dummy audio driver (headless tests) nothing is ever started: all
 ## state (targets, fades, stingers) is only bookkept, so no playback can leak.
+##
+## Style "v1" (set_style) replaces the run stems by the user's audio pack V1:
+## an arena loop (96 BPM, 40 s) and a boss loop (128 BPM, 30 s) from
+## tools/import_user_sfx.py. The tempos differ, so the two are cross-faded, never
+## layered; the boss loop restarts at its first bar each time it fades in.
+## Menu theme and stingers are shared by both styles. Default stays "classic".
 
 const MUSIC_DIR := "res://assets/music/"
 const MENU_ID := "menu_theme"
@@ -19,6 +25,10 @@ const STINGERS := {
 }
 ## Mix level (dB) of each layer at full intensity; files are all peak-normalised to -3 dBFS.
 const STEM_DB := {"run_base": -9.0, "run_tension": -11.0, "run_flood": -9.0, "run_boss": -8.0}
+const STYLES: Array[String] = ["classic", "v1"]
+const V1_LOOPS: Array[String] = ["v1_arena", "v1_boss"]
+## Mix level of the V1 loops (both are bass-heavy: phone loudness about -22 / -24).
+const V1_DB := {"v1_arena": -7.0, "v1_boss": -6.0}
 const MENU_DB := -8.0
 const STINGER_DB := -5.0
 const SILENT_DB := -60.0
@@ -43,6 +53,15 @@ var mode := Mode.NONE
 var _streams := {}
 var _menu_player: AudioStreamPlayer
 var _stem_players: Array[AudioStreamPlayer] = []
+var _v1_players: Array[AudioStreamPlayer] = []
+## Linear gains 0..1 of the V1 loops (index = V1_LOOPS order).
+var _v1_gain: Array[float] = [0.0, 0.0]
+var _v1_target: Array[float] = [0.0, 0.0]
+var _style := "classic"
+## Last set_intensity() arguments, so a style switch can rebuild the targets.
+var _pressure := 1.0
+var _flood := false
+var _boss := false
 var _stinger_player: AudioStreamPlayer
 ## Linear gains 0..1 per layer: current and target (index = STEMS order), plus menu.
 var _stem_gain: Array[float] = [0.0, 0.0, 0.0, 0.0]
@@ -66,12 +85,18 @@ func _ready() -> void:
 		_load(id, true)
 	for key: String in STINGERS:
 		_load(STINGERS[key], false)
+	for id in V1_LOOPS:
+		_load(id, true)
 	_menu_player = _make_player("Menu")
 	_menu_player.stream = _streams.get(MENU_ID)
 	for id in STEMS:
 		var player := _make_player(id)
 		player.stream = _streams.get(id)
 		_stem_players.append(player)
+	for id in V1_LOOPS:
+		var player := _make_player(id)
+		player.stream = _streams.get(id)
+		_v1_players.append(player)
 	_stinger_player = _make_player("Stinger")
 	_apply_volumes()
 
@@ -82,12 +107,21 @@ func _process(delta: float) -> void:
 	for i in STEMS.size():
 		_stem_gain[i] = move_toward(_stem_gain[i], _stem_target[i], step)
 	_menu_gain = move_toward(_menu_gain, _menu_target, step)
+	for i in V1_LOOPS.size():
+		_v1_gain[i] = move_toward(_v1_gain[i], _v1_target[i], step)
+		# A faded-out V1 loop stops; it restarts at bar 1 when it is needed again.
+		if _v1_gain[i] <= 0.0 and _v1_target[i] <= 0.0 and _v1_players[i].playing:
+			_v1_players[i].stop()
+	# Classic stems stop together once silent in style v1 (restart in sync later).
+	if _style != "classic" and _max_stem_gain() <= 0.0 and not _stem_players.is_empty() and _stem_players[0].playing:
+		for player in _stem_players:
+			player.stop()
 	if _duck_hold > 0.0:
 		_duck_hold -= real_delta
 	else:
 		_duck = move_toward(_duck, 0.0, real_delta / DUCK_RELEASE_SECONDS)
 	_apply_volumes()
-	if _stopping and _menu_gain <= 0.0 and _max_stem_gain() <= 0.0:
+	if _stopping and _menu_gain <= 0.0 and _max_stem_gain() <= 0.0 and _max_v1_gain() <= 0.0:
 		_stopping = false
 		_halt_players()
 		mode = Mode.NONE
@@ -101,6 +135,7 @@ func play_menu() -> void:
 	_stopping = false
 	for i in STEMS.size():
 		_stem_target[i] = 0.0
+	_v1_target = [0.0, 0.0]
 	_menu_target = 1.0
 	_fade_rate = 1.0 / START_FADE_SECONDS
 	mode = Mode.MENU
@@ -114,26 +149,52 @@ func play_run() -> void:
 		return
 	_stopping = false
 	_menu_target = 0.0
-	_stem_target = [1.0, 0.0, 0.0, 0.0]
+	_pressure = 1.0
+	_flood = false
+	_boss = false
+	_update_run_targets()
 	_fade_rate = 1.0 / START_FADE_SECONDS
 	mode = Mode.RUN
 	if enabled:
-		_start_stems()
+		_start_run_layers()
 
 
 ## pressure_level: hunt_world's model.pressure() (1.0 at start, doubles every
 ## PRESSURE_DOUBLING_SECONDS). The tension layer blends in from pressure 1.5 to 4.
 ## flood / boss switch their layers on; the flood also holds tension at full.
+## Style v1: the arena loop plays, a boss cross-fades to the boss loop and back.
 func set_intensity(pressure_level: float, flood: bool, boss: bool) -> void:
 	if mode != Mode.RUN or _stopping:
 		return
-	var octaves := log(maxf(pressure_level, 1.0)) / log(2.0)
-	var tension := clampf((octaves - 0.585) / 1.415, 0.0, 1.0)
-	_stem_target[0] = 1.0
-	_stem_target[1] = 1.0 if flood else tension
-	_stem_target[2] = 1.0 if flood else 0.0
-	_stem_target[3] = 1.0 if boss else 0.0
+	_pressure = pressure_level
+	_flood = flood
+	_boss = boss
+	_update_run_targets()
 	_fade_rate = 1.0 / FADE_SECONDS
+	if enabled:
+		_start_v1_needed()
+
+
+## "classic" (adaptive stems, default) or "v1" (audio pack V1 loops). Unknown
+## names are ignored. During a run the layers cross-fade over FADE_SECONDS.
+func set_style(style_name: String) -> void:
+	if not STYLES.has(style_name) or style_name == _style:
+		return
+	_style = style_name
+	if mode != Mode.RUN or _stopping:
+		return
+	_update_run_targets()
+	_fade_rate = 1.0 / FADE_SECONDS
+	if enabled:
+		_start_run_layers()
+
+
+func style() -> String:
+	return _style
+
+
+func styles() -> Array[String]:
+	return STYLES.duplicate()
 
 
 ## id: "flood", "boss", "king" or "extinct". Unknown ids are ignored.
@@ -157,10 +218,12 @@ func stinger(id: String) -> void:
 func stop(immediate := false) -> void:
 	_menu_target = 0.0
 	_stem_target = [0.0, 0.0, 0.0, 0.0]
+	_v1_target = [0.0, 0.0]
 	_fade_rate = 1.0 / STOP_FADE_SECONDS
 	if immediate or mode == Mode.NONE:
 		_menu_gain = 0.0
 		_stem_gain = [0.0, 0.0, 0.0, 0.0]
+		_v1_gain = [0.0, 0.0]
 		_halt_players()
 		_stinger_player.stop()
 		_stopping = false
@@ -180,11 +243,12 @@ func set_enabled(value: bool) -> void:
 		_stinger_player.stop()
 		_menu_gain = 0.0
 		_stem_gain = [0.0, 0.0, 0.0, 0.0]
+		_v1_gain = [0.0, 0.0]
 		_apply_volumes()
 	elif mode == Mode.MENU:
 		_start_menu()
 	elif mode == Mode.RUN:
-		_start_stems()
+		_start_run_layers()
 
 
 func set_master_volume_db(value: float) -> void:
@@ -205,6 +269,25 @@ func stem_target(id: String) -> float:
 func stem_gain(id: String) -> float:
 	var i := STEMS.find(id)
 	return _stem_gain[i] if i >= 0 else 0.0
+
+
+func v1_ids() -> Array[String]:
+	return V1_LOOPS.duplicate()
+
+
+func v1_target(id: String) -> float:
+	var i := V1_LOOPS.find(id)
+	return _v1_target[i] if i >= 0 else 0.0
+
+
+func v1_gain(id: String) -> float:
+	var i := V1_LOOPS.find(id)
+	return _v1_gain[i] if i >= 0 else 0.0
+
+
+func v1_volume_db(id: String) -> float:
+	var i := V1_LOOPS.find(id)
+	return _v1_players[i].volume_db if i >= 0 else SILENT_DB
 
 
 func menu_gain() -> float:
@@ -274,6 +357,8 @@ func _make_player(player_name: String) -> AudioStreamPlayer:
 func _start_menu() -> void:
 	for player in _stem_players:
 		player.stop()
+	for player in _v1_players:
+		player.stop()
 	if _silent or _menu_player.stream == null or _menu_player.playing:
 		return
 	_menu_player.play()
@@ -289,16 +374,50 @@ func _start_stems() -> void:
 			player.play(0.0)
 
 
+## Starts whatever the current style needs; layers of the other style fade out.
+func _start_run_layers() -> void:
+	_menu_player.stop()
+	if _style == "classic":
+		if not _stem_players.is_empty() and not _stem_players[0].playing:
+			_start_stems()
+	else:
+		_start_v1_needed()
+
+
+## Starts each V1 loop whose target is above zero and that is not running (bar 1).
+func _start_v1_needed() -> void:
+	if _silent:
+		return
+	for i in V1_LOOPS.size():
+		if _v1_target[i] > 0.0 and not _v1_players[i].playing and _v1_players[i].stream != null:
+			_v1_players[i].play(0.0)
+
+
+func _update_run_targets() -> void:
+	if _style == "classic":
+		var octaves := log(maxf(_pressure, 1.0)) / log(2.0)
+		var tension := clampf((octaves - 0.585) / 1.415, 0.0, 1.0)
+		_stem_target = [1.0, 1.0 if _flood else tension, 1.0 if _flood else 0.0, 1.0 if _boss else 0.0]
+		_v1_target = [0.0, 0.0]
+	else:
+		_stem_target = [0.0, 0.0, 0.0, 0.0]
+		_v1_target[0] = 0.0 if _boss else 1.0
+		_v1_target[1] = 1.0 if _boss else 0.0
+
+
 func _halt_players() -> void:
 	if _menu_player != null:
 		_menu_player.stop()
 	for player in _stem_players:
+		player.stop()
+	for player in _v1_players:
 		player.stop()
 
 
 func _all_players() -> Array[AudioStreamPlayer]:
 	var list: Array[AudioStreamPlayer] = []
 	list.append_array(_stem_players)
+	list.append_array(_v1_players)
 	for player in [_menu_player, _stinger_player]:
 		if player != null:
 			list.append(player)
@@ -312,6 +431,10 @@ func _max_stem_gain() -> float:
 	return best
 
 
+func _max_v1_gain() -> float:
+	return maxf(_v1_gain[0], _v1_gain[1])
+
+
 func _apply_volumes() -> void:
 	if _menu_player == null:
 		return
@@ -319,6 +442,8 @@ func _apply_volumes() -> void:
 	_menu_player.volume_db = _gain_db(_menu_gain, MENU_DB + duck_db)
 	for i in _stem_players.size():
 		_stem_players[i].volume_db = _gain_db(_stem_gain[i], float(STEM_DB[STEMS[i]]) + duck_db)
+	for i in _v1_players.size():
+		_v1_players[i].volume_db = _gain_db(_v1_gain[i], float(V1_DB[V1_LOOPS[i]]) + duck_db)
 
 
 func _gain_db(gain: float, base_db: float) -> float:

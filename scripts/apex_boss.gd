@@ -11,7 +11,7 @@ extends Node3D
 #   contains(point) / hit_fraction(points)         locked area of the last attack
 #   resolved_power, state, health, max_health, attack_center
 # Extra: phase (1/2), current_pattern, migration_ready + signal defeated(location),
-# body_radius / melee_range for HuntWorld, hud_message() for the banner text.
+# body_radius / melee_range / body_distance(point) for HuntWorld, hud_message() for the banner text.
 #
 # Attack patterns (numbers per phase 1 / phase 2, base loss x pressure):
 #   ROOTS  "Wurzelbruch" – 3 / 5 root lanes (2.2 / 2.4 m wide, 18 m long) fan out
@@ -392,6 +392,13 @@ func hit_fraction(points: PackedVector3Array) -> float:
 		if contains(point):
 			inside += 1
 	return float(inside) / float(points.size())
+
+
+## Flat distance from `point` to the body rim (0 = touching or inside). Attack
+## forms and HuntWorld.melee_factor measure to the rim: the big body is otherwise
+## hard to reach from the centre of a swarm that crowds around it.
+func body_distance(point: Vector3) -> float:
+	return maxf(0.0, Vector2(point.x - position.x, point.z - position.z).length() - body_radius)
 
 
 # Pure danger check for AI/tests: is `point` safe from the current wind-up?

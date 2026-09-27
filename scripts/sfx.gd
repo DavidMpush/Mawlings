@@ -1,8 +1,9 @@
 extends Node
 ## Pooled, rate-limited sound effects and handheld vibration.
 ## Main adds this as child "Sfx". Files live in res://assets/audio/<id>_<n>.wav
-## (n = 1..): recorded user sounds processed by tools/import_user_sfx.py (see
-## assets/audio/LICENSES.md), everything else procedural from tools/gen_sfx.py.
+## (n = 1..): recorded user sounds and the user's audio pack V1, both processed by
+## tools/import_user_sfx.py (see assets/audio/LICENSES.md), everything else
+## procedural from tools/gen_sfx.py.
 
 const AUDIO_DIR := "res://assets/audio/"
 const MAX_VARIANTS := 8
@@ -14,17 +15,17 @@ const VIBRATE_MIN_GAP_MS := 60
 ## db = base loudness (files are all peak-normalised to -3 dBFS; db values of the
 ## imported ids are matched by tools/import_user_sfx.py --report loudness).
 const RULES := {
-	"bite": {"gap": 45, "voices": 3, "db": -11.0},
+	"bite": {"gap": 45, "voices": 3, "db": -9.5},       # pack V1: organic bites
 	"kill": {"gap": 50, "voices": 3, "db": -7.5},       # user: blood pop
 	"grow": {"gap": 60, "voices": 2, "db": -6.0},       # user: merge pop
 	"hit": {"gap": 90, "voices": 2, "db": -5.0},
-	"warn": {"gap": 250, "voices": 1, "db": -6.0},
+	"warn": {"gap": 250, "voices": 1, "db": -9.0},      # pack V1: enemy telegraph
 	"stomp": {"gap": 200, "voices": 2, "db": -1.0},
 	"mutate": {"gap": 150, "voices": 1, "db": -3.5},    # user: positive notification
 	"evolve": {"gap": 400, "voices": 1, "db": -0.5},    # user: magic drag
-	"extinct": {"gap": 1000, "voices": 1, "db": -3.0},
+	"extinct": {"gap": 1000, "voices": 1, "db": -4.5},  # pack V1: run end
 	"pickup": {"gap": 70, "voices": 2, "db": -8.0},
-	"ui": {"gap": 40, "voices": 2, "db": -11.0},
+	"ui": {"gap": 40, "voices": 2, "db": -12.5},        # pack V1: ui tap
 	# Etappe 09: division, growth moments and losses.
 	"split": {"gap": 70, "voices": 3, "db": -11.0},     # user: slime blob
 	"milestone": {"gap": 600, "voices": 1, "db": 0.0},  # user: level completion
@@ -41,11 +42,22 @@ const RULES := {
 	"migration_whoosh": {"gap": 1500, "voices": 1, "db": -2.5},
 	"leaper_windup": {"gap": 300, "voices": 2, "db": -5.0},
 	"portal_open": {"gap": 1500, "voices": 1, "db": -6.0},
+	# Audio pack V1 (tools/import_user_sfx.py). Gaps bundle bursts: many kills,
+	# harvest ticks or DNA gains within the gap become one sound.
+	"rally": {"gap": 250, "voices": 1, "db": -11.0},
+	"harvest": {"gap": 450, "voices": 1, "db": -12.0},
+	"dna": {"gap": 350, "voices": 1, "db": -11.5},
+	"threat": {"gap": 2000, "voices": 1, "db": -2.0},
+	"loss": {"gap": 700, "voices": 1, "db": 0.0},
 }
 ## Loops (start_loop/stop_loop), one voice each outside the pool.
 const LOOP_RULES := {
 	"heartbeat": {"db": -4.0},
 	"portal_hum": {"db": -15.0},
+	# Pack V1: group feeding while the swarm harvests, soft rustle while it moves.
+	# Callers scale them with set_loop_volume() (swarm size, speed).
+	"feed": {"db": -12.0},
+	"rustle": {"db": -16.0},
 }
 
 ## Global offset in dB applied to every effect and the ambience.
@@ -54,6 +66,8 @@ var master_volume_db := 0.0:
 		master_volume_db = clampf(value, -80.0, 12.0)
 		if _ambience != null:
 			_ambience.volume_db = _ambience_db()
+		for id: String in _loops:
+			(_loops[id] as AudioStreamPlayer).volume_db = loop_volume_db(id)
 var sfx_enabled := true
 var vibration_enabled := true
 var ambience_volume_db := -17.0
@@ -69,6 +83,7 @@ var _player_end: Array[int] = []
 var _ambience: AudioStreamPlayer
 var _loops := {}          # id -> AudioStreamPlayer
 var _loop_on := {}        # id -> bool (bookkept, also with the Dummy driver)
+var _loop_db := {}        # id -> caller offset in dB (start_loop / set_loop_volume)
 var _last_vibrate_ms := -100000
 ## True with the Dummy audio driver (headless tests): voices are only bookkept, never
 ## started, because the dummy mixer never releases playbacks and Godot reports leaks.
@@ -151,14 +166,16 @@ func stop_ambience() -> void:
 		_ambience.stop()
 
 
-## Starts a seamless loop (e.g. "heartbeat"); calling it again keeps it running.
-func start_loop(id: String) -> void:
+## Starts a seamless loop (e.g. "heartbeat"); calling it again keeps it running
+## and only updates the volume offset.
+func start_loop(id: String, volume_db := 0.0) -> void:
 	if not LOOP_RULES.has(id) or not sfx_enabled:
 		return
 	var variants: Array = _streams.get(id, [])
 	if variants.is_empty():
 		return
 	_loop_on[id] = true
+	_loop_db[id] = volume_db
 	var player: AudioStreamPlayer = _loops.get(id)
 	if player == null:
 		player = AudioStreamPlayer.new()
@@ -166,9 +183,26 @@ func start_loop(id: String) -> void:
 		add_child(player)
 		player.stream = _looped(variants[0])
 		_loops[id] = player
-	player.volume_db = float(LOOP_RULES[id]["db"]) + master_volume_db
+	player.volume_db = loop_volume_db(id)
 	if not player.playing and not _silent:
 		player.play()
+
+
+## Changes the offset of a loop without restarting it (e.g. rustle by swarm size).
+func set_loop_volume(id: String, volume_db: float) -> void:
+	if not LOOP_RULES.has(id):
+		return
+	_loop_db[id] = volume_db
+	var player: AudioStreamPlayer = _loops.get(id)
+	if player != null:
+		player.volume_db = loop_volume_db(id)
+
+
+## Effective volume of a loop: rule + caller offset + master.
+func loop_volume_db(id: String) -> float:
+	if not LOOP_RULES.has(id):
+		return -80.0
+	return float(LOOP_RULES[id]["db"]) + float(_loop_db.get(id, 0.0)) + master_volume_db
 
 
 func stop_loop(id: String) -> void:

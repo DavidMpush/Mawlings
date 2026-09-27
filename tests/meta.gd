@@ -148,6 +148,25 @@ func _run() -> void:
 	file.close()
 	var partial = PROFILE.load_or_create(TEST_PATH)
 	check(partial.essence == 0 and partial.owned_strains.size() == 2 and partial.records.runs == 0, "Garbage fields ignored")
+
+	# Apex-Trophäen: nur Moosschlund-Siege zählen für „Moosschlund bezwungen“.
+	_clean()
+	var apex_profile = PROFILE.load_or_create(TEST_PATH)
+	result = apex_profile.record_run(_stats({"seconds": 30.0, "apex_kills": 1, "toad_kills": 1}))
+	check(apex_profile.records.total_apex == 1 and apex_profile.records.total_toads == 1 and apex_profile.records.total_moss == 0, "Toad kill is no Moosschlund kill")
+	check(result.new_quests.has("apex_aschenkroete") and not result.new_quests.has("apex_moosschlund"), "Only the toad trophy after a toad kill")
+	result = apex_profile.record_run(_stats({"seconds": 30.0, "apex_kills": 2, "toad_kills": 1}))
+	check(apex_profile.records.total_moss == 1 and result.new_quests.has("apex_moosschlund"), "Moosschlund trophy after a Moosschlund kill")
+	# Altes Profil ohne total_moss: total_apex - total_toads.
+	file = FileAccess.open(TEST_PATH, FileAccess.WRITE)
+	file.store_string("{\"version\":1,\"records\":{\"total_apex\":5,\"total_toads\":2}}")
+	file.close()
+	var old_profile = PROFILE.load_or_create(TEST_PATH)
+	check(old_profile.records.total_moss == 3 and old_profile.quest_value("total_moss") == 3.0, "Old profile migrates total_moss = apex - toads")
+	file = FileAccess.open(TEST_PATH, FileAccess.WRITE)
+	file.store_string("{\"version\":1,\"records\":{\"total_apex\":1,\"total_toads\":3}}")
+	file.close()
+	check(PROFILE.load_or_create(TEST_PATH).records.total_moss == 0, "Migration never goes negative")
 	_clean()
 	var missing = PROFILE.load_or_create(TEST_PATH)
 	check(missing.essence == 0 and not FileAccess.file_exists(TEST_PATH), "Missing file is not an error")
@@ -157,5 +176,5 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 	else:
-		print("PASS meta: data, config fields, upgrades, quests once, strain unlock+buy, difficulty lock, save/load, broken file")
+		print("PASS meta: data, config fields, upgrades, quests once, strain unlock+buy, difficulty lock, save/load, broken file, apex trophies + total_moss migration")
 		quit(0)

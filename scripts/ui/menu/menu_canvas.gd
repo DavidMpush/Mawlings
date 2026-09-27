@@ -5,6 +5,9 @@ extends "res://scripts/menu/ui_kit.gd"
 ## canvas being drawn (the layer itself or its cache) and calls the same code.
 ## Shapes and colours are unchanged; only the target canvas differs.
 
+const UiStyleRef := preload("res://scripts/ui/ui_style.gd")
+const UiFramesRef := preload("res://scripts/ui/ui_frames.gd")
+
 ## Canvas the helpers draw on (the painting layer, or self).
 var _cv: CanvasItem = self
 
@@ -15,8 +18,8 @@ func _text(value: String, point: Vector2, font_size: int, color: Color = Color.W
 	if centered:
 		origin.x -= font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x * 0.5
 	if outline > 0:
-		_cv.draw_string_outline(font, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, outline, Color(0.02, 0.07, 0.06, 0.85))
-	_cv.draw_string(font, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+		_cv.draw_string_outline(font, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, outline, Color(UiStyleRef.tone(Color(0.02, 0.07, 0.06)), 0.85))
+	_cv.draw_string(font, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, UiStyleRef.tone(color))
 
 
 ## Right-aligned text ending at point.x.
@@ -76,6 +79,8 @@ func _frame(rect: Rect2, fill: Color, edge: Color, claws: int = 0, width: float 
 
 
 func _claw(base: Vector2, direction: Vector2, length: float, width: float, color: Color, bend: float = 0.35) -> void:
+	if UiStyleRef.is_calm():
+		return
 	var d := direction.normalized()
 	var side := Vector2(-d.y, d.x)
 	var points := PackedVector2Array()
@@ -90,6 +95,9 @@ func _claw(base: Vector2, direction: Vector2, length: float, width: float, color
 
 
 func _bar(rect: Rect2, fraction: float, color: Color) -> void:
+	if UiStyleRef.is_calm():
+		UiFramesRef.bar(_cv, rect, fraction, color)
+		return
 	var back := _rounded_points(rect, rect.size.y * 0.5, 4)
 	_cv.draw_colored_polygon(back, Color("2a4a44"))
 	if fraction > 0.0:
@@ -227,3 +235,11 @@ func _leaf(base: Vector2, length: float, width: float, angle: float, color: Colo
 		points.append(base + dir * length * t - side * width * sin(t * PI) * 0.85)
 	_cv.draw_colored_polygon(points, color)
 	_cv.draw_line(base, base + dir * length * 0.9, color.darkened(0.3), maxf(1.5, width * 0.08), true)
+
+
+# Calm skin (V2 kit): rounded chips and capsules become chamfered, bone claws
+# disappear. The organic skin keeps the ui_kit.gd shapes unchanged.
+func _rounded_points(rect: Rect2, radius: float, steps: int = 6) -> PackedVector2Array:
+	if UiStyleRef.is_calm():
+		return UiFramesRef.chamfer_points(rect, minf(radius, minf(rect.size.x, rect.size.y) * 0.5) * 0.62)
+	return super(rect, radius, steps)

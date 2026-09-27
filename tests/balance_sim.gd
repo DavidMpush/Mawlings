@@ -25,6 +25,7 @@ const SKITTER = preload("res://scripts/skitter.gd")
 const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
 const BOG_KING = preload("res://scripts/bog_king.gd")
 const APEX = preload("res://scripts/apex_boss.gd")
+const APEX_TOAD = preload("res://scripts/apex_toad.gd")
 const ERUPTIONS = preload("res://scripts/eruptions.gd")
 var profile_path := "user://balance_sim_%d.json" % OS.get_process_id()
 const STEP := 0.05
@@ -76,6 +77,9 @@ var failures: Array[String] = []
 var trace := false
 # "noapex" argument: skip the Moosschlund (stage 10 comparison runs).
 var no_apex := false
+# "noflood" argument: no flood (measures late fights such as the Aschenkröte,
+# which most bot runs never reach before the flood ends them; not for targets).
+var no_flood := false
 
 
 func _initialize() -> void:
@@ -102,6 +106,7 @@ func _run() -> void:
 	react = float(args.react)
 	trace = args.has("trace")
 	no_apex = args.has("noapex") or OS.get_environment("BALANCE_NOAPEX") != ""
+	no_flood = args.has("noflood") or OS.get_environment("BALANCE_NOFLOOD") != ""
 	miss = float(args.miss)
 	if args.has("regress"):
 		for spec in REGRESS_RUNS:
@@ -189,11 +194,18 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 	world.drop_rng.seed = run_seed + 101
 	if no_apex and world.get("apex_state") != null:
 		world.apex_state = 4
+	if no_flood:
+		world.flood_start = 1000000.0
 	var losses := {"hunter": 0, "skitter": 0, "leaper": 0, "boss": 0, "other": 0, "flood": 0, "apex": 0, "lava": 0}
 	# Stage 10: game time of the apex spawn / kill / migration (-1 = never).
 	var apex_seen := -1.0
 	var apex_killed := -1.0
 	var migrated := -1.0
+	# Stage 10 part 3: every apex fight as "kind:seconds" (spawn -> kill, "+" = still alive at the end).
+	var fights := PackedStringArray()
+	var fight_apex: Variant = null
+	var fight_start := 0.0
+	var fight_kind := ""
 	var states := {}
 	var cause := "timeout"
 	var picks: Array[String] = []
@@ -256,6 +268,18 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 			apex_killed = world.model.elapsed
 		if migrated < 0.0 and int(world.get("migrations")) > 0:
 			migrated = world.model.elapsed
+		var apex_live: Variant = world.get("apex")
+		if OS.get_environment("BALANCE_TOADTRACE") != "" and apex_live != null and fmod(world.model.elapsed, 2.0) < STEP:
+			print("TOAD t=%.0f d=%.1f rim=%.1f state=%d hp=%.0f pop=%d flood=%d brood=%d" % [world.model.elapsed, apex_live.position.distance_to(swarm.position), apex_live.body_distance(swarm.position) if apex_live.has_method("body_distance") else -1.0, apex_live.state, apex_live.health, world.model.population, int(world.flood_state), int(world.horde.count()) if world.get("horde") != null else -1])
+		if apex_live != fight_apex:
+			if fight_apex != null:
+				fights.append("%s:%.0f" % [fight_kind, world.model.elapsed - fight_start])
+			fight_apex = apex_live
+			fight_kind = "toad" if apex_live is APEX_TOAD else "moos"
+			fight_start = world.model.elapsed
+	if fight_apex != null:
+		# Still alive at the end: "+" and the health share left.
+		fights.append("%s:%.0f+%d%%" % [fight_kind, world.model.elapsed - fight_start, int(100.0 * fight_apex.health / maxf(1.0, fight_apex.max_health))])
 	if world.model.extinct and cause == "timeout":
 		cause = "other"
 	var forms: Array = world.attack_forms.damage_dealt.keys() if world.attack_forms != null else []
@@ -275,12 +299,13 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"apex_seen": apex_seen,
 		"apex_killed": apex_killed,
 		"migrated": migrated,
+		"fights": fights,
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d wall=%.1f" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d wall=%.1f" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
 		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop60, pop120, pop_flood, stats.swaps, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
-		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), (Time.get_ticks_msec() - wall) / 1000.0])
+		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), (Time.get_ticks_msec() - wall) / 1000.0])
 	root.remove_child(scene)
 	scene.free()
 	await process_frame
@@ -475,6 +500,11 @@ func _dodge(world: Variant, here: Vector3, now: float) -> Vector3:
 		for point in swarm.unit_world_points():
 			spread = maxf(spread, Vector2(point.x - here.x, point.z - here.z).length())
 		escape += _apex_escape(apex, here, points, minf(spread, 4.0) + APEX_MARGIN * 0.5 + extra)
+	# Aschenkröte: stay out of the visible Glutpfützen.
+	var puddles: Variant = apex.get("puddles") if apex != null else null
+	if puddles != null:
+		for spot in puddles.spots:
+			escape += _away_all(here, points, spot.center, float(spot.radius) + 0.8 + extra, float(spot.radius) + 0.3)
 	# Stage 10: Glutsumpf eruptions (announced lava rings).
 	var eruptions: Variant = world.get("eruptions")
 	if eruptions != null:
@@ -516,8 +546,8 @@ func _apex_safe(apex: Variant, spot: Vector3, points: PackedVector3Array, margin
 func _body(world: Variant, enemy: Variant) -> float:
 	if enemy == world.boss:
 		return 2.0
-	if enemy is APEX:
-		return TUNING.APEX_BODY_RADIUS
+	if enemy is APEX or enemy is APEX_TOAD:
+		return float(enemy.body_radius)
 	return 0.0
 
 
@@ -579,7 +609,7 @@ func _is_armed(enemy: Variant) -> bool:
 		return enemy.state in [SKITTER.State.WARNING, SKITTER.State.DASH]
 	if enemy is MIRE_LEAPER:
 		return enemy.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP]
-	if enemy is APEX:
+	if enemy is APEX or enemy is APEX_TOAD:
 		return enemy.state == APEX.State.WINDUP
 	return enemy.state == BOG_KING.State.WARNING
 
@@ -604,7 +634,7 @@ func _enemies(world: Variant) -> Array:
 
 
 func _hittable(enemy: Variant) -> bool:
-	if enemy is MIRE_LEAPER or enemy is APEX:
+	if enemy is MIRE_LEAPER or enemy is APEX or enemy is APEX_TOAD:
 		return enemy.can_be_hit()
 	return enemy.state != 0
 
@@ -625,7 +655,7 @@ func _kind(enemy: Variant) -> String:
 		return "skitter"
 	if enemy is MIRE_LEAPER:
 		return "leaper"
-	if enemy is APEX:
+	if enemy is APEX or enemy is APEX_TOAD:
 		return "apex"
 	return "boss"
 
@@ -640,6 +670,9 @@ func _hitter(world: Variant, before: Dictionary, _older: Dictionary) -> String:
 	var eruptions: Variant = world.get("eruptions")
 	if eruptions != null and int(eruptions.resolved_power) > 0:
 		fallback = "lava"
+	var apex_now: Variant = world.get("apex")
+	if apex_now != null and apex_now.get("puddles") != null and int(apex_now.puddles.resolved_power) > 0:
+		fallback = "apex"
 	for id in before:
 		var entry: Array = before[id]
 		if not (entry[1] in armed[entry[0]]):

@@ -15,7 +15,7 @@ extends RefCounted
 #   *_edge (white, tinted with the accent). Bone claws keep their own colour.
 # - Every draw call resets the canvas transform to identity afterwards.
 # - Small rects shrink the whole frame uniformly instead of squashing corners.
-# - Skins: UiStyle.skin = "calm" swaps every public function below to the quiet
+# - Skins: UiStyle.skin = "calm" (default) swaps every public function below to the quiet
 #   V2 kit (assets/ui/v2/frames, built by assets/ui/v2/build_calm_frames.py)
 #   and maps accent colours onto the V2 palette (calm_color). Same signatures,
 #   same rect conventions; claws, teeth and card cells are left out in calm.
@@ -54,6 +54,7 @@ const DISABLED_TINT := Color(0.46, 0.5, 0.47)
 
 # Calm skin (UI kit V2). Margins in SVG units; the textures have no padding.
 const CALM_DIR := "res://assets/ui/v2/frames/"
+const KIT_DIR := "res://assets/ui/v2/vector/"
 const CALM_CARD_MARGINS := Vector4(24, 46, 24, 44)
 const CALM_PANEL_MARGINS := Vector4(22, 22, 22, 36)
 const CALM_PILL_MARGINS := Vector4(16, 16, 16, 16)
@@ -211,7 +212,7 @@ static func _round(canvas: CanvasItem, rect: Rect2, accent: Color, pressed: bool
 # Progress bar. segments > 0 draws separate capsules (danger meter, DNA pips).
 static func bar(canvas: CanvasItem, rect: Rect2, fraction: float, color: Color, segments: int = 0) -> void:
 	fraction = clampf(fraction, 0.0, 1.0)
-	color = calm_color(color)
+	color = UiStyle.tone(color)
 	var k := minf(rect.size.y / BAR_HEIGHT, rect.size.x / (BAR_MARGINS.x + BAR_MARGINS.z))
 	_slice(canvas, "bar_track", rect, BAR_MARGINS, Color.WHITE, k)
 	var inset := maxf(2.0, 3.0 * k)
@@ -254,14 +255,7 @@ static func divider(canvas: CanvasItem, center: Vector2, width: float, color: Co
 		return
 	if UiStyle.is_calm():
 		# Two thin rules with a small chamfered end, no vines.
-		var line := Color(UiStyle.CALM_TEAL, 0.55 * color.a)
-		var thick := maxf(2.0, 3.0 * scale)
-		for side in [-1.0, 1.0]:
-			var inner := center + Vector2(side * gap * 0.5, 0.0)
-			var outer := center + Vector2(side * width * 0.5, 0.0)
-			canvas.draw_line(inner, outer, line, thick, true)
-			var d := 7.0 * scale
-			canvas.draw_colored_polygon(PackedVector2Array([outer + Vector2(0, -d), outer + Vector2(side * d, 0), outer + Vector2(0, d), outer + Vector2(-side * d, 0)]), line)
+		rule(canvas, center, width, Color(UiStyle.CALM_TEAL, color.a), gap, scale)
 		return
 	var k := minf(scale, half / (VINE_MARGINS.x + VINE_MARGINS.z))
 	var s := k / SVG_SCALE
@@ -364,28 +358,48 @@ static func _path(file: String) -> String:
 	return DIR + file + ".svg"
 
 
-## Organic accent -> nearest V2 palette colour (alpha kept). Colours far from
-## every token (e.g. white, bone, custom greys) stay as they are.
+## Organic accent -> V2 palette colour of the current skin (alpha kept); see
+## UiStyle.tone(). Colours far from every token stay as they are, and so do
+## colour-blind colours (the calm skin must not undo that mode).
 static func calm_color(color: Color) -> Color:
-	var table := [
-		[UiStyle.EMBER, UiStyle.CALM_ORANGE], [UiStyle.EMBER_GLOW, UiStyle.CALM_ORANGE],
-		[UiStyle.DANGER, UiStyle.CALM_ORANGE], [UiStyle.CYAN, UiStyle.CALM_TEAL],
-		[UiStyle.VIOLET, UiStyle.CALM_VIOLET], [UiStyle.TOXIC, UiStyle.CALM_LEAF],
-		[UiStyle.GOLD, UiStyle.CALM_AMBER], [UiStyle.AMBER, UiStyle.CALM_AMBER],
-		[UiStyle.PANEL_EDGE, UiStyle.CALM_EDGE],
-		[UiStyle.CB_ORANGE, UiStyle.CALM_ORANGE], [UiStyle.CB_SKY, UiStyle.CALM_TEAL],
-		[UiStyle.CB_PURPLE, UiStyle.CALM_VIOLET], [UiStyle.CB_YELLOW, UiStyle.CALM_AMBER],
-		[UiStyle.CB_VERMILLION, UiStyle.CALM_ORANGE],
-	]
-	var best := 0.09
-	var mapped := color
-	for pair in table:
-		var token: Color = pair[0]
-		var d := Vector3(color.r - token.r, color.g - token.g, color.b - token.b).length_squared()
-		if d < best:
-			best = d
-			mapped = pair[1]
-	return Color(mapped, color.a)
+	return UiStyle.tone(color)
+
+
+## V2 kit graphic (res://assets/ui/v2/vector/<file>.svg) fitted into rect;
+## returns false when the file is missing so callers can fall back.
+static func kit(canvas: CanvasItem, file: String, rect: Rect2, tint: Color = Color.WHITE) -> bool:
+	var tex := UiStyle.tex(KIT_DIR + file + ".svg")
+	if tex == null:
+		return false
+	canvas.draw_texture_rect(tex, rect, false, tint)
+	return true
+
+
+## Kit graphic centred on `center` with the given size.
+static func kit_at(canvas: CanvasItem, file: String, center: Vector2, size: Vector2, tint: Color = Color.WHITE) -> bool:
+	return kit(canvas, file, Rect2(center - size * 0.5, size), tint)
+
+
+## Chamfered outline (V2 corners) for hand-drawn chips and plates.
+static func chamfer_points(rect: Rect2, cut: float) -> PackedVector2Array:
+	var c := minf(cut, minf(rect.size.x, rect.size.y) * 0.45)
+	var p := rect.position
+	var e := rect.end
+	return PackedVector2Array([Vector2(p.x + c, p.y), Vector2(e.x - c, p.y), Vector2(e.x, p.y + c), Vector2(e.x, e.y - c),
+		Vector2(e.x - c, e.y), Vector2(p.x + c, e.y), Vector2(p.x, e.y - c), Vector2(p.x, p.y + c)])
+
+
+## Quiet heading rule of the calm skin: one thin line, a small chamfered
+## diamond at each end, gap for text in the middle.
+static func rule(canvas: CanvasItem, center: Vector2, width: float, color: Color, gap: float = 0.0, scale: float = 1.0) -> void:
+	var line := Color(UiStyle.tone(color), 0.6 * color.a)
+	var thick := maxf(2.0, 2.0 * scale)
+	for side in [-1.0, 1.0]:
+		var inner := center + Vector2(side * gap * 0.5, 0.0)
+		var outer := center + Vector2(side * width * 0.5, 0.0)
+		canvas.draw_line(inner, outer, line, thick, true)
+		var d := 5.0 * scale
+		canvas.draw_colored_polygon(PackedVector2Array([outer + Vector2(0, -d), outer + Vector2(side * d, 0), outer + Vector2(0, d), outer + Vector2(-side * d, 0)]), line)
 
 
 static func _calm_slice(canvas: CanvasItem, file: String, rect: Rect2, margins: Vector4, tint: Color) -> void:

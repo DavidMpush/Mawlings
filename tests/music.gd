@@ -3,6 +3,8 @@ extends SceneTree
 const MusicScript := preload("res://scripts/music.gd")
 const LOOPS := ["menu_theme", "run_base", "run_tension", "run_flood", "run_boss"]
 const STINGS := ["sting_flood", "sting_boss", "sting_king", "sting_extinct"]
+## Audio pack V1 loops (style "v1"): id -> expected length (16 bars at 96 / 128 BPM).
+const V1_LOOPS := {"v1_arena": 40.0, "v1_boss": 30.0}
 
 
 func _initialize() -> void:
@@ -38,6 +40,15 @@ func _run() -> void:
 		var sting := load("res://assets/music/%s.wav" % id) as AudioStream
 		if sting == null or sting.get_length() < 1.0 or sting.get_length() > 6.0:
 			_fail("Stinger %s missing or odd length" % id)
+			return
+
+	for id: String in V1_LOOPS:
+		var v1 := load("res://assets/music/%s.wav" % id) as AudioStreamWAV
+		if v1 == null or v1.loop_mode != AudioStreamWAV.LOOP_FORWARD:
+			_fail("V1 loop %s missing or not a forward loop" % id)
+			return
+		if absf(v1.get_length() - float(V1_LOOPS[id])) > 0.01:
+			_fail("V1 loop %s is %.3f s, expected %.1f s" % [id, v1.get_length(), V1_LOOPS[id]])
 			return
 
 	var music: Node = MusicScript.new()
@@ -112,6 +123,71 @@ func _run() -> void:
 		_fail("Duck did not release")
 		return
 
+	# Style v1: stems fade out, the arena loop in; a boss cross-fades to the boss
+	# loop (never both at full); unknown styles are ignored; back to classic.
+	if music.style() != "classic":
+		_fail("Default style should be classic, got %s" % music.style())
+		return
+	for id: String in V1_LOOPS:
+		if music.stream(id) == null:
+			_fail("Music node did not load %s" % id)
+			return
+	music.set_intensity(1.0, false, false)
+	music.set_style("v1")
+	if music.style() != "v1" or music.v1_target("v1_arena") != 1.0 or music.v1_target("v1_boss") != 0.0 or not _targets(music, [0.0, 0.0, 0.0, 0.0]):
+		_fail("set_style('v1') targets wrong")
+		return
+	for i in 150:
+		music._process(1.0 / 60.0)
+	if music.v1_gain("v1_arena") < 0.999 or music.stem_gain("run_base") > 0.001 or music.v1_volume_db("v1_arena") < -20.0:
+		_fail("v1 fade wrong: arena %.2f base %.2f" % [music.v1_gain("v1_arena"), music.stem_gain("run_base")])
+		return
+	music.set_intensity(4.0, true, true)
+	if music.v1_target("v1_boss") != 1.0 or music.v1_target("v1_arena") != 0.0 or not _targets(music, [0.0, 0.0, 0.0, 0.0]):
+		_fail("v1 boss crossfade targets wrong")
+		return
+	for i in 60:
+		music._process(1.0 / 60.0)
+	if absf(music.v1_gain("v1_arena") + music.v1_gain("v1_boss") - 1.0) > 0.02:
+		_fail("v1 crossfade not complementary: %.2f + %.2f" % [music.v1_gain("v1_arena"), music.v1_gain("v1_boss")])
+		return
+	music.stinger("boss")
+	if music.ducking() < 0.99:
+		_fail("Stinger does not duck in style v1")
+		return
+	music.set_style("jazz")
+	if music.style() != "v1":
+		_fail("Unknown style changed the style")
+		return
+	music.set_intensity(1.2, false, false)
+	music.set_style("classic")
+	if music.v1_target("v1_arena") != 0.0 or music.v1_target("v1_boss") != 0.0 or not _targets(music, [1.0, 0.0, 0.0, 0.0]):
+		_fail("Back to classic: targets wrong")
+		return
+	for i in 400:
+		music._process(1.0 / 60.0)
+	if music.v1_gain("v1_arena") > 0.0 or music.v1_gain("v1_boss") > 0.0 or music.stem_gain("run_base") < 0.999:
+		_fail("Back to classic: fades wrong")
+		return
+	# The style survives the menu: a new run starts directly in v1.
+	music.set_style("v1")
+	music.play_menu()
+	if music.v1_target("v1_arena") != 0.0:
+		_fail("Menu should silence the v1 loops")
+		return
+	music.play_run()
+	if music.v1_target("v1_arena") != 1.0 or not _targets(music, [0.0, 0.0, 0.0, 0.0]):
+		_fail("play_run in style v1 targets wrong")
+		return
+	music.stop()
+	for i in 90:
+		music._process(1.0 / 60.0)
+	if music.mode != MusicScript.Mode.NONE or music.v1_gain("v1_arena") > 0.0:
+		_fail("stop() did not fade out the v1 loop")
+		return
+	music.set_style("classic")
+	music.play_run()
+
 	# Disable / enable keeps the mode; stop fades to silence.
 	music.set_enabled(false)
 	music.stinger("boss")
@@ -131,7 +207,7 @@ func _run() -> void:
 	music.queue_free()
 	await process_frame
 	await process_frame
-	print("MUSIC TEST PASSED (stems %.2f s, silent driver: %s)" % [stem_length, str(AudioServer.get_driver_name() == "Dummy")])
+	print("MUSIC TEST PASSED (stems %.2f s, styles classic+v1, silent driver: %s)" % [stem_length, str(AudioServer.get_driver_name() == "Dummy")])
 	quit(0)
 
 

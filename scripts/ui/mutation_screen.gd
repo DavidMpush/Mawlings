@@ -85,6 +85,7 @@ var _open_time := -10.0
 var _close_time := -10.0
 var _flash_time := -10.0
 var _spaced: FontVariation
+var _title_font: FontVariation
 var _screen_key: Variant = null
 
 
@@ -266,20 +267,20 @@ func _draw() -> void:
 	var rerolls: int = hud._count("rerolls")
 	var skips: int = hud._count("skips")
 	if rerolls > 0:
-		_draw_button(hud._reroll_rect(), "reroll", "NEU WÜRFELN", rerolls, UI.CYAN)
+		_draw_button(hud._reroll_rect(), "reroll", "NEU WÜRFELN", rerolls, UI.color("cyan"))
 	if skips > 0:
-		_draw_button(hud._skip_rect(), "skip", "ÜBERSPRINGEN", skips, UI.BONE)
+		_draw_button(hud._skip_rect(), "skip", "ÜBERSPRINGEN", skips, UI.color("bone"))
 	var last: Rect2 = hud._mutation_rect(evo.offers.size() - 1)
 	var hint_y := last.end.y + 58.0
 	if rerolls > 0 or skips > 0:
 		hint_y = (hud._reroll_rect() if rerolls > 0 else hud._skip_rect()).end.y + 50.0
-	_text(self, "KARTE ANTIPPEN ZUM WÄHLEN", Vector2(size.x * 0.5, hint_y), MIN_TEXT, Color(UI.TEXT_DIM, 0.85), 1, 5)
+	_text(self, "KARTE ANTIPPEN ZUM WÄHLEN", Vector2(size.x * 0.5, hint_y), MIN_TEXT, Color(UI.color("text_dim"), 0.85), 1, 5)
 
 
 func _draw_dimmer(amount: float) -> void:
-	var top := Color(UI.DIM, UI.DIM.a * 0.15 * amount)
-	var body := Color(UI.DIM, UI.DIM.a * amount)
-	var deep := Color(UI.DIM.darkened(0.3), minf(1.0, UI.DIM.a * 1.12) * amount)
+	var top := Color(UI.color("dim"), UI.color("dim").a * 0.15 * amount)
+	var body := Color(UI.color("dim"), UI.color("dim").a * amount)
+	var deep := Color(UI.color("dim").darkened(0.3), minf(1.0, UI.color("dim").a * 1.12) * amount)
 	var w := size.x
 	var h := size.y
 	draw_rect(Rect2(0, 0, w, TOP_CLEAR), top)
@@ -301,13 +302,16 @@ func _draw_title(evo: RefCounted, appear: float) -> void:
 	var fs := 62
 	var half := font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x * 0.5
 	var alpha := appear
+	if UI.is_calm():
+		_draw_title_calm(evo, cx, base_y, fs, alpha)
+		return
 	# Soft halo so the title reads over busy ground.
-	_soft_glow(Rect2(cx - half - 120.0, base_y - fs - 24.0, half * 2.0 + 240.0, fs + 100.0), Color(UI.OUTLINE, 0.55 * alpha))
+	_soft_glow(Rect2(cx - half - 120.0, base_y - fs - 24.0, half * 2.0 + 240.0, fs + 100.0), Color(UI.color("outline"), 0.55 * alpha))
 	# Own tendrils: the kit divider sits too far out for this short title.
 	for s in [-1.0, 1.0]:
 		_vine(Vector2(cx + s * (half + 16.0), base_y - 18.0), s, alpha)
-	_text(self, title, Vector2(cx, base_y + 4), fs, Color(UI.SHADOW, 0.9 * alpha), 1, 0)
-	_text(self, title, Vector2(cx, base_y), fs, Color(UI.BONE, alpha), 1, 10)
+	_text(self, title, Vector2(cx, base_y + 4), fs, Color(UI.color("shadow"), 0.9 * alpha), 1, 0)
+	_text(self, title, Vector2(cx, base_y), fs, Color(UI.color("bone"), alpha), 1, 10)
 	# "S T U F E  n" in spaced caps between two fading rules.
 	if _spaced == null:
 		_spaced = FontVariation.new()
@@ -315,12 +319,33 @@ func _draw_title(evo: RefCounted, appear: float) -> void:
 		_spaced.spacing_glyph = 9
 	var sub := "STUFE %d" % (int(evo.level) + 1)
 	var sub_y := base_y + 50.0
-	var sub_w := _text(self, sub, Vector2(cx, sub_y), 28, Color(UI.TEXT_DIM.lerp(UI.BONE, 0.35), alpha), 1, 6, _spaced)
+	var sub_w := _text(self, sub, Vector2(cx, sub_y), 28, Color(UI.color("text_dim").lerp(UI.color("bone"), 0.35), alpha), 1, 6, _spaced)
 	for s in [-1.0, 1.0]:
 		var inner := Vector2(cx + s * (sub_w * 0.5 + 18.0), sub_y - 10.0)
 		var outer := inner + Vector2(s * 190.0, 0)
-		draw_polyline_colors(PackedVector2Array([inner, outer]), PackedColorArray([Color(UI.TOXIC.darkened(0.25), 0.9 * alpha), Color(UI.TOXIC.darkened(0.25), 0.0)]), 3.0, true)
-		_diamond(self, inner + Vector2(s * -2.0, 0), 6.0, Color(UI.TOXIC, alpha))
+		draw_polyline_colors(PackedVector2Array([inner, outer]), PackedColorArray([Color(UI.color("toxic").darkened(0.25), 0.9 * alpha), Color(UI.color("toxic").darkened(0.25), 0.0)]), 3.0, true)
+		_diamond(self, inner + Vector2(s * -2.0, 0), 6.0, Color(UI.color("toxic"), alpha))
+
+
+# Calm skin (V2 kit): plain spaced heading in the light text colour, "STUFE n"
+# in quiet teal-grey between two thin rules. No vines, no halo.
+func _draw_title_calm(evo: RefCounted, cx: float, base_y: float, fs: int, alpha: float) -> void:
+	if _spaced == null:
+		_spaced = FontVariation.new()
+		_spaced.base_font = UI.display_font()
+		_spaced.spacing_glyph = 9
+	if _title_font == null:
+		_title_font = FontVariation.new()
+		_title_font.base_font = UI.display_font()
+		_title_font.spacing_glyph = 3
+	var title := "MUTATION WÄHLEN"
+	_text(self, title, Vector2(cx, base_y + 3), fs, Color(UI.color("shadow"), 0.8 * alpha), 1, 0, _title_font)
+	_text(self, title, Vector2(cx, base_y), fs, Color(UI.color("text"), alpha), 1, 8, _title_font)
+	var sub := "STUFE %d" % (int(evo.level) + 1)
+	var sub_y := base_y + 50.0
+	var sub_w := _text(self, sub, Vector2(cx, sub_y), 28, Color(UI.color("text_dim"), alpha), 1, 5, _spaced)
+	if frames != null:
+		frames.rule(self, Vector2(cx, sub_y - 10.0), sub_w + 36.0 + 300.0, Color(UI.CALM_EDGE.lightened(0.3), alpha), sub_w + 36.0, 1.0)
 
 
 # Soft blob: opaque centre fading to all four edges (no hard rectangle).
@@ -340,8 +365,8 @@ func _soft_glow(r: Rect2, tint: Color) -> void:
 
 # Thorny tendril curling outward and up from the title ends.
 func _vine(start: Vector2, side: float, alpha: float) -> void:
-	var dark := Color(UI.TOXIC.darkened(0.45), alpha)
-	var light := Color(UI.TOXIC.darkened(0.1), alpha)
+	var dark := Color(UI.color("toxic").darkened(0.45), alpha)
+	var light := Color(UI.color("toxic").darkened(0.1), alpha)
 	var p0 := start
 	var p1 := start + Vector2(side * 70.0, 26.0)
 	var p2 := start + Vector2(side * 120.0, -40.0)
@@ -385,7 +410,7 @@ func _draw_button(rect: Rect2, icon_id: String, label: String, count: int, accen
 	var fs := _fit(label, font, 26, rect.size.x - 100.0, MIN_TEXT)
 	var lw := _width(label, font, fs)
 	var lx := icon_rect.end.x + (rect.end.x - 24.0 - icon_rect.end.x - lw) * 0.5
-	_text(self, label, Vector2(lx, rect.get_center().y + fs * 0.36), fs, UI.TEXT, 0, 6)
+	_text(self, label, Vector2(lx, rect.get_center().y + fs * 0.36), fs, UI.color("text"), 0, 6)
 	_badge(self, Vector2(rect.end.x - 6, rect.position.y + 4), count, accent)
 
 
@@ -397,24 +422,56 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 	var id := str(entry[0])
 	var s: Vector2 = c.size
 	var category: String = CATEGORY_OF.get(id, "special")
-	var accent: Color = UI.CATEGORY.get(category, UI.VIOLET)
+	var accent: Color = UI.tone(UI.CATEGORY.get(category, UI.VIOLET))
 	var kind: String = evo.kind_of(id) if evo != null else "trait"
 	var is_form := kind in ["attack", "evolved"]
 	var banish: int = hud._count("banishes")
 	var banish_local: Rect2 = hud._banish_rect(slot)
 	banish_local.position -= hud._mutation_rect(slot).position
 
-	if frames != null and use_frame_kit:
+	var calm := UI.is_calm() and frames != null and use_frame_kit
+	if calm:
+		_kit_card(c, s, category, accent)
+	elif frames != null and use_frame_kit:
 		frames.card(c, Rect2(Vector2.ZERO, s), accent, "selected" if flash > 0.0 else "normal")
 		frames.card_cells(c, Rect2(Vector2.ZERO, s), accent)
 	else:
 		_card_frame(c, s, accent, slot)
 	if banish <= 0 and not (frames != null and use_frame_kit):
 		for pore in [Vector2(-58, 30), Vector2(-40, 22), Vector2(-42, 42), Vector2(-26, 34)]:
-			_ring(c, Vector2(s.x, 0) + pore, 7.0, Color(UI.OUTLINE, 0.9), Color(accent, 0.55))
+			_ring(c, Vector2(s.x, 0) + pore, 7.0, Color(UI.color("outline"), 0.9), Color(accent, 0.55))
 
-	# Medallion (concept): a bulge of the frame band around a dark well, strong
-	# glow in the category colour outside and a lit core behind the icon.
+	if calm:
+		# V2: the painted icon sits calmly in the card's own icon column.
+		var k := s.y / KIT_CARD.y
+		var col := Vector2(KIT_COLUMN * 0.5 * k, s.y * 0.5 + 8.0)
+		_icon(c, id, Rect2(col - Vector2(68, 68), Vector2(136, 136)), accent)
+		var plate := Rect2(Vector2(14, 12), Vector2(38, 38))
+		c.draw_colored_polygon(_chamfer(plate, 8.0), Color(UI.CALM_BG, 0.96))
+		c.draw_polyline(_closed(_chamfer(plate, 8.0)), accent, 2.5, true)
+		_text(c, str(slot + 1), plate.get_center() + Vector2(0, 8), 22, UI.color("text"), 1, 0)
+		if is_form and rank == 0:
+			_plaque(c, Vector2(col.x + 18.0, 30.0), "NEU", UI.color("gold"))
+	else:
+		_draw_medallion(c, s, id, slot, accent, flash, is_form and rank == 0)
+	_draw_card_text(c, s, evo, hud, id, entry, rank, accent, is_form, banish, banish_local, calm)
+	if flash > 0.0:
+		if calm:
+			c.draw_colored_polygon(_chamfer(Rect2(Vector2.ZERO, s).grow(-4.0), 20.0), Color(accent.lightened(0.6), 0.28 * flash))
+			_kit_slice(c, "mutation_card_focus", Rect2(Vector2.ZERO, s).grow(3.0 + 6.0 * flash), Color(1, 1, 1, flash))
+		else:
+			var shape := _card_shape(s)
+			c.draw_colored_polygon(shape, Color(accent.lightened(0.7), 0.5 * flash))
+			var glow := Geometry2D.offset_polygon(shape, 14.0 * flash + 4.0)
+			if not glow.is_empty():
+				var ring: PackedVector2Array = glow[0]
+				ring.append(ring[0])
+				c.draw_polyline(ring, Color(accent.lightened(0.5), flash), 6.0, true)
+
+
+# Organic medallion (concept): a bulge of the frame band around a dark well,
+# strong glow in the category colour outside and a lit core behind the icon.
+func _draw_medallion(c: CanvasItem, s: Vector2, id: String, slot: int, accent: Color, flash: float, fresh: bool) -> void:
 	var m := Vector2(120, s.y * 0.5)
 	_halo(c, m, 168.0, Color(accent, 0.62 + 0.4 * flash))
 	c.draw_circle(m, 92, Color("0c1d14"))
@@ -436,12 +493,14 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 	# Number badge (keys 1/2/3), bottom left of the medallion.
 	var nb := m + Vector2(-62, 58)
 	c.draw_circle(nb, 19, Color(accent, 0.95))
-	c.draw_circle(nb, 15.5, UI.OUTLINE)
-	_text(c, str(slot + 1), nb + Vector2(0, 8), 22, UI.TEXT, 1, 0)
-	if is_form and rank == 0:
-		_plaque(c, Vector2(m.x, 16), "NEU", UI.GOLD)
+	c.draw_circle(nb, 15.5, UI.color("outline"))
+	_text(c, str(slot + 1), nb + Vector2(0, 8), 22, UI.color("text"), 1, 0)
+	if fresh:
+		_plaque(c, Vector2(m.x, 16), "NEU", UI.color("gold"))
 
-	# Text column.
+
+# Text column, bottom row and banish tag (both skins).
+func _draw_card_text(c: CanvasItem, s: Vector2, evo: RefCounted, hud: Control, id: String, entry: Array, rank: int, accent: Color, is_form: bool, banish: int, banish_local: Rect2, calm: bool) -> void:
 	var x := 236.0
 	var right := s.x - 34.0
 	var col_w := right - x
@@ -456,11 +515,12 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 	var head_right := (banish_local.position.x - 16.0) if banish_head else right - 80.0
 	var name_right := (banish_local.position.x - 14.0) if banish_name else right
 	var head := "%s  ·  %s" % [kind_label, slot_text]
-	_text(c, head, Vector2(x, 40), _fit(head, UI.display_font(), MIN_TEXT, head_right - x, MIN_TEXT), Color(accent.lerp(UI.TEXT_DIM, 0.35), 0.95), 0, 5)
+	_text(c, head, Vector2(x, 40), _fit(head, UI.display_font(), MIN_TEXT, head_right - x, MIN_TEXT), Color(accent.lerp(UI.color("text_dim"), 0.35), 0.95), 0, 5)
 	var name := str(entry[1]).to_upper()
 	var name_size := _fit(name, UI.display_font(), 48, name_right - x, 30)
-	_text(c, name, Vector2(x, 92), name_size, accent.lightened(0.08), 0, 8)
-	c.draw_polyline_colors(PackedVector2Array([Vector2(x, 106), Vector2(right, 106)]), PackedColorArray([Color(accent, 0.75), Color(accent, 0.0)]), 2.5, true)
+	_text(c, name, Vector2(x, 92), name_size, accent.lightened(0.15 if calm else 0.08), 0, 6 if calm else 8)
+	if not calm:
+		c.draw_polyline_colors(PackedVector2Array([Vector2(x, 106), Vector2(right, 106)]), PackedColorArray([Color(accent, 0.75), Color(accent, 0.0)]), 2.5, true)
 
 	if is_form:
 		var body := _form_text(id, rank)
@@ -475,10 +535,10 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 			lines = lines.slice(0, 2)
 			lines[1] = lines[1].rstrip(" .,") + "…"
 		for i in lines.size():
-			_text(c, lines[i], Vector2(x, 136 + i * (fs + 2)), fs, UI.TEXT, 0, 5, UI.body_font())
+			_text(c, lines[i], Vector2(x, 136 + i * (fs + 2)), fs, UI.color("text"), 0, 5, UI.body_font())
 	else:
 		var effect := _effect(id, entry, rank + 1, true)
-		_text(c, effect, Vector2(x, 150), _fit(effect, UI.display_font(), 34, col_w, 24), UI.TEXT, 0, 7)
+		_text(c, effect, Vector2(x, 150), _fit(effect, UI.display_font(), 34, col_w, 24), UI.color("text"), 0, 7)
 
 	# Bottom row: rank diamonds, change, evolution hint.
 	var row_y := 198.0
@@ -488,28 +548,29 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 			_diamond(c, dc, 11.0, accent)
 		elif i == rank:
 			var pulse := 0.5 + 0.5 * sin(_now() * 5.0)
-			c.draw_circle(dc, 15, Color(accent, 0.18 + 0.2 * pulse))
-			_diamond(c, dc, 12.0, UI.TEXT)
+			if not calm:
+				c.draw_circle(dc, 15, Color(accent, 0.18 + 0.2 * pulse))
+			_diamond(c, dc, 12.0, UI.color("text"))
 			_diamond(c, dc, 8.0, accent)
 		else:
-			_diamond(c, dc, 11.0, Color(UI.OUTLINE, 0.9))
+			_diamond(c, dc, 11.0, Color(UI.color("outline"), 0.9))
 			_diamond_outline(c, dc, 11.0, Color(accent, 0.45))
 	var cx := x + 104.0
 	if is_form:
 		if rank > 0:
-			cx += _text(c, "RANG %s" % ROMAN[rank - 1], Vector2(cx, row_y), 23, UI.TEXT_DIM, 0, 5) + 10.0
+			cx += _text(c, "RANG %s" % ROMAN[rank - 1], Vector2(cx, row_y), 23, UI.color("text_dim"), 0, 5) + 10.0
 			_arrow(c, Vector2(cx, row_y - 8), accent)
 			cx += 38.0
-			cx += _text(c, ROMAN[mini(rank, ROMAN.size() - 1)], Vector2(cx, row_y + 1), 28, UI.TEXT, 0, 6)
+			cx += _text(c, ROMAN[mini(rank, ROMAN.size() - 1)], Vector2(cx, row_y + 1), 28, UI.color("text"), 0, 6)
 		else:
-			cx += _text(c, "RANG I", Vector2(cx, row_y + 1), 26, UI.TEXT, 0, 6)
+			cx += _text(c, "RANG I", Vector2(cx, row_y + 1), 26, UI.color("text"), 0, 6)
 	else:
 		var before := _effect(id, entry, rank, false)
 		var after := _effect(id, entry, rank + 1, false)
-		cx += _text(c, before, Vector2(cx, row_y), 23, UI.TEXT_DIM, 0, 5) + 10.0
+		cx += _text(c, before, Vector2(cx, row_y), 23, UI.color("text_dim"), 0, 5) + 10.0
 		_arrow(c, Vector2(cx, row_y - 8), accent)
 		cx += 38.0
-		cx += _text(c, after, Vector2(cx, row_y + 1), 28, UI.TEXT, 0, 6)
+		cx += _text(c, after, Vector2(cx, row_y + 1), 28, UI.color("text"), 0, 6)
 	var hint := _evolution_hint(evo, id, rank)
 	if not hint.is_empty():
 		var hint_font := UI.display_font()
@@ -520,28 +581,34 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 		var fs := _fit(label, hint_font, MIN_TEXT, avail, MIN_TEXT)
 		var lw := _width(label, hint_font, fs)
 		var hx := right - lw
-		var tint: Color = UI.GOLD if hint.ready else UI.VIOLET
+		var tint: Color = UI.color("gold") if hint.ready else UI.color("violet")
 		var pill := Rect2(hx - 36, row_y - 26, lw + 46, 34)
-		c.draw_rect(pill, Color(UI.OUTLINE, 0.75))
-		c.draw_rect(pill, Color(tint, 0.6), false, 2.0)
+		if calm:
+			frames.pill(c, pill, tint)
+		else:
+			c.draw_rect(pill, Color(UI.color("outline"), 0.75))
+			c.draw_rect(pill, Color(tint, 0.6), false, 2.0)
 		_icon(c, hint.id, Rect2(hx - 32, row_y - 23, 28, 28), tint)
 		_text(c, label, Vector2(hx, row_y - 1), fs, tint.lightened(0.2), 0, 5)
 
 	if banish > 0:
 		_draw_banish(c, banish_local, banish)
-	if flash > 0.0:
-		var shape := _card_shape(s)
-		c.draw_colored_polygon(shape, Color(accent.lightened(0.7), 0.5 * flash))
-		var glow := Geometry2D.offset_polygon(shape, 14.0 * flash + 4.0)
-		if not glow.is_empty():
-			var ring: PackedVector2Array = glow[0]
-			ring.append(ring[0])
-			c.draw_polyline(ring, Color(accent.lightened(0.5), flash), 6.0, true)
 
 
 # Compact danger tag inside the card body (hit area: hud._banish_rect(slot)).
 func _draw_banish(c: CanvasItem, r: Rect2, count: int) -> void:
-	var red := UI.DANGER
+	var red := UI.color("danger")
+	if UI.is_calm() and frames != null:
+		# V2 chip: dark petrol body, thin orange-red stroke, no halo.
+		frames.pill(c, r, red)
+		var glyph := minf(30.0, r.size.y - 14.0)
+		_icon(c, "banish", Rect2(r.position + Vector2(12, (r.size.y - glyph) * 0.5), Vector2(glyph, glyph)), red)
+		var gx := r.position.x + 20.0 + glyph
+		var gfs := _fit("VERBANNEN", UI.display_font(), 23, r.end.x - 10.0 - gx, MIN_TEXT)
+		var gw := _width("VERBANNEN", UI.display_font(), gfs)
+		_text(c, "VERBANNEN", Vector2(gx + maxf(0.0, (r.end.x - 10.0 - gx - gw) * 0.5), r.get_center().y + gfs * 0.36), gfs, UI.color("text"), 0, 4)
+		_badge(c, Vector2(r.end.x - 4, r.position.y + 2), count, red)
+		return
 	var shape := _rounded(r, 14.0)
 	_halo(c, r.get_center(), r.size.x * 0.62, Color(red, 0.16))
 	c.draw_colored_polygon(_rounded(Rect2(r.position + Vector2(0, 3), r.size), 14.0), Color(0, 0, 0, 0.45))
@@ -555,8 +622,63 @@ func _draw_banish(c: CanvasItem, r: Rect2, count: int) -> void:
 	var tx := r.position.x + 16.0 + icon_size
 	var fs := _fit("VERBANNEN", UI.display_font(), 23, r.end.x - 10.0 - tx, MIN_TEXT)
 	var lw := _width("VERBANNEN", UI.display_font(), fs)
-	_text(c, "VERBANNEN", Vector2(tx + maxf(0.0, (r.end.x - 10.0 - tx - lw) * 0.5), r.get_center().y + fs * 0.36), fs, UI.TEXT, 0, 5)
+	_text(c, "VERBANNEN", Vector2(tx + maxf(0.0, (r.end.x - 10.0 - tx - lw) * 0.5), r.get_center().y + fs * 0.36), fs, UI.color("text"), 0, 5)
 	_badge(c, Vector2(r.end.x - 4, r.position.y + 2), count, red)
+
+
+# V2 mutation card (mutation_card_<category>.svg, 660 x 170 units) as a
+# nine-slice scaled to the card height: the icon column (divider at 146 units)
+# keeps its width, the text area stretches.
+const KIT_CARD := Vector2(660, 170)
+const KIT_COLUMN := 146.0
+const KIT_CARD_MARGINS := Vector4(160, 48, 24, 44)
+const KIT_CARD_FILE := {"attack": "mutation_card_attack", "growth": "mutation_card_growth", "protect": "mutation_card_defense", "special": "mutation_card_special", "reflex": "mutation_card_special"}
+var _kit_boxes: Dictionary = {}
+
+
+func _kit_card(c: CanvasItem, s: Vector2, category: String, accent: Color) -> void:
+	if not _kit_slice(c, KIT_CARD_FILE.get(category, "mutation_card_special"), Rect2(Vector2.ZERO, s), Color.WHITE):
+		frames.card(c, Rect2(Vector2.ZERO, s), accent, "normal")
+
+
+# Draws a kit card SVG as nine-slice into rect (scale follows rect height).
+func _kit_slice(c: CanvasItem, file: String, rect: Rect2, tint: Color) -> bool:
+	if not _kit_boxes.has(file):
+		var tex: Texture2D = UI.tex("res://assets/ui/v2/vector/%s.svg" % file)
+		var box: StyleBoxTexture = null
+		if tex != null:
+			# texture pixels per svg unit (imported with svg/scale 2)
+			var tk := tex.get_width() / KIT_CARD.x
+			box = StyleBoxTexture.new()
+			box.texture = tex
+			box.texture_margin_left = KIT_CARD_MARGINS.x * tk
+			box.texture_margin_top = KIT_CARD_MARGINS.y * tk
+			box.texture_margin_right = KIT_CARD_MARGINS.z * tk
+			box.texture_margin_bottom = KIT_CARD_MARGINS.w * tk
+		_kit_boxes[file] = box
+	var kit_box: StyleBoxTexture = _kit_boxes[file]
+	if kit_box == null:
+		return false
+	var tk2 := kit_box.texture.get_width() / KIT_CARD.x
+	var k := rect.size.y / KIT_CARD.y / tk2
+	kit_box.modulate_color = tint
+	c.draw_set_transform(rect.position, 0.0, Vector2(k, k))
+	c.draw_style_box(kit_box, Rect2(Vector2.ZERO, rect.size / k))
+	c.draw_set_transform(Vector2.ZERO)
+	return true
+
+
+func _chamfer(r: Rect2, cut: float) -> PackedVector2Array:
+	var p := r.position
+	var e := r.end
+	return PackedVector2Array([Vector2(p.x + cut, p.y), Vector2(e.x - cut, p.y), Vector2(e.x, p.y + cut), Vector2(e.x, e.y - cut),
+		Vector2(e.x - cut, e.y), Vector2(p.x + cut, e.y), Vector2(p.x, e.y - cut), Vector2(p.x, p.y + cut)])
+
+
+func _closed(points: PackedVector2Array) -> PackedVector2Array:
+	var out := points.duplicate()
+	out.append(points[0])
+	return out
 
 
 func _rounded(r: Rect2, radius: float) -> PackedVector2Array:
@@ -618,16 +740,16 @@ func _card_frame(c: CanvasItem, s: Vector2, accent: Color, seed_slot: int) -> vo
 		return
 	var body: PackedVector2Array = inner[0]
 	var body_colors := PackedColorArray()
-	var deep := Color(UI.PANEL, 1.0).darkened(0.25)
+	var deep := Color(UI.color("panel"), 1.0).darkened(0.25)
 	for v in body:
 		var near_icon := 1.0 - clampf(v.x / (s.x * 0.45), 0.0, 1.0)
-		body_colors.append(deep.lerp(Color(UI.PANEL, 1.0).lerp(accent, 0.1), near_icon * 0.8))
+		body_colors.append(deep.lerp(Color(UI.color("panel"), 1.0).lerp(accent, 0.1), near_icon * 0.8))
 	c.draw_polygon(body, body_colors)
 	# Holes through the rim, bone teeth under the lower step.
 	for hole in [Vector2(5, s.y * 0.22), Vector2(5, s.y * 0.84), Vector2(s.x - 5, s.y * 0.2), Vector2(s.x - 5, s.y * 0.8)]:
-		_ellipse(c, hole, 3.5, 11.0, Color(UI.OUTLINE, 0.95))
+		_ellipse(c, hole, 3.5, 11.0, Color(UI.color("outline"), 0.95))
 	for tx in [s.x * 0.4 - 26.0, s.x * 0.4 - 50.0]:
-		c.draw_colored_polygon(PackedVector2Array([Vector2(tx - 7, s.y + 5), Vector2(tx + 7, s.y + 5), Vector2(tx + 1, s.y + 19)]), UI.BONE.darkened(0.1))
+		c.draw_colored_polygon(PackedVector2Array([Vector2(tx - 7, s.y + 5), Vector2(tx + 7, s.y + 5), Vector2(tx + 1, s.y + 19)]), UI.color("bone").darkened(0.1))
 	# Vein and cell texture, deterministic per slot.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7919 + seed_slot * 31
@@ -647,7 +769,7 @@ func _card_frame(c: CanvasItem, s: Vector2, accent: Color, seed_slot: int) -> vo
 	if not edge.is_empty():
 		var ring: PackedVector2Array = edge[0]
 		ring.append(ring[0])
-		c.draw_polyline(ring, Color(UI.PANEL_EDGE, 0.8), 1.5, true)
+		c.draw_polyline(ring, Color(UI.color("panel_edge"), 0.8), 1.5, true)
 
 
 func _horn(c: CanvasItem, base: Vector2, tip: Vector2, accent: Color) -> void:
@@ -655,7 +777,7 @@ func _horn(c: CanvasItem, base: Vector2, tip: Vector2, accent: Color) -> void:
 	var side := Vector2(-dir.y, dir.x)
 	var mid := base.lerp(tip, 0.55) + side * 6.0
 	c.draw_colored_polygon(PackedVector2Array([base + side * 11.0, mid + side * 4.0, tip, mid - side * 3.0, base - side * 11.0]), accent.lightened(0.1))
-	c.draw_line(base.lerp(tip, 0.2), tip, Color(UI.BONE, 0.5), 2.0, true)
+	c.draw_line(base.lerp(tip, 0.2), tip, Color(UI.color("bone"), 0.5), 2.0, true)
 
 
 func _plate(c: CanvasItem, r: Rect2, accent: Color, ch: float, fill: Color = Color(UI.PANEL, 0.96)) -> void:
@@ -678,16 +800,16 @@ func _plaque(c: CanvasItem, center: Vector2, label: String, tint: Color) -> void
 	var r := Rect2(center - Vector2(w * 0.5, 15), Vector2(w, 30))
 	var pts := PackedVector2Array([r.position + Vector2(10, 0), Vector2(r.end.x - 10, r.position.y), Vector2(r.end.x, r.get_center().y), Vector2(r.end.x - 10, r.end.y), Vector2(r.position.x + 10, r.end.y), Vector2(r.position.x, r.get_center().y)])
 	var glow := Geometry2D.offset_polygon(pts, 5.0)
-	if not glow.is_empty():
+	if not glow.is_empty() and not UI.is_calm():
 		c.draw_colored_polygon(glow[0], Color(tint, 0.3))
 	c.draw_colored_polygon(pts, tint)
-	_text(c, label, Vector2(center.x, center.y + 8), 22, UI.OUTLINE, 1, 0)
+	_text(c, label, Vector2(center.x, center.y + 8), 22, UI.color("outline"), 1, 0)
 
 
 func _badge(c: CanvasItem, center: Vector2, count: int, tint: Color) -> void:
-	c.draw_circle(center, 17, UI.OUTLINE)
+	c.draw_circle(center, 17, UI.color("outline"))
 	c.draw_circle(center, 14.5, tint)
-	_text(c, str(count), center + Vector2(0, 8), MIN_TEXT, UI.OUTLINE, 1, 0)
+	_text(c, str(count), center + Vector2(0, 8), MIN_TEXT, UI.color("outline"), 1, 0)
 
 
 func _arrow(c: CanvasItem, at: Vector2, tint: Color) -> void:
@@ -823,8 +945,8 @@ func _text(c: CanvasItem, value: String, at: Vector2, font_size: float, tint: Co
 		c.draw_set_transform(origin, 0.0, Vector2(k, k))
 		origin = Vector2.ZERO
 	if outline > 0:
-		c.draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, outline, Color(UI.OUTLINE, tint.a))
-	c.draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, tint)
+		c.draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, outline, Color(UI.color("outline"), tint.a))
+	c.draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, UI.tone(tint))
 	if not whole:
 		c.draw_set_transform(Vector2.ZERO)
 	return w

@@ -28,6 +28,7 @@ const SETTINGS := [
 	["sound", "TON", "Geräusche und Musik"],
 	["vibration", "VIBRATION", "Kurzes Rütteln bei Treffern"],
 	["colorblind", "FARBENBLIND-MODUS", "Warnflächen mit Mustern und Kontur"],
+	["music_v1", "MUSIK: KLASSIK V1", "Aus: adaptive Musik · An: Musikpaket V1"],
 ]
 ## Seed-Code: 6 Zeichen Base36 decken 1..2^31-1 eindeutig ab (36^6 > 2^31).
 const SEED_ALPHABET := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -95,6 +96,7 @@ func _ready() -> void:
 	_consume_last_result()
 	_add_components()
 	_start_music()
+	_start_sfx()
 	queue_redraw()
 	if skip_menu_on_first_start and change_scene_on_play:
 		try_first_start()
@@ -492,6 +494,11 @@ func _apply_settings() -> void:
 	var music := get_node_or_null("Music")
 	if music != null:
 		music.set_enabled(profile.get_setting("sound"))
+		if music.has_method("set_style"):
+			music.set_style("v1" if profile.get_setting("music_v1") else "classic")
+	var sfx := get_node_or_null("Sfx")
+	if sfx != null:
+		sfx.set("sfx_enabled", profile.get_setting("sound"))
 	var bus := AudioServer.get_bus_index("Master")
 	if bus >= 0:
 		AudioServer.set_bus_mute(bus, not profile.get_setting("sound"))
@@ -651,6 +658,7 @@ func _scroll_trophies(amount: float) -> void:
 func tap(location: Vector2) -> void:
 	if profile == null:
 		return
+	_tap_sound(location)
 	if not reward.is_empty():
 		if reward_button_rect().has_point(location):
 			close_reward()
@@ -830,7 +838,7 @@ func daily_rect() -> Rect2:
 
 
 func settings_panel_rect() -> Rect2:
-	return Rect2(46, 380, size.x - 92, 700)
+	return Rect2(46, 340, size.x - 92, 250 + SETTINGS.size() * 146)
 
 
 func settings_close_rect() -> Rect2:
@@ -1674,3 +1682,28 @@ func _start_music() -> void:
 	if profile != null:
 		music.set_enabled(profile.get_setting("sound"))
 	music.play_menu()
+
+
+const SFX_PATH := "res://scripts/sfx.gd"
+
+
+# Own Sfx node for the audio pack V1 "ui" tap (no ambience in the menu).
+func _start_sfx() -> void:
+	if has_node("Sfx") or not ResourceLoader.exists(SFX_PATH):
+		return
+	var sfx: Node = load(SFX_PATH).new()
+	sfx.name = "Sfx"
+	add_child(sfx)
+	if profile != null:
+		sfx.set("sfx_enabled", profile.get_setting("sound"))
+
+
+# "ui" only for taps that land on a button (not on empty space or a drag).
+func _tap_sound(location: Vector2) -> void:
+	var sfx := get_node_or_null("Sfx")
+	if sfx == null:
+		return
+	for rect in _button_rects():
+		if (rect as Rect2).has_point(location):
+			sfx.play("ui")
+			return

@@ -144,9 +144,10 @@ const QUESTS := [
 	{"id": "biomass_10000", "name": "Nimmersatt", "description": "Sammle insgesamt 10000 Biomasse.", "stat": "total_biomass", "target": 10000, "reward": {"crowns": 1}},
 	{"id": "runs_10", "name": "Zehn Bruten", "description": "Spiele 10 Runs.", "stat": "runs", "target": 10, "reward": {"unlock": ["reroll"]}},
 	# Etappe 10 (APEX): Moosschlund, Migration, Glutsumpf.
-	{"id": "apex_moosschlund", "name": "Moosschlund bezwungen", "description": "Besiege den Moosschlund.", "stat": "total_apex", "target": 1, "reward": {"crowns": 2, "essence": 200}},
+	{"id": "apex_moosschlund", "name": "Moosschlund bezwungen", "description": "Besiege den Moosschlund.", "stat": "total_moss", "target": 1, "reward": {"crowns": 2, "essence": 200}},
 	{"id": "migration_1", "name": "Migration", "description": "Wandere durch den Migrationsschlund in ein neues Biom.", "stat": "total_migrations", "target": 1, "reward": {"crowns": 1, "essence": 150}},
 	{"id": "glutsumpf_2", "name": "Glutherz", "description": "Überlebe 2 Minuten im Glutsumpf.", "stat": "biome_time:glutsumpf", "target": 120, "reward": {"crowns": 2}},
+	{"id": "apex_aschenkroete", "name": "Aschenkröte bezwungen", "description": "Besiege die Aschenkröte im Glutsumpf.", "stat": "total_toads", "target": 1, "reward": {"crowns": 3, "essence": 300}},
 ]
 
 static func quest(id: String) -> Dictionary:

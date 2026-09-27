@@ -52,25 +52,118 @@ const ACCENT := {
 	"danger": DANGER, "gold": GOLD, "amber": AMBER,
 }
 
-# UI skin switch (UI kit V2 test): "organic" = glowing organic frames (default,
-# stage 04), "calm" = quiet petrol cards/panels/bars from Swarm/Design/UI_Assets_V2
-# (copied to res://assets/ui/v2/). Only ui_frames.gd reads it, so every
-# component that draws through UiFrames switches without changes. The tokens
-# above stay constant; CALM_* is the V2 palette the calm frames map onto.
+# UI skin switch. "calm" (default since the V2 decision) = quiet petrol
+# cards, panels and bars from Swarm/Design/UI_Assets_V2 (copied to
+# res://assets/ui/v2/); "organic" = the glowing organic frames of stage 04,
+# kept as a fully working alternative.
+#
+# The UPPER_CASE tokens above are the organic palette and stay constant (other
+# scripts use them in `const` expressions). Skin-aware colours come from:
+#   UiStyle.color("text")   token by name for the current skin (see TOKENS)
+#   UiStyle.tone(c)         an organic token (or a colour close to one) mapped
+#                           onto the current skin; unchanged in organic and in
+#                           colour-blind mode. text()/text_px() and UiFrames
+#                           apply it, so labels and frames follow the skin.
 const SKINS := ["organic", "calm"]
-static var skin := "organic"
+static var skin := "calm"
 const CALM_BG := Color("09191c")
 const CALM_TEXT := Color("eaf0d9")
+const CALM_TEXT_DIM := Color("a2c4b8")
 const CALM_TEAL := Color("4cdacb")      # DNA, growth
 const CALM_AMBER := Color("d9aa5b")     # biomass, rewards
-const CALM_ORANGE := Color("e9905d")    # attack, danger
+const CALM_GOLD := Color("e6c27a")      # crowns, boss, trophies (light amber)
+const CALM_ORANGE := Color("e9905d")    # attack
+const CALM_ORANGE_LIGHT := Color("f2b36e")  # Rally, highlights
+const CALM_DANGER := Color("e57b53")    # threat fill of the kit
 const CALM_LEAF := Color("b4d778")      # protection
 const CALM_VIOLET := Color("b993e8")    # special
 const CALM_EDGE := Color("37645e")      # quiet panel stroke
+const CALM_CREAM := Color("f4e7bd")     # focus frame, ornaments
+
+const TOKENS := {
+	"organic": {
+		"text": TEXT, "text_dim": TEXT_DIM, "bone": BONE, "outline": OUTLINE,
+		"panel": PANEL, "panel_soft": PANEL_SOFT, "panel_edge": PANEL_EDGE,
+		"shadow": SHADOW, "dim": DIM,
+		"ember": EMBER, "ember_glow": EMBER_GLOW, "cyan": CYAN, "violet": VIOLET,
+		"toxic": TOXIC, "danger": DANGER, "gold": GOLD, "amber": AMBER,
+	},
+	"calm": {
+		"text": CALM_TEXT, "text_dim": CALM_TEXT_DIM, "bone": CALM_CREAM, "outline": Color("041012"),
+		"panel": Color("09191cf0"), "panel_soft": Color("0f2428dc"), "panel_edge": CALM_EDGE,
+		"shadow": Color("02080a80"), "dim": Color("071310b8"),
+		"ember": CALM_ORANGE, "ember_glow": CALM_ORANGE_LIGHT, "cyan": CALM_TEAL, "violet": CALM_VIOLET,
+		"toxic": CALM_LEAF, "danger": CALM_DANGER, "gold": CALM_GOLD, "amber": CALM_AMBER,
+	},
+}
+
+static var _tone_cache: Dictionary = {}
 
 
 static func is_calm() -> bool:
 	return skin == "calm"
+
+
+## Colour token of the current skin (the colour-blind swap stays with
+## accent(), so this is a drop-in for the UPPER_CASE constants) ("text", "text_dim", "bone", "outline",
+## "panel", "panel_soft", "panel_edge", "shadow", "dim", "ember", "ember_glow",
+## "cyan", "violet", "toxic", "danger", "gold", "amber").
+static func color(token: String) -> Color:
+	return TOKENS[skin].get(token, TOKENS["organic"].get(token, TEXT))
+
+
+## Maps an organic palette colour onto the current skin (alpha kept). Colours
+## far from every token (white, custom greys, painted tints) stay unchanged.
+## Identity in the organic skin and in colour-blind mode.
+static func tone(value: Color) -> Color:
+	if skin == "organic" or colorblind:
+		return value
+	var key := Color(value.r, value.g, value.b, 1.0)
+	if not _tone_cache.has(key):
+		_tone_cache[key] = _nearest(key, skin)
+	var mapped: Color = _tone_cache[key]
+	return Color(mapped, value.a)
+
+
+static func _nearest(value: Color, target: String) -> Color:
+	var organic: Dictionary = TOKENS["organic"]
+	var table: Dictionary = TOKENS[target]
+	# Idempotent: a colour already nearer to the target palette than to the
+	# organic one (e.g. a calm token lightened by a component) stays as it is.
+	if _distance(value, table) < _distance(value, organic):
+		return value
+	var best := 0.012
+	var mapped := value
+	for token in organic:
+		var ref: Color = organic[token]
+		var d := Vector3(value.r - ref.r, value.g - ref.g, value.b - ref.b).length_squared()
+		if d < best:
+			best = d
+			mapped = table[token]
+	if mapped == value:
+		# Mixed shades (e.g. EMBER.lerp(WHITE, 0.3)): shift by the offset of the
+		# nearest accent so tints keep their family in the new palette.
+		best = 0.09
+		for token in ["ember", "ember_glow", "cyan", "violet", "toxic", "danger", "gold", "amber", "text", "text_dim", "bone"]:
+			var ref: Color = organic[token]
+			var d := Vector3(value.r - ref.r, value.g - ref.g, value.b - ref.b).length_squared()
+			if d < best:
+				best = d
+				var to: Color = table[token]
+				mapped = Color(clampf(value.r + to.r - ref.r, 0.0, 1.0), clampf(value.g + to.g - ref.g, 0.0, 1.0), clampf(value.b + to.b - ref.b, 0.0, 1.0))
+	if mapped == value and target == "calm" and value.v < 0.45 and value.h > 0.18 and value.h < 0.5:
+		# Dark moss greens of the organic look (card bodies, wells, tracks)
+		# become the kit's petrol with the same saturation and brightness.
+		mapped = Color.from_hsv(0.525, minf(value.s, 0.72), value.v)
+	return mapped
+
+
+static func _distance(value: Color, table: Dictionary) -> float:
+	var best := 9.0
+	for token in table:
+		var ref: Color = table[token]
+		best = minf(best, Vector3(value.r - ref.r, value.g - ref.g, value.b - ref.b).length_squared())
+	return best
 
 
 ## Switches the skin at runtime and repaints every Control (cached UiLayers
@@ -79,6 +172,7 @@ static func set_skin(value: String) -> void:
 	if not SKINS.has(value) or value == skin:
 		return
 	skin = value
+	_tone_cache.clear()
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null or tree.root == null:
 		return
@@ -95,8 +189,9 @@ static var colorblind := false
 
 # Accent colour by token name, honouring the colour-blind switch.
 static func accent(token: String) -> Color:
-	var table: Dictionary = CB_ACCENT if colorblind else ACCENT
-	return table.get(token, TEXT)
+	if colorblind:
+		return CB_ACCENT.get(token, TEXT)
+	return TOKENS[skin].get(token, TEXT)
 
 # Type scale in base-viewport pixels (900 x 1600). Nothing readable below 20.
 const SIZE_HERO := 72
@@ -160,14 +255,19 @@ static func nine(path: String, margins: Vector4, tint: Color = Color.WHITE) -> S
 
 
 # Outlined text; align center when centered. Returns the drawn width.
-static func text(canvas: CanvasItem, value: String, at: Vector2, size: int, color: Color = TEXT, centered: bool = false, outline: int = 6, font: Font = null) -> float:
+static func text(canvas: CanvasItem, value: String, at: Vector2, size: int, tint: Color = TEXT, centered: bool = false, outline: int = 6, font: Font = null) -> float:
 	var face: Font = font if font != null else display_font()
 	var width := face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	var origin := at - Vector2(width * 0.5, 0.0) if centered else at
 	if outline > 0:
-		canvas.draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, outline, OUTLINE)
-	canvas.draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+		canvas.draw_string_outline(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, outline, outline_color())
+	canvas.draw_string(face, origin, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, tone(tint))
 	return width
+
+
+# Text outline of the current skin.
+static func outline_color() -> Color:
+	return color("outline")
 
 
 # Stage 07: every rasterised font size costs a glyph cache (~0.8 MB RAM and
@@ -195,17 +295,17 @@ static func width_px(value: String, px: float, font: Font = null) -> float:
 # Outlined text at a fractional size: drawn at a palette size and scaled, so a
 # pulsing or fitted label adds no new glyph cache. Palette sizes draw exactly
 # like text(). Returns the drawn width.
-static func text_px(canvas: CanvasItem, value: String, at: Vector2, px: float, color: Color = TEXT, centered: bool = false, outline: int = 6, font: Font = null) -> float:
+static func text_px(canvas: CanvasItem, value: String, at: Vector2, px: float, tint: Color = TEXT, centered: bool = false, outline: int = 6, font: Font = null) -> float:
 	var step := size_step(px)
 	if absf(px - step) < 0.01:
-		return text(canvas, value, at, step, color, centered, outline, font)
+		return text(canvas, value, at, step, tint, centered, outline, font)
 	var face: Font = font if font != null else display_font()
 	var k := px / step
 	var width := face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, step).x * k
 	var origin := at - Vector2(width * 0.5, 0.0) if centered else at
 	canvas.draw_set_transform(origin, 0.0, Vector2(k, k))
 	if outline > 0:
-		canvas.draw_string_outline(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, outline, OUTLINE)
-	canvas.draw_string(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, color)
+		canvas.draw_string_outline(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, outline, outline_color())
+	canvas.draw_string(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, step, tone(tint))
 	canvas.draw_set_transform(Vector2.ZERO)
 	return width

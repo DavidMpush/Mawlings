@@ -141,6 +141,10 @@ var milestone_age := 99.0
 var milestone_glow := 0.0
 var _was_more := false
 var heartbeat_on := false
+## Rustle loop state (see _set_rustle); population where it is loudest.
+const MAX_VISIBLE_RUSTLE := 120
+var rustle_on := false
+var rustle_db := 0.0
 
 var shadows: MultiMeshInstance3D
 # One draw call for all visible Mawlings; INSTANCE_CUSTOM = (walk, leg phase, bite, glow + 4 * leader).
@@ -450,6 +454,7 @@ func set_controls(direction: Vector2, rally: bool) -> void:
 	if rally and not rally_pressed and is_inside_tree() and not units.is_empty():
 		var radius := _flow_radius() + 0.6
 		FX.ring(self, global_position, Color(coral_light.r, coral_light.g, coral_light.b, 0.55), radius, radius * 0.42, 0.3)
+		_play("rally")
 	movement_vector = direction.limit_length(1.0)
 	rally_pressed = rally
 
@@ -499,6 +504,7 @@ func _process(delta: float) -> void:
 			game_material.set_shader_parameter("flash", flash * flash)
 		game_material.set_shader_parameter("idle_motion", 0.0)
 		_set_heartbeat(false)
+		_set_rustle(0.0)
 		return
 	game_material.set_shader_parameter("idle_motion", 1.0)
 	var before := position
@@ -523,6 +529,7 @@ func _process(delta: float) -> void:
 		game_material.set_shader_parameter("swarm_glow", milestone_glow * milestone_glow)
 	# Last animal standing after the swarm was bigger: heartbeat loop.
 	_set_heartbeat(population == 1 and _was_more)
+	_set_rustle(swarm_velocity.length() / maxf(0.1, move_speed()))
 
 
 func _animate_units(delta: float) -> void:
@@ -949,6 +956,29 @@ func _set_heartbeat(on: bool) -> void:
 		sfx.start_loop("heartbeat")
 	elif not on and sfx.has_method("stop_loop"):
 		sfx.stop_loop("heartbeat")
+
+
+## Soft rustle loop while the swarm moves: louder with size and speed, stopped
+## when it stands still (with a little hysteresis) or is frozen (pause, end).
+func _set_rustle(speed_share: float) -> void:
+	var sfx := _sfx()
+	if sfx == null or not sfx.has_method("start_loop"):
+		return
+	speed_share = clampf(speed_share, 0.0, 1.0)
+	if speed_share < (0.08 if rustle_on else 0.2):
+		if rustle_on:
+			rustle_on = false
+			sfx.stop_loop("rustle")
+		return
+	var size_share := clampf(float(population) / float(MAX_VISIBLE_RUSTLE), 0.0, 1.0)
+	var volume := lerpf(-14.0, 0.0, size_share) + lerpf(-6.0, 0.0, speed_share)
+	if not rustle_on:
+		rustle_on = true
+		rustle_db = volume
+		sfx.start_loop("rustle", volume)
+	elif absf(volume - rustle_db) > 0.5:
+		rustle_db = volume
+		sfx.set_loop_volume("rustle", volume)
 
 
 # ---------------------------------------------------------------- hits and ghosts

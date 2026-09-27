@@ -278,10 +278,16 @@ const APEX_LATEST_EXTRA := 30.0
 const APEX_FLOOD_MARGIN := 15.0
 const APEX_WARNING_SECONDS := 3.0
 const APEX_SPAWN_DISTANCE := 12.0
-# HP = APEX_HEALTH auf jeder Schwierigkeit (Brutal/Apex bringen ihn schon früher gegen
-# einen kleineren Schwarm) und nicht mit dem Druck skaliert, damit der Kampf in der Zeit
-# bis zur Flut zu schaffen ist.
-const APEX_HEALTH := 650.0
+# HP = APEX_HEALTH x APEX_HEALTH_DIFFICULTY (Wild/Brutal/Apex; Brutal/Apex bringen ihn
+# früher gegen einen kleineren Schwarm), nicht mit dem Druck skaliert, damit der Kampf
+# in der Zeit bis zur Flut zu schaffen ist.
+# Etappe 10 Teil 3: Angriffsformen und Nahkampf messen jetzt zum Körperrand
+# (body_distance) statt zur Mitte – Formen wie Sporenwolke, Stachelrücken und Erdbeben
+# treffen den großen Körper viel öfter. Mit 650 LP dauerte der Kampf im Bot-Median nur
+# noch ~13 s (9–15 s bei starken Builds); 1400 LP geben auf Wild ~28 s (Median der
+# gewonnenen Kämpfe, Zielkorridor 25–35 s).
+const APEX_HEALTH := 1400.0
+const APEX_HEALTH_DIFFICULTY := [1.0, 0.75, 0.6]
 const APEX_BIOMASS := 70.0
 const APEX_DNA := 120
 const APEX_ALPHA_CORES := 2
@@ -326,3 +332,28 @@ const MIGRATION_TRANSITION_SECONDS := 1.1
 const MIGRATION_SWITCH_AT := 0.5
 const MIGRATION_SAFE_RADIUS := 12.0
 const MIGRATION_ARRIVAL_GRACE := 2.0
+
+# Etappe 10 (Teil 3) – zweiter Apex „Aschenkröte“ (scripts/apex_toad.gd, Muster und
+# Formen dort) und Biom-Kreislauf. Ein Apex je Biom-Besuch: der Apex des Startbioms
+# kommt nach APEX_SPAWN_SECONDS, nach jeder Migration erscheint der Apex des neuen
+# Bioms APEX_ARRIVAL_DELAY s nach der Ankunft (Glutsumpf = Aschenkröte, Verdant Maw =
+# Moosschlund), sobald die Population die Schwelle erreicht (spätestens
+# APEX_LATEST_EXTRA s danach). Die Kröte braucht einen größeren Schwarm als der
+# Moosschlund: nach Moosschlund und Migration hat ein normaler Lauf 50-90 Tiere.
+const APEX_ARRIVAL_DELAY := 100.0
+const APEX_TOAD_MIN_POPULATION := 40
+# LP: überschreibt apex_toad.HEALTH (1500, dort nur für den Einzeltest mit fester DPS).
+# Im Run ist der Schwarm bei der Kröte (~100 s nach der Ankunft, meist in der Flut)
+# viel stärker als der Einzeltest annimmt, und Formen treffen den Rand: Bot-Läufe
+# ohne Flut (balance_sim noflood, Obergrenze der Schwarm-DPS) brauchten mit 1500 LP
+# ~11 s, mit 3000 LP ~18 s (≈ 4 s Immun-/Ausweichzeit + LP / ~210 DPS). In der Flut
+# ist der Schwarm etwa halb so stark; 3600 LP zielen dort auf ~35–45 s.
+const APEX_TOAD_HEALTH := 3600.0
+const APEX_TOAD_BIOMASS := 80.0
+const APEX_TOAD_DNA := 150
+const APEX_TOAD_ALPHA_CORES := 2
+# Jeder weitere Durchlauf durch den Kreislauf (Moosschlund und Kröte kehren zurück):
+# LP x APEX_LOOP_HEALTH^Durchlauf, Verluste x APEX_LOOP_DAMAGE^Durchlauf (zusätzlich
+# zum Druck, der ohnehin exponentiell steigt).
+const APEX_LOOP_HEALTH := 1.6
+const APEX_LOOP_DAMAGE := 1.25

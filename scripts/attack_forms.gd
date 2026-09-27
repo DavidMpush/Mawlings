@@ -578,7 +578,7 @@ func _step_spores(delta: float, origin: Vector3, living: Array) -> void:
 	var dps: float = SPORE_DPS[level - 1] * _enemy_scale
 	var inside := {}
 	for target in living:
-		if _flat_distance(target.global_position, origin) > radius:
+		if _target_distance(target, origin) > radius:
 			continue
 		_hurt(target, dps * delta, "sporenwolke")
 		if "slow_factor" in target:
@@ -716,7 +716,7 @@ func _step_puddles(delta: float, living: Array) -> void:
 			entry.active = false
 			continue
 		for target in living:
-			if _flat_distance(target.global_position, entry.center) <= PUDDLE_RADIUS:
+			if _target_distance(target, entry.center) <= PUDDLE_RADIUS:
 				_hurt(target, PUDDLE_DPS * _enemy_scale * delta, "aetzflut")
 		if _has_horde():
 			horde.damage_circle(entry.center, PUDDLE_RADIUS, PUDDLE_DPS * _enemy_scale * delta)
@@ -806,7 +806,7 @@ func _step_dig(delta: float, origin: Vector3, living: Array) -> void:
 func _farthest_aims(living: Array, origin: Vector3, reach: float, count: int) -> Array:
 	var ranked: Array = []
 	for target in living:
-		var distance := _flat_distance(target.global_position, origin)
+		var distance := _target_distance(target, origin)
 		if distance <= reach:
 			ranked.append([distance, target])
 	ranked.sort_custom(func(a, b): return a[0] > b[0])
@@ -933,7 +933,7 @@ func _step_chain(delta: float, origin: Vector3, living: Array, rally: bool) -> v
 				brood_loaded = true
 				brood = horde.call("positions") if _has_horde() else PackedVector3Array()
 			brood_index = _nearest_unused_brood(brood, at, limit, used_brood)
-		if brood_index >= 0 and node != null and _flat_distance(node.global_position, at) <= _flat_distance(brood[brood_index], at):
+		if brood_index >= 0 and node != null and _target_distance(node, at) <= _flat_distance(brood[brood_index], at):
 			brood_index = -1
 		if brood_index >= 0:
 			used_brood[brood_index] = true
@@ -967,7 +967,7 @@ func _nearest_unused(living: Array, at: Vector3, reach: float, used: Dictionary)
 	for target in living:
 		if used.has(target.get_instance_id()) or not _valid_target(target):
 			continue
-		var distance := _flat_distance(target.global_position, at)
+		var distance := _target_distance(target, at)
 		if distance <= best_distance:
 			best = target
 			best_distance = distance
@@ -1034,7 +1034,7 @@ func _burst_sac(at: Vector3, level: int) -> void:
 	var aims: Array = []
 	var ranked: Array = []
 	for target in _targets_near(at, BITER_REACH):
-		ranked.append([_flat_distance(target.global_position, at), target])
+		ranked.append([_target_distance(target, at), target])
 	ranked.sort_custom(func(a, b): return a[0] < b[0])
 	for entry in ranked:
 		aims.append({"target": entry[1], "at": _flat(entry[1].global_position)})
@@ -1351,7 +1351,7 @@ func _nearest(living: Array, origin: Vector3, reach: float) -> Node3D:
 	var best: Node3D = null
 	var best_distance := reach
 	for target in living:
-		var distance := _flat_distance(target.global_position, origin)
+		var distance := _target_distance(target, origin)
 		if distance <= best_distance:
 			best = target
 			best_distance = distance
@@ -1362,7 +1362,7 @@ func _targets_near(center: Vector3, radius: float) -> Array:
 	# _current wurde in diesem step() gefiltert; Schaden davor kann Ziele töten.
 	var result: Array = []
 	for target in _current:
-		if _valid_target(target) and _flat_distance(target.global_position, center) <= radius:
+		if _valid_target(target) and _target_distance(target, center) <= radius:
 			result.append(target)
 	return result
 
@@ -1419,6 +1419,14 @@ func _flat(location: Vector3) -> Vector3:
 
 func _flat_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+# Abstand eines Ziels zu `point`: große Bosse (Moosschlund, Aschenkröte) melden
+# über body_distance() den Abstand zum Körperrand, sonst zählt die Mitte.
+func _target_distance(target: Node3D, point: Vector3) -> float:
+	if target.has_method("body_distance"):
+		return float(target.body_distance(point))
+	return _flat_distance(target.global_position, point)
 
 
 # --- Aufbau und Pools ----------------------------------------------------

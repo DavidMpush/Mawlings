@@ -29,11 +29,18 @@ CHARACTERS = {
     "small_drop": ("SmallDrop", 800, "props", "smallsharddrop"),
     "medium_drop": ("MediumDrop", 1200, "props", "mediumdrop"),
     "big_drop": ("BigDrop", 2000, "props", "bigdrop"),
+    # Fluch-Totem objective (scripts/objectives/curse_totem.gd).
+    "totem": ("CurseTotem", 2000, "props", "CurseTotem"),
+    # Alpha-Kern pickup and Migrationsschlund (stage 10 objectives).
+    "alpha_core": ("AlphaCore", 1500, "props", "alphacore"),
+    "migration_pit": ("MigrationPit", 3000, "props", "migration pit"),
+    # Jäger (hunter.gd).
+    "hunter_beetle": ("HunterBeetle", 3000, "characters", "Hunter Beetle"),
 }
 # Hunyuan meshes split ~30 % of their vertices along UV seams. Unwelded, the
 # simplifier treats every seam as a border and leaves splinter-like shards, so
 # these models are welded by position first (colours averaged per point).
-WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower", "small_drop", "medium_drop", "big_drop"}
+WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower", "small_drop", "medium_drop", "big_drop", "totem", "alpha_core", "migration_pit", "hunter_beetle"}
 
 
 def read_glb(path):

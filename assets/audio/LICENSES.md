@@ -1,6 +1,6 @@
 # Audio-Herkunft und Lizenzen
 
-Alle Dateien in `assets/audio/` sind entweder **prozedural** erzeugt (`tools/gen_sfx.py`, eigene Synthese, keine Fremdrechte) oder aus **vom Nutzer gelieferten Aufnahmen** abgeleitet (`tools/import_user_sfx.py`). Die Originale liegen unverändert in `C:\Users\vrxby\Documents\Codex\Swarm\Design\Sounds\` und werden **nicht** ins Repository oder den Export kopiert; im Spiel liegen nur gekürzte, gefilterte, in Mono umgewandelte Varianten.
+Alle Dateien in `assets/audio/` sind entweder **prozedural** erzeugt (`tools/gen_sfx.py`, eigene Synthese, keine Fremdrechte), aus dem **Audio-Paket V1** des Nutzers (selbst synthetisiert, lizenzfrei) oder aus **vom Nutzer gelieferten Aufnahmen** abgeleitet (`tools/import_user_sfx.py`). Die Originale liegen unverändert in `C:\Users\vrxby\Documents\Codex\Swarm\Design\Sounds\` und werden **nicht** ins Repository oder den Export kopiert; im Spiel liegen nur gekürzte, gefilterte, in Mono umgewandelte Varianten.
 
 ## Mixkit-Dateien (Mixkit Sound Effects Free License)
 
@@ -33,6 +33,28 @@ Der Nutzer hat bestätigt, dass alle gelieferten Sounds lizenzfreie Stock-Sounds
 | `merge-3-mobile-game-short-7ir6tzte.wav` | `grow_1..3` | Stock, lizenzfrei (Nutzerangabe) |
 | `sling-streching-sfx-for-m-vpiblugt.wav` | `leaper_windup_1..2` | Stock, lizenzfrei (Nutzerangabe) |
 
+## Audio-Paket V1 (vom Nutzer selbst synthetisiert, lizenzfrei, 27.09.2026)
+
+Quelle: `C:\Users\vrxby\Documents\Codex\Swarm\Design\Audio\` (`build_audio.py`, eigene Oszillatoren und generiertes Rauschen, keine Fremd-Samples). Keine Fremdrechte, keine Namensnennung nötig. Verarbeitung reproduzierbar in `tools/import_user_sfx.py` (Rezepte mit `"dir": "v1"`, Musik in `MUSIC_RECIPES`).
+
+| Quelldatei | Spiel-IDs |
+|---|---|
+| `SFX/bite_01..03.wav` | `bite_1..4` (ersetzt prozedurales `bite`) |
+| `SFX/enemy_telegraph.wav` | `warn_1..3` (ersetzt prozedurales `warn`) |
+| `SFX/ui_tap.wav` | `ui_1..3` (ersetzt prozedurales `ui`) |
+| `SFX/run_end.wav` | `extinct_1..2` (ersetzt prozedurales `extinct`) |
+| `SFX/rally.wav` | `rally_1..2` |
+| `SFX/corpse_harvest.wav` | `harvest_1..3` |
+| `SFX/dna_gain.wav` | `dna_1..2` |
+| `SFX/threat_rise.wav` | `threat_1..2` |
+| `SFX/population_loss.wav` | `loss_1..2` |
+| `SFX/swarm_feeding_cluster.wav` | `feed_1` (Loop) |
+| `SFX/swarm_rustle_01..02.wav` | `rustle_1` (Loop, beide Dateien verbunden) |
+| `Music/mawlings_arena_loop_96bpm.wav` | `assets/music/v1_arena.wav` (Musikstil „v1“) |
+| `Music/mawlings_boss_loop_128bpm.wav` | `assets/music/v1_boss.wav` (Musikstil „v1“) |
+
+Nicht übernommen (Ereignis bereits besetzt): `mutation_select` (`mutate`), `boss_entrance` (`boss_roar` + Stinger `boss`).
+
 ## Prozedural (eigene Synthese)
 
-`bite`, `hit`, `warn`, `stomp`, `extinct`, `pickup`, `ui`, `leader_hit`, `leader_swap`, `heartbeat`, `ambience_jungle` sowie die Musik unter `assets/music/` (`tools/gen_music.py`).
+`hit`, `stomp`, `pickup`, `leader_hit`, `leader_swap`, `heartbeat`, `ambience_jungle` sowie die klassische Musik unter `assets/music/` (`tools/gen_music.py`). Die prozeduralen Fassungen von `bite`, `warn`, `ui`, `extinct` erzeugt `tools/gen_sfx.py` nur noch, wenn die V1-Quellen fehlen.

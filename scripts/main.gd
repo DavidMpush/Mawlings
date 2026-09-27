@@ -225,6 +225,9 @@ func _apply_settings(settings: Variant) -> void:
 	var music := get_node_or_null("Music")
 	if music != null and settings is Dictionary:
 		music.set_enabled(bool(settings.get("sound", true)))
+		# Menu switch "MUSIK: KLASSIK V1": audio pack V1 loops instead of the adaptive stems.
+		if music.has_method("set_style"):
+			music.set_style("v1" if bool(settings.get("music_v1", false)) else "classic")
 
 
 func _create_sfx() -> void:

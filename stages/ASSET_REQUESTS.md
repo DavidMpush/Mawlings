@@ -17,15 +17,15 @@ Priorität: **A** = ersetzt heute sichtbare Platzhalter, **B** = macht Menü/Mar
 
 | Asset | heute | Motivzusatz (an 3D-Vorlage anhängen) |
 |---|---|---|
-| Jäger | Kugel-Primitiv | `Original fast purple-magenta pack predator beetle-lizard, low armored body, four bent legs, narrow blade-like head with two curved horns, short shoulder spines, glowing orange eyes.` |
+| ~~Jäger~~ ✅ geliefert | Kugel-Primitiv | `Original fast purple-magenta pack predator beetle-lizard, low armored body, four bent legs, narrow blade-like head with two curved horns, short shoulder spines, glowing orange eyes.` |
 | Skitter | Primitiv | `Original small blue-magenta sprinting insect-lizard, very long thin legs, flat streamlined body, two sickle-shaped front claws, pink glowing back stripe.` |
 | Moorbrut (Horde) | umgefärbter Mawling | `Original tiny swamp brood creature, almost black olive body, round head that is mostly jaw, toxic yellow eyes and a thin yellow ridge along the back, crouched, four stubby legs.` |
 | Moosschlund (Apex 1) | umgefärbter Bog King | `Original colossal moss-covered swamp beast boss, huge wide maw with wooden-looking teeth, two tangled root antlers, back covered in moss and small glowing green spore bulbs, heavy low body, thick short legs.` |
 | Aschenkröte (Apex 2) | Platzhalter (in Arbeit) | `Original giant lava toad boss, cracked charcoal-black skin with glowing orange magma seams, wide mouth, huge hind legs folded for jumping, three bubbling ember blisters on its back.` |
 | Brutnest | Primitive | `One organic nest of woven dark roots and moss holding five turquoise speckled eggs, one egg slightly cracked with warm light inside, low and wide.` |
-| Fluch-Totem | Primitive | `One carved swamp totem pole of bone and dark wood, a snarling maw face on top, pink glowing runes, small skulls tied with vines, slightly leaning.` |
-| Alpha-Kern | Primitive | `One floating organic amber core crystal cradled inside a violet bony shell like a half-open claw, glowing warm center.` |
-| Migrationsschlund | Primitive | `One giant organic portal shaped like an open maw in the ground, violet fleshy lips, ring of bone teeth, swirling glowing vortex inside.` |
+| ~~Fluch-Totem~~ ✅ geliefert | Primitive | `One carved swamp totem pole of bone and dark wood, a snarling maw face on top, pink glowing runes, small skulls tied with vines, slightly leaning.` |
+| ~~Alpha-Kern~~ ✅ geliefert | Primitive | `One floating organic amber core crystal cradled inside a violet bony shell like a half-open claw, glowing warm center.` |
+| ~~Migrationsschlund~~ ✅ geliefert | Primitive | `One giant organic portal shaped like an open maw in the ground, violet fleshy lips, ring of bone teeth, swirling glowing vortex inside.` |
 | Elite-Krone (Aufsatz) | Primitive | `One small crooked golden crown made of bone spikes with one amber gem, crude tribal style.` |
 
 ## A – Stamm-Anführer (je ein Modell, alle nach +Z/frontal, Glutmaw existiert als Mawling)
@@ -50,6 +50,8 @@ Gemeinsamer Zusatz: `Original tiny alien pack predator leader, compact low body,
 | Lava-Schlot | `One low volcanic vent mound with a small bubbling magma pool on top, rocky dark rim.` |
 
 ## B – 2D-Grafiken (PNG, transparent wo nicht anders angegeben)
+
+✅ Geliefert und eingebaut (UI_Assets_V2-Erweiterung): Logo, App-Icon, Menü-Hintergrund, Biomkarten, Stamm- und Bog-King-Porträts, Angriffs-/Evolutions-/Anlagen-/Währungs-Icons (`assets/ui/v3/`). Noch offen: Porträts **Moosschlund** und **Aschenkröte** (die gelieferten spine_mother/crownfang passen nicht), Icons für Stachelrücken und Brutsack in eigenem Motiv.
 
 | Asset | Größe | Prompt (an passende Vorlage anhängen) |
 |---|---|---|

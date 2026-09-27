@@ -109,7 +109,7 @@ func _paint_part(part: String) -> void:
 			_draw_top_bar()
 		"chips", "alpha_glow", "alpha_top":
 			var pressure_rect := _draw_pressure_chip(_row_y)
-			_draw_threat_chips(_row_y, pressure_rect.position.x - GAP)
+			_draw_threat_chips(_row_y, _threat_limit(pressure_rect), _threat_start(pressure_rect))
 			_draw_alpha_chip(_row_y, pressure_rect.end.x + GAP)
 		"boss":
 			if _boss_y >= 0.0:
@@ -135,7 +135,7 @@ func _layout() -> void:
 	_paint = ""
 	_row_y = _draw_top_bar() + 12.0
 	_pressure_rect = _draw_pressure_chip(_row_y)
-	var left_y := _draw_threat_chips(_row_y, _pressure_rect.position.x - GAP)
+	var left_y := _draw_threat_chips(_row_y, _threat_limit(_pressure_rect), _threat_start(_pressure_rect))
 	_right_y = _draw_alpha_chip(_row_y, _pressure_rect.end.x + GAP)
 	var y := maxf(left_y, _pressure_rect.end.y + 12.0)
 	_chips_bottom = maxf(y, _right_y)
@@ -324,7 +324,7 @@ func _pressure_text() -> String:
 
 
 func _danger_color() -> Color:
-	return UiStyle.AMBER.lerp(UiStyle.DANGER, _danger_fraction())
+	return UiStyle.color("amber").lerp(UiStyle.color("danger"), _danger_fraction())
 
 
 # ---------------------------------------------------------------- drawing
@@ -332,8 +332,8 @@ func _danger_color() -> Color:
 func _draw_backdrop() -> void:
 	# Soft dark falloff behind the top bar so it reads over bright ground.
 	var h := 190.0
-	var top := Color(UiStyle.OUTLINE, 0.62)
-	var bottom := Color(UiStyle.OUTLINE, 0.0)
+	var top := Color(UiStyle.color("outline"), 0.62)
+	var bottom := Color(UiStyle.color("outline"), 0.0)
 	_cv.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(size.x, 0), Vector2(size.x, h), Vector2(0, h)]), PackedColorArray([top, top, bottom, bottom]))
 
 
@@ -361,19 +361,21 @@ func _draw_top_bar() -> float:
 func _draw_swarm(rect: Rect2) -> void:
 	var pop := int(_hud_value("population", 0))
 	var gain := _pop_delta >= 0
-	var pulse_color := UiStyle.TOXIC if gain else UiStyle.DANGER
-	var accent := UiStyle.EMBER.lerp(pulse_color, _pop_pulse * 0.8)
+	var pulse_color := UiStyle.color("toxic") if gain else UiStyle.color("danger")
+	var accent := UiStyle.color("ember").lerp(pulse_color, _pop_pulse * 0.8)
 	var hurt := 0.0 if gain else _loss_strength * _pop_pulse
 	if hurt > 0.0:
-		_panel_glow(rect, UiStyle.DANGER, 0.55 * hurt)
+		_panel_glow(rect, UiStyle.color("danger"), 0.55 * hurt)
 	_panel(rect, accent, 16.0, false)
 	var head_c := rect.position + Vector2(52, 52)
-	if _pop_pulse > 0.0:
+	if _pop_pulse > 0.0 and not UiStyle.is_calm():
 		_cv.draw_circle(head_c, 40 + 8 * _pop_pulse + 10 * hurt, Color(pulse_color, 0.25 * _pop_pulse + 0.2 * hurt))
-	if not _icon(["mawling_head_color", "mawling_head"], Rect2(head_c - Vector2(40, 40), Vector2(80, 80)), Color.WHITE):
-		_fb_head(head_c, 36, UiStyle.EMBER)
+	var head_ids := ["v2_population"] if UiStyle.is_calm() else ["mawling_head_color", "mawling_head"]
+	var head_r := 34.0 if UiStyle.is_calm() else 40.0
+	if not _icon(head_ids, Rect2(head_c - Vector2(head_r, head_r), Vector2(head_r, head_r) * 2.0), Color.WHITE):
+		_fb_head(head_c, 36, UiStyle.color("ember"))
 	var x := rect.position.x + 102
-	_label("SCHWARM", Vector2(x, rect.position.y + 28), UiStyle.EMBER_GLOW)
+	_label("SCHWARM", Vector2(x, rect.position.y + 28), UiStyle.color("text_dim") if UiStyle.is_calm() else UiStyle.color("ember_glow"))
 	# Big number grows and tints on change, then settles back.
 	var num_size := roundf(54 + 8 * _ease(_pop_pulse))
 	var num_color := Color.WHITE.lerp(pulse_color.lightened(0.25), _pop_pulse)
@@ -384,7 +386,7 @@ func _draw_swarm(rect: Rect2) -> void:
 	elif hurt > 0.0:
 		at.x += sin(_time * 70.0) * 7.0 * hurt
 	var w := UiStyle.text_px(_cv, "%d" % pop, at, num_size, num_color, false, 9)
-	UiStyle.text(_cv, "/ %d" % MAX_POPULATION, Vector2(x + w + 6, rect.position.y + 82), LABEL, UiStyle.TEXT_DIM, false, 5, UiStyle.body_font())
+	UiStyle.text(_cv, "/ %d" % MAX_POPULATION, Vector2(x + w + 6, rect.position.y + 82), LABEL, UiStyle.color("text_dim"), false, 5, UiStyle.body_font())
 	# Floating delta ("+7" / "−12") rises out of the number.
 	if _pop_pulse > 0.0 and _pop_delta != 0:
 		var rise := (1.0 - _pop_pulse) * 12.0
@@ -394,7 +396,7 @@ func _draw_swarm(rect: Rect2) -> void:
 		UiStyle.text(_cv, "%s%d" % [sign_text, absi(_pop_delta)], Vector2(rect.end.x - 30, rect.position.y + 44 - rise), UiStyle.SIZE_BODY, Color(pulse_color.lightened(0.2), minf(1.0, _pop_pulse * 1.6)), true, 6)
 	# Population fill along the lower rim.
 	var fill := clampf(float(pop) / MAX_POPULATION, 0.0, 1.0)
-	_bar(Rect2(x, rect.end.y - 10, rect.end.x - x - 16, 6), fill, UiStyle.EMBER)
+	_bar(Rect2(x, rect.end.y - 10, rect.end.x - x - 16, 6), fill, UiStyle.color("ember"))
 
 
 func _draw_time(rect: Rect2) -> void:
@@ -404,19 +406,25 @@ func _draw_time(rect: Rect2) -> void:
 	var bar := Rect2(rect.position.x + 18, rect.position.y + 70, rect.size.x - 78, 18)
 	var skull_c := Vector2(rect.end.x - 32, bar.get_center().y - 2)
 	if _paint == "time":
-		_panel(rect, UiStyle.PANEL_EDGE.lerp(color, 0.35 + 0.65 * fraction), 18.0, false)
+		_panel(rect, UiStyle.color("panel_edge").lerp(color, 0.35 + 0.65 * fraction), 18.0, false)
 		var elapsed: float = _hud_value("elapsed", 0.0)
 		var cx := rect.get_center().x
-		UiStyle.text(_cv, "%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60], Vector2(cx, rect.position.y + 58), 50, UiStyle.TEXT, true, 8)
-		# Danger bar in segments, skull at the end.
-		_segments(bar, maxf(0.05, fraction), color, 10)
+		UiStyle.text(_cv, "%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60], Vector2(cx, rect.position.y + 58), 50, UiStyle.color("text"), true, 8)
+		# Danger bar in segments, skull at the end. Calm: one kit track with the
+		# threat fill (progress_track + progress_fill_threat look).
+		if UiStyle.is_calm():
+			_bar(bar.grow_individual(0, -2, 0, -2), maxf(0.05, fraction), color)
+		else:
+			_segments(bar, maxf(0.05, fraction), color, 10)
 	elif _paint == "time_glow":
 		# Drawn at rest size and full alpha; the layer's scale/modulate breathe it
 		# (radius 22 + 6 * pulse, alpha 0.22 + 0.25 * pulse).
 		if hot > 0.0:
-			_cv.draw_circle(skull_c, 22, UiStyle.DANGER)
+			_cv.draw_circle(skull_c, 18 if UiStyle.is_calm() else 22, UiStyle.color("danger"))
 	elif _paint == "time_skull":
-		if not _icon(["skull"], Rect2(skull_c - Vector2(24, 24), Vector2(48, 48)), Color.WHITE.lerp(UiStyle.AMBER, 0.5 * (1.0 - fraction))):
+		if UiStyle.is_calm() and _icon(["v2_threat"], Rect2(skull_c - Vector2(21, 21), Vector2(42, 42)), Color.WHITE):
+			return
+		if not _icon(["skull"], Rect2(skull_c - Vector2(24, 24), Vector2(48, 48)), Color.WHITE.lerp(UiStyle.color("amber"), 0.5 * (1.0 - fraction))):
 			_fb_skull(skull_c, 17, color)
 
 
@@ -426,34 +434,62 @@ func _draw_dna(rect: Rect2) -> void:
 	var dna := 0 if evo == null else int(evo.get("dna"))
 	var needed := 20 if evo == null else int(evo.threshold())
 	var maxed := evo != null and bool(evo.complete())
-	_panel(rect, UiStyle.CYAN.lerp(Color.WHITE, _level_pulse * 0.5), 16.0, false)
+	_panel(rect, UiStyle.color("cyan").lerp(Color.WHITE, _level_pulse * 0.5), 16.0, false)
 	var helix_c := rect.position + Vector2(30, 50)
-	if _level_pulse > 0.0:
-		_cv.draw_circle(helix_c, 30 + 10 * _level_pulse, Color(UiStyle.CYAN, 0.3 * _level_pulse))
+	if _level_pulse > 0.0 and not UiStyle.is_calm():
+		_cv.draw_circle(helix_c, 30 + 10 * _level_pulse, Color(UiStyle.color("cyan"), 0.3 * _level_pulse))
 	if not _icon(["dna"], Rect2(helix_c - Vector2(34, 34), Vector2(68, 68)), Color.WHITE):
-		_fb_helix(helix_c, 62, UiStyle.CYAN)
+		_fb_helix(helix_c, 62, UiStyle.color("cyan"))
 	var x := rect.position.x + 60
 	var lv_size := roundf(38 + 8 * _ease(_level_pulse))
-	UiStyle.text_px(_cv, "LV %d" % level, Vector2(x, rect.position.y + 48), lv_size, Color.WHITE.lerp(UiStyle.CYAN.lightened(0.4), _level_pulse), false, 8)
-	_bar(Rect2(x, rect.position.y + 58, rect.end.x - x - 14, 12), 1.0 if maxed else clampf(float(dna) / maxf(1.0, needed), 0.0, 1.0), UiStyle.CYAN)
+	UiStyle.text_px(_cv, "LV %d" % level, Vector2(x, rect.position.y + 48), lv_size, Color.WHITE.lerp(UiStyle.color("cyan").lightened(0.4), _level_pulse), false, 8)
+	_bar(Rect2(x, rect.position.y + 58, rect.end.x - x - 14, 12), 1.0 if maxed else clampf(float(dna) / maxf(1.0, needed), 0.0, 1.0), UiStyle.color("cyan"))
 	var dna_text := "MAX" if maxed else "%d/%d DNA" % [dna, needed]
 	if _text_width(dna_text, LABEL) > rect.end.x - x - 8.0:
 		dna_text = "%d/%d" % [dna, needed]
-	UiStyle.text(_cv, dna_text, Vector2(x, rect.position.y + 92), LABEL, UiStyle.CYAN.lightened(0.45), false, 5, UiStyle.body_font())
+	UiStyle.text(_cv, dna_text, Vector2(x, rect.position.y + 92), LABEL, UiStyle.color("cyan").lightened(0.45), false, 5, UiStyle.body_font())
 
 
 func _draw_pause(rect: Rect2) -> void:
 	if _lib_has(_frames, "button"):
 		_frames.call("button", _cv, rect, "secondary", false)
 	else:
-		_panel(rect, UiStyle.BONE, 18.0, false)
+		_panel(rect, UiStyle.color("bone"), 18.0, false)
 	var c := rect.get_center()
 	if not _icon(["pause"], Rect2(c - Vector2(30, 30), Vector2(60, 60)), Color.WHITE):
 		for dx in [-15.0, 5.0]:
 			var bar := Rect2(c + Vector2(dx, -19), Vector2(10, 38))
-			_cv.draw_rect(Rect2(bar.position + Vector2(0, 3), bar.size), UiStyle.SHADOW)
-			_cv.draw_rect(bar, UiStyle.BONE)
+			_cv.draw_rect(Rect2(bar.position + Vector2(0, 3), bar.size), UiStyle.color("shadow"))
+			_cv.draw_rect(bar, UiStyle.color("bone"))
 			_cv.draw_rect(Rect2(bar.position, Vector2(4, bar.size.y)), Color(1, 1, 1, 0.35))
+
+
+# Minimap stage: with the round minimap in the top-left corner the left column
+# (chips, boss bar, corpse/biomass hints) starts right of it.
+func _left_x() -> float:
+	var hud := get_parent()
+	if hud != null and bool(hud.get("minimap_enabled")) and hud.has_method("_minimap_rect"):
+		return (hud._minimap_rect() as Rect2).end.x + 20.0
+	return 16.0
+
+
+func _inset() -> bool:
+	return _left_x() > 16.5
+
+
+# First threat chip x (after the pressure chip when the minimap takes the corner).
+func _threat_start(pressure_rect: Rect2) -> float:
+	return pressure_rect.end.x + GAP if _inset() else 16.0
+
+
+func _threat_limit(pressure_rect: Rect2) -> float:
+	if not _inset():
+		return pressure_rect.position.x - GAP
+	var limit := size.x - 120.0
+	var cores := int(_hud_value("alpha_cores", 0))
+	if cores > 0:
+		limit = minf(limit, size.x - 16.0 - (_text_width("ALPHA-KERN ×%d" % cores, LABEL) + 58.0) - GAP)
+	return limit
 
 
 # Pressure multiplier below the run time; returns its rect.
@@ -461,19 +497,19 @@ func _draw_pressure_chip(y: float) -> Rect2:
 	var text := _pressure_text()
 	var color := _danger_color()
 	var w := _text_width(text, LABEL) + 40
-	var rect := Rect2(size.x * 0.5 - w * 0.5, y, w, ROW_H - 4)
+	var rect := Rect2(_left_x() if _inset() else size.x * 0.5 - w * 0.5, y, w, ROW_H - 4)
 	if _paint != "chips":
 		return rect
 	var hot := smoothstep(0.55, 0.9, _danger_fraction())
 	if hot > 0.0:
-		_pill(rect.grow(4), Color(UiStyle.DANGER, 0.0), Color(UiStyle.DANGER, hot * (0.2 + 0.15 * sin(_time * 6.0))))
-	_pill(rect, color, UiStyle.PANEL_SOFT.lerp(Color(UiStyle.DANGER, 0.8), hot * 0.35))
+		_pill(rect.grow(4), Color(UiStyle.color("danger"), 0.0), Color(UiStyle.color("danger"), hot * (0.2 + 0.15 * sin(_time * 6.0))))
+	_pill(rect, color, UiStyle.color("panel_soft").lerp(Color(UiStyle.color("danger"), 0.8), hot * 0.35))
 	UiStyle.text(_cv, text, Vector2(rect.get_center().x, rect.position.y + 26), LABEL, color.lerp(Color.WHITE, 0.5 + 0.4 * hot), true, 5, UiStyle.body_font())
 	return rect
 
 
 # Threat chips from the left; wraps below when the row runs out. Returns next y.
-func _draw_threat_chips(y: float, right_limit: float) -> float:
+func _draw_threat_chips(y: float, right_limit: float, start_x: float = 16.0) -> float:
 	var entries := []
 	var hunters := int(_hud_value("hunters", 0))
 	var skitters := int(_hud_value("skitters", 0))
@@ -486,11 +522,12 @@ func _draw_threat_chips(y: float, right_limit: float) -> float:
 		entries.append(["LEAPER %d" % leapers, LEAPER_COLOR])
 	if entries.is_empty():
 		return y
-	var x := 16.0
+	var x := start_x
+	var wrap_x := _left_x()
 	for entry in entries:
 		var w := _text_width(entry[0], LABEL) + 52
-		if x > 16.0 and x + w > right_limit:
-			x = 16.0
+		if x > wrap_x + 0.5 and x + w > right_limit:
+			x = wrap_x
 			y += ROW_H + 4
 		var rect := Rect2(x, y, w, ROW_H - 4)
 		var accent: Color = entry[1]
@@ -517,14 +554,14 @@ func _draw_alpha_chip(y: float, left_limit: float) -> float:
 	_gem_c = gem_c
 	match _paint:
 		"chips":
-			_pill(rect, UiStyle.VIOLET, Color(UiStyle.PANEL.darkened(0.2), 0.92).lerp(UiStyle.VIOLET, 0.12))
+			_pill(rect, UiStyle.color("violet"), Color(UiStyle.color("panel").darkened(0.2), 0.92).lerp(UiStyle.color("violet"), 0.12))
 		"alpha_glow":
 			# Full alpha here; the layer's modulate pulses it (0.2 + 0.15 * sin).
-			_cv.draw_circle(gem_c, 16, UiStyle.VIOLET)
+			_cv.draw_circle(gem_c, 16, UiStyle.color("violet"))
 		"alpha_top":
 			if not _icon(["alpha_core"], Rect2(gem_c - Vector2(18, 18), Vector2(36, 36)), Color.WHITE):
 				_fb_gem(gem_c, 12)
-			UiStyle.text(_cv, text, rect.position + Vector2(44, 26), LABEL, UiStyle.GOLD.lightened(0.3), false, 5, UiStyle.body_font())
+			UiStyle.text(_cv, text, rect.position + Vector2(44, 26), LABEL, UiStyle.color("gold").lightened(0.3), false, 5, UiStyle.body_font())
 	return y + ROW_H + 4
 
 
@@ -534,30 +571,38 @@ func _draw_boss_bar(y: float) -> float:
 	var max_health: float = maxf(1.0, _hud_value("boss_max_health", 1.0))
 	var vulnerable: bool = _hud_value("boss_vulnerable", false)
 	var blink := 0.5 + 0.5 * sin(_time * 7.0)
-	var accent := UiStyle.GOLD if vulnerable else UiStyle.EMBER
+	var accent := UiStyle.color("gold") if vulnerable else UiStyle.color("ember")
 	var w := minf(620.0, size.x - 2 * 110.0)
 	var rect := Rect2(size.x * 0.5 - w * 0.5, y, w, 84)
+	if _inset():
+		var avail := size.x - 110.0 - _left_x()
+		w = minf(620.0, avail)
+		rect = Rect2(_left_x() + (avail - w) * 0.5, y, w, 84)
 	if _paint != "boss":
 		return rect.end.y
 	if vulnerable:
-		_panel_glow(rect, UiStyle.GOLD, 0.25 + 0.25 * blink)
-	_panel(rect, accent, 16.0, true, UiStyle.PANEL.lerp(Color(UiStyle.DANGER, 0.9), 0.12))
+		_panel_glow(rect, UiStyle.color("gold"), 0.25 + 0.25 * blink)
+	_panel(rect, accent, 16.0, true, UiStyle.color("panel").lerp(Color(UiStyle.color("danger"), 0.9), 0.12))
 	var crown_c := rect.position + Vector2(48, 42)
-	_cv.draw_circle(crown_c + Vector2(0, 4), 31, UiStyle.SHADOW)
-	_cv.draw_circle(crown_c, 31, UiStyle.PANEL.darkened(0.3))
-	_cv.draw_arc(crown_c, 30, 0, TAU, 40, accent, 3.0, true)
-	if not _icon(["crown"], Rect2(crown_c - Vector2(27, 27), Vector2(54, 54)), Color.WHITE):
-		_fb_crown(crown_c, 20, UiStyle.GOLD)
+	if UiStyle.is_calm():
+		_plate(crown_c, 31, accent)
+	else:
+		_cv.draw_circle(crown_c + Vector2(0, 4), 31, UiStyle.color("shadow"))
+		_cv.draw_circle(crown_c, 31, UiStyle.color("panel").darkened(0.3))
+		_cv.draw_arc(crown_c, 30, 0, TAU, 40, accent, 3.0, true)
+	# V2 portrait bust of the Bog King on the plate (crown icon as fallback).
+	if not _icon(["portrait_bog_king"], Rect2(crown_c - Vector2(37, 40), Vector2(74, 74)), Color.WHITE) 			and not _icon(["crown"], Rect2(crown_c - Vector2(27, 27), Vector2(54, 54)), Color.WHITE):
+		_fb_crown(crown_c, 20, UiStyle.color("gold"))
 	var x := rect.position.x + 92
-	UiStyle.text(_cv, "BOG KING", Vector2(x, rect.position.y + 36), 30, UiStyle.TEXT, false, 7)
+	UiStyle.text(_cv, "BOG KING", Vector2(x, rect.position.y + 36), 30, UiStyle.color("text"), false, 7)
 	if vulnerable:
 		var tag := "VERWUNDBAR"
 		var tw := _text_width(tag, LABEL) + 28
 		var tag_rect := Rect2(rect.end.x - 18 - tw, rect.position.y + 10, tw, 32)
-		_pill(tag_rect, UiStyle.GOLD, UiStyle.GOLD.darkened(0.55).lerp(UiStyle.GOLD.darkened(0.3), blink))
+		_pill(tag_rect, UiStyle.color("gold"), UiStyle.color("gold").darkened(0.55).lerp(UiStyle.color("gold").darkened(0.3), blink))
 		UiStyle.text(_cv, tag, Vector2(tag_rect.get_center().x, tag_rect.position.y + 24), LABEL, Color.WHITE, true, 5, UiStyle.body_font())
 	var bar := Rect2(x, rect.position.y + 50, rect.end.x - x - 20, 20)
-	_segments(bar, clampf(health / max_health, 0.0, 1.0), UiStyle.GOLD if vulnerable else UiStyle.DANGER, 14)
+	_segments(bar, clampf(health / max_health, 0.0, 1.0), UiStyle.color("gold") if vulnerable else UiStyle.color("danger"), 14)
 	return rect.end.y
 
 
@@ -569,14 +614,15 @@ func _draw_corpse_hint(y: float) -> float:
 	var text := parts[0].strip_edges()
 	var direction := parts[1].strip_edges() if parts.size() > 1 else ""
 	var w := _text_width(text, LABEL) + 104
-	var rect := Rect2(16, y, w, 44)
+	var rect := Rect2(_left_x(), y, w, 44)
 	if _paint != "hints":
 		return rect.end.y + 8
-	_pill(rect, UiStyle.AMBER)
+	_pill(rect, UiStyle.color("amber"))
 	var drop_c := rect.position + Vector2(24, 24)
-	_fb_drop(drop_c + Vector2(0, 2), 11, UiStyle.AMBER)
-	UiStyle.text(_cv, text, rect.position + Vector2(44, 30), LABEL, UiStyle.BONE, false, 5, UiStyle.body_font())
-	_direction_mark(rect.position + Vector2(rect.size.x - 30, 22), direction, UiStyle.AMBER)
+	if not (UiStyle.is_calm() and _icon(["v2_biomass"], Rect2(drop_c - Vector2(15, 15), Vector2(30, 30)), Color.WHITE)):
+		_fb_drop(drop_c + Vector2(0, 2), 11, UiStyle.color("amber"))
+	UiStyle.text(_cv, text, rect.position + Vector2(44, 30), LABEL, UiStyle.color("bone"), false, 5, UiStyle.body_font())
+	_direction_mark(rect.position + Vector2(rect.size.x - 30, 22), direction, UiStyle.color("amber"))
 	return rect.end.y + 8
 
 
@@ -586,12 +632,13 @@ func _draw_biomass(y: float) -> void:
 		return
 	var text := "BIOMASSE %.1f / 2" % bank
 	var w := _text_width(text, LABEL) + 60
-	var rect := Rect2(16, y, w, 44)
-	_pill(rect, UiStyle.AMBER)
+	var rect := Rect2(_left_x(), y, w, 44)
+	_pill(rect, UiStyle.color("amber"))
 	var drop_c := rect.position + Vector2(24, 22)
-	_fb_drop(drop_c + Vector2(0, 2), 10, UiStyle.AMBER)
-	UiStyle.text(_cv, text, rect.position + Vector2(44, 26), LABEL, UiStyle.AMBER.lightened(0.3), false, 5, UiStyle.body_font())
-	_bar(Rect2(rect.position.x + 44, rect.end.y - 11, w - 64, 5), clampf(bank / 2.0, 0.0, 1.0), UiStyle.AMBER)
+	if not (UiStyle.is_calm() and _icon(["v2_biomass"], Rect2(drop_c - Vector2(14, 14), Vector2(28, 28)), Color.WHITE)):
+		_fb_drop(drop_c + Vector2(0, 2), 10, UiStyle.color("amber"))
+	UiStyle.text(_cv, text, rect.position + Vector2(44, 26), LABEL, UiStyle.color("amber").lightened(0.3), false, 5, UiStyle.body_font())
+	_bar(Rect2(rect.position.x + 44, rect.end.y - 11, w - 64, 5), clampf(bank / 2.0, 0.0, 1.0), UiStyle.color("amber"))
 
 
 # Owned attack forms as medallions down the right edge.
@@ -612,14 +659,17 @@ func _draw_medallions(y: float) -> void:
 	var c := Vector2(size.x - 16 - r, y + r)
 	for id in ids:
 		var evolved: bool = evo.kind_of(id) == "evolved"
-		var accent: Color = hud._mutation_color(id) if hud != null and hud.has_method("_mutation_color") else UiStyle.EMBER
-		var ring := UiStyle.VIOLET if evolved else accent
-		_cv.draw_circle(c + Vector2(0, 5), r + 2, UiStyle.SHADOW)
-		_cv.draw_circle(c, r + 6, Color(ring, 0.18))
-		_cv.draw_circle(c, r, UiStyle.PANEL.darkened(0.25))
-		_cv.draw_circle(c + Vector2(0, -r * 0.35), r * 0.7, Color(1, 1, 1, 0.05))
-		_cv.draw_arc(c, r - 1.5, 0, TAU, 44, ring, 4.0, true)
-		_cv.draw_arc(c, r - 6, PI * 1.1, PI * 1.6, 12, Color(1, 1, 1, 0.3), 2.0, true)
+		var accent: Color = hud._mutation_color(id) if hud != null and hud.has_method("_mutation_color") else UiStyle.color("ember")
+		var ring := UiStyle.color("violet") if evolved else accent
+		if UiStyle.is_calm():
+			_plate(c, r, UiStyle.tone(ring))
+		else:
+			_cv.draw_circle(c + Vector2(0, 5), r + 2, UiStyle.color("shadow"))
+			_cv.draw_circle(c, r + 6, Color(ring, 0.18))
+			_cv.draw_circle(c, r, UiStyle.color("panel").darkened(0.25))
+			_cv.draw_circle(c + Vector2(0, -r * 0.35), r * 0.7, Color(1, 1, 1, 0.05))
+			_cv.draw_arc(c, r - 1.5, 0, TAU, 44, ring, 4.0, true)
+			_cv.draw_arc(c, r - 6, PI * 1.1, PI * 1.6, 12, Color(1, 1, 1, 0.3), 2.0, true)
 		if not _icon([id], Rect2(c - Vector2(r, r) * 0.82, Vector2(r, r) * 1.64), Color.WHITE):
 			UiStyle.text(_cv, String(id).left(1).to_upper(), c + Vector2(0, 13), 36, accent, true, 6)
 		if evolved:
@@ -629,7 +679,7 @@ func _draw_medallions(y: float) -> void:
 		else:
 			var rank := int(ranks[id])
 			for i in 3:
-				_diamond(c + Vector2(-16 + i * 16, r + 10), 6.5, accent if i < rank else Color(UiStyle.PANEL_EDGE, 0.9), true)
+				_diamond(c + Vector2(-16 + i * 16, r + 10), 6.5, UiStyle.tone(accent) if i < rank else Color(UiStyle.color("panel_edge"), 0.9), not UiStyle.is_calm())
 		c.y += r * 2 + 30
 
 
@@ -704,7 +754,7 @@ func _draw_leader() -> void:
 	if max_hp > 0:
 		# Dark backing keeps the pips readable over grass and sand.
 		var half := Vector2(row_w * 0.5 + LEADER_PIP_R + 14, LEADER_PIP_R + 10)
-		_cv.draw_texture_rect(disc, Rect2(shake - half, half * 2.0), false, Color(UiStyle.OUTLINE, 0.7))
+		_cv.draw_texture_rect(disc, Rect2(shake - half, half * 2.0), false, Color(UiStyle.color("outline"), 0.7))
 		for i in max_hp:
 			var c := Vector2(-row_w * 0.5 + LEADER_PIP_GAP * i, pip_y) + shake
 			_pip(disc, c, i < hp, hit < 0.3 and i == hp - 1)
@@ -721,7 +771,7 @@ func _draw_leader() -> void:
 		crown = from.lerp(crown, _ease(jump)) + Vector2(0, -70.0 * sin(PI * jump))
 		scale = 1.0 + 0.5 * sin(PI * jump)
 		var glow := Vector2(34, 34) * scale
-		_cv.draw_texture_rect(disc, Rect2(crown - glow, glow * 2.0), false, Color(UiStyle.GOLD, 0.3 * (1.0 - jump)))
+		_cv.draw_texture_rect(disc, Rect2(crown - glow, glow * 2.0), false, Color(UiStyle.color("gold"), 0.3 * (1.0 - jump)))
 	var r := 28.0 * scale
 	if not _icon(["crown"], Rect2(crown - Vector2(r, r), Vector2(r, r) * 2.0), Color.WHITE):
 		_crown(crown, 20.0 * scale)
@@ -749,14 +799,14 @@ func _disc_texture() -> Texture2D:
 # One hit point: dark rim, warm ember core and a gloss dot; empty = dark socket.
 func _pip(disc: Texture2D, c: Vector2, full: bool, flash: bool) -> void:
 	var r := LEADER_PIP_R
-	_cv.draw_texture_rect(disc, Rect2(c - Vector2(r + 3, r + 3), Vector2(r + 3, r + 3) * 2.0), false, UiStyle.OUTLINE)
+	_cv.draw_texture_rect(disc, Rect2(c - Vector2(r + 3, r + 3), Vector2(r + 3, r + 3) * 2.0), false, UiStyle.color("outline"))
 	if full:
-		var fill := UiStyle.EMBER_GLOW.lerp(Color.WHITE, 0.6) if flash else UiStyle.EMBER.lerp(UiStyle.EMBER_GLOW, 0.55)
+		var fill := UiStyle.color("ember_glow").lerp(Color.WHITE, 0.6) if flash else UiStyle.color("ember").lerp(UiStyle.color("ember_glow"), 0.55)
 		_cv.draw_texture_rect(disc, Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0), false, fill)
 		var dot := r * 0.32
 		_cv.draw_texture_rect(disc, Rect2(c + Vector2(-r * 0.3, -r * 0.32) - Vector2(dot, dot), Vector2(dot, dot) * 2.0), false, Color(1, 1, 1, 0.6))
 	else:
-		_cv.draw_texture_rect(disc, Rect2(c - Vector2(r - 3, r - 3), Vector2(r - 3, r - 3) * 2.0), false, Color(UiStyle.DANGER.darkened(0.55), 0.9))
+		_cv.draw_texture_rect(disc, Rect2(c - Vector2(r - 3, r - 3), Vector2(r - 3, r - 3) * 2.0), false, Color(UiStyle.color("danger").darkened(0.55), 0.9))
 
 
 # The pip that just broke: two halves fly apart, tumble and fade.
@@ -772,7 +822,7 @@ func _broken_pip(c: Vector2, t: float) -> void:
 		var pts := PackedVector2Array()
 		for p in half:
 			pts.append(o + p.rotated(turn))
-		_cv.draw_colored_polygon(pts, Color(UiStyle.DANGER.lerp(UiStyle.EMBER_GLOW, 0.3), a))
+		_cv.draw_colored_polygon(pts, Color(UiStyle.color("danger").lerp(UiStyle.color("ember_glow"), 0.3), a))
 	if t < 0.35:
 		_cv.draw_circle(c, r * (1.0 + 2.0 * t), Color(1, 1, 1, 0.5 * (1.0 - t / 0.35)))
 
@@ -782,10 +832,10 @@ func _crown(c: Vector2, r: float) -> void:
 	var pts := PackedVector2Array([c + Vector2(-20, 12) * k, c + Vector2(-23, -12) * k, c + Vector2(-10, 0) * k, c + Vector2(0, -18) * k, c + Vector2(10, 0) * k, c + Vector2(23, -12) * k, c + Vector2(20, 12) * k])
 	var outline := pts.duplicate()
 	outline.append(pts[0])
-	_cv.draw_polyline(outline, UiStyle.OUTLINE, 6.0 * maxf(1.0, k), true)
-	_gradient(pts, UiStyle.GOLD.lightened(0.35), UiStyle.AMBER.darkened(0.2), c.y - r, c.y + r * 0.6)
+	_cv.draw_polyline(outline, UiStyle.color("outline"), 6.0 * maxf(1.0, k), true)
+	_gradient(pts, UiStyle.color("gold").lightened(0.35), UiStyle.color("amber").darkened(0.2), c.y - r, c.y + r * 0.6)
 	for tip: Vector2 in [Vector2(-23, -12), Vector2(0, -18), Vector2(23, -12)]:
-		_cv.draw_circle(c + tip * k, 3.2 * k, UiStyle.BONE)
+		_cv.draw_circle(c + tip * k, 3.2 * k, UiStyle.color("bone"))
 
 
 # ---------------------------------------------------------------- building blocks
@@ -797,11 +847,13 @@ func _panel(rect: Rect2, accent: Color, cut: float = 16.0, claws: bool = true, f
 	var shadow := PackedVector2Array()
 	for p in pts:
 		shadow.append(p + Vector2(0, 7))
-	_cv.draw_colored_polygon(shadow, UiStyle.SHADOW)
+	_cv.draw_colored_polygon(shadow, UiStyle.color("shadow"))
 	if _lib_has(_frames, "panel"):
 		_frames.call("panel", _cv, rect, accent, claws)
 		if fill != UiStyle.PANEL:
 			_cv.draw_colored_polygon(_bevel(rect.grow(-6), cut - 4), Color(fill, 0.35))
+		if UiStyle.is_calm():
+			return
 		# Gloss over the upper half for a lit, wet surface.
 		var sheen := _bevel(Rect2(rect.position + Vector2(8, 6), Vector2(rect.size.x - 16, rect.size.y * 0.4)), cut - 6)
 		_gradient(sheen, Color(1, 1, 1, 0.09), Color(1, 1, 1, 0.0), rect.position.y + 6, rect.position.y + rect.size.y * 0.46)
@@ -834,6 +886,10 @@ func _panel(rect: Rect2, accent: Color, cut: float = 16.0, claws: bool = true, f
 func _panel_glow(rect: Rect2, accent: Color, alpha: float) -> void:
 	var ring := _bevel(rect.grow(2), 17.0)
 	ring.append(ring[0])
+	if UiStyle.is_calm():
+		# Glow only as a small temporary layer: one thin halo stroke.
+		_cv.draw_polyline(ring, Color(UiStyle.tone(accent), alpha), 5.0, true)
+		return
 	_cv.draw_polyline(ring, Color(accent, alpha), 8.0, true)
 	_cv.draw_polyline(ring, Color(accent, alpha * 0.5), 14.0, true)
 
@@ -843,7 +899,7 @@ func _pill(rect: Rect2, accent: Color, fill: Color = UiStyle.PANEL_SOFT) -> void
 	var shadow := PackedVector2Array()
 	for p in pts:
 		shadow.append(p + Vector2(0, 4))
-	_cv.draw_colored_polygon(shadow, UiStyle.SHADOW)
+	_cv.draw_colored_polygon(shadow, UiStyle.color("shadow"))
 	if _lib_has(_frames, "pill") and accent.a > 0.0:
 		_frames.call("pill", _cv, rect, accent)
 		if fill != UiStyle.PANEL_SOFT:
@@ -864,7 +920,7 @@ func _bar(rect: Rect2, fraction: float, color: Color) -> void:
 		_frames.call("bar", _cv, rect, fraction, color)
 		return
 	var track := _capsule(rect)
-	_cv.draw_colored_polygon(track, Color(UiStyle.OUTLINE, 0.9))
+	_cv.draw_colored_polygon(track, Color(UiStyle.color("outline"), 0.9))
 	if fraction <= 0.0:
 		return
 	var fill_rect := Rect2(rect.position, Vector2(maxf(rect.size.y, rect.size.x * fraction), rect.size.y))
@@ -876,12 +932,12 @@ func _bar(rect: Rect2, fraction: float, color: Color) -> void:
 # Slanted segment bar; partially filled last segment.
 func _segments(rect: Rect2, fraction: float, color: Color, count: int) -> void:
 	if _lib_has(_frames, "bar"):
-		_cv.draw_colored_polygon(_capsule(Rect2(rect.position + Vector2(0, 3), rect.size)), UiStyle.SHADOW)
+		_cv.draw_colored_polygon(_capsule(Rect2(rect.position + Vector2(0, 3), rect.size)), UiStyle.color("shadow"))
 		_frames.call("bar", _cv, rect, fraction, color, count)
 		return
 	var track := _capsule(rect.grow(3))
-	_cv.draw_colored_polygon(PackedVector2Array(Array(track).map(func(p): return p + Vector2(0, 3))), UiStyle.SHADOW)
-	_cv.draw_colored_polygon(track, Color(UiStyle.OUTLINE, 0.95))
+	_cv.draw_colored_polygon(PackedVector2Array(Array(track).map(func(p): return p + Vector2(0, 3))), UiStyle.color("shadow"))
+	_cv.draw_colored_polygon(track, Color(UiStyle.color("outline"), 0.95))
 	var gap := 3.0
 	var slant := rect.size.y * 0.3
 	var w := (rect.size.x - gap * (count - 1)) / count
@@ -907,6 +963,8 @@ func _bevel(rect: Rect2, cut: float) -> PackedVector2Array:
 
 
 func _capsule(rect: Rect2) -> PackedVector2Array:
+	if UiStyle.is_calm():
+		return _bevel(rect, minf(12.0, rect.size.y * 0.3))
 	var r := rect.size.y * 0.5
 	var pts := PackedVector2Array()
 	for i in 9:
@@ -926,6 +984,8 @@ func _gradient(pts: PackedVector2Array, top: Color, bottom: Color, y0: float, y1
 
 
 func _claw(base: Vector2, direction: Vector2, length: float) -> void:
+	if UiStyle.is_calm():
+		return
 	var d := direction.normalized()
 	var side := Vector2(-d.y, d.x)
 	var tip := base + d * length + side * length * 0.35
@@ -933,13 +993,25 @@ func _claw(base: Vector2, direction: Vector2, length: float) -> void:
 	var outline := PackedVector2Array()
 	for p in pts:
 		outline.append(p + (p - base).normalized() * 1.5)
-	_cv.draw_colored_polygon(outline, UiStyle.OUTLINE)
-	_cv.draw_colored_polygon(pts, UiStyle.BONE)
+	_cv.draw_colored_polygon(outline, UiStyle.color("outline"))
+	_cv.draw_colored_polygon(pts, UiStyle.color("bone"))
+
+
+# Calm socket: octagonal petrol plate with one accent stroke (V2 kit).
+func _plate(c: Vector2, r: float, accent: Color) -> void:
+	var pts := _bevel(Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0), r * 0.42)
+	var shadow := PackedVector2Array()
+	for p in pts:
+		shadow.append(p + Vector2(0, 4))
+	_cv.draw_colored_polygon(shadow, UiStyle.color("shadow"))
+	_cv.draw_colored_polygon(pts, Color(UiStyle.CALM_BG, 0.96))
+	pts.append(pts[0])
+	_cv.draw_polyline(pts, accent, 3.0, true)
 
 
 func _diamond(c: Vector2, r: float, color: Color, outline: bool = true) -> void:
 	if outline:
-		_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r - 2), c + Vector2(r * 0.9 + 2, 0), c + Vector2(0, r + 2), c + Vector2(-r * 0.9 - 2, 0)]), UiStyle.OUTLINE)
+		_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r - 2), c + Vector2(r * 0.9 + 2, 0), c + Vector2(0, r + 2), c + Vector2(-r * 0.9 - 2, 0)]), UiStyle.color("outline"))
 	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.9, 0), c + Vector2(0, r), c + Vector2(-r * 0.9, 0)]), color)
 	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.9, 0), c + Vector2(0, 0)]), Color(1, 1, 1, 0.3))
 
@@ -963,7 +1035,7 @@ func _direction_mark(c: Vector2, direction: String, color: Color) -> void:
 	var shadow := PackedVector2Array()
 	for p in arrow:
 		shadow.append(p + Vector2(0, 2))
-	_cv.draw_colored_polygon(shadow, UiStyle.OUTLINE)
+	_cv.draw_colored_polygon(shadow, UiStyle.color("outline"))
 	_cv.draw_colored_polygon(arrow, color)
 
 
@@ -1000,18 +1072,18 @@ func _fb_head(center: Vector2, r: float, color: Color) -> void:
 	var shadow := PackedVector2Array()
 	for p in outline:
 		shadow.append(p + Vector2(0, 4))
-	_cv.draw_colored_polygon(shadow, UiStyle.SHADOW)
+	_cv.draw_colored_polygon(shadow, UiStyle.color("shadow"))
 	for spike in [[Vector2(-0.93, -0.05), Vector2(-0.8, -0.48), Vector2(-1.28, -0.5)], [Vector2(-0.72, -0.56), Vector2(-0.34, -0.78), Vector2(-0.78, -1.02)], [Vector2(-0.22, -0.8), Vector2(0.14, -0.78), Vector2(-0.2, -1.1)]]:
 		_cv.draw_colored_polygon(PackedVector2Array([center + spike[0] * s, center + spike[1] * s, center + spike[2] * s]), color.darkened(0.25))
 	_gradient(outline, color.lightened(0.2), color.darkened(0.25), center.y - r, center.y + r * 0.7)
 	for t in [0.18, 0.46, 0.74]:
 		var a: Vector2 = Vector2(0.95, -0.07).lerp(Vector2(0.2, 0.05), t)
-		_cv.draw_colored_polygon(PackedVector2Array([center + (a + Vector2(-0.08, 0)) * s, center + (a + Vector2(0.08, 0)) * s, center + (a + Vector2(0, 0.2)) * s]), UiStyle.BONE)
+		_cv.draw_colored_polygon(PackedVector2Array([center + (a + Vector2(-0.08, 0)) * s, center + (a + Vector2(0.08, 0)) * s, center + (a + Vector2(0, 0.2)) * s]), UiStyle.color("bone"))
 	for t in [0.3, 0.65]:
 		var b: Vector2 = Vector2(0.2, 0.1).lerp(Vector2(0.84, 0.31), t)
-		_cv.draw_colored_polygon(PackedVector2Array([center + (b + Vector2(-0.07, 0.02)) * s, center + (b + Vector2(0.07, 0.02)) * s, center + (b + Vector2(0, -0.17)) * s]), UiStyle.BONE)
-	_cv.draw_circle(center + Vector2(0.36, -0.36) * s, r * 0.13, UiStyle.OUTLINE)
-	_cv.draw_circle(center + Vector2(0.39, -0.39) * s, r * 0.05, UiStyle.GOLD)
+		_cv.draw_colored_polygon(PackedVector2Array([center + (b + Vector2(-0.07, 0.02)) * s, center + (b + Vector2(0.07, 0.02)) * s, center + (b + Vector2(0, -0.17)) * s]), UiStyle.color("bone"))
+	_cv.draw_circle(center + Vector2(0.36, -0.36) * s, r * 0.13, UiStyle.color("outline"))
+	_cv.draw_circle(center + Vector2(0.39, -0.39) * s, r * 0.05, UiStyle.color("gold"))
 
 
 func _fb_helix(center: Vector2, height: float, color: Color) -> void:
@@ -1026,22 +1098,22 @@ func _fb_helix(center: Vector2, height: float, color: Color) -> void:
 		b.append(Vector2(center.x + sin(phase + PI) * 11, y))
 		if i % 3 == 1:
 			_cv.draw_line(a[i], b[i], Color(color, 0.55), 2)
-	_cv.draw_polyline(a, UiStyle.OUTLINE, 7, true)
-	_cv.draw_polyline(b, UiStyle.OUTLINE, 7, true)
+	_cv.draw_polyline(a, UiStyle.color("outline"), 7, true)
+	_cv.draw_polyline(b, UiStyle.color("outline"), 7, true)
 	_cv.draw_polyline(a, color, 4, true)
 	_cv.draw_polyline(b, color.darkened(0.25), 4, true)
 
 
 func _fb_skull(center: Vector2, r: float, color: Color) -> void:
-	_cv.draw_circle(center + Vector2(0, -0.18 * r), 0.82 * r + 2, UiStyle.OUTLINE)
+	_cv.draw_circle(center + Vector2(0, -0.18 * r), 0.82 * r + 2, UiStyle.color("outline"))
 	_cv.draw_circle(center + Vector2(0, -0.18 * r), 0.82 * r, color)
 	_cv.draw_rect(Rect2(center + Vector2(-0.46, 0.25) * r, Vector2(0.92, 0.55) * r), color)
 	for side in [-1.0, 1.0]:
-		_cv.draw_circle(center + Vector2(side * 0.32, -0.16) * r, 0.23 * r, UiStyle.OUTLINE)
-	_cv.draw_colored_polygon(PackedVector2Array([center + Vector2(0, 0.12) * r, center + Vector2(0.1, 0.32) * r, center + Vector2(-0.1, 0.32) * r]), UiStyle.OUTLINE)
+		_cv.draw_circle(center + Vector2(side * 0.32, -0.16) * r, 0.23 * r, UiStyle.color("outline"))
+	_cv.draw_colored_polygon(PackedVector2Array([center + Vector2(0, 0.12) * r, center + Vector2(0.1, 0.32) * r, center + Vector2(-0.1, 0.32) * r]), UiStyle.color("outline"))
 	for i in 3:
 		var x := (-0.2 + i * 0.2) * r
-		_cv.draw_line(center + Vector2(x, 0.5 * r), center + Vector2(x, 0.8 * r), UiStyle.OUTLINE, maxf(1.5, r * 0.08))
+		_cv.draw_line(center + Vector2(x, 0.5 * r), center + Vector2(x, 0.8 * r), UiStyle.color("outline"), maxf(1.5, r * 0.08))
 
 
 func _fb_crown(c: Vector2, r: float, color: Color) -> void:
@@ -1051,8 +1123,8 @@ func _fb_crown(c: Vector2, r: float, color: Color) -> void:
 
 
 func _fb_gem(c: Vector2, r: float) -> void:
-	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.8, 0), c + Vector2(0, r), c + Vector2(-r * 0.8, 0)]), UiStyle.VIOLET)
-	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r * 0.55), c + Vector2(r * 0.42, 0), c + Vector2(0, r * 0.55), c + Vector2(-r * 0.42, 0)]), UiStyle.AMBER)
+	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.8, 0), c + Vector2(0, r), c + Vector2(-r * 0.8, 0)]), UiStyle.color("violet"))
+	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r * 0.55), c + Vector2(r * 0.42, 0), c + Vector2(0, r * 0.55), c + Vector2(-r * 0.42, 0)]), UiStyle.color("amber"))
 	_cv.draw_circle(c + Vector2(-r * 0.12, -r * 0.2), r * 0.12, Color(1, 1, 1, 0.7))
 
 

@@ -31,7 +31,7 @@ var settings: Dictionary = {}
 ## Einstieg: IDs der bereits gezeigten Tipps (jeder Tipp einmal pro Profil).
 var seen_tips: Array = []
 
-const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false}
+const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false, "music_v1": false}
 ## So viele Tage bleiben in daily_records erhalten (älteste fallen heraus).
 const DAILY_KEEP := 30
 
@@ -73,6 +73,10 @@ static func _default_records() -> Dictionary:
 		"diff_time": [0.0, 0.0, 0.0], "strain_time": {},
 		# Etappe 10: Moosschlund kills, migrations, best seconds per biome in one run.
 		"total_apex": 0, "total_migrations": 0, "biome_time": {},
+		# Etappe 10 Teil 3: Aschenkröten-Siege (total_apex zählt beide Apex).
+		"total_toads": 0,
+		# Moosschlund-Siege allein (Trophäe „Moosschlund bezwungen“).
+		"total_moss": 0,
 	}
 
 # --- Laden / Speichern -------------------------------------------------------
@@ -176,6 +180,9 @@ func _apply(d: Dictionary) -> void:
 						for sub in value:
 							if value[sub] is float or value[sub] is int:
 								records[key][String(sub)] = float(value[sub])
+		# Ältere Profile kennen nur total_apex (beide Apex) und total_toads.
+		if not saved_records.has("total_moss"):
+			records.total_moss = maxi(0, int(records.total_apex) - int(records.total_toads))
 
 static func _int(value: Variant, fallback: int) -> int:
 	if value is int or value is float:
@@ -493,6 +500,11 @@ func _update_records(stats: Dictionary) -> void:
 	if strain_id != "":
 		records.strain_time[strain_id] = maxf(float(records.strain_time.get(strain_id, 0.0)), seconds)
 	records.total_apex += maxi(0, _int(stats.get("apex_kills"), 0))
+	var toad_kills := maxi(0, _int(stats.get("toad_kills"), 0))
+	records.total_toads += toad_kills
+	# RunStats liefert apex_kills (beide Apex) und toad_kills; moss_kills optional.
+	var moss_kills := _int(stats.get("moss_kills"), _int(stats.get("apex_kills"), 0) - toad_kills)
+	records.total_moss += maxi(0, moss_kills)
 	records.total_migrations += maxi(0, _int(stats.get("migrations"), 0))
 	var biome_seconds: Variant = stats.get("biome_seconds", {})
 	if biome_seconds is Dictionary:

@@ -3,11 +3,13 @@ extends SceneTree
 # Headless check of scripts/corpse_visuals.gd (Etappe 09 Kadaver-Designs):
 # add / set_fill / remove / clear per kind, instance counts per batch, unknown
 # kinds fall back to the normal design, no node per corpse, 60 mixed corpses in
-# at most 15 batches (= draw calls). Biomass crystals: size per rank (small /
+# at most MAX_BATCHES batches (= draw calls). Biomass crystals: size per rank (small /
 # medium / big), 1-3 shards on normal enemies, shrinking with the fill.
 
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
-const KINDS := ["prey", "hunter", "elite", "skitter", "leaper", "boss", "apex", "horde", "mawling", "nest"]
+# One batch per design (11 incl. the Aschenkröte) + pool, halo, 3 crystal sizes.
+const MAX_BATCHES := 16
+const KINDS := ["prey", "hunter", "elite", "skitter", "leaper", "boss", "apex", "apex_toad", "horde", "mawling", "nest"]
 
 var failed := false
 
@@ -40,7 +42,7 @@ func _run() -> void:
 			halos += 1
 	_check(visuals.instances("pool") == pools, "one amber pool per corpse with a pool (%d)" % pools)
 	_check(visuals.instances("halo") == halos, "one halo per mini-boss/boss/mawling (%d)" % halos)
-	_check(CORPSE_VISUALS.rank_of("boss") == "boss" and CORPSE_VISUALS.rank_of("apex") == "boss", "boss rank")
+	_check(CORPSE_VISUALS.rank_of("boss") == "boss" and CORPSE_VISUALS.rank_of("apex") == "boss" and CORPSE_VISUALS.rank_of("apex_toad") == "boss", "boss rank")
 	_check(CORPSE_VISUALS.rank_of("elite") == "mini" and CORPSE_VISUALS.rank_of("leaper") == "mini", "mini-boss rank")
 	_check(CORPSE_VISUALS.rank_of("hunter") == "normal", "normal rank")
 
@@ -48,7 +50,7 @@ func _run() -> void:
 	var expected_drop := {
 		"prey": "drop_small", "hunter": "drop_small", "skitter": "drop_small", "horde": "drop_small",
 		"elite": "drop_medium", "leaper": "drop_medium",
-		"boss": "drop_big", "apex": "drop_big", "nest": "drop_big", "mawling": "",
+		"boss": "drop_big", "apex": "drop_big", "apex_toad": "drop_big", "nest": "drop_big", "mawling": "",
 	}
 	for kind in KINDS:
 		_check(CORPSE_VISUALS.drop_of(kind) == expected_drop[kind], "%s drop is %s" % [kind, expected_drop[kind]])
@@ -131,16 +133,21 @@ func _run() -> void:
 	_check(visuals.count() == 0 and visuals.active_batches() == 0, "clear empties every batch")
 	_check(visuals.get_child_count() == nodes_before, "clear keeps the batch nodes")
 
-	# 60 mixed corpses (+ growth over the batch step): no node per corpse, <= 12 batches.
+	# 60 mixed corpses (+ growth over the batch step): no node per corpse, <= MAX_BATCHES.
 	for index in 300:
 		visuals.add(1000 + index, KINDS[index % KINDS.size()], Vector3(index % 20, 0, index / 20) * 3.0, 10.0)
 		if index == 59:
-			_check(visuals.active_batches() <= 15, "60 mixed corpses use <= 15 batches (%d)" % visuals.active_batches())
-			_check(visuals.get_child_count() <= 15, "60 mixed corpses use <= 15 nodes (%d)" % visuals.get_child_count())
+			_check(visuals.active_batches() <= MAX_BATCHES, "60 mixed corpses use <= %d batches (%d)" % [MAX_BATCHES, visuals.active_batches()])
+			_check(visuals.get_child_count() <= MAX_BATCHES, "60 mixed corpses use <= %d nodes (%d)" % [MAX_BATCHES, visuals.get_child_count()])
 	_check(visuals.count() == 300, "300 corpses tracked")
-	_check(visuals.get_child_count() <= 15, "300 corpses still <= 15 nodes")
-	_check(visuals.instances("drop_big") == 90, "90 big crystals (boss, apex, nest) in one batch")
-	_check(visuals.instances("boss") == 30, "30 boss corpses in one batch")
+	_check(visuals.get_child_count() <= MAX_BATCHES, "300 corpses still <= %d nodes" % MAX_BATCHES)
+	var per_kind := {}
+	for index in 300:
+		per_kind[KINDS[index % KINDS.size()]] = int(per_kind.get(KINDS[index % KINDS.size()], 0)) + 1
+	var big_total: int = per_kind.boss + per_kind.apex + per_kind.apex_toad + per_kind.nest
+	_check(visuals.instances("drop_big") == big_total, "%d big crystals (boss, apex, apex_toad, nest) in one batch" % big_total)
+	_check(visuals.instances("boss") == per_kind.boss, "%d boss corpses in one batch" % per_kind.boss)
+	_check(visuals.instances("apex_toad") == per_kind.apex_toad, "%d Aschenkröten corpses in one batch" % per_kind.apex_toad)
 	# After growth every instance still has its own transform.
 	var boss_layer = _layer(visuals, "boss")
 	var first_boss := 1000 + KINDS.find("boss")

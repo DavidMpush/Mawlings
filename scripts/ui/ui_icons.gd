@@ -9,8 +9,32 @@ extends RefCounted
 # Painted PNGs (UI kit V2, 256 px, res://assets/ui/v2/icons/<id>.png) win over
 # the SVG of the same id; the SVGs stay as fallback (use_painted = false).
 
+const UiStyle := preload("res://scripts/ui/ui_style.gd")
 const DIR := "res://assets/ui/icons/"
 const PAINTED_DIR := "res://assets/ui/v2/icons/"
+const KIT_DIR := "res://assets/ui/v2/vector/"
+# Calm skin: small HUD glyphs of the V2 kit replace these painted SVGs (fixed
+# kit colours, so callers draw them with a white or alpha-only tint). "v2_*"
+# ids always resolve to the kit glyph, whatever the skin.
+const CALM_GLYPHS := {"dna": "icon_dna", "pause": "icon_pause", "clock": "icon_timer", "biomass": "icon_biomass"}
+const KIT_IDS := {
+	"v2_population": "icon_population", "v2_dna": "icon_dna", "v2_threat": "icon_threat",
+	"v2_timer": "icon_timer", "v2_biomass": "icon_biomass", "v2_pause": "icon_pause", "v2_rally": "icon_rally",
+}
+# Expansion art (UI kit V2 EXPANSION_ASSETS, 256 px copies in assets/ui/v3/icons/,
+# built by assets/ui/v3/build_v3.py): id -> file. Wins over PAINTED and the SVG
+# while use_painted is on; only ids whose motif matches the game meaning.
+const V3_DIR := "res://assets/ui/v3/"
+const V3_ICONS := {
+	"rudelbiss": "icons/leap", "saeurespucker": "icons/acid_spit", "sporenwolke": "icons/spore_burst",
+	"blitzbiss": "icons/sickle_slash", "graeber": "icons/slam", "meute": "icons/swarm_wave",
+	"nest": "icons/brood_nest", "totem": "icons/curse_totem",
+	"currency_dna": "icons/dna", "currency_biomass": "icons/biomass",
+	"branch_growth": "icons/hunger_mass", "branch_attack": "icons/razor_offense",
+	"branch_protect": "icons/carapace_survival", "branch_special": "icons/mutation_special",
+	# Boss portrait (bust) for bars and result rows.
+	"portrait_bog_king": "bosses/bog_king",
+}
 # Ids with a painted V2 icon (the six base traits / Anlagen).
 const PAINTED := ["jaws", "brood", "glutton", "pack", "scatter", "armor"]
 const IDS := [
@@ -23,6 +47,8 @@ const IDS := [
 	"biomass", "hunter", "skitter", "leaper", "nibbler", "bog_king",
 	"up_brood_size", "up_bite", "up_chitin", "up_sprint", "up_digest", "up_gene",
 	"up_attack_slot", "up_trait_slot", "instinct", "restart", "hub",
+	"nest", "totem", "currency_dna", "currency_biomass",
+	"branch_growth", "branch_attack", "branch_protect", "branch_special", "portrait_bog_king",
 ]
 # Alternative names resolved by has()/texture()/draw().
 const ALIASES := {"prey": "nibbler", "boss": "bog_king"}
@@ -36,9 +62,20 @@ static var _small: Dictionary = {}
 
 static func path(id: String) -> String:
 	id = ALIASES.get(id, id)
+	if KIT_IDS.has(id):
+		return KIT_DIR + KIT_IDS[id] + ".svg"
+	if V3_ICONS.has(id) and (use_painted or not ResourceLoader.exists(DIR + id + ".svg")):
+		return V3_DIR + V3_ICONS[id] + ".png"
+	if UiStyle.is_calm() and CALM_GLYPHS.has(id):
+		return KIT_DIR + CALM_GLYPHS[id] + ".svg"
 	if use_painted and PAINTED.has(id) and ResourceLoader.exists(PAINTED_DIR + id + ".png"):
 		return PAINTED_DIR + id + ".png"
 	return DIR + id + ".svg"
+
+
+## True when `id` is drawn as a fixed-colour V2 kit glyph (tint only with alpha).
+static func is_glyph(id: String) -> bool:
+	return path(id).begins_with(KIT_DIR)
 
 
 ## True when `id` is drawn from a painted V2 PNG.
@@ -61,11 +98,10 @@ static func has(id: String) -> bool:
 
 # Full-resolution texture (256 px) or null when the icon does not exist.
 static func texture(id: String) -> Texture2D:
-	id = ALIASES.get(id, id)
-	if not _full.has(id):
-		var p := path(id)
-		_full[id] = load(p) if ResourceLoader.exists(p) else null
-	return _full[id]
+	var p := path(id)
+	if not _full.has(p):
+		_full[p] = load(p) if ResourceLoader.exists(p) else null
+	return _full[p]
 
 
 # Texture suited for drawing at `pixels` screen size (falls back to full size).
@@ -81,7 +117,7 @@ static func texture_for_size(id: String, pixels: float) -> Texture2D:
 			break
 	if bucket == 0 or bucket >= full.get_width():
 		return full
-	var key := "%s@%d" % [id, bucket]
+	var key := "%s@%d" % [path(id), bucket]
 	if not _small.has(key):
 		var image := full.get_image()
 		if image == null:
@@ -107,6 +143,10 @@ static func draw(canvas: CanvasItem, id: String, rect: Rect2, tint := Color.WHIT
 	if tex == null:
 		_placeholder(canvas, fitted, tint)
 		return
+	if is_glyph(id):
+		# Kit glyphs carry their palette colour; a tint only fades or dims them.
+		var v := maxf(tint.r, maxf(tint.g, tint.b))
+		tint = Color(v, v, v, tint.a) if v < 0.6 else Color(1, 1, 1, tint.a)
 	canvas.draw_texture_rect(tex, fitted, false, tint)
 
 

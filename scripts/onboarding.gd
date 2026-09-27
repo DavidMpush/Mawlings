@@ -27,14 +27,19 @@ const TIPS := {
 	"alpha": "Alpha-Kern! Einsammeln – er lässt deinen Schwarm aufsteigen",
 	"mutation": "Mutation aktiv – mehr DNA aus Beute bringt die nächste Wahl",
 	"nest": "Brutnest! Bleib im Kreis, bis der Balken voll ist",
+	"map": "Tippe auf die Karte für die Übersicht",
 }
-const ORDER := ["move", "warning", "leader", "boss", "rally", "prey", "corpse", "alpha", "mutation", "nest"]
+const ORDER := ["move", "warning", "leader", "boss", "rally", "prey", "corpse", "alpha", "mutation", "nest", "map"]
 
 const PREY_RANGE := 7.0
 const CORPSE_RANGE := 8.0
 const THREAT_RANGE := 8.0
 const ALPHA_RANGE := 14.0
 const NEST_RANGE := 16.0
+## Kartentipp (Minimap-Etappe): erst nach etwas Erkundung - eine zweite Region
+## oder MAP_DISTANCE vom Start, frühestens nach MAP_SECONDS Laufzeit.
+const MAP_SECONDS := 40.0
+const MAP_DISTANCE := 30.0
 
 var world: Node = null
 var hud: Object = null
@@ -175,6 +180,13 @@ func _wanted(id: String) -> bool:
 		"nest":
 			var nest := _nest()
 			return nest != null and not bool(nest.get("complete")) and nest.global_position.distance_to(swarm.global_position) <= NEST_RANGE
+		"map":
+			if not bool(hud.get("minimap_enabled")) or bool(hud.get("map_open")):
+				return false
+			if float(_model.get("elapsed")) < MAP_SECONDS:
+				return false
+			var regions: Variant = world.get("regions_seen")
+			return (regions is Dictionary and (regions as Dictionary).size() >= 2) or swarm.position.distance_to(_run_start) >= MAP_DISTANCE
 	return false
 
 
@@ -198,6 +210,8 @@ func _fulfilled(id: String) -> bool:
 		"nest":
 			var nest := _nest()
 			return nest == null or float(nest.get("inside_share") if "inside_share" in nest else 0.0) > 0.2
+		"map":
+			return bool(hud.get("map_open"))
 	return false
 
 

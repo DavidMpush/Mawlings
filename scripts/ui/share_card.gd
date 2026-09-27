@@ -17,6 +17,7 @@ extends Node
 
 const S := preload("res://scripts/ui/ui_style.gd")
 const UiIcons := preload("res://scripts/ui/ui_icons.gd")
+const UiArt := preload("res://scripts/ui/ui_art.gd")
 const CHRONICLE_PATH := "res://scripts/meta/chronicle.gd"
 const META_DATA_PATH := "res://scripts/meta/meta_data.gd"
 
@@ -287,6 +288,16 @@ class Painter extends "res://scripts/ui/menu/menu_canvas.gd":
 		var tw := face.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var origin := Vector2(c.x - tw * 0.5, c.y)
 		_glow(Vector2(c.x, c.y - 50), 460, Color(S.EMBER, 0.3))
+		var art := UiArt.logo()
+		if art != null:
+			# V2 logo artwork (jaw as the W) instead of the drawn word and jaws.
+			var lw := 880.0
+			var lh := lw * float(art.get_height()) / float(art.get_width())
+			var rect := Rect2(c.x - lw * 0.5, c.y - 40.0 - lh * 0.5, lw, lh)
+			draw_texture_rect(art, Rect2(rect.position + Vector2(0, 10), rect.size), false, Color(0, 0, 0, 0.5))
+			draw_texture_rect(art, rect, false)
+			_logo_subtitle(c)
+			return
 		draw_string_outline(face, origin + Vector2(0, 12), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 22, Color(S.OUTLINE, 0.75))
 		draw_string_outline(face, origin + Vector2(0, 7), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 16, S.OUTLINE)
 		draw_string(face, origin + Vector2(0, 7), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.EMBER.darkened(0.5))
@@ -297,6 +308,9 @@ class Painter extends "res://scripts/ui/menu/menu_canvas.gd":
 		var right := c.x + tw * 0.5 + 40
 		_logo_jaw(Vector2(left, c.y - 138), Vector2(c.x, c.y - 196), Vector2(right, c.y - 138), 24.0, 1.0, [0.06, 0.16, 0.28, 0.4, 0.5, 0.6, 0.72, 0.84, 0.94], [56.0, 38.0, 22.0, 17.0, 15.0, 17.0, 22.0, 38.0, 56.0])
 		_logo_jaw(Vector2(left + 56, c.y + 26), Vector2(c.x, c.y + 64), Vector2(right - 56, c.y + 26), 20.0, -1.0, [0.1, 0.24, 0.38, 0.5, 0.62, 0.76, 0.9], [38.0, 22.0, 16.0, 14.0, 16.0, 22.0, 38.0])
+		_logo_subtitle(c)
+
+	func _logo_subtitle(c: Vector2) -> void:
 		var sub := "DIE HORDE BIST DU"
 		var sw := S.body_font().get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x * 0.5
 		for sgn in [-1.0, 1.0]:

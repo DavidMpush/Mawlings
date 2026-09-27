@@ -31,6 +31,7 @@ const MAWLING_PATH := "res://assets/gameplay/characters/Mawling_game.glb"
 const SHADER_PATH := "res://shaders/creature_anim.gdshader"
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
+const UiArt := preload("res://scripts/ui/ui_art.gd")
 const LABEL := 22   # stage 06: smallest menu text (900 grid)
 
 ## Legacy keys of menu.gd this component takes over.
@@ -53,10 +54,14 @@ const PACK := [
 ]
 
 var use_3d := true
+## Painted strain portraits (UI kit V2 expansion) instead of the 3D pack; the
+## 3D stage is only built when a portrait is missing or this is off.
+var use_portraits := true
 
 var menu = null
 var _icons = null
 var _frames = null
+var _spaced_sub: FontVariation
 var _soft: Texture2D
 var _viewport: SubViewport
 var _camera: Camera3D
@@ -87,6 +92,8 @@ func _ready() -> void:
 		_frames = load(FRAMES_PATH)
 	_soft = _make_soft_texture()
 	_build_decor()
+	if use_portraits and UiArt.tribe("glutmaw") != null:
+		use_3d = false
 	if use_3d:
 		_build_stage()
 	_build_layers()
@@ -151,9 +158,9 @@ func _state_key() -> Array:
 func _refresh_layers() -> void:
 	var key := _state_key()
 	var tick := int(_time * 30.0)
-	var tint: Color = S.EMBER
+	var tint: Color = S.color("ember")
 	if menu != null and menu.profile != null:
-		tint = menu._strain_color(menu.current_strain()) if menu._strain_unlocked(menu.current_strain()) else S.TEXT_DIM
+		tint = menu._strain_color(menu.current_strain()) if menu._strain_unlocked(menu.current_strain()) else S.color("text_dim")
 	_layers.sky.refresh([size, tint])
 	_layers.rays.refresh(tick)
 	_layers.fog.refresh(tick)
@@ -253,18 +260,18 @@ func _update_background() -> void:
 		if d.layer == 0:
 			var angle: float = d.angle + sin(_time * 0.5 + d.phase) * 0.03
 			_far_leaves.multimesh.set_instance_transform_2d(far, Transform2D(angle, Vector2(d.len, d.w), 0.0, d.pos))
-			_far_leaves.multimesh.set_instance_color(far, Color(S.PANEL_EDGE.lerp(S.PANEL_SOFT, 0.5 + 0.3 * d.shade), 0.8))
+			_far_leaves.multimesh.set_instance_color(far, Color(S.color("panel_edge").lerp(S.color("panel_soft"), 0.5 + 0.3 * d.shade), 0.8))
 			far += 1
 		else:
 			var angle: float = d.angle + sin(_time * 0.7 + d.phase) * 0.04
 			_near_leaves.multimesh.set_instance_transform_2d(near, Transform2D(angle, Vector2(d.len, d.w), 0.0, d.pos))
-			_near_leaves.multimesh.set_instance_color(near, S.OUTLINE.lerp(S.PANEL_EDGE, 0.25 + 0.4 * d.shade))
+			_near_leaves.multimesh.set_instance_color(near, S.color("outline").lerp(S.color("panel_edge"), 0.25 + 0.4 * d.shade))
 			near += 1
 	for i in _spores.size():
 		var sp: Dictionary = _spores[i]
 		var p: Vector2 = sp.pos + Vector2(sin(_time * 0.5 + sp.phase) * 16.0, -_time * sp.speed)
 		p.y = fposmod(p.y + 60.0, 1720.0) - 60.0
-		var c: Color = S.CYAN if sp.cyan else S.TOXIC
+		var c: Color = S.color("cyan") if sp.cyan else S.color("toxic")
 		var flicker := 0.55 + 0.45 * sin(_time * 2.2 + sp.phase)
 		_spore_glows.multimesh.set_instance_transform_2d(i, Transform2D(0.0, Vector2.ONE * sp.r * 4.5, 0.0, p))
 		_spore_glows.multimesh.set_instance_color(i, Color(c, 0.22 * flicker))
@@ -313,7 +320,7 @@ func _creature_material() -> ShaderMaterial:
 	m.shader = load(SHADER_PATH)
 	var params := {
 		"brightness": 1.25, "saturation": 1.15, "shape_light": 0.4,
-		"rim_color": S.EMBER_GLOW, "rim_strength": 0.55, "rim_power": 2.2,
+		"rim_color": S.color("ember_glow"), "rim_strength": 0.55, "rim_power": 2.2,
 		"flash": 0.0, "up_axis": Vector3(0.0, 0.0, -1.0), "forward_axis": Vector3(-1.0, 0.0, 0.0),
 		"ground_offset": -0.0008, "foot_a_front": Vector2(0.239, -0.287), "foot_a_back": Vector2(-0.286, 0.205),
 		"foot_b_front": Vector2(0.063, 0.239), "foot_b_back": Vector2(-0.052, -0.191), "foot_radius": 0.15,
@@ -362,14 +369,14 @@ func _update_stage() -> void:
 			_material.set_shader_parameter("body_tint", body)
 			_material.set_shader_parameter("brightness", 1.25)
 			_material.set_shader_parameter("saturation", 1.15)
-			_material.set_shader_parameter("rim_color", S.EMBER_GLOW.lerp(tint.lightened(0.4), 0.6))
+			_material.set_shader_parameter("rim_color", S.color("ember_glow").lerp(tint.lightened(0.4), 0.6))
 			_material.set_shader_parameter("rim_strength", 0.55)
 		else:
 			# Locked: a dark silhouette with a cold rim, the pack is only hinted.
-			_material.set_shader_parameter("body_tint", Color(S.PANEL_EDGE.r, S.PANEL_EDGE.g, S.PANEL_EDGE.b, 1.0))
+			_material.set_shader_parameter("body_tint", Color(S.color("panel_edge").r, S.color("panel_edge").g, S.color("panel_edge").b, 1.0))
 			_material.set_shader_parameter("brightness", 0.32)
 			_material.set_shader_parameter("saturation", 0.2)
-			_material.set_shader_parameter("rim_color", S.TEXT_DIM)
+			_material.set_shader_parameter("rim_color", S.color("text_dim"))
 			_material.set_shader_parameter("rim_strength", 0.9)
 	# Idle: look around, breathe, a short trot in place now and then, snapping jaws.
 	for i in _pack.size():
@@ -497,8 +504,11 @@ func _fill_gradient(points: PackedVector2Array, top_color: Color, bottom_color: 
 ## Organic card: shadow, accent glow, gradient body, veins, cell holes, rim, bone claws.
 ## claws: bitmask 1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left.
 func _panel(rect: Rect2, accent: Color, fill: Color = S.PANEL, glow: float = 0.0, cut: float = 20.0, notch: float = 0.0, claws: int = 0, rim: float = 3.0, cells: bool = false) -> void:
+	if S.is_calm():
+		_panel_calm(rect, accent, fill, glow, cut, rim)
+		return
 	var shape := _shape(rect, cut, notch)
-	_cv.draw_colored_polygon(_shape(Rect2(rect.position + Vector2(0, 8), rect.size), cut, notch), S.SHADOW)
+	_cv.draw_colored_polygon(_shape(Rect2(rect.position + Vector2(0, 8), rect.size), cut, notch), S.color("shadow"))
 	if glow > 0.0:
 		_cv.draw_colored_polygon(_shape(rect.grow(13), cut + 9, notch), Color(accent, 0.06 * glow))
 		_cv.draw_colored_polygon(_shape(rect.grow(6), cut + 4, notch), Color(accent, 0.16 * glow))
@@ -508,7 +518,7 @@ func _panel(rect: Rect2, accent: Color, fill: Color = S.PANEL, glow: float = 0.0
 		_cells(Vector2(rect.end.x - 54, rect.position.y + 34), accent)
 	_cv.draw_polyline(_closed(_shape(rect.grow(-7), maxf(4.0, cut - 5), notch * 0.7)), Color(accent, 0.2), 1.5, true)
 	var loop := _closed(shape)
-	_cv.draw_polyline(loop, S.OUTLINE, rim + 3.0, true)
+	_cv.draw_polyline(loop, S.color("outline"), rim + 3.0, true)
 	_cv.draw_polyline(loop, accent, rim, true)
 	var corners := [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]
 	var outward := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
@@ -516,8 +526,25 @@ func _panel(rect: Rect2, accent: Color, fill: Color = S.PANEL, glow: float = 0.0
 		if claws & (1 << i):
 			var dir: Vector2 = (outward[i] as Vector2).normalized()
 			var base: Vector2 = corners[i] - dir * cut * 0.2
-			_claw(base + Vector2(0, 2), dir, 28, 8, S.OUTLINE, 0.45 if i % 2 == 0 else -0.45)
-			_claw(base, dir, 26, 7, S.BONE, 0.45 if i % 2 == 0 else -0.45)
+			_claw(base + Vector2(0, 2), dir, 28, 8, S.color("outline"), 0.45 if i % 2 == 0 else -0.45)
+			_claw(base, dir, 26, 7, S.color("bone"), 0.45 if i % 2 == 0 else -0.45)
+
+
+## Calm skin (V2 kit): petrol body, a faint teal line under the top edge and
+## one broad accent stroke. A selected panel gets a slightly stronger stroke,
+## no glow, veins, cells or claws.
+func _panel_calm(rect: Rect2, accent: Color, fill: Color, glow: float, cut: float, rim: float) -> void:
+	var c := minf(cut, 18.0)
+	var shape := UiFramesRef.chamfer_points(rect, c)
+	_cv.draw_colored_polygon(UiFramesRef.chamfer_points(Rect2(rect.position + Vector2(0, 6), rect.size), c), S.color("shadow"))
+	var body := S.tone(fill)
+	_fill_gradient(shape, Color(body.lightened(0.04), maxf(body.a, 0.94)), Color(body.darkened(0.12), maxf(body.a, 0.94)))
+	if rect.size.y > 60.0:
+		_cv.draw_line(Vector2(rect.position.x + c + 2, rect.position.y + 12), Vector2(rect.end.x - c - 2, rect.position.y + 12), Color("76cfc066"), 2.0, true)
+	var edge := S.tone(accent)
+	if glow > 0.0:
+		_cv.draw_polyline(_closed(UiFramesRef.chamfer_points(rect.grow(4.0), c + 2.0)), Color(edge, 0.18 * glow), 3.0, true)
+	_cv.draw_polyline(_closed(shape), edge, maxf(2.0, rim), true)
 
 
 ## Faint branching veins, deterministic per rectangle.
@@ -536,9 +563,9 @@ func _veins(rect: Rect2, accent: Color) -> void:
 			dir = dir.rotated(rng.randf_range(-0.5, 0.5))
 			p += dir * length / 5.0
 			points.append(p)
-		_cv.draw_polyline(points, Color(S.PANEL_EDGE, 0.55), 2.0, true)
+		_cv.draw_polyline(points, Color(S.color("panel_edge"), 0.55), 2.0, true)
 		var mid := points[2]
-		_cv.draw_line(mid, mid + dir.rotated(0.9 if from_left else -0.9) * length * 0.3, Color(S.PANEL_EDGE, 0.4), 1.5, true)
+		_cv.draw_line(mid, mid + dir.rotated(0.9 if from_left else -0.9) * length * 0.3, Color(S.color("panel_edge"), 0.4), 1.5, true)
 		_cv.draw_circle(points[5], 2.5, Color(accent, 0.12))
 
 
@@ -547,23 +574,34 @@ func _cells(at: Vector2, accent: Color) -> void:
 	for o in [Vector2(0, 0), Vector2(20, -4), Vector2(12, 15), Vector2(30, 13)]:
 		var r := 7.0 if o == Vector2.ZERO else 5.5
 		_cv.draw_circle(at + o, r + 2.0, Color(accent, 0.18))
-		_cv.draw_circle(at + o, r, S.OUTLINE)
+		_cv.draw_circle(at + o, r, S.color("outline"))
 
 
 func _socket(c: Vector2, r: float, accent: Color, glow: float = 1.0, glow_phase: String = "top") -> void:
+	if S.is_calm():
+		# V2: octagonal petrol plate with one stroke, no glow.
+		if not _on("top"):
+			return
+		var plate := UiFramesRef.chamfer_points(Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0), r * 0.42)
+		_cv.draw_colored_polygon(plate, Color(S.CALM_BG, 0.97))
+		_cv.draw_polyline(_closed(plate), S.tone(accent), 3.0, true)
+		return
 	if glow > 0.0 and _on(glow_phase):
 		_glow(c, Vector2(r, r) * 1.9, Color(accent, 0.22 * glow))
 	if not _on("top"):
 		return
-	_cv.draw_circle(c, r + 3.0, S.OUTLINE)
-	_cv.draw_circle(c, r, S.PANEL.darkened(0.35))
+	_cv.draw_circle(c, r + 3.0, S.color("outline"))
+	_cv.draw_circle(c, r, S.color("panel").darkened(0.35))
 	_cv.draw_arc(c, r, 0, TAU, 40, accent, 3.0, true)
 	_cv.draw_arc(c, r - 6.0, 0, TAU, 40, Color(accent, 0.2), 1.5, true)
 
 
 
 func _gem(c: Vector2, r: float, color: Color) -> void:
-	_diamond(c, r + 2.5, S.OUTLINE)
+	if S.is_calm():
+		_diamond(c, r, S.tone(color))
+		return
+	_diamond(c, r + 2.5, S.color("outline"))
 	_diamond(c, r, color)
 	_diamond(c + Vector2(-r * 0.2, -r * 0.3), r * 0.35, Color(1, 1, 1, 0.45))
 
@@ -574,6 +612,10 @@ func _build_decor() -> void:
 	rng.seed = 90417
 	for i in 44:
 		_spores.append({"pos": Vector2(rng.randf_range(0, 900), rng.randf_range(0, 1600)), "r": rng.randf_range(1.6, 4.2), "speed": rng.randf_range(10, 28), "phase": rng.randf() * TAU, "cyan": rng.randf() < 0.45})
+	# The painted background already frames the view with jungle; the drifting
+	# leaves are only the fallback without it.
+	if UiArt.menu_background() != null:
+		return
 	# Two layers of jungle leaves hugging the side edges; layer 0 is far and hazy.
 	for layer in 2:
 		for i in 16:
@@ -591,24 +633,34 @@ func _build_decor() -> void:
 func _paint_sky() -> void:
 	var w := size.x
 	var h := size.y
-	var stops := [[0.0, S.OUTLINE], [0.3, S.PANEL_SOFT.lightened(0.04)], [0.62, Color(S.PANEL, 1.0)], [1.0, S.OUTLINE]]
+	var painted := UiArt.menu_background()
+	if painted != null:
+		# V2 swamp painting (cover, centred), slightly dimmed so panels stay calm.
+		var full := Rect2(Vector2.ZERO, size)
+		UiArt.draw_cover(_cv, painted, PackedVector2Array([Vector2.ZERO, Vector2(w, 0), Vector2(w, h), Vector2(0, h)]), full, Color(0.86, 0.9, 0.9))
+		var glow_tint: Color = S.color("ember")
+		if menu != null and menu.profile != null:
+			glow_tint = menu._strain_color(menu.current_strain()) if menu._strain_unlocked(menu.current_strain()) else S.color("text_dim")
+		_glow(Vector2(w * 0.5, 500), Vector2(560, 440), Color(glow_tint, 0.12))
+		return
+	var stops := [[0.0, S.color("outline")], [0.3, S.color("panel_soft").lightened(0.04)], [0.62, Color(S.color("panel"), 1.0)], [1.0, S.color("outline")]]
 	for i in stops.size() - 1:
 		var a: float = stops[i][0] * h
 		var b: float = stops[i + 1][0] * h
 		var ca := Color(stops[i][1], 1.0)
 		var cb := Color(stops[i + 1][1], 1.0)
 		_cv.draw_polygon(PackedVector2Array([Vector2(0, a), Vector2(w, a), Vector2(w, b), Vector2(0, b)]), PackedColorArray([ca, ca, cb, cb]))
-	var tint: Color = S.EMBER
+	var tint: Color = S.color("ember")
 	if menu != null and menu.profile != null:
-		tint = menu._strain_color(menu.current_strain()) if menu._strain_unlocked(menu.current_strain()) else S.TEXT_DIM
+		tint = menu._strain_color(menu.current_strain()) if menu._strain_unlocked(menu.current_strain()) else S.color("text_dim")
 	# Warm pool of light where the pack stands, cool haze lower down.
 	_glow(Vector2(w * 0.5, 520), Vector2(620, 520), Color(tint, 0.2))
-	_glow(Vector2(w * 0.5, 1180), Vector2(700, 380), Color(S.CYAN, 0.05))
+	_glow(Vector2(w * 0.5, 1180), Vector2(700, 380), Color(S.color("cyan"), 0.05))
 
 
 ## God rays from the canopy.
 func _paint_rays() -> void:
-	var ray_color := S.TOXIC.lerp(S.TEXT, 0.55)
+	var ray_color := S.color("toxic").lerp(S.color("text"), 0.55)
 	for i in 5:
 		var x := 60.0 + i * 150.0 + sin(_time * 0.13 + i * 1.3) * 26.0
 		var top_w := 30.0 + i * 8.0
@@ -623,16 +675,16 @@ func _paint_fog() -> void:
 	for i in 3:
 		var fy: float = [760.0, 1010.0, 1240.0][i]
 		var fx := fposmod(_time * (14.0 + i * 5.0) + i * 300.0, 1500.0) - 300.0
-		_glow(Vector2(fx, fy), Vector2(460, 90), Color(S.TEXT_DIM, 0.05))
-		_glow(Vector2(fx - 750.0, fy + 40.0), Vector2(460, 90), Color(S.TEXT_DIM, 0.04))
+		_glow(Vector2(fx, fy), Vector2(460, 90), Color(S.color("text_dim"), 0.05))
+		_glow(Vector2(fx - 750.0, fy + 40.0), Vector2(460, 90), Color(S.color("text_dim"), 0.04))
 
 
 ## Vignette: sides and the bands behind the resource bar and tab dock.
 func _paint_vignette() -> void:
 	var w := size.x
 	var h := size.y
-	var dark := Color(S.OUTLINE, 0.6)
-	var clear := Color(S.OUTLINE, 0.0)
+	var dark := Color(S.color("outline"), 0.6)
+	var clear := Color(S.color("outline"), 0.0)
 	_cv.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(90, 0), Vector2(90, h), Vector2(0, h)]), PackedColorArray([dark, clear, clear, dark]))
 	_cv.draw_polygon(PackedVector2Array([Vector2(w - 90, 0), Vector2(w, 0), Vector2(w, h), Vector2(w - 90, h)]), PackedColorArray([clear, dark, dark, clear]))
 	_cv.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, 130), Vector2(0, 130)]), PackedColorArray([dark, dark, clear, clear]))
@@ -664,8 +716,8 @@ func _paint_front() -> void:
 
 
 func _draw_resources() -> void:
-	_resource_pill(Rect2(16, 18, 270, 76), S.VIOLET, "ESSENZ", int(menu.profile.essence), true)
-	_resource_pill(Rect2(size.x - 286, 18, 270, 76), S.GOLD, "KÖNIGSZÄHNE", int(menu.profile.crowns), false)
+	_resource_pill(Rect2(16, 18, 270, 76), S.color("violet"), "ESSENZ", int(menu.profile.essence), true)
+	_resource_pill(Rect2(size.x - 286, 18, 270, 76), S.color("gold"), "KÖNIGSZÄHNE", int(menu.profile.crowns), false)
 	if _on("top"):
 		_draw_gear_button()
 
@@ -677,10 +729,10 @@ func _draw_gear_button() -> void:
 	var pressed: bool = menu.is_pressed(rect) or menu.settings_open
 	var c := rect.get_center() + (Vector2(0, 3) if pressed else Vector2.ZERO)
 	var r := minf(rect.size.x, rect.size.y) * 0.5 - 4.0
-	_cv.draw_circle(c + Vector2(0, 5), r, S.SHADOW)
-	_socket(c, r, S.BONE if not pressed else S.EMBER_GLOW, 0.5 if pressed else 0.25)
-	_gear(c, r * 0.62, S.OUTLINE, 1.12)
-	_gear(c, r * 0.62, S.BONE.darkened(0.08) if not pressed else S.EMBER_GLOW.lerp(S.TEXT, 0.4), 1.0)
+	_cv.draw_circle(c + Vector2(0, 5), r, S.color("shadow"))
+	_socket(c, r, S.color("bone") if not pressed else S.color("ember_glow"), 0.5 if pressed else 0.25)
+	_gear(c, r * 0.62, S.color("outline"), 1.12)
+	_gear(c, r * 0.62, S.color("bone").darkened(0.08) if not pressed else S.color("ember_glow").lerp(S.color("text"), 0.4), 1.0)
 
 
 ## Eight-tooth gear with a hole; `k` > 1 draws a slightly larger outline pass.
@@ -692,15 +744,21 @@ func _gear(c: Vector2, r: float, color: Color, k: float) -> void:
 		var outer := i % 4 == 1 or i % 4 == 2
 		points.append(c + Vector2(cos(a), sin(a)) * r * k * (1.0 if outer else 0.74))
 	_cv.draw_colored_polygon(points, color)
-	_cv.draw_circle(c, r * 0.3 * (2.0 - k), S.PANEL.darkened(0.35) if k <= 1.0 else color)
+	_cv.draw_circle(c, r * 0.3 * (2.0 - k), S.color("panel").darkened(0.35) if k <= 1.0 else color)
 
 func _resource_pill(rect: Rect2, accent: Color, label: String, value: int, essence: bool) -> void:
 	var body := Rect2(rect.position + Vector2(26, 6), rect.size - Vector2(26, 12))
-	if _on("base"):
-		_cv.draw_colored_polygon(_rounded_points(Rect2(body.position + Vector2(0, 6), body.size), body.size.y * 0.5, 5), S.SHADOW)
-		_fill_gradient(_rounded_points(body, body.size.y * 0.5, 5), Color(S.PANEL_SOFT.lightened(0.08), 0.96), Color(S.PANEL.darkened(0.2), 0.96))
+	if _on("base") and S.is_calm():
+		var chip := UiFramesRef.chamfer_points(body, 14.0)
+		_cv.draw_colored_polygon(UiFramesRef.chamfer_points(Rect2(body.position + Vector2(0, 5), body.size), 14.0), S.color("shadow"))
+		_cv.draw_colored_polygon(chip, Color(S.CALM_BG, 0.95))
+		_cv.draw_line(body.position + Vector2(16, 11), Vector2(body.end.x - 16, body.position.y + 11), Color("76cfc04d"), 2.0, true)
+		_cv.draw_polyline(_closed(chip), Color(S.tone(accent), 0.85), 2.5, true)
+	elif _on("base"):
+		_cv.draw_colored_polygon(_rounded_points(Rect2(body.position + Vector2(0, 6), body.size), body.size.y * 0.5, 5), S.color("shadow"))
+		_fill_gradient(_rounded_points(body, body.size.y * 0.5, 5), Color(S.color("panel_soft").lightened(0.08), 0.96), Color(S.color("panel").darkened(0.2), 0.96))
 		var loop := _closed(_rounded_points(body, body.size.y * 0.5, 5))
-		_cv.draw_polyline(loop, S.OUTLINE, 5.0, true)
+		_cv.draw_polyline(loop, S.color("outline"), 5.0, true)
 		_cv.draw_polyline(loop, Color(accent, 0.85), 2.5, true)
 	var ic := rect.position + Vector2(36, rect.size.y * 0.5)
 	_socket(ic, 32, accent, 0.8 + 0.2 * _pulse(1.6), "live")
@@ -710,9 +768,9 @@ func _resource_pill(rect: Rect2, accent: Color, label: String, value: int, essen
 		if essence:
 			_essence_drop(ic + Vector2(0, 3), 15, accent)
 		else:
-			_fang(ic + Vector2(-2, 2), 20, S.BONE)
+			_fang(ic + Vector2(-2, 2), 20, S.color("bone"))
 	_txt(label, Vector2(rect.position.x + 80, rect.position.y + 36), LABEL, accent.lightened(0.35), false, 4)
-	_txt("%d" % value, Vector2(rect.position.x + 80, rect.position.y + 70), S.SIZE_HEAD, S.TEXT, false, 6)
+	_txt("%d" % value, Vector2(rect.position.x + 80, rect.position.y + 70), S.SIZE_HEAD, S.color("text"), false, 6)
 
 
 
@@ -723,20 +781,26 @@ func _draw_logo() -> void:
 	var baseline := 218.0
 	var w := _tw(title, fs)
 	var face := S.display_font()
+	if UiArt.logo() != null:
+		_draw_logo_art(cx, baseline)
+		return
+	if S.is_calm():
+		_draw_logo_calm(cx, title, fs, baseline, w, face)
+		return
 	if _on("under"):
-		_glow(Vector2(cx, baseline - 36), Vector2(w * 0.72, 120), Color(S.EMBER, 0.22 + 0.05 * _pulse(1.2)))
+		_glow(Vector2(cx, baseline - 36), Vector2(w * 0.72, 120), Color(S.color("ember"), 0.22 + 0.05 * _pulse(1.2)))
 	var left := cx - w * 0.5 - 34.0
 	var right := cx + w * 0.5 + 34.0
-	var gum := S.DANGER.darkened(0.45)
+	var gum := S.color("danger").darkened(0.45)
 	var upper_y := baseline - 100.0
 	var lower_y := baseline + 16.0
 	# Word: shadow, extrusion, bevel highlight, face with a travelling glint.
 	var origin := Vector2(cx - w * 0.5, baseline)
 	if _on("base"):
-		_cv.draw_string_outline(face, origin + Vector2(0, 9), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 16, Color(S.OUTLINE, 0.7))
-		_cv.draw_string_outline(face, origin + Vector2(0, 5), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 12, S.OUTLINE)
-		_cv.draw_string(face, origin + Vector2(0, 5), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.EMBER.darkened(0.5))
-		_cv.draw_string(face, origin + Vector2(0, -3), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.GOLD.lightened(0.35))
+		_cv.draw_string_outline(face, origin + Vector2(0, 9), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 16, Color(S.color("outline"), 0.7))
+		_cv.draw_string_outline(face, origin + Vector2(0, 5), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 12, S.color("outline"))
+		_cv.draw_string(face, origin + Vector2(0, 5), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.color("ember").darkened(0.5))
+		_cv.draw_string(face, origin + Vector2(0, -3), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.color("gold").lightened(0.35))
 	if _on("live"):
 		# Face with the travelling glint.
 		var sweep := fposmod(_time * 0.45, 2.2) - 0.35
@@ -745,7 +809,7 @@ func _draw_logo() -> void:
 			var ch := title[i]
 			var cw := face.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 			var k := clampf(1.0 - absf((x + cw * 0.5 - origin.x) / w - sweep) * 5.0, 0.0, 1.0)
-			var face_color := S.EMBER_GLOW.lerp(S.EMBER, 0.35).lerp(S.TEXT, k * 0.75)
+			var face_color := S.color("ember_glow").lerp(S.color("ember"), 0.35).lerp(S.color("text"), k * 0.75)
 			_cv.draw_string(face, Vector2(x, baseline), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, face_color)
 			x += face.get_string_size(title.substr(0, i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x - (x - origin.x)
 	if not _on("top"):
@@ -760,10 +824,62 @@ func _draw_logo() -> void:
 	for side in [-1.0, 1.0]:
 		var a := Vector2(cx + side * (half + 14), sub_y - 9)
 		var b := Vector2(cx + side * (half + 150), sub_y - 9)
-		_cv.draw_line(a, b, Color(S.TOXIC, 0.45), 2.0, true)
-		_gem(b + Vector2(side * 8, 0), 6, S.TOXIC)
-		_gem(a + Vector2(side * 36, 0), 3.5, Color(S.TOXIC, 0.8))
-	_txt(sub, Vector2(cx, sub_y), LABEL + 3, S.TOXIC.lerp(S.TEXT, 0.45), true, 5)
+		_cv.draw_line(a, b, Color(S.color("toxic"), 0.45), 2.0, true)
+		_gem(b + Vector2(side * 8, 0), 6, S.color("toxic"))
+		_gem(a + Vector2(side * 36, 0), 3.5, Color(S.color("toxic"), 0.8))
+	_txt(sub, Vector2(cx, sub_y), LABEL + 3, S.color("toxic").lerp(S.color("text"), 0.45), true, 5)
+
+
+## V2 logo artwork (jaw as the W) with the BRUTSTAETTE rule below.
+func _draw_logo_art(cx: float, baseline: float) -> void:
+	var tex := UiArt.logo()
+	var lw := 610.0
+	var lh := lw * float(tex.get_height()) / float(tex.get_width())
+	var rect := Rect2(cx - lw * 0.5, baseline + 20.0 - lh, lw, lh)
+	if _on("under") and not S.is_calm():
+		_glow(rect.get_center(), Vector2(lw * 0.62, lh * 0.9), Color(S.color("ember"), 0.16 + 0.04 * _pulse(1.2)))
+	if _on("base"):
+		_cv.draw_texture_rect(tex, Rect2(rect.position + Vector2(0, 7), rect.size), false, Color(0, 0, 0, 0.45))
+		_cv.draw_texture_rect(tex, rect, false)
+	if not _on("top"):
+		return
+	var sub := "BRUTSTÄTTE"
+	var sub_y := baseline + 64.0
+	if _spaced_sub == null:
+		_spaced_sub = FontVariation.new()
+		_spaced_sub.base_font = S.display_font()
+		_spaced_sub.spacing_glyph = 6
+	var sub_w := S.text(_cv, sub, Vector2(cx, sub_y), LABEL + 3, S.color("text_dim"), true, 4, _spaced_sub)
+	UiFramesRef.rule(_cv, Vector2(cx, sub_y - 9), sub_w + 36.0 + 280.0, Color(S.color("panel_edge").lightened(0.3), 1.0), sub_w + 36.0, 1.0)
+
+
+## Calm logo (V2): the word in light amber with a dark petrol extrusion and a
+## slow glint, no jaws or glow; BRUTSTAETTE between two thin rules.
+func _draw_logo_calm(cx: float, title: String, fs: int, baseline: float, w: float, face: Font) -> void:
+	var origin := Vector2(cx - w * 0.5, baseline)
+	if _on("base"):
+		_cv.draw_string_outline(face, origin + Vector2(0, 7), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 14, Color(S.color("outline"), 0.8))
+		_cv.draw_string_outline(face, origin, title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 10, S.color("outline"))
+		_cv.draw_string(face, origin + Vector2(0, 6), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color("5c3322"))
+	if _on("live"):
+		var sweep := fposmod(_time * 0.3, 2.6) - 0.3
+		var x := origin.x
+		for i in title.length():
+			var ch := title[i]
+			var cw := face.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var k := clampf(1.0 - absf((x + cw * 0.5 - origin.x) / w - sweep) * 5.0, 0.0, 1.0)
+			_cv.draw_string(face, Vector2(x, baseline), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, S.CALM_ORANGE_LIGHT.lerp(S.CALM_TEXT, k * 0.5))
+			x += face.get_string_size(title.substr(0, i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x - (x - origin.x)
+	if not _on("top"):
+		return
+	var sub := "BRUTSTÄTTE"
+	var sub_y := baseline + 58.0
+	if _spaced_sub == null:
+		_spaced_sub = FontVariation.new()
+		_spaced_sub.base_font = S.display_font()
+		_spaced_sub.spacing_glyph = 6
+	var sub_w := S.text(_cv, sub, Vector2(cx, sub_y), LABEL + 3, S.CALM_TEXT_DIM, true, 4, _spaced_sub)
+	UiFramesRef.rule(_cv, Vector2(cx, sub_y - 9), sub_w + 36.0 + 280.0, Color(S.CALM_EDGE.lightened(0.3), 1.0), sub_w + 36.0, 1.0)
 
 
 ## A curved jaw band with teeth hanging (dir 1) or rising (dir -1) from it.
@@ -782,34 +898,34 @@ func _jaw(a: Vector2, ctrl: Vector2, b: Vector2, thick: float, gum: Color, dir: 
 		var edge := p + Vector2(0, dir * thick * 0.35)
 		var tip := edge + Vector2((0.5 - t) * 8.0, dir * float(lengths[i]))
 		var half := 6.0 + float(lengths[i]) * 0.16
-		_cv.draw_colored_polygon(PackedVector2Array([edge + Vector2(-half - 2, -dir * 2), edge + Vector2(half + 2, -dir * 2), tip + Vector2(0, dir * 3)]), S.OUTLINE)
-		_cv.draw_colored_polygon(PackedVector2Array([edge + Vector2(-half, 0), edge + Vector2(half, 0), tip]), S.BONE)
-		_cv.draw_colored_polygon(PackedVector2Array([edge + Vector2(half * 0.1, 0), edge + Vector2(half, 0), tip]), S.BONE.darkened(0.22))
+		_cv.draw_colored_polygon(PackedVector2Array([edge + Vector2(-half - 2, -dir * 2), edge + Vector2(half + 2, -dir * 2), tip + Vector2(0, dir * 3)]), S.color("outline"))
+		_cv.draw_colored_polygon(PackedVector2Array([edge + Vector2(-half, 0), edge + Vector2(half, 0), tip]), S.color("bone"))
+		_cv.draw_colored_polygon(PackedVector2Array([edge + Vector2(half * 0.1, 0), edge + Vector2(half, 0), tip]), S.color("bone").darkened(0.22))
 	var band := top.duplicate()
 	for i in range(low.size() - 1, -1, -1):
 		band.append(low[i])
-	_cv.draw_colored_polygon(band, S.OUTLINE)
+	_cv.draw_colored_polygon(band, S.color("outline"))
 	var inner := PackedVector2Array()
 	for i in top.size():
 		inner.append(top[i].lerp(low[i], 0.2))
 	for i in range(low.size() - 1, -1, -1):
 		inner.append(low[i].lerp(top[i], 0.2))
 	_fill_gradient(inner, gum.lightened(0.35), gum)
-	_cv.draw_polyline(top, Color(S.BONE, 0.35), 2.0, true)
+	_cv.draw_polyline(top, Color(S.color("bone"), 0.35), 2.0, true)
 	# Bone knobs at the hinge.
 	for p in [a, b]:
-		_cv.draw_circle(p, thick * 0.75, S.OUTLINE)
-		_cv.draw_circle(p, thick * 0.55, S.BONE.darkened(0.15))
+		_cv.draw_circle(p, thick * 0.75, S.color("outline"))
+		_cv.draw_circle(p, thick * 0.55, S.color("bone").darkened(0.15))
 
 
 func _draw_section(label: String, y: float) -> void:
 	if not _on("top"):
 		return
-	_gem(Vector2(40, y - 8), 6, S.TOXIC)
-	var w := _txt(label, Vector2(54, y), LABEL, S.TOXIC.lerp(S.TEXT, 0.4), false, 4)
+	_gem(Vector2(40, y - 8), 6, S.color("toxic"))
+	var w := _txt(label, Vector2(54, y), LABEL, S.color("toxic").lerp(S.color("text"), 0.4), false, 4)
 	var a := Vector2(66 + w, y - 8)
 	var b := Vector2(size.x - 40, y - 8)
-	_cv.draw_polygon(PackedVector2Array([a + Vector2(0, -1), b + Vector2(0, -1), b + Vector2(0, 1), a + Vector2(0, 1)]), PackedColorArray([Color(S.TOXIC, 0.5), Color(S.TOXIC, 0.0), Color(S.TOXIC, 0.0), Color(S.TOXIC, 0.5)]))
+	_cv.draw_polygon(PackedVector2Array([a + Vector2(0, -1), b + Vector2(0, -1), b + Vector2(0, 1), a + Vector2(0, 1)]), PackedColorArray([Color(S.color("toxic"), 0.5), Color(S.color("toxic"), 0.0), Color(S.color("toxic"), 0.0), Color(S.color("toxic"), 0.5)]))
 
 # ---------------------------------------------------------------- strain card
 
@@ -819,9 +935,9 @@ func _draw_strain() -> void:
 	var owned: bool = menu._strain_owned(id)
 	var unlocked: bool = menu._strain_unlocked(id)
 	var tint: Color = menu._strain_color(id)
-	var accent: Color = tint.lightened(0.35) if unlocked else S.TEXT_DIM.darkened(0.25)
+	var accent: Color = tint.lightened(0.35) if unlocked else S.color("text_dim").darkened(0.25)
 	if id == "nachtmaul" and unlocked:
-		accent = S.VIOLET
+		accent = S.color("violet")
 	var card: Rect2 = menu.strain_card_rect()
 	var ox: float = menu._slide
 	var cx := size.x * 0.5 + ox
@@ -829,7 +945,7 @@ func _draw_strain() -> void:
 		if _frames != null:
 			_frames.card(_cv, card, accent, "selected" if owned else ("normal" if unlocked else "disabled"))
 		else:
-			_panel(card, accent, S.PANEL, 1.0 if unlocked else 0.4, 30.0, 12.0, 1 | 2, 3.5, true)
+			_panel(card, accent, S.color("panel"), 1.0 if unlocked else 0.4, 30.0, 12.0, 1 | 2, 3.5, true)
 	# Stage: glowing ground disc under the pack (projected from the 3D camera).
 	var ground := STAGE_GROUND
 	var radius := Vector2(262, 52)
@@ -840,10 +956,10 @@ func _draw_strain() -> void:
 		radius = Vector2(_stage_point(Vector3(2.5, 0, -0.15)).x - ground.x, (front.y - back.y) * 0.5)
 	ground.x += ox
 	if _on("base"):
-		_glow(ground + Vector2(0, -radius.y * 2.0), Vector2(radius.x * 1.25, radius.x * 0.85), Color(tint if unlocked else S.TEXT_DIM, 0.3 if unlocked else 0.08))
-		_ellipse(ground + Vector2(0, 5), radius.x + 8, radius.y + 6, Color(S.OUTLINE, 0.75))
-		_ellipse(ground, radius.x, radius.y, Color(S.PANEL_SOFT.lightened(0.05), 0.95))
-		_glow(ground, radius * 0.9, Color(tint if unlocked else S.TEXT_DIM, 0.22))
+		_glow(ground + Vector2(0, -radius.y * 2.0), Vector2(radius.x * 1.25, radius.x * 0.85), Color(tint if unlocked else S.color("text_dim"), 0.3 if unlocked else 0.08))
+		_ellipse(ground + Vector2(0, 5), radius.x + 8, radius.y + 6, Color(S.color("outline"), 0.75))
+		_ellipse(ground, radius.x, radius.y, Color(S.color("panel_soft").lightened(0.05), 0.95))
+		_glow(ground, radius * 0.9, Color(tint if unlocked else S.color("text_dim"), 0.22))
 		var ring := PackedVector2Array()
 		for i in 49:
 			var a := TAU * i / 48.0
@@ -858,33 +974,35 @@ func _draw_strain() -> void:
 			for u in _pack:
 				var node: Node3D = u.node
 				var foot := _stage_point(Vector3(node.position.x, 0.0, node.position.z)) + Vector2(ox, 0)
-				_glow(foot, Vector2(64, 16) * node.scale.x, Color(S.OUTLINE, 0.85))
+				_glow(foot, Vector2(64, 16) * node.scale.x, Color(S.color("outline"), 0.85))
 			# A ViewportTexture: the pack keeps moving without a repaint.
 			_cv.draw_texture_rect(_viewport.get_texture(), Rect2(STAGE_RECT.position + Vector2(ox, 0), STAGE_RECT.size), false)
+		elif UiArt.tribe(id) != null:
+			_draw_portrait(UiArt.tribe(id), ground, radius, unlocked)
 	if not _on("top"):
 		return
-	if use_3d and _viewport != null:
+	if (use_3d and _viewport != null) or UiArt.tribe(id) != null:
 		pass
 	else:
-		var head := tint if unlocked else S.PANEL_EDGE
+		var head := tint if unlocked else S.color("panel_edge")
 		var ec := Vector2(cx, 470)
 		_mawling_head(ec + Vector2(-80, -20), 56, head.darkened(0.3))
 		_mawling_head(ec + Vector2(78, -28), 52, head.darkened(0.18))
 		_mawling_head(ec + Vector2(0, 30), 84, head)
 	if not unlocked:
 		var lc := Vector2(cx, 470)
-		_socket(lc, 46, S.TEXT_DIM, 0.6)
+		_socket(lc, 46, S.color("text_dim"), 0.6)
 		if not _icon(["lock"], Rect2(lc - Vector2(30, 30), Vector2(60, 60))):
-			_lock(lc + Vector2(0, -2), 32, S.TEXT)
+			_lock(lc + Vector2(0, -2), 32, S.color("text"))
 	_status_badge(card, id, owned, unlocked)
 	# Name, then description + stat chips, or the unlock trophy with progress.
 	var name := String(s.get("name", id)).to_upper()
-	_txt(name, Vector2(cx, 674), 60, tint.lightened(0.3) if unlocked else S.TEXT_DIM, true, 9)
+	_txt(name, Vector2(cx, 674), 60, tint.lightened(0.3) if unlocked else S.color("text_dim"), true, 9)
 	if unlocked:
 		var lines := _wrap(String(s.get("description", "")), card.size.x - 100, 23)
 		var y := 708.0 if lines.size() == 1 else 700.0
 		for i in mini(2, lines.size()):
-			_txt(lines[i], Vector2(cx, y + i * 27), 23, S.TEXT.darkened(0.08), true, 4, true)
+			_txt(lines[i], Vector2(cx, y + i * 27), 23, S.color("text").darkened(0.08), true, 4, true)
 		_draw_chips(s, Rect2(card.position.x + 36 + ox, 740 if lines.size() == 1 else 746, card.size.x - 72, 42))
 	else:
 		_draw_unlock_quest(String(s.get("unlock_quest", "")), cx, card)
@@ -892,19 +1010,33 @@ func _draw_strain() -> void:
 	_draw_page_dots(card)
 
 
+## Painted strain portrait standing on the ground disc, breathing slowly (LIVE).
+## Locked strains show only a dark silhouette with a cold rim.
+func _draw_portrait(tex: Texture2D, ground: Vector2, radius: Vector2, unlocked: bool) -> void:
+	var breathe := 1.0 + 0.014 * sin(_time * 1.7)
+	var height := 272.0 * breathe
+	var foot := ground + Vector2(0, radius.y * 0.3)
+	_glow(ground + Vector2(0, 4), Vector2(radius.x * 0.62, radius.y * 0.7), Color(S.color("outline"), 0.9))
+	if unlocked:
+		UiArt.draw_standing(_cv, tex, foot, height)
+	else:
+		UiArt.draw_standing(_cv, tex, foot + Vector2(0, -3), height, Color(S.color("text_dim"), 0.3))
+		UiArt.draw_standing(_cv, tex, foot, height, Color(0.04, 0.07, 0.08, 0.96))
+
+
 func _status_badge(card: Rect2, id: String, owned: bool, unlocked: bool) -> void:
 	var text := "IM BESITZ"
-	var color := S.TOXIC
+	var color := S.color("toxic")
 	if not unlocked:
 		text = "GESPERRT"
-		color = S.DANGER.lerp(S.TEXT, 0.35)
+		color = S.color("danger").lerp(S.color("text"), 0.35)
 	elif not owned:
 		text = "KAUFBAR · %d" % int(menu.profile.strain_cost(id))
-		color = S.GOLD
+		color = S.color("gold")
 	var w := _tw(text, LABEL) + 58 + (26 if unlocked and not owned else 0)
 	var badge := Rect2(card.position.x + 26, card.position.y + 22, w, 40)
 	var shape := _rounded_points(badge, 20, 4)
-	_cv.draw_colored_polygon(shape, Color(S.OUTLINE, 0.9))
+	_cv.draw_colored_polygon(shape, Color(S.color("outline"), 0.9))
 	_cv.draw_colored_polygon(_rounded_points(badge.grow(-3), 17, 4), Color(color, 0.16))
 	_cv.draw_polyline(_closed(shape), Color(color, 0.7), 2.0, true)
 	var ic := badge.position + Vector2(22, 20)
@@ -918,26 +1050,29 @@ func _status_badge(card: Rect2, id: String, owned: bool, unlocked: bool) -> void
 	if unlocked and not owned:
 		var fc := badge.position + Vector2(badge.size.x - 24, 20)
 		if not _icon(["crown_tooth"], Rect2(fc - Vector2(15, 15), Vector2(30, 30))):
-			_fang(fc, 12, S.BONE)
+			_fang(fc, 12, S.color("bone"))
 
 
 func _draw_unlock_quest(quest_id: String, cx: float, card: Rect2) -> void:
 	var q: Dictionary = menu.meta.quest(quest_id)
 	var title := "TROPHÄE · %s" % String(q.get("name", quest_id)).to_upper()
 	var tw := _tw(title, 24)
-	_skull(Vector2(cx - tw * 0.5 - 20, 704), 12, S.GOLD)
-	_txt(title, Vector2(cx + 14, 714), 24, S.GOLD, true, 5)
-	_txt(String(q.get("description", "")), Vector2(cx, 744), LABEL + 1, S.TEXT.darkened(0.1), true, 4, true)
+	_skull(Vector2(cx - tw * 0.5 - 20, 704), 12, S.color("gold"))
+	_txt(title, Vector2(cx + 14, 714), 24, S.color("gold"), true, 5)
+	_txt(String(q.get("description", "")), Vector2(cx, 744), LABEL + 1, S.color("text").darkened(0.1), true, 4, true)
 	var progress: Vector2 = menu.profile.quest_progress(quest_id)
 	var bar := Rect2(cx - 220, 762, 330, 18)
-	_progress_bar(bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), S.GOLD)
-	_txt(menu._progress_text(q, progress), Vector2(bar.end.x + 16, bar.position.y + 17), LABEL, S.GOLD.lerp(S.TEXT, 0.4), false, 4)
+	_progress_bar(bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), S.color("gold"))
+	_txt(menu._progress_text(q, progress), Vector2(bar.end.x + 16, bar.position.y + 17), LABEL, S.color("gold").lerp(S.color("text"), 0.4), false, 4)
 
 
 func _progress_bar(rect: Rect2, fraction: float, color: Color) -> void:
+	if S.is_calm():
+		UiFramesRef.bar(_cv, rect.grow(2.0), fraction, color)
+		return
 	var back := _rounded_points(rect, rect.size.y * 0.5, 4)
-	_cv.draw_colored_polygon(_rounded_points(rect.grow(3), rect.size.y * 0.5 + 3, 4), S.OUTLINE)
-	_cv.draw_colored_polygon(back, S.PANEL_EDGE.darkened(0.3))
+	_cv.draw_colored_polygon(_rounded_points(rect.grow(3), rect.size.y * 0.5 + 3, 4), S.color("outline"))
+	_cv.draw_colored_polygon(back, S.color("panel_edge").darkened(0.3))
 	if fraction > 0.0:
 		var fill := Rect2(rect.position, Vector2(maxf(rect.size.y, rect.size.x * minf(fraction, 1.0)), rect.size.y))
 		_fill_gradient(_rounded_points(fill, rect.size.y * 0.5, 4), color.lightened(0.3), color.darkened(0.2))
@@ -948,15 +1083,15 @@ func _draw_chips(s: Dictionary, area: Rect2) -> void:
 	var mods: Dictionary = s.get("mods", {})
 	var sig: String = s.get("signature", "")
 	var chips: Array = []
-	chips.append({"kind": "start", "icon": "mawling_head_color", "text": "%d" % int(s.get("start_population", 25)), "color": S.EMBER_GLOW})
-	chips.append({"kind": "sig", "icon": sig, "text": String(menu.meta.MUTATION_NAMES.get(sig, sig)), "color": S.VIOLET})
+	chips.append({"kind": "start", "icon": "mawling_head_color", "text": "%d" % int(s.get("start_population", 25)), "color": S.color("ember_glow")})
+	chips.append({"kind": "sig", "icon": sig, "text": String(menu.meta.MUTATION_NAMES.get(sig, sig)), "color": S.color("violet")})
 	for pair in [["damage", "SCHADEN"], ["armor", "PANZER"], ["speed", "TEMPO"], ["growth", "WACHSTUM"], ["dna", "DNA"]]:
 		var v := float(mods.get(pair[0], 0.0 if pair[0] == "armor" else 1.0))
 		var delta := v * 100.0 if pair[0] == "armor" else (v - 1.0) * 100.0
 		if absf(delta) >= 0.5:
-			chips.append({"kind": "up" if delta > 0 else "down", "icon": "", "text": "%s %+d %%" % [pair[1], roundi(delta)], "color": S.TOXIC if delta > 0 else S.DANGER.lerp(S.TEXT, 0.2)})
+			chips.append({"kind": "up" if delta > 0 else "down", "icon": "", "text": "%s %+d %%" % [pair[1], roundi(delta)], "color": S.color("toxic") if delta > 0 else S.color("danger").lerp(S.color("text"), 0.2)})
 	if s.has("rally_damage"):
-		chips.append({"kind": "up", "icon": "", "text": "RALLY %+d %%" % roundi((float(s.rally_damage) - 1.0) * 100.0), "color": S.TOXIC})
+		chips.append({"kind": "up", "icon": "", "text": "RALLY %+d %%" % roundi((float(s.rally_damage) - 1.0) * 100.0), "color": S.color("toxic")})
 	var fs := LABEL + 1
 	var gap := 10.0
 	var total := -gap
@@ -973,15 +1108,15 @@ func _draw_chips(s: Dictionary, area: Rect2) -> void:
 	for c in chips:
 		var r := Rect2(x, area.position.y, c.w, area.size.y)
 		var shape := _rounded_points(r, 12, 3)
-		_cv.draw_colored_polygon(_rounded_points(Rect2(r.position + Vector2(0, 4), r.size), 12, 3), S.SHADOW)
-		_fill_gradient(shape, S.PANEL_SOFT.lightened(0.06), S.PANEL.darkened(0.3))
+		_cv.draw_colored_polygon(_rounded_points(Rect2(r.position + Vector2(0, 4), r.size), 12, 3), S.color("shadow"))
+		_fill_gradient(shape, S.color("panel_soft").lightened(0.06), S.color("panel").darkened(0.3))
 		_cv.draw_polyline(_closed(shape), Color(c.color, 0.55), 2.0, true)
 		var ic := r.position + Vector2(22, r.size.y * 0.5)
 		if c.icon != "" and _icon([c.icon], Rect2(ic - Vector2(17, 17), Vector2(34, 34))):
 			pass
 		else:
 			_chip_glyph(c.kind, ic, c.color)
-		_txt(c.text, Vector2(r.position.x + 42, r.position.y + r.size.y * 0.5 + fs * 0.36), fs, S.TEXT, false, 4)
+		_txt(c.text, Vector2(r.position.x + 42, r.position.y + r.size.y * 0.5 + fs * 0.36), fs, S.color("text"), false, 4)
 		x += c.w + gap
 
 
@@ -1007,14 +1142,20 @@ func _draw_arrows(accent: Color) -> void:
 		var pressed: bool = menu.is_pressed(rect)
 		var c := rect.get_center() + Vector2(dir * 6.0, 0.0) + (Vector2(0, 3) if pressed else Vector2.ZERO)
 		var r := 30.0 * (0.94 if pressed else 1.0)
+		if S.is_calm():
+			# V2 round_button_base: small chamfered plate with a light rim.
+			if not UiFramesRef.kit_at(_cv, "round_button_base", c, Vector2.ONE * r * 2.2, Color(0.8, 0.84, 0.82) if pressed else Color.WHITE):
+				_cv.draw_colored_polygon(UiFramesRef.chamfer_points(Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0), r * 0.35), S.CALM_BG)
+			_arrow(c + Vector2(dir * 3, 0), 22, dir, S.CALM_TEXT)
+			continue
 		_glow(c, Vector2(52, 52), Color(accent, 0.22 if pressed else 0.14))
-		_cv.draw_circle(c + Vector2(0, 4), r + 3.0, Color(S.SHADOW, 0.8))
-		_cv.draw_circle(c, r + 3.0, S.OUTLINE)
-		_cv.draw_circle(c, r, S.PANEL.darkened(0.25))
+		_cv.draw_circle(c + Vector2(0, 4), r + 3.0, Color(S.color("shadow"), 0.8))
+		_cv.draw_circle(c, r + 3.0, S.color("outline"))
+		_cv.draw_circle(c, r, S.color("panel").darkened(0.25))
 		_cv.draw_circle(c + Vector2(0, -r * 0.2), r * 0.72, Color(accent, 0.12 if not pressed else 0.2))
-		_cv.draw_arc(c, r, 0, TAU, 40, Color(S.BONE, 0.85), 2.5, true)
-		_arrow(c + Vector2(dir * 3, 2), 26, dir, S.OUTLINE)
-		_arrow(c + Vector2(dir * 3, 0), 24, dir, S.BONE)
+		_cv.draw_arc(c, r, 0, TAU, 40, Color(S.color("bone"), 0.85), 2.5, true)
+		_arrow(c + Vector2(dir * 3, 2), 26, dir, S.color("outline"))
+		_arrow(c + Vector2(dir * 3, 0), 24, dir, S.color("bone"))
 
 
 func _draw_page_dots(card: Rect2) -> void:
@@ -1023,20 +1164,21 @@ func _draw_page_dots(card: Rect2) -> void:
 	var y := card.end.y + 28.0
 	# Faint rail so the dots read as one pager, not as loose sparkles.
 	var half := (n - 1) * step * 0.5 + 18.0
-	_cv.draw_line(Vector2(size.x * 0.5 - half, y), Vector2(size.x * 0.5 + half, y), Color(S.PANEL_EDGE, 0.8), 2.0, true)
+	_cv.draw_line(Vector2(size.x * 0.5 - half, y), Vector2(size.x * 0.5 + half, y), Color(S.color("panel_edge"), 0.8), 2.0, true)
 	for i in n:
 		var p := Vector2(size.x * 0.5 + (i - (n - 1) * 0.5) * step, y)
 		var other: String = menu.strain_ids[i]
 		var open: bool = menu._strain_unlocked(other)
-		var color: Color = menu._strain_color(other).lightened(0.3) if open else S.PANEL_EDGE.lightened(0.25)
+		var color: Color = menu._strain_color(other).lightened(0.3) if open else S.color("panel_edge").lightened(0.25)
 		if i == menu.strain_index:
-			_glow(p, Vector2(30, 30), Color(color, 0.55))
+			if not S.is_calm():
+				_glow(p, Vector2(30, 30), Color(color, 0.55))
 			_gem(p, 12, color)
 		elif open:
 			_gem(p, 8, Color(color, 0.9))
 		else:
 			_gem(p, 7, Color(color, 0.8))
-			_lock(p + Vector2(0, 1), 5, Color(S.OUTLINE, 0.9))
+			_lock(p + Vector2(0, 1), 5, Color(S.color("outline"), 0.9))
 
 # ---------------------------------------------------------------- biomes
 
@@ -1047,48 +1189,54 @@ func _draw_biomes() -> void:
 		var rect: Rect2 = menu.biome_rect(i)
 		var locked: bool = b.get("locked", false)
 		var selected: bool = id == menu.biome_id
-		var accent: Color = S.TOXIC if id == "verdant_maw" else S.EMBER
+		var accent: Color = S.color("toxic") if id == "verdant_maw" else S.color("ember")
 		var edge: Color = accent if selected else Color(accent, 0.45)
 		if locked:
-			edge = Color(S.TEXT_DIM, 0.35)
+			edge = Color(S.color("text_dim"), 0.35)
 		if _on("base"):
-			_panel(rect, edge, S.PANEL, 0.9 if selected else 0.0, 18.0, 0.0, 0, 3.5 if selected else 2.0)
+			_panel(rect, edge, S.color("panel"), 0.9 if selected else 0.0, 18.0, 0.0, 0, 3.5 if selected else 2.0)
 		_paint_biome(id, rect.grow(-5))
 		if not _on("top"):
 			continue
 		# Readability scrim behind the text on the left.
 		var scrim := Rect2(rect.position + Vector2(5, 5), Vector2(rect.size.x * 0.62, rect.size.y - 10))
-		var dark := Color(S.OUTLINE, 0.85)
-		var clear := Color(S.OUTLINE, 0.0)
+		var dark := Color(S.color("outline"), 0.85)
+		var clear := Color(S.color("outline"), 0.0)
 		_cv.draw_polygon(PackedVector2Array([scrim.position + Vector2(8, 0), Vector2(scrim.end.x, scrim.position.y), scrim.end, Vector2(scrim.position.x + 8, scrim.end.y)]), PackedColorArray([dark, clear, clear, dark]))
 		if locked:
-			_cv.draw_colored_polygon(_shape(rect.grow(-5), 13.0), Color(S.OUTLINE, 0.5))
+			_cv.draw_colored_polygon(_shape(rect.grow(-5), 13.0), Color(S.color("outline"), 0.5))
 		# Redraw the rim over the painting.
 		_cv.draw_polyline(_closed(_shape(rect, 18.0)), edge, 3.5 if selected else 2.0, true)
 		var tx := rect.position.x + 24
-		_txt(String(b.name).to_upper(), Vector2(tx, rect.position.y + 50), 29, S.TEXT if not locked else S.TEXT_DIM, false, 6)
+		_txt(String(b.name).to_upper(), Vector2(tx, rect.position.y + 50), 29, S.color("text") if not locked else S.color("text_dim"), false, 6)
 		if locked:
 			var status := String(b.get("status", "")).to_upper()
 			var pill := Rect2(tx, rect.position.y + 64, _tw(status, LABEL) + 52, 34)
-			_cv.draw_colored_polygon(_rounded_points(pill, 17, 4), Color(S.EMBER.darkened(0.55), 0.95))
-			_cv.draw_polyline(_closed(_rounded_points(pill, 17, 4)), Color(S.EMBER, 0.6), 2.0, true)
-			_lock(pill.position + Vector2(20, 16), 10, S.EMBER_GLOW)
-			_txt(status, pill.position + Vector2(36, 25), LABEL, S.EMBER_GLOW, false, 3)
+			_cv.draw_colored_polygon(_rounded_points(pill, 17, 4), Color(S.color("ember").darkened(0.55), 0.95))
+			_cv.draw_polyline(_closed(_rounded_points(pill, 17, 4)), Color(S.color("ember"), 0.6), 2.0, true)
+			_lock(pill.position + Vector2(20, 16), 10, S.color("ember_glow"))
+			_txt(status, pill.position + Vector2(36, 25), LABEL, S.color("ember_glow"), false, 3)
 		elif selected:
 			_check(Vector2(tx + 10, rect.position.y + 80), 10, accent)
-			_txt("GEWÄHLT", Vector2(tx + 28, rect.position.y + 88), LABEL, accent.lerp(S.TEXT, 0.3), false, 4)
+			_txt("GEWÄHLT", Vector2(tx + 28, rect.position.y + 88), LABEL, accent.lerp(S.color("text"), 0.3), false, 4)
 		else:
-			_txt("ANTIPPEN", Vector2(tx, rect.position.y + 88), LABEL, S.TEXT_DIM, false, 4)
+			_txt("ANTIPPEN", Vector2(tx, rect.position.y + 88), LABEL, S.color("text_dim"), false, 4)
 
 
 ## Small painted landscape inside a biome tile (stays inside `r`).
 func _paint_biome(id: String, r: Rect2) -> void:
 	var cut := 13.0
 	var verdant := id == "verdant_maw"
-	var sky_top: Color = S.CYAN.darkened(0.55) if verdant else S.DANGER.darkened(0.7)
-	var sky_low: Color = S.TOXIC.darkened(0.45) if verdant else S.EMBER.darkened(0.45)
-	var far: Color = S.TOXIC.darkened(0.55) if verdant else S.OUTLINE.lerp(S.DANGER, 0.25)
-	var near: Color = S.TOXIC.darkened(0.35) if verdant else S.OUTLINE
+	var card := UiArt.biome(id)
+	if card != null:
+		# V2 biome card, cropped to the tile band (Glutsumpf: the lava river).
+		if _on("base"):
+			UiArt.draw_cover(_cv, card, _shape(r, cut), r, Color.WHITE, Vector2(0.5, 0.55 if verdant else 0.62))
+		return
+	var sky_top: Color = S.color("cyan").darkened(0.55) if verdant else S.color("danger").darkened(0.7)
+	var sky_low: Color = S.color("toxic").darkened(0.45) if verdant else S.color("ember").darkened(0.45)
+	var far: Color = S.color("toxic").darkened(0.55) if verdant else S.color("outline").lerp(S.color("danger"), 0.25)
+	var near: Color = S.color("toxic").darkened(0.35) if verdant else S.color("outline")
 	var ox := r.position.x
 	var oy := r.position.y
 	if _on("base"):
@@ -1099,27 +1247,27 @@ func _paint_biome(id: String, r: Rect2) -> void:
 	if (verdant and not _on("base")) or (not verdant and not _on("live")):
 		return
 	if verdant:
-		_glow(Vector2(r.end.x - 70, oy + 26), Vector2(70, 40), Color(S.TEXT, 0.18))
-		_ellipse(Vector2(r.end.x - 110, r.end.y - 22), 42, 9, S.CYAN.darkened(0.2))
-		_ellipse(Vector2(r.end.x - 116, r.end.y - 24), 22, 4, Color(S.TEXT, 0.4))
-		_leaf(Vector2(r.end.x - 20, r.end.y - 4), 56, 16, -2.2, S.TOXIC.darkened(0.1))
-		_leaf(Vector2(r.end.x - 10, r.end.y - 20), 50, 14, -2.8, S.TOXIC.darkened(0.3))
-		_leaf(Vector2(r.end.x - 170, r.end.y - 2), 44, 12, -1.2, S.TOXIC.darkened(0.2))
+		_glow(Vector2(r.end.x - 70, oy + 26), Vector2(70, 40), Color(S.color("text"), 0.18))
+		_ellipse(Vector2(r.end.x - 110, r.end.y - 22), 42, 9, S.color("cyan").darkened(0.2))
+		_ellipse(Vector2(r.end.x - 116, r.end.y - 24), 22, 4, Color(S.color("text"), 0.4))
+		_leaf(Vector2(r.end.x - 20, r.end.y - 4), 56, 16, -2.2, S.color("toxic").darkened(0.1))
+		_leaf(Vector2(r.end.x - 10, r.end.y - 20), 50, 14, -2.8, S.color("toxic").darkened(0.3))
+		_leaf(Vector2(r.end.x - 170, r.end.y - 2), 44, 12, -1.2, S.color("toxic").darkened(0.2))
 		for k in 3:
 			var p := Vector2(r.end.x - 190 + k * 26, r.end.y - 36 - (k % 2) * 6)
-			_mawling_head(p, 9, S.EMBER)
+			_mawling_head(p, 9, S.color("ember"))
 	else:
 		for k in 4:
 			var p := Vector2(r.end.x - 60 - k * 46, r.end.y - 18 - (k % 2) * 8)
 			var pulse := 0.5 + 0.5 * sin(_time * 2.0 + k)
-			_glow(p, Vector2(40, 16), Color(S.EMBER, 0.35 + 0.2 * pulse))
-			_ellipse(p, 20, 5, S.EMBER_GLOW)
-			_cv.draw_circle(p + Vector2(4, -10 - 10 * pulse), 3.0, Color(S.EMBER_GLOW, 0.8))
+			_glow(p, Vector2(40, 16), Color(S.color("ember"), 0.35 + 0.2 * pulse))
+			_ellipse(p, 20, 5, S.color("ember_glow"))
+			_cv.draw_circle(p + Vector2(4, -10 - 10 * pulse), 3.0, Color(S.color("ember_glow"), 0.8))
 		for k in 2:
 			var base := Vector2(r.end.x - 70 - k * 110, r.end.y - 20)
-			_cv.draw_line(base, base + Vector2(6, -58), S.OUTLINE, 5.0, true)
-			_cv.draw_line(base + Vector2(4, -36), base + Vector2(22, -50), S.OUTLINE, 3.0, true)
-			_cv.draw_line(base + Vector2(5, -44), base + Vector2(-12, -58), S.OUTLINE, 3.0, true)
+			_cv.draw_line(base, base + Vector2(6, -58), S.color("outline"), 5.0, true)
+			_cv.draw_line(base + Vector2(4, -36), base + Vector2(22, -50), S.color("outline"), 3.0, true)
+			_cv.draw_line(base + Vector2(5, -44), base + Vector2(-12, -58), S.color("outline"), 3.0, true)
 
 
 func _hill(r: Rect2, cut: float, level: float, amp: float, freq: float, phase: float, color: Color) -> void:
@@ -1150,33 +1298,33 @@ func _draw_difficulties() -> void:
 		var rect: Rect2 = menu.difficulty_rect(i)
 		var unlocked: bool = menu._difficulty_unlocked(i)
 		var selected: bool = i == menu.difficulty
-		var accent: Color = menu.DIFFICULTY_COLORS[i] if unlocked else S.TEXT_DIM.darkened(0.2)
-		var fill := S.PANEL.lerp(accent, 0.16) if selected else S.PANEL
+		var accent: Color = menu.DIFFICULTY_COLORS[i] if unlocked else S.color("text_dim").darkened(0.2)
+		var fill := S.color("panel").lerp(accent, 0.16) if selected else S.color("panel")
 		_panel(rect, accent if selected else Color(accent, 0.45), fill, 0.9 if selected else 0.0, 16.0, 0.0, 0, 3.5 if selected else 2.0)
 		var c := rect.get_center()
 		var name := String(d.name).to_upper()
 		if unlocked:
 			var n: int = i + 1
-			if selected:
+			if selected and not S.is_calm():
 				_glow(Vector2(c.x, rect.position.y + 32), Vector2(30 + n * 20, 30), Color(accent, 0.45))
 			if not _icon([["diff_wild", "diff_brutal", "diff_apex"][i]], Rect2(c.x - 29, rect.position.y + 2, 58, 58)):
 				for k in n:
 					var p := Vector2(c.x + (k - (n - 1) * 0.5) * 34.0, rect.position.y + 32)
-					_skull(p + Vector2(0, 2), 15, S.OUTLINE)
-					_skull(p, 14, accent.lerp(S.BONE, 0.25))
-			_txt(name, Vector2(c.x, rect.position.y + 75), 30, S.TEXT if selected else S.TEXT.darkened(0.15), true, 6)
+					_skull(p + Vector2(0, 2), 15, S.color("outline"))
+					_skull(p, 14, accent.lerp(S.color("bone"), 0.25))
+			_txt(name, Vector2(c.x, rect.position.y + 75), 30, S.color("text") if selected else S.color("text").darkened(0.15), true, 6)
 			var reward := "×%.1f ESSENZ" % float(d.get("reward", 1.0))
 			var rw := _tw(reward, LABEL) + 26.0
 			var ec := Vector2(c.x - rw * 0.5 + 10, rect.position.y + 90)
 			if not _icon(["essence"], Rect2(ec - Vector2(12, 12), Vector2(24, 24))):
-				_essence_drop(ec, 8, S.VIOLET)
-			_txt(reward, Vector2(c.x - rw * 0.5 + 26, rect.position.y + 97), LABEL, S.VIOLET.lerp(S.TEXT, 0.45), false, 4)
+				_essence_drop(ec, 8, S.color("violet"))
+			_txt(reward, Vector2(c.x - rw * 0.5 + 26, rect.position.y + 97), LABEL, S.color("violet").lerp(S.color("text"), 0.45), false, 4)
 		else:
-			_cv.draw_colored_polygon(_shape(rect.grow(-4), 12.0), Color(S.OUTLINE, 0.35))
-			_lock(Vector2(c.x, rect.position.y + 30), 15, S.TEXT_DIM)
-			_txt(name, Vector2(c.x, rect.position.y + 72), 28, S.TEXT_DIM, true, 5)
+			_cv.draw_colored_polygon(_shape(rect.grow(-4), 12.0), Color(S.color("outline"), 0.35))
+			_lock(Vector2(c.x, rect.position.y + 30), 15, S.color("text_dim"))
+			_txt(name, Vector2(c.x, rect.position.y + 72), 28, S.color("text_dim"), true, 5)
 			var q: Dictionary = menu.meta.quest(d.get("unlock_quest", ""))
-			_txt(String(q.get("name", "")), Vector2(c.x, rect.position.y + 96), LABEL, S.GOLD.darkened(0.1), true, 4)
+			_txt(String(q.get("name", "")), Vector2(c.x, rect.position.y + 96), LABEL, S.color("gold").darkened(0.1), true, 4)
 
 # ---------------------------------------------------------------- main button
 
@@ -1191,40 +1339,40 @@ func _draw_play() -> void:
 	var c := rect.get_center()
 	if owned:
 		var ok: bool = menu.can_play()
-		_button(rect, S.EMBER if ok else S.TEXT_DIM.darkened(0.3), ok)
+		_button(rect, S.color("ember") if ok else S.color("text_dim").darkened(0.3), ok)
 		var label := "SPIELEN"
 		var fs := 74
 		var w := _tw(label, fs)
 		var head_c := c + Vector2(-w * 0.5 - 20, -2)
 		if _on("top") and not _icon(["mawling_head"], Rect2(head_c - Vector2(40, 40), Vector2(80, 80))):
-			_mawling_head(head_c + Vector2(0, 3), 34, S.OUTLINE)
-			_mawling_head(head_c, 33, S.BONE)
+			_mawling_head(head_c + Vector2(0, 3), 34, S.color("outline"))
+			_mawling_head(head_c, 33, S.color("bone"))
 		if _on("top"):
-			_txt(label, c + Vector2(22, 26), fs, S.TEXT, true, 10)
+			_txt(label, c + Vector2(22, 26), fs, S.color("text"), true, 10)
 	elif unlocked:
 		var price := int(menu.profile.strain_cost(id))
 		var affordable: bool = int(menu.profile.crowns) >= price
-		_button(rect, S.AMBER.darkened(0.2) if affordable else S.TEXT_DIM.darkened(0.35), affordable, S.GOLD if affordable else Color(0, 0, 0, 0))
+		_button(rect, S.color("amber").darkened(0.2) if affordable else S.color("text_dim").darkened(0.35), affordable, S.color("gold") if affordable else Color(0, 0, 0, 0))
 		var label := "KAUFEN  %d" % price
 		var fs := 60
 		var w := _tw(label, fs)
 		if not _on("top"):
 			return
-		_txt(label, c + Vector2(-24, 12), fs, S.TEXT if affordable else S.TEXT_DIM, true, 9)
+		_txt(label, c + Vector2(-24, 12), fs, S.color("text") if affordable else S.color("text_dim"), true, 9)
 		var fc := c + Vector2(w * 0.5 + 6, -8)
 		if not _icon(["crown_tooth"], Rect2(fc - Vector2(30, 30), Vector2(60, 60))):
-			_fang(fc, 24, S.BONE)
-		_txt("KÖNIGSZÄHNE" if affordable else "ZU WENIGE KÖNIGSZÄHNE", c + Vector2(0, 48), LABEL, S.TEXT if affordable else S.GOLD.lerp(S.TEXT_DIM, 0.4), true, 5)
+			_fang(fc, 24, S.color("bone"))
+		_txt("KÖNIGSZÄHNE" if affordable else "ZU WENIGE KÖNIGSZÄHNE", c + Vector2(0, 48), LABEL, S.color("text") if affordable else S.color("gold").lerp(S.color("text_dim"), 0.4), true, 5)
 	else:
-		_button(rect, S.TEXT_DIM.darkened(0.4), false)
+		_button(rect, S.color("text_dim").darkened(0.4), false)
 		var fs := 56
 		var w := _tw("GESPERRT", fs)
 		if not _on("top"):
 			return
-		_lock(c + Vector2(-w * 0.5 - 16, -12), 22, S.TEXT_DIM)
-		_txt("GESPERRT", c + Vector2(22, 8), fs, S.TEXT_DIM, true, 8)
+		_lock(c + Vector2(-w * 0.5 - 16, -12), 22, S.color("text_dim"))
+		_txt("GESPERRT", c + Vector2(22, 8), fs, S.color("text_dim"), true, 8)
 		var q: Dictionary = menu.meta.quest(menu._strain(id).get("unlock_quest", ""))
-		_txt("Trophäe: " + String(q.get("name", "")), c + Vector2(0, 46), LABEL, S.GOLD, true, 5)
+		_txt("Trophäe: " + String(q.get("name", "")), c + Vector2(0, 46), LABEL, S.color("gold"), true, 5)
 	if not _on("top"):
 		return
 	# All-time record line under the seed / daily row (the next trophy lives in TROPHÄEN).
@@ -1238,26 +1386,26 @@ func _draw_play() -> void:
 		return
 	if rec_down:
 		pill.position.y += 2
-	_cv.draw_colored_polygon(_rounded_points(pill, pill.size.y * 0.5, 5), Color(S.VIOLET, 0.16) if rec_down else Color(S.OUTLINE, 0.45))
+	_cv.draw_colored_polygon(_rounded_points(pill, pill.size.y * 0.5, 5), Color(S.color("violet"), 0.16) if rec_down else Color(S.color("outline"), 0.45))
 	var pill_edge := _rounded_points(pill, pill.size.y * 0.5, 5)
 	pill_edge.append(pill_edge[0])
-	_cv.draw_polyline(pill_edge, Color(S.VIOLET, 0.45), 1.5, true)
+	_cv.draw_polyline(pill_edge, Color(S.color("violet"), 0.45), 1.5, true)
 	var more := "CHRONIK"
 	var wm := _tw(more, LABEL)
-	_txt(more, Vector2(pill.end.x - 44 - wm, pill.get_center().y + 8), LABEL, S.VIOLET.lerp(S.TEXT, 0.35), false, 4)
-	_arrow(Vector2(pill.end.x - 26, pill.get_center().y), 11, 1.0, S.VIOLET.lerp(S.TEXT, 0.35))
+	_txt(more, Vector2(pill.end.x - 44 - wm, pill.get_center().y + 8), LABEL, S.color("violet").lerp(S.color("text"), 0.35), false, 4)
+	_arrow(Vector2(pill.end.x - 26, pill.get_center().y), 11, 1.0, S.color("violet").lerp(S.color("text"), 0.35))
 	var ry: float = pill.get_center().y + 8.0
 	var part_a := "REKORD %02d:%02d" % [int(best) / 60, int(best) % 60]
 	var part_b := "MAX. SCHWARM %d" % peak
 	var wa := _tw(part_a, LABEL)
 	var x := pill.position.x + 24.0
-	_cv.draw_arc(Vector2(x + 10, ry - 8), 10, 0, TAU, 20, S.TEXT_DIM, 2.5, true)
-	_cv.draw_line(Vector2(x + 10, ry - 8), Vector2(x + 10, ry - 14), S.TEXT_DIM, 2.0)
-	_cv.draw_line(Vector2(x + 10, ry - 8), Vector2(x + 15, ry - 6), S.TEXT_DIM, 2.0)
-	_txt(part_a, Vector2(x + 26, ry), LABEL, S.TEXT.darkened(0.12), false, 4)
-	_gem(Vector2(x + 26 + wa + 23, ry - 8), 4, S.TEXT_DIM)
-	_mawling_head(Vector2(x + 26 + wa + 46 + 10, ry - 8), 11, S.EMBER_GLOW)
-	_txt(part_b, Vector2(x + 26 + wa + 46 + 26, ry), LABEL, S.TEXT.darkened(0.12), false, 4)
+	_cv.draw_arc(Vector2(x + 10, ry - 8), 10, 0, TAU, 20, S.color("text_dim"), 2.5, true)
+	_cv.draw_line(Vector2(x + 10, ry - 8), Vector2(x + 10, ry - 14), S.color("text_dim"), 2.0)
+	_cv.draw_line(Vector2(x + 10, ry - 8), Vector2(x + 15, ry - 6), S.color("text_dim"), 2.0)
+	_txt(part_a, Vector2(x + 26, ry), LABEL, S.color("text").darkened(0.12), false, 4)
+	_gem(Vector2(x + 26 + wa + 23, ry - 8), 4, S.color("text_dim"))
+	_mawling_head(Vector2(x + 26 + wa + 46 + 10, ry - 8), 11, S.color("ember_glow"))
+	_txt(part_b, Vector2(x + 26 + wa + 46 + 26, ry), LABEL, S.color("text").darkened(0.12), false, 4)
 
 
 ## Next map code with NEU WÜRFELN (hit area: menu.seed_reroll_rect()).
@@ -1265,31 +1413,31 @@ func _draw_seed_card() -> void:
 	if not _on("top"):
 		return
 	var card: Rect2 = menu.seed_card_rect()
-	_panel(card, Color(S.CYAN, 0.6), S.PANEL, 0.0, 16.0, 0.0, 0, 2.0)
+	_panel(card, Color(S.color("cyan"), 0.6), S.color("panel"), 0.0, 16.0, 0.0, 0, 2.0)
 	var x := card.position.x + 22
-	var label_w := _txt("KARTE", Vector2(x, card.position.y + 44), LABEL, S.CYAN.lerp(S.TEXT, 0.35), false, 4)
+	var label_w := _txt("KARTE", Vector2(x, card.position.y + 44), LABEL, S.color("cyan").lerp(S.color("text"), 0.35), false, 4)
 	var code: String = menu.next_seed_code()
-	_txt(code, Vector2(x + label_w + 14, card.position.y + 46), 38, S.TEXT, false, 6)
+	_txt(code, Vector2(x + label_w + 14, card.position.y + 46), 38, S.color("text"), false, 6)
 	var roll_left: float = menu.seed_reroll_rect().position.x - 10.0
 	var note := "Gleicher Code = gleiche Karte"
 	if _tw(note, LABEL, true) > roll_left - x:
 		note = "Code = gleiche Karte"
-	_txt(note, Vector2(x, card.position.y + 78), LABEL, S.TEXT_DIM, false, 4, true)
+	_txt(note, Vector2(x, card.position.y + 78), LABEL, S.color("text_dim"), false, 4, true)
 	var roll: Rect2 = menu.seed_reroll_rect()
 	var pressed: bool = menu.is_pressed(roll)
 	if _frames != null:
 		_frames.button(_cv, roll, "secondary", pressed)
 	else:
-		_panel(roll, Color(S.BONE, 0.7), S.PANEL.darkened(0.2), 0.0, 12.0, 0.0, 0, 2.0)
+		_panel(roll, Color(S.color("bone"), 0.7), S.color("panel").darkened(0.2), 0.0, 12.0, 0.0, 0, 2.0)
 	var off := Vector2(0, 3) if pressed else Vector2.ZERO
 	# Icon + NEU on the first line, WÜRFELN centred below: fits at 22 px.
 	var cx := roll.get_center().x + off.x
 	var neu_w := _tw("NEU", LABEL)
 	var ic := Vector2(cx - (neu_w + 34.0) * 0.5 + 13.0, roll.position.y + 27) + off
-	if not _icon(["reroll"], Rect2(ic - Vector2(14, 14), Vector2(28, 28)), S.CYAN.lerp(S.TEXT, 0.3)):
-		_cv.draw_arc(ic, 11, 0.4, TAU - 0.4, 20, S.CYAN, 4.0, true)
-	_txt("NEU", Vector2(ic.x + 21, roll.position.y + 35 + off.y), LABEL, S.TEXT, false, 4)
-	_txt("WÜRFELN", Vector2(cx, roll.position.y + 62 + off.y), LABEL, S.TEXT, true, 4)
+	if not _icon(["reroll"], Rect2(ic - Vector2(14, 14), Vector2(28, 28)), S.color("cyan").lerp(S.color("text"), 0.3)):
+		_cv.draw_arc(ic, 11, 0.4, TAU - 0.4, 20, S.color("cyan"), 4.0, true)
+	_txt("NEU", Vector2(ic.x + 21, roll.position.y + 35 + off.y), LABEL, S.color("text"), false, 4)
+	_txt("WÜRFELN", Vector2(cx, roll.position.y + 62 + off.y), LABEL, S.color("text"), true, 4)
 
 
 ## TAGES-BRUT: secondary gold button with a sun glyph and today's record.
@@ -1303,29 +1451,29 @@ func _draw_daily() -> void:
 			var inner := rect.grow(-8)
 			if pressed:
 				inner.position.y += 3
-			_fill_gradient(_rounded_points(inner, 14, 4), Color(S.GOLD, (0.4 if pressed else 0.22) if ok else 0.06), Color(S.GOLD, 0.03))
+			_fill_gradient(_rounded_points(inner, 14, 4), Color(S.color("gold"), (0.4 if pressed else 0.22) if ok else 0.06), Color(S.color("gold"), 0.03))
 		else:
-			_panel(rect, S.GOLD if ok else S.TEXT_DIM, S.PANEL, 0.4 if ok else 0.0, 16.0, 0.0, 0, 2.5)
+			_panel(rect, S.color("gold") if ok else S.color("text_dim"), S.color("panel"), 0.4 if ok else 0.0, 16.0, 0.0, 0, 2.5)
 	var off := Vector2(0, 3) if pressed else Vector2.ZERO
 	var sun := rect.position + Vector2(46, rect.size.y * 0.5) + off
-	var sun_c: Color = S.GOLD if ok else S.TEXT_DIM
+	var sun_c: Color = S.color("gold") if ok else S.color("text_dim")
 	_draw_sun(sun, sun_c, ok)
 	if not _on("top"):
 		return
 	var x := rect.position.x + 84
 
-	_txt("TAGES-BRUT", Vector2(x, rect.position.y + 44) + off, 32, S.TEXT if ok else S.TEXT_DIM, false, 6)
+	_txt("TAGES-BRUT", Vector2(x, rect.position.y + 44) + off, 32, S.color("text") if ok else S.color("text_dim"), false, 6)
 	var today: Dictionary = menu.daily_today()
 	var line := "Heute noch offen · Wild"
-	var color: Color = S.GOLD.lerp(S.TEXT, 0.35)
+	var color: Color = S.color("gold").lerp(S.color("text"), 0.35)
 	if not today.is_empty():
 		var t := float(today.get("seconds", 0.0))
 		line = "Heute: %02d:%02d · Peak %d" % [int(t) / 60, int(t) % 60, int(today.get("peak", 0))]
-		color = S.GOLD
+		color = S.color("gold")
 	if not today.is_empty() and _tw(line, LABEL) > rect.end.x - 12.0 - x:
 		var t2 := float(today.get("seconds", 0.0))
 		line = "%02d:%02d · Peak %d" % [int(t2) / 60, int(t2) % 60, int(today.get("peak", 0))]
-	_txt(line, Vector2(x, rect.position.y + 76) + off, LABEL, color if ok else S.TEXT_DIM, false, 4)
+	_txt(line, Vector2(x, rect.position.y + 76) + off, LABEL, color if ok else S.color("text_dim"), false, 4)
 
 
 ## Sun glyph of TAGES-BRUT: pulsing glow, turning rays (LIVE phase).
@@ -1333,20 +1481,23 @@ func _draw_sun(sun: Vector2, sun_c: Color, ok: bool) -> void:
 	if not _on("live"):
 		return
 	if ok:
-		_glow(sun, Vector2(40, 40), Color(S.GOLD, 0.25 + 0.1 * _pulse(1.4)))
+		_glow(sun, Vector2(40, 40), Color(S.color("gold"), 0.25 + 0.1 * _pulse(1.4)))
 	for i in 10:
 		var a := TAU * i / 10.0 + _time * 0.2
 		var d := Vector2(cos(a), sin(a))
 		var tip := sun + d * 27.0
 		var side := d.orthogonal() * 4.5
 		_cv.draw_colored_polygon(PackedVector2Array([sun + d * 15.0 + side, tip, sun + d * 15.0 - side]), sun_c.darkened(0.1))
-	_cv.draw_circle(sun, 16, S.OUTLINE)
+	_cv.draw_circle(sun, 16, S.color("outline"))
 	_cv.draw_circle(sun, 13, sun_c)
 	_cv.draw_circle(sun + Vector2(-4, -4), 4, Color(1, 1, 1, 0.45))
 
 
 ## Dominant glowing button with fang tips, gradient body, bevel and a moving shine.
 func _button(rect: Rect2, color: Color, live: bool, top: Color = Color(0, 0, 0, 0)) -> void:
+	if S.is_calm():
+		_button_calm(rect, color, live)
+		return
 	var c := rect.get_center()
 	var tip := 46.0
 	if live and _on("under"):
@@ -1367,18 +1518,41 @@ func _button(rect: Rect2, color: Color, live: bool, top: Color = Color(0, 0, 0, 
 	# Bone claws hooking out of both tips.
 	for side in [-1.0, 1.0]:
 		var base := Vector2(c.x + side * (rect.size.x * 0.5 - 4), c.y)
-		_claw(base + Vector2(0, 2), Vector2(side, -0.9), 36, 9, S.OUTLINE, -0.5 * side)
-		_claw(base, Vector2(side, -0.9), 34, 8, S.BONE, -0.5 * side)
-		_claw(base + Vector2(0, 8), Vector2(side, 0.8), 24, 6, S.BONE.darkened(0.2), 0.4 * side)
+		_claw(base + Vector2(0, 2), Vector2(side, -0.9), 36, 9, S.color("outline"), -0.5 * side)
+		_claw(base, Vector2(side, -0.9), 34, 8, S.color("bone"), -0.5 * side)
+		_claw(base + Vector2(0, 8), Vector2(side, 0.8), 24, 6, S.color("bone").darkened(0.2), 0.4 * side)
+
+
+## Calm SPIELEN (V2 button_primary): chamfered burnt-orange body, light amber
+## stroke, one highlight line; a slow soft shine is the only motion.
+func _button_calm(rect: Rect2, color: Color, live: bool) -> void:
+	var shape := UiFramesRef.chamfer_points(rect, 26.0)
+	var hot := color.is_equal_approx(S.color("ember"))
+	var body: Color = Color("b9653b") if hot else S.tone(color).darkened(0.1)
+	var edge: Color = S.CALM_ORANGE_LIGHT if hot else (S.tone(color).lightened(0.35) if live else S.tone(color).lightened(0.1))
+	if _on("base"):
+		_cv.draw_colored_polygon(UiFramesRef.chamfer_points(Rect2(rect.position + Vector2(0, 8), rect.size), 26.0), S.color("shadow"))
+		_fill_gradient(shape, body.lightened(0.12), body.darkened(0.18))
+		_cv.draw_line(Vector2(rect.position.x + 28, rect.position.y + 14), Vector2(rect.end.x - 28, rect.position.y + 14), Color("ffe3b880") if live else Color(1, 1, 1, 0.12), 2.5, true)
+		_cv.draw_line(Vector2(rect.position.x + 28, rect.end.y - 12), Vector2(rect.end.x - 28, rect.end.y - 12), Color("6e321c73"), 2.5, true)
+	if live and _on("live"):
+		var sweep := fposmod(_time * 0.4, 3.0)
+		if sweep < 1.0:
+			var sx := lerpf(rect.position.x + 40, rect.end.x - 100, sweep)
+			var y0 := rect.position.y + 6
+			var y1 := rect.end.y - 6
+			_cv.draw_colored_polygon(PackedVector2Array([Vector2(sx + 30, y0), Vector2(sx + 52, y0), Vector2(sx + 22, y1), Vector2(sx, y1)]), Color(1, 1, 1, 0.1 * sin(sweep * PI)))
+	if _on("top"):
+		_cv.draw_polyline(_closed(shape), edge, 3.5, true)
 
 
 func _button_body(rect: Rect2, shape: PackedVector2Array, tip: float, color: Color, live: bool, top: Color) -> void:
-	_cv.draw_colored_polygon(_button_shape(Rect2(rect.position + Vector2(0, 10), rect.size), tip), S.SHADOW)
-	_cv.draw_colored_polygon(_button_shape(rect.grow(7), tip + 4), S.OUTLINE)
+	_cv.draw_colored_polygon(_button_shape(Rect2(rect.position + Vector2(0, 10), rect.size), tip), S.color("shadow"))
+	_cv.draw_colored_polygon(_button_shape(rect.grow(7), tip + 4), S.color("outline"))
 	if live:
 		_cv.draw_colored_polygon(_button_shape(rect.grow(4), tip + 2), color.lightened(0.45))
 	# Three-stop gradient: the upper and lower halves are filled separately.
-	var top_c: Color = (S.EMBER_GLOW if color == S.EMBER else color.lightened(0.35)) if live else color.lightened(0.05)
+	var top_c: Color = (S.color("ember_glow") if color == S.color("ember") else color.lightened(0.35)) if live else color.lightened(0.05)
 	if top.a > 0.0:
 		top_c = top
 	var n := shape.size() / 2
@@ -1410,25 +1584,25 @@ func _draw_tabs() -> void:
 	var first: Rect2 = menu.tab_rect(0)
 	var dock := Rect2(0, first.position.y - 8, size.x, size.y - first.position.y + 8)
 	if _on("base"):
-		_fill_gradient(PackedVector2Array([dock.position, Vector2(dock.end.x, dock.position.y), dock.end, Vector2(dock.position.x, dock.end.y)]), Color(S.OUTLINE, 0.55), Color(S.OUTLINE, 0.95))
-		_cv.draw_line(dock.position, Vector2(dock.end.x, dock.position.y), Color(S.PANEL_EDGE, 0.9), 2.0)
+		_fill_gradient(PackedVector2Array([dock.position, Vector2(dock.end.x, dock.position.y), dock.end, Vector2(dock.position.x, dock.end.y)]), Color(S.color("outline"), 0.55), Color(S.color("outline"), 0.95))
+		_cv.draw_line(dock.position, Vector2(dock.end.x, dock.position.y), Color(S.color("panel_edge"), 0.9), 2.0)
 	var names: Dictionary = menu.TAB_NAMES
-	var accents := [S.CYAN, S.GOLD, S.EMBER, S.VIOLET]
+	var accents := [S.color("cyan"), S.color("gold"), S.color("ember"), S.color("violet")]
 	for i in menu.TABS.size():
 		var id: String = menu.TABS[i]
 		var rect: Rect2 = menu.tab_rect(i)
 		var active: bool = menu.tab == id
 		var accent: Color = accents[i]
-		var fill := S.PANEL.lerp(accent, 0.14) if active else S.PANEL
+		var fill := S.color("panel").lerp(accent, 0.14) if active else S.color("panel")
 		var ic := Vector2(rect.get_center().x, rect.position.y + 42)
 		if _on("base"):
 			_panel(rect, accent if active else Color(accent, 0.45), fill, 1.0 if active else 0.0, 18.0, 0.0, (1 | 2) if active else 0, 3.0 if active else 2.0)
-			if active:
+			if active and not S.is_calm():
 				_glow(ic, Vector2(56, 40), Color(accent, 0.4))
 		if _on("top"):
 			if not _icon([["brood"], ["trophy"], ["mawling_head_color"], ["clock"]][i], Rect2(ic - Vector2(32, 32), Vector2(64, 64))):
 				_tab_icon(id, ic, accent)
-			_txt(String(names[id]), Vector2(rect.get_center().x, rect.position.y + 96), LABEL + 1, S.TEXT if active else S.TEXT.darkened(0.15), true, 5)
+			_txt(String(names[id]), Vector2(rect.get_center().x, rect.position.y + 96), LABEL + 1, S.color("text") if active else S.color("text").darkened(0.15), true, 5)
 		var badge := ""
 		if id == "upgrades":
 			var n: int = menu._affordable_upgrades()
@@ -1438,29 +1612,29 @@ func _draw_tabs() -> void:
 		if badge != "" and not active and _on("live"):
 			var bc := Vector2(rect.end.x - 20, rect.position.y + 18)
 			var pop := 1.0 + 0.08 * _pulse(3.0)
-			_cv.draw_circle(bc, 19 * pop, S.OUTLINE)
-			_cv.draw_circle(bc, 16 * pop, S.DANGER)
+			_cv.draw_circle(bc, 19 * pop, S.color("outline"))
+			_cv.draw_circle(bc, 16 * pop, S.color("danger"))
 			_cv.draw_circle(bc + Vector2(-4, -5), 5, Color(1, 1, 1, 0.3))
-			_txt(badge, bc + Vector2(0, 8), LABEL, S.TEXT, true, 3)
+			_txt(badge, bc + Vector2(0, 8), LABEL, S.color("text"), true, 3)
 
 
 func _tab_icon(id: String, c: Vector2, accent: Color) -> void:
 	match id:
 		"upgrades":
 			# Three brood eggs in a nest.
-			_ellipse(c + Vector2(0, 17), 30, 8, S.PANEL_EDGE.darkened(0.2))
+			_ellipse(c + Vector2(0, 17), 30, 8, S.color("panel_edge").darkened(0.2))
 			for e in [[Vector2(-15, 4), 0.95], [Vector2(15, 4), 0.95], [Vector2(0, -6), 1.1]]:
 				var p: Vector2 = c + e[0]
 				var k: float = e[1]
-				_ellipse(p + Vector2(0, 2), 12 * k, 16 * k, S.OUTLINE)
+				_ellipse(p + Vector2(0, 2), 12 * k, 16 * k, S.color("outline"))
 				_ellipse(p, 11 * k, 15 * k, accent)
 				_cv.draw_circle(p + Vector2(-3, -5) * k, 3 * k, Color(1, 1, 1, 0.45))
 				_cv.draw_circle(p + Vector2(4, 4) * k, 2.2 * k, accent.darkened(0.45))
 				_cv.draw_circle(p + Vector2(-4, 6) * k, 1.6 * k, accent.darkened(0.45))
 		"trophies":
-			_skull(c + Vector2(0, 8), 18, S.OUTLINE)
-			_skull(c + Vector2(0, 6), 17, S.BONE)
+			_skull(c + Vector2(0, 8), 18, S.color("outline"))
+			_skull(c + Vector2(0, 6), 17, S.color("bone"))
 			_crown(c + Vector2(0, -15), 12, accent)
 		_:
-			_mawling_head(c + Vector2(0, 3), 26, S.OUTLINE)
+			_mawling_head(c + Vector2(0, 3), 26, S.color("outline"))
 			_mawling_head(c, 25, accent)

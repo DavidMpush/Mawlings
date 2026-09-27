@@ -44,6 +44,10 @@ func _capture() -> void:
 	world.spawn_totem(swarm.position + Vector3(-18, 0, -14))
 	await create_timer(0.6).timeout
 	await _save("preview_objectives_pointer.png")
+	# 3b: the totem model close to the swarm, not yet held.
+	world.totem.position = swarm.position + Vector3(0.0, 0, -5.0)
+	await create_timer(0.4).timeout
+	await _save("preview_objectives_totem_model.png")
 	# 4: holding the totem.
 	world.totem.position = swarm.position + Vector3(0.6, 0, -0.8)
 	await create_timer(0.9).timeout

@@ -14,6 +14,7 @@ const FALLEN_LOG_SCENE = preload("res://assets/gameplay/props/FallenLog_game.glb
 const POND_SEEDS_SCENE = preload("res://assets/gameplay/props/PondSeeds_game.glb")
 const FLOWER_SCENE = preload("res://assets/gameplay/props/Flower_game.glb")
 const QUALITY = preload("res://scripts/quality.gd")
+const REGION_NAMES = preload("res://scripts/region_names.gd")
 # Glutsumpf look (biomes with an "ember" block); Verdant never touches these.
 const EMBER_GROUND_SHADER = preload("res://shaders/ember_ground.gdshader")
 const EMBER_CHANNEL_SHADER = preload("res://shaders/ember_channel.gdshader")
@@ -82,6 +83,8 @@ var _edge_cache: Dictionary = {}
 var _near_edges_cache: Dictionary = {}
 var _stone_cache: Dictionary = {}
 var _block_cache: Dictionary = {}
+# Region names per (region, biome) for the minimap (region_name()).
+var _region_names: Dictionary = {}
 var ground_tint_material: StandardMaterial3D
 var chunks: Dictionary = {}
 # Deterministic per-chunk data, cached because every creature queries it each frame.
@@ -237,7 +240,7 @@ func _cell(position: Vector3) -> Vector2i:
 func set_seed(value: int) -> void:
 	world_seed = value
 	_seed_mix = 0 if value == 0 else _scramble(value)
-	for cache in [_obstacle_cache, _landmark_cache, _region_cache, _edge_cache, _near_edges_cache, _stone_cache, _block_cache]:
+	for cache in [_obstacle_cache, _landmark_cache, _region_cache, _edge_cache, _near_edges_cache, _stone_cache, _block_cache, _region_names]:
 		cache.clear()
 	for key in chunks.keys():
 		var chunk: Node = chunks[key]
@@ -1332,3 +1335,113 @@ func _part(parent: Node3D, label: String, mesh: Mesh, material: Material, locati
 	return part
 
 
+
+# --- Map data (minimap stage; read only, never changes the world) ---------------
+
+## Chunk key of a world position.
+func chunk_at(world: Vector3) -> Vector2i:
+	return _cell(world)
+
+## Region key (REGION x REGION chunks) of a world position.
+func region_at(world: Vector3) -> Vector2i:
+	return _region_key(_cell(world))
+
+## World-space centre of a region.
+func region_center(region: Vector2i) -> Vector3:
+	return Vector3((region.x + 0.5) * REGION * CELL, 0.0, (region.y + 0.5) * REGION * CELL)
+
+## Landmark types (Landmark enum) standing in a region, in chunk order.
+func region_landmarks(region: Vector2i) -> Array:
+	var result := []
+	for x in range(region.x * REGION, region.x * REGION + REGION):
+		for z in range(region.y * REGION, region.y * REGION + REGION):
+			var mark := landmark(Vector2i(x, z))
+			if not mark.is_empty():
+				result.append(int(mark.type))
+	return result
+
+## Region name in the words of the active biome ("Moosgrund"), cached.
+func region_name(region: Vector2i) -> String:
+	var key := Vector3i(region.x, region.y, BIOMES.ORDER.find(biome_id))
+	if _region_names.has(key):
+		return _region_names[key]
+	if _region_names.size() > CACHE_LIMIT:
+		_region_names.clear()
+	var result: String = REGION_NAMES.name_for(world_seed, region, biome_id)
+	_region_names[key] = result
+	return result
+
+## Landmark phrase of a region in the active biome ("am Wurzelbogen") or "".
+func region_phrase(region: Vector2i) -> String:
+	return REGION_NAMES.phrase_for(world_seed, region, biome_id, region_landmarks(region))
+
+## Soft ground tint shift at a world point as Vector2(hue, value) - the same
+## blend the seeded ground mesh uses; (0, 0) on the classic map.
+func map_tint(x: float, z: float) -> Vector2:
+	if world_seed == 0:
+		return Vector2.ZERO
+	var fx := x / (REGION * CELL) - 0.5
+	var fz := z / (REGION * CELL) - 0.5
+	var ix := floori(fx)
+	var iz := floori(fz)
+	var tx := smoothstep(0.0, 1.0, fx - ix)
+	var tz := smoothstep(0.0, 1.0, fz - iz)
+	var shift := Vector2.ZERO
+	for corner in [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1)]:
+		var weight := (tx if corner.x == 1 else 1.0 - tx) * (tz if corner.y == 1 else 1.0 - tz)
+		var params := region_params(Vector2i(ix + corner.x, iz + corner.y))
+		shift += Vector2(float(params.hue), float(params.value)) * weight
+	return shift
+
+## Flat map shapes of one chunk in world metres (for the minimap bake):
+##   trails: Vector4(x, 0, z, half width) centreline samples, including those
+##           up to one trail width outside the chunk so borders join;
+##   stones: Vector4(x, 0, z, radius) stone circles (landmark parts excluded);
+##   pools:  Vector4(x, z, radius x, radius z) water / lava pools;
+##   marks:  landmark dictionaries (type, center, yaw) plus "circles" - of
+##           this and the neighbouring chunks when their shapes reach in.
+## Depends on the active biome only for the classic map's pool frequency.
+func map_features(key: Vector2i) -> Dictionary:
+	var margin := TRAIL_EDGE_WIDTH + 1.0
+	var area := Rect2(key.x * CELL - margin, key.y * CELL - margin, CELL + 2.0 * margin, CELL + 2.0 * margin)
+	var origin := Vector3(key.x * CELL, 0.0, key.y * CELL)
+	var trails: Array[Vector4] = []
+	var stones: Array[Vector4] = []
+	var pools: Array[Vector4] = []
+	if world_seed == 0:
+		for step in range(-6, int(CELL) + 7):
+			var z := float(step)
+			trails.append(Vector4(origin.x + _trail_center(key, z), 0.0, origin.z + z, TRAIL_HALF_WIDTH))
+		for center in obstacle_centers(key):
+			stones.append(Vector4(center.x, 0.0, center.z, OBSTACLE_RADIUS))
+		if _hash(key.x, key.y, 13) % int(biome.pond_one_in) == 0 and not near_landmark(origin + Vector3(4, 0, 22), 3.0):
+			pools.append(Vector4(origin.x + 4.0, origin.z + 22.0, 1.1 * 1.8, 1.1 * 1.1))
+	else:
+		for edge in _edges_near(key):
+			var half: float = edge.half
+			for point in edge.points:
+				if area.has_point(Vector2(point.x, point.z)):
+					trails.append(Vector4(point.x, 0.0, point.z, half))
+		stones.append_array(_stones(key))
+		var pool := _seeded_pool(key)
+		if not pool.is_empty():
+			var local: Vector3 = pool.local
+			var size: Vector3 = pool.size
+			pools.append(Vector4(origin.x + local.x, origin.z + local.z, 1.1 * size.x, 1.1 * size.z))
+	# Landmarks of this and the neighbouring chunks: their shapes may reach over
+	# the chunk border, so every chunk paints its share of them.
+	var marks: Array[Dictionary] = []
+	for x in range(key.x - 1, key.x + 2):
+		for z in range(key.y - 1, key.y + 2):
+			var mark := landmark(Vector2i(x, z))
+			if mark.is_empty():
+				continue
+			var mark_center: Vector3 = mark.center
+			if not area.grow(LANDMARK_FOOTPRINT[int(mark.type)]).has_point(Vector2(mark_center.x, mark_center.z)):
+				continue
+			var entry := mark.duplicate()
+			entry["circles"] = _landmark_circles(mark)
+			marks.append(entry)
+			if int(mark.type) == Landmark.POND:
+				pools.append(Vector4(mark_center.x, mark_center.z, 1.1 * 3.2, 1.1 * 2.3))
+	return {"trails": trails, "stones": stones, "pools": pools, "marks": marks}
