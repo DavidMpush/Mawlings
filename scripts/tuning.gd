@@ -42,7 +42,20 @@ extends RefCounted
 #   nach 4 s, Warnung 0,6 -> 0,8 s, nur ein Kreis gleichzeitig + 3 s Pause, nie das letzte LP.
 # - DIFFICULTY_RAMP 75 -> 120 s, Brutal-HP 1,4 -> 1,3, Brutal-Schaden 1,2 -> 1,1
 #   (meta_data): der Einzelstart wuchs auf Brutal/Apex sonst kaum über 20 Tiere.
-const PRESSURE_DOUBLING_SECONDS := 80.0
+#
+# Etappe 10 Teil 2 (Regeneration begrenzt, Wild-Wachstum auf Etappe-09-Kurve): Matrix
+# 3 Stämme x greedy/attack_first x 6 Seeds, mit Apex/Migration: Wild 400 s (Pop 11 / 36 /
+# 132, keiner unter 2:00, längster 478 s), Brutal 307 s, Apex 219 s (vorher 398 / 290 /
+# 217 s, Wild-Pop 1:00 16,5). Strategie form:regeneration (4 Seeds): Median 331/266/202 s,
+# Ausreißer höchstens +40 % (vorher bis 777 s). Begründung der Hebel:
+# - Regeneration (evolution.gd): Moorbrut zählt nur REGEN_HORDE_WEIGHT 0,15 Kill, höchstens
+#   1 LP je REGEN_GAP 30/25/20 s, kein Ansparen in der Pause; Flut-Kills heilten sonst
+#   jede Sekunde ein LP und hielten den Anführer ewig am Leben.
+# - Beute-Kadaver CORPSE_BIOMASS 5 -> 4: Beute ist in der ersten Minute die Hauptnahrung
+#   (Pop 1:00 16,5 -> 11), später zählt sie kaum.
+# - Wild-Verdopplung 80 -> 85 s (meta_data + Standard hier): gleicht die kleinere erste
+#   Minute aus (Wild-Median sonst 384 s); Brutal-Schaden 1,1 -> 1,05 (Median 290 -> 307 s).
+const PRESSURE_DOUBLING_SECONDS := 85.0
 # Etappe 09 (Einzelstart, Anführer): jeder Run beginnt mit START_POPULATION Tier(en);
 # units[0] ist der Anführer mit LEADER_HP Lebenspunkten (Config-Feld leader_hp
 # überschreibt). Flächen-/Biss-Treffer auf ihn kosten 1 LP statt Tod, danach
@@ -104,7 +117,7 @@ const HUNTER_SPAWN_SECONDS := 9.0
 const HUNTER_SPAWN_MIN := 2.2
 const MAX_PREY := 5
 const PREY_RESPAWN_SECONDS := 10.0
-const CORPSE_BIOMASS := 5.0
+const CORPSE_BIOMASS := 4.0         # Etappe 10 Teil 2: 5 -> 4
 const HARVEST_RATE := 4.0
 const HARVEST_RADIUS := 1.55
 

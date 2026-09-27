@@ -43,7 +43,7 @@ const EFFECT_LABEL := {
 }
 # Traits whose effect is not a percentage: shown as rank-specific text instead.
 const RANK_TEXT := {
-	"regeneration": ["+1 LP JE 12 KILLS", "+1 LP JE 9 KILLS", "+1 LP JE 6 KILLS"],
+	"regeneration": ["+1 LP JE 12 KILLS / 30 S", "+1 LP JE 9 KILLS / 25 S", "+1 LP JE 6 KILLS / 20 S"],
 }
 const ROMAN := ["I", "II", "III", "IV", "V"]
 

@@ -53,6 +53,8 @@ var low_hp := false
 # the stage 09 lone-start curve (Wild: 1 -> 15-80 Mawlings at 2:00, real losses) and
 # a missing flood (Apex must reach it and die in it; matrix median ~3:50).
 # Runs are near-deterministic; tiny drift between processes stays inside the tolerances.
+# Stage 10 part 2: Apex runs often end in the first flood seconds (leapers/hunters in
+# the crowd), so the flood only has to take >= 5 Mawlings in the median (was 10).
 const REGRESS_SEEDS := 3
 const REGRESS_RUNS := [
 	{"strain": "glutmaw", "diff": 0, "seed": 1, "strategy": "greedy", "limit": 150.0,
@@ -60,7 +62,7 @@ const REGRESS_RUNS := [
 	{"strain": "sporling", "diff": 2, "seed": 2, "strategy": "attack_first", "limit": 180.0,
 		"min_seconds": 150.0, "min_peak": 25, "min_kills": 25, "min_lost": 20},
 	{"strain": "glutmaw", "diff": 2, "seed": 1, "strategy": "attack_first", "limit": 420.0,
-		"min_seconds": 150.0, "max_seconds": 330.0, "min_peak": 30, "min_kills": 40, "min_flood": 1.0, "min_flood_lost": 10},
+		"min_seconds": 150.0, "max_seconds": 330.0, "min_peak": 30, "min_kills": 40, "min_flood": 1.0, "min_flood_lost": 5},
 ]
 
 var rng := RandomNumberGenerator.new()

@@ -25,11 +25,15 @@ CHARACTERS = {
     "fallen_log": ("FallenLog", 2000, "props", "fallen log"),
     "pond_seeds": ("PondSeeds", 1500, "props", "pond seeds"),
     "flower": ("Flower", 1200, "props", "flower"),
+    # Biomass crystals shown on corpses (scripts/corpse_visuals.gd), by rank.
+    "small_drop": ("SmallDrop", 800, "props", "smallsharddrop"),
+    "medium_drop": ("MediumDrop", 1200, "props", "mediumdrop"),
+    "big_drop": ("BigDrop", 2000, "props", "bigdrop"),
 }
 # Hunyuan meshes split ~30 % of their vertices along UV seams. Unwelded, the
 # simplifier treats every seam as a border and leaves splinter-like shards, so
 # these models are welded by position first (colours averaged per point).
-WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower"}
+WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower", "small_drop", "medium_drop", "big_drop"}
 
 
 def read_glb(path):

@@ -6,8 +6,13 @@ extends RefCounted
 #        UiIcons.draw(self, "jaws", Rect2(x, y, 96, 96), tint)
 # Small draws use a pre-shrunk Lanczos copy so icons stay crisp at 48-64 px
 # without relying on mipmaps or the canvas texture filter.
+# Painted PNGs (UI kit V2, 256 px, res://assets/ui/v2/icons/<id>.png) win over
+# the SVG of the same id; the SVGs stay as fallback (use_painted = false).
 
 const DIR := "res://assets/ui/icons/"
+const PAINTED_DIR := "res://assets/ui/v2/icons/"
+# Ids with a painted V2 icon (the six base traits / Anlagen).
+const PAINTED := ["jaws", "brood", "glutton", "pack", "scatter", "armor"]
 const IDS := [
 	"jaws", "brood", "glutton", "pack", "scatter", "armor",
 	"rudelbiss", "sporenwolke", "saeurespucker", "stachelruecken", "aetzflut", "meute",
@@ -24,12 +29,30 @@ const ALIASES := {"prey": "nibbler", "boss": "bog_king"}
 # Pre-shrunk sizes in texture pixels; the smallest one >= the drawn size wins.
 const BUCKETS := [40, 64, 96, 128, 192]
 
+static var use_painted := true
 static var _full: Dictionary = {}
 static var _small: Dictionary = {}
 
 
 static func path(id: String) -> String:
-	return DIR + ALIASES.get(id, id) + ".svg"
+	id = ALIASES.get(id, id)
+	if use_painted and PAINTED.has(id) and ResourceLoader.exists(PAINTED_DIR + id + ".png"):
+		return PAINTED_DIR + id + ".png"
+	return DIR + id + ".svg"
+
+
+## True when `id` is drawn from a painted V2 PNG.
+static func is_painted(id: String) -> bool:
+	return path(id).ends_with(".png")
+
+
+## Switches between painted PNGs and the SVG set (clears the caches).
+static func set_painted(enabled: bool) -> void:
+	if use_painted == enabled:
+		return
+	use_painted = enabled
+	_full.clear()
+	_small.clear()
 
 
 static func has(id: String) -> bool:

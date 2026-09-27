@@ -3,7 +3,8 @@ extends SceneTree
 # Headless check of scripts/corpse_visuals.gd (Etappe 09 Kadaver-Designs):
 # add / set_fill / remove / clear per kind, instance counts per batch, unknown
 # kinds fall back to the normal design, no node per corpse, 60 mixed corpses in
-# at most 12 batches (= draw calls).
+# at most 15 batches (= draw calls). Biomass crystals: size per rank (small /
+# medium / big), 1-3 shards on normal enemies, shrinking with the fill.
 
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
 const KINDS := ["prey", "hunter", "elite", "skitter", "leaper", "boss", "apex", "horde", "mawling", "nest"]
@@ -42,6 +43,50 @@ func _run() -> void:
 	_check(CORPSE_VISUALS.rank_of("boss") == "boss" and CORPSE_VISUALS.rank_of("apex") == "boss", "boss rank")
 	_check(CORPSE_VISUALS.rank_of("elite") == "mini" and CORPSE_VISUALS.rank_of("leaper") == "mini", "mini-boss rank")
 	_check(CORPSE_VISUALS.rank_of("hunter") == "normal", "normal rank")
+
+	# Biomass crystals by rank.
+	var expected_drop := {
+		"prey": "drop_small", "hunter": "drop_small", "skitter": "drop_small", "horde": "drop_small",
+		"elite": "drop_medium", "leaper": "drop_medium",
+		"boss": "drop_big", "apex": "drop_big", "nest": "drop_big", "mawling": "",
+	}
+	for kind in KINDS:
+		_check(CORPSE_VISUALS.drop_of(kind) == expected_drop[kind], "%s drop is %s" % [kind, expected_drop[kind]])
+	var shard_total := {"drop_small": 0, "drop_medium": 0, "drop_big": 0}
+	for index in KINDS.size():
+		var drop: String = expected_drop[KINDS[index]]
+		var shards: int = visuals.drops_of(index + 1)
+		if drop == "":
+			_check(shards == 0, "%s has no crystal" % KINDS[index])
+			continue
+		shard_total[drop] += shards
+		if drop == "drop_small" and KINDS[index] != "horde":
+			_check(shards >= 1 and shards <= 3, "%s has 1-3 shards (%d)" % [KINDS[index], shards])
+		else:
+			_check(shards == 1, "%s has one crystal" % KINDS[index])
+	for drop in shard_total:
+		_check(visuals.instances(drop) == shard_total[drop], "%s batch holds every shard (%d)" % [drop, shard_total[drop]])
+	# More biomass -> more shards (normal enemies), capped at 3.
+	visuals.add(300, "prey", Vector3(0, 0, 30), 1.0)
+	visuals.add(301, "prey", Vector3(3, 0, 30), 100.0)
+	_check(visuals.drops_of(300) == 1, "little biomass: one shard (%d)" % visuals.drops_of(300))
+	_check(visuals.drops_of(301) == 3, "much biomass: three shards (%d)" % visuals.drops_of(301))
+	# Crystal size by rank: big > medium > small (world height at full fill).
+	var small_h := _drop_height(visuals, "drop_small", 1)
+	var medium_h := _drop_height(visuals, "drop_medium", KINDS.find("elite") + 1)
+	var big_h := _drop_height(visuals, "drop_big", KINDS.find("boss") + 1)
+	_check(small_h < medium_h and medium_h < big_h, "crystal size grows with rank (%.2f / %.2f / %.2f)" % [small_h, medium_h, big_h])
+	# Shrinks with the fill, restores at full fill, leaves with the corpse.
+	visuals.set_fill(301, 0.1)
+	var first_small := _drop_scale(visuals, "drop_small", 301, 0)
+	var extra_small := _drop_scale(visuals, "drop_small", 301, 2)
+	visuals.set_fill(301, 1.0)
+	_check(first_small < _drop_scale(visuals, "drop_small", 301, 0) * 0.45, "crystal shrinks at 10 %")
+	_check(extra_small / _drop_scale(visuals, "drop_small", 301, 2) < first_small / _drop_scale(visuals, "drop_small", 301, 0), "extra shards shrink faster")
+	var small_before: int = visuals.instances("drop_small")
+	visuals.remove(301)
+	visuals.remove(300)
+	_check(visuals.instances("drop_small") == small_before - 4, "removing a corpse removes all its shards")
 
 	# Unknown kind -> normal design.
 	visuals.add(100, "wurstbrot", Vector3(0, 0, 9), 5.0)
@@ -90,10 +135,11 @@ func _run() -> void:
 	for index in 300:
 		visuals.add(1000 + index, KINDS[index % KINDS.size()], Vector3(index % 20, 0, index / 20) * 3.0, 10.0)
 		if index == 59:
-			_check(visuals.active_batches() <= 12, "60 mixed corpses use <= 12 batches (%d)" % visuals.active_batches())
-			_check(visuals.get_child_count() <= 12, "60 mixed corpses use <= 12 nodes (%d)" % visuals.get_child_count())
+			_check(visuals.active_batches() <= 15, "60 mixed corpses use <= 15 batches (%d)" % visuals.active_batches())
+			_check(visuals.get_child_count() <= 15, "60 mixed corpses use <= 15 nodes (%d)" % visuals.get_child_count())
 	_check(visuals.count() == 300, "300 corpses tracked")
-	_check(visuals.get_child_count() <= 12, "300 corpses still <= 12 nodes")
+	_check(visuals.get_child_count() <= 15, "300 corpses still <= 15 nodes")
+	_check(visuals.instances("drop_big") == 90, "90 big crystals (boss, apex, nest) in one batch")
 	_check(visuals.instances("boss") == 30, "30 boss corpses in one batch")
 	# After growth every instance still has its own transform.
 	var boss_layer = _layer(visuals, "boss")
@@ -126,6 +172,15 @@ func _layer(visuals: Node3D, layer_name: String):
 func _instance_scale(visuals: Node3D, layer_name: String, id: int) -> float:
 	var layer = _layer(visuals, layer_name)
 	return layer.xforms[layer.slot[id]].basis.get_scale().x
+
+
+func _drop_scale(visuals: Node3D, layer_name: String, id: int, shard: int) -> float:
+	var layer = _layer(visuals, layer_name)
+	return layer.xforms[layer.slot[id * CORPSE_VISUALS.DROP_SLOTS + shard]].basis.get_scale().x
+
+
+func _drop_height(visuals: Node3D, layer_name: String, id: int) -> float:
+	return _drop_scale(visuals, layer_name, id, 0) * float(CORPSE_VISUALS.DROP_HEIGHT[layer_name])
 
 
 func _check(condition: bool, label: String) -> void:

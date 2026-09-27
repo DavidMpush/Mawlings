@@ -52,6 +52,42 @@ const ACCENT := {
 	"danger": DANGER, "gold": GOLD, "amber": AMBER,
 }
 
+# UI skin switch (UI kit V2 test): "organic" = glowing organic frames (default,
+# stage 04), "calm" = quiet petrol cards/panels/bars from Swarm/Design/UI_Assets_V2
+# (copied to res://assets/ui/v2/). Only ui_frames.gd reads it, so every
+# component that draws through UiFrames switches without changes. The tokens
+# above stay constant; CALM_* is the V2 palette the calm frames map onto.
+const SKINS := ["organic", "calm"]
+static var skin := "organic"
+const CALM_BG := Color("09191c")
+const CALM_TEXT := Color("eaf0d9")
+const CALM_TEAL := Color("4cdacb")      # DNA, growth
+const CALM_AMBER := Color("d9aa5b")     # biomass, rewards
+const CALM_ORANGE := Color("e9905d")    # attack, danger
+const CALM_LEAF := Color("b4d778")      # protection
+const CALM_VIOLET := Color("b993e8")    # special
+const CALM_EDGE := Color("37645e")      # quiet panel stroke
+
+
+static func is_calm() -> bool:
+	return skin == "calm"
+
+
+## Switches the skin at runtime and repaints every Control (cached UiLayers
+## are invalidated so they bake again with the new frames).
+static func set_skin(value: String) -> void:
+	if not SKINS.has(value) or value == skin:
+		return
+	skin = value
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return
+	for node in tree.root.find_children("*", "Control", true, false):
+		if node.has_method("invalidate"):
+			node.invalidate()
+		(node as Control).queue_redraw()
+
+
 # Colour-blind mode switch. Persisting it in the settings is the menu's job;
 # readers call `accent()` or check the flag when they build their visuals.
 static var colorblind := false

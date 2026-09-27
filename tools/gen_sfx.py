@@ -9,6 +9,11 @@ Run from the project root:
     PYTHONPATH=.tools python tools/gen_sfx.py          (Bash)
     $env:PYTHONPATH='.tools'; python tools/gen_sfx.py  (PowerShell)
 Deterministic: fixed seeds, re-running produces identical files.
+
+Ids with a recorded user sound (tools/import_user_sfx.py RECIPES, source file
+present) are skipped so the imported files are never overwritten; the synths
+below stay as fallback. `--force` regenerates them anyway (then re-run the
+importer to restore the user sounds).
 """
 
 from __future__ import annotations
@@ -487,11 +492,25 @@ def analyse(name: str, x: np.ndarray, loop: bool) -> str:
     return f"{name:22s} {len(x) / SR:5.2f}s peak {peak_db:6.2f} dBFS dc {dc:+.5f} edge {first:.4f}/{last:.4f} {'OK' if ok else 'CHECK'}"
 
 
+def user_ids() -> set:
+    """Ids whose recorded user sound is available (tools/import_user_sfx.py)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import import_user_sfx
+    except ImportError:
+        return set()
+    return {sid for sid in import_user_sfx.RECIPES if import_user_sfx.source_available(sid)}
+
+
 def main() -> int:
     os.makedirs(OUT_DIR, exist_ok=True)
     total = 0
     bad = 0
+    skip = set() if "--force" in sys.argv else user_ids()
     for sid, (fn, count) in SOUNDS.items():
+        if sid in skip:
+            print(f"{sid:22s} user sound (tools/import_user_sfx.py) - skipped")
+            continue
         for v in range(count):
             rng = np.random.default_rng(1000 + 97 * v + sum(map(ord, sid)))
             x = fn(rng, v)

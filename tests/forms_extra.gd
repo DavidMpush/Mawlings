@@ -418,7 +418,17 @@ func _test_regeneration() -> void:
 	_check(evo.note_kills(EVOLUTION.REGEN_KILLS[0] - 1) == 0, "Regeneration heilt zu früh")
 	_check(evo.note_kills(1) == 1 and _regen_signal == 1 and evo.regen_kills == 0, "Regeneration heilt nach N Kills nicht (Signal/Rückgabe)")
 	evo.ranks["regeneration"] = 3
-	_check(evo.note_kills(EVOLUTION.REGEN_KILLS[2] * 2 + 1) == 2 and evo.regen_kills == 1, "Regeneration R3 zählt Mehrfach-Kills falsch")
+	_check(evo.note_kills(EVOLUTION.REGEN_KILLS[2] * 2 + 1) == 2 and is_equal_approx(evo.regen_kills, 1.0), "Regeneration R3 zählt Mehrfach-Kills falsch")
+	# Teil 2: Moorbrut zählt nur REGEN_HORDE_WEIGHT, mit Spielzeit höchstens 1 LP je REGEN_GAP.
+	var timed := EVOLUTION.new()
+	timed.ranks["regeneration"] = 3
+	var need := EVOLUTION.REGEN_KILLS[2]
+	_check(timed.note_kills(need - 1, EVOLUTION.REGEN_HORDE_WEIGHT, 10.0) == 0, "Moorbrut-Kills zählen zu viel für Regeneration")
+	_check(timed.note_kills(need * 10, 1.0, 10.0) == 1, "Regeneration heilt mit Spielzeit mehr als 1 LP auf einmal")
+	_check(timed.regen_kills <= float(need) + 0.001, "Regeneration spart Fortschritt über ein Intervall hinaus an")
+	_check(timed.note_kills(need * 5, 1.0, 10.0 + EVOLUTION.REGEN_GAP[2] - 1.0) == 0, "Regeneration ignoriert den Zeitdeckel")
+	_check(timed.note_kills(1, 1.0, 10.0 + EVOLUTION.REGEN_GAP[2]) == 1, "Regeneration heilt nach dem Zeitdeckel nicht wieder")
+	_check(EVOLUTION.REGEN_HORDE_WEIGHT > 0.0 and EVOLUTION.REGEN_HORDE_WEIGHT <= 0.25, "Moorbrut-Gewicht außerhalb 0-0,25")
 	_check(EVOLUTION.REGEN_KILLS[0] > EVOLUTION.REGEN_KILLS[1] and EVOLUTION.REGEN_KILLS[1] > EVOLUTION.REGEN_KILLS[2], "N muss mit dem Rang sinken")
 
 

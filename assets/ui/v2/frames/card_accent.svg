@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="200" viewBox="0 0 240 200">
+<path d="M20 4H220L236 20V43H4V20Z" fill="#FFFFFF" fill-opacity=".13"/>
+<path d="M4 42V20L20 4H220L236 20V42" fill="none" stroke="#FFFFFF" stroke-width="5"/>
+<path d="M4 156V180L20 196H220L236 180V156" fill="none" stroke="#FFFFFF" stroke-opacity=".7" stroke-width="4"/>
+<path d="M4 37L19 20M236 37L221 20M4 163L19 180M236 163L221 180" stroke="#FFFFFF" stroke-width="4"/>
+</svg>

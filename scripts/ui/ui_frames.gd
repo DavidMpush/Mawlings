@@ -15,6 +15,10 @@ extends RefCounted
 #   *_edge (white, tinted with the accent). Bone claws keep their own colour.
 # - Every draw call resets the canvas transform to identity afterwards.
 # - Small rects shrink the whole frame uniformly instead of squashing corners.
+# - Skins: UiStyle.skin = "calm" swaps every public function below to the quiet
+#   V2 kit (assets/ui/v2/frames, built by assets/ui/v2/build_calm_frames.py)
+#   and maps accent colours onto the V2 palette (calm_color). Same signatures,
+#   same rect conventions; claws, teeth and card cells are left out in calm.
 
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
 
@@ -48,6 +52,15 @@ const TOOTH_PIVOT := Vector2(20, 4)
 
 const DISABLED_TINT := Color(0.46, 0.5, 0.47)
 
+# Calm skin (UI kit V2). Margins in SVG units; the textures have no padding.
+const CALM_DIR := "res://assets/ui/v2/frames/"
+const CALM_CARD_MARGINS := Vector4(24, 46, 24, 44)
+const CALM_PANEL_MARGINS := Vector4(22, 22, 22, 36)
+const CALM_PILL_MARGINS := Vector4(16, 16, 16, 16)
+const CALM_BUTTON_MARGINS := Vector4(24, 24, 24, 24)
+const CALM_ROUND_TEX := 128.0   # round_body: circle r 60 (+ stroke) in 128 units
+const CALM_ROUND_RADIUS := 62.0
+
 static var _boxes: Dictionary = {}
 
 
@@ -55,6 +68,9 @@ static var _boxes: Dictionary = {}
 
 # Mutation card. state: "normal", "pressed", "disabled", "selected" (extra glow).
 static func card(canvas: CanvasItem, rect: Rect2, accent: Color, state: String = "normal") -> void:
+	if UiStyle.is_calm():
+		_calm_card(canvas, rect, accent, state)
+		return
 	var k := _fit(rect, CARD_MARGINS, CARD_PAD)
 	var box := rect
 	var edge := accent
@@ -92,7 +108,7 @@ static func card_inner(rect: Rect2) -> Rect2:
 # strength scales the opacity (1.0 = mutation cards).
 static func card_cells(canvas: CanvasItem, rect: Rect2, accent: Color, strength: float = 1.0) -> void:
 	var tex := UiStyle.tex(DIR + "card_cells.svg")
-	if tex == null or strength <= 0.0:
+	if tex == null or strength <= 0.0 or UiStyle.is_calm():
 		return
 	var inner := card_inner(rect).grow(-2.0)
 	var vein := accent.lerp(Color("3b6a47"), 0.5)
@@ -101,6 +117,11 @@ static func card_cells(canvas: CanvasItem, rect: Rect2, accent: Color, strength:
 
 # Soft radial glow (white texture, tinted). radius = visible fade-out radius.
 static func halo(canvas: CanvasItem, center: Vector2, radius: float, color: Color) -> void:
+	if UiStyle.is_calm():
+		# Quiet kit: a faint, smaller glow in the mapped colour.
+		color = calm_color(color)
+		color.a *= 0.45
+		radius *= 0.8
 	var tex := UiStyle.tex(DIR + "halo.svg")
 	if tex == null:
 		canvas.draw_circle(center, radius * 0.6, Color(color, color.a * 0.3))
@@ -110,6 +131,9 @@ static func halo(canvas: CanvasItem, center: Vector2, radius: float, color: Colo
 
 # Quiet HUD panel; claws adds small bone hooks at the chamfered corners.
 static func panel(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle.PANEL_EDGE, claws: bool = true) -> void:
+	if UiStyle.is_calm():
+		_calm_panel(canvas, rect, accent, "panel", CALM_PANEL_MARGINS)
+		return
 	var k := _fit(rect, PANEL_MARGINS, PANEL_PAD)
 	var outer := rect.grow(PANEL_PAD * k)
 	_slice(canvas, "panel_body", outer, PANEL_MARGINS, Color.WHITE, k)
@@ -123,11 +147,16 @@ static func panel_plain(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle
 
 
 static func panel_inner(rect: Rect2) -> Rect2:
+	if UiStyle.is_calm():
+		return rect.grow(-PANEL_INSET * _fit(rect, CALM_PANEL_MARGINS, 0.0))
 	return rect.grow(-PANEL_INSET * _fit(rect, PANEL_MARGINS, PANEL_PAD))
 
 
 # Capsule chip; radius always follows the rect height.
 static func pill(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle.PANEL_EDGE) -> void:
+	if UiStyle.is_calm():
+		_calm_panel(canvas, rect, accent, "pill", CALM_PILL_MARGINS)
+		return
 	var k := minf(rect.size.y / PILL_HEIGHT, (rect.size.x + 2.0 * PILL_PAD) / (PILL_MARGINS.x + PILL_MARGINS.z))
 	var outer := rect.grow(PILL_PAD * k)
 	_slice(canvas, "pill_body", outer, PILL_MARGINS, Color.WHITE, k)
@@ -139,6 +168,9 @@ static func pill(canvas: CanvasItem, rect: Rect2, accent: Color = UiStyle.PANEL_
 static func button(canvas: CanvasItem, rect: Rect2, kind: String, pressed: bool = false, accent: Color = UiStyle.EMBER) -> void:
 	if kind == "round":
 		_round(canvas, rect, accent, pressed)
+		return
+	if UiStyle.is_calm():
+		_calm_button(canvas, rect, kind, pressed)
 		return
 	var k := minf(rect.size.y / BUTTON_HEIGHT, (rect.size.x + 2.0 * BUTTON_PAD) / (BUTTON_MARGINS.x + BUTTON_MARGINS.z))
 	var box := rect
@@ -162,6 +194,12 @@ static func _round(canvas: CanvasItem, rect: Rect2, accent: Color, pressed: bool
 	var radius := minf(rect.size.x, rect.size.y) * 0.5
 	if pressed:
 		radius *= 0.95
+	if UiStyle.is_calm():
+		var calm_size := Vector2.ONE * CALM_ROUND_TEX * radius / CALM_ROUND_RADIUS
+		var calm_area := Rect2(rect.get_center() - calm_size * 0.5, calm_size)
+		_calm_tex(canvas, "round_body", calm_area, Color(0.8, 0.82, 0.8) if pressed else Color.WHITE)
+		_calm_tex(canvas, "round_ring", calm_area, calm_color(accent))
+		return
 	var size := Vector2.ONE * ROUND_TEX * radius / ROUND_RADIUS
 	var area := Rect2(rect.get_center() - size * 0.5, size)
 	_tex(canvas, "round_body", area, Color(0.8, 0.82, 0.8) if pressed else Color.WHITE)
@@ -173,6 +211,7 @@ static func _round(canvas: CanvasItem, rect: Rect2, accent: Color, pressed: bool
 # Progress bar. segments > 0 draws separate capsules (danger meter, DNA pips).
 static func bar(canvas: CanvasItem, rect: Rect2, fraction: float, color: Color, segments: int = 0) -> void:
 	fraction = clampf(fraction, 0.0, 1.0)
+	color = calm_color(color)
 	var k := minf(rect.size.y / BAR_HEIGHT, rect.size.x / (BAR_MARGINS.x + BAR_MARGINS.z))
 	_slice(canvas, "bar_track", rect, BAR_MARGINS, Color.WHITE, k)
 	var inset := maxf(2.0, 3.0 * k)
@@ -213,6 +252,17 @@ static func divider(canvas: CanvasItem, center: Vector2, width: float, color: Co
 	var half := (width - gap) * 0.5
 	if half <= 4.0:
 		return
+	if UiStyle.is_calm():
+		# Two thin rules with a small chamfered end, no vines.
+		var line := Color(UiStyle.CALM_TEAL, 0.55 * color.a)
+		var thick := maxf(2.0, 3.0 * scale)
+		for side in [-1.0, 1.0]:
+			var inner := center + Vector2(side * gap * 0.5, 0.0)
+			var outer := center + Vector2(side * width * 0.5, 0.0)
+			canvas.draw_line(inner, outer, line, thick, true)
+			var d := 7.0 * scale
+			canvas.draw_colored_polygon(PackedVector2Array([outer + Vector2(0, -d), outer + Vector2(side * d, 0), outer + Vector2(0, d), outer + Vector2(-side * d, 0)]), line)
+		return
 	var k := minf(scale, half / (VINE_MARGINS.x + VINE_MARGINS.z))
 	var s := k / SVG_SCALE
 	var box := _box("vine_divider", VINE_MARGINS, false)
@@ -242,7 +292,7 @@ static func tooth(canvas: CanvasItem, at: Vector2, angle: float = 0.0, scale: fl
 
 static func _ornament(canvas: CanvasItem, file: String, pivot: Vector2, at: Vector2, angle: float, scale: float, tint: Color) -> void:
 	var tex := UiStyle.tex(DIR + file + ".svg")
-	if tex == null:
+	if tex == null or UiStyle.is_calm():
 		return
 	var s := scale / SVG_SCALE
 	canvas.draw_set_transform(at, angle, Vector2(s, absf(s)))
@@ -260,6 +310,10 @@ static func _fit(rect: Rect2, margins: Vector4, pad: float) -> float:
 
 
 static func _slice(canvas: CanvasItem, file: String, rect: Rect2, margins: Vector4, tint: Color, k: float, tile: bool = false) -> void:
+	if UiStyle.is_calm() and (file == "bar_track" or file == "bar_fill"):
+		# The V2 track/fill share the organic bar margins and size.
+		file = CALM_PREFIX + file
+		tile = false
 	var box := _box(file, margins, tile)
 	if box == null or rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
@@ -277,9 +331,9 @@ static func _tex(canvas: CanvasItem, file: String, rect: Rect2, tint: Color) -> 
 
 
 static func _box(file: String, margins: Vector4, tile: bool) -> StyleBoxTexture:
-	var key := "%s|%s" % [file, tile]
+	var key := "%s|%s|%s" % [file, tile, margins]
 	if not _boxes.has(key):
-		var tex := UiStyle.tex(DIR + file + ".svg")
+		var tex := UiStyle.tex(_path(file))
 		if tex == null:
 			_boxes[key] = null
 		else:
@@ -297,3 +351,83 @@ static func _box(file: String, margins: Vector4, tile: bool) -> StyleBoxTexture:
 
 static func _alpha(color: Color, alpha: float) -> Color:
 	return Color(color.r, color.g, color.b, color.a * alpha)
+
+
+# ------------------------------------------------------------------ calm skin
+
+const CALM_PREFIX := "calm:"
+
+
+static func _path(file: String) -> String:
+	if file.begins_with(CALM_PREFIX):
+		return CALM_DIR + file.trim_prefix(CALM_PREFIX) + ".svg"
+	return DIR + file + ".svg"
+
+
+## Organic accent -> nearest V2 palette colour (alpha kept). Colours far from
+## every token (e.g. white, bone, custom greys) stay as they are.
+static func calm_color(color: Color) -> Color:
+	var table := [
+		[UiStyle.EMBER, UiStyle.CALM_ORANGE], [UiStyle.EMBER_GLOW, UiStyle.CALM_ORANGE],
+		[UiStyle.DANGER, UiStyle.CALM_ORANGE], [UiStyle.CYAN, UiStyle.CALM_TEAL],
+		[UiStyle.VIOLET, UiStyle.CALM_VIOLET], [UiStyle.TOXIC, UiStyle.CALM_LEAF],
+		[UiStyle.GOLD, UiStyle.CALM_AMBER], [UiStyle.AMBER, UiStyle.CALM_AMBER],
+		[UiStyle.PANEL_EDGE, UiStyle.CALM_EDGE],
+		[UiStyle.CB_ORANGE, UiStyle.CALM_ORANGE], [UiStyle.CB_SKY, UiStyle.CALM_TEAL],
+		[UiStyle.CB_PURPLE, UiStyle.CALM_VIOLET], [UiStyle.CB_YELLOW, UiStyle.CALM_AMBER],
+		[UiStyle.CB_VERMILLION, UiStyle.CALM_ORANGE],
+	]
+	var best := 0.09
+	var mapped := color
+	for pair in table:
+		var token: Color = pair[0]
+		var d := Vector3(color.r - token.r, color.g - token.g, color.b - token.b).length_squared()
+		if d < best:
+			best = d
+			mapped = pair[1]
+	return Color(mapped, color.a)
+
+
+static func _calm_slice(canvas: CanvasItem, file: String, rect: Rect2, margins: Vector4, tint: Color) -> void:
+	_slice(canvas, CALM_PREFIX + file, rect, margins, tint, _fit(rect, margins, 0.0))
+
+
+static func _calm_tex(canvas: CanvasItem, file: String, rect: Rect2, tint: Color) -> void:
+	var tex := UiStyle.tex(CALM_DIR + file + ".svg")
+	if tex != null:
+		canvas.draw_texture_rect(tex, rect, false, tint)
+
+
+static func _calm_card(canvas: CanvasItem, rect: Rect2, accent: Color, state: String) -> void:
+	var edge := calm_color(accent)
+	var box := rect
+	var body := Color.WHITE
+	match state:
+		"pressed":
+			box = rect.grow(-4.0)
+			body = Color(0.82, 0.86, 0.84)
+		"disabled":
+			edge = edge.lerp(DISABLED_TINT, 0.78)
+			edge.a = 0.8
+			body = Color(0.8, 0.8, 0.8, 0.92)
+	_calm_slice(canvas, "card_body", box, CALM_CARD_MARGINS, body)
+	_calm_slice(canvas, "card_accent", box, CALM_CARD_MARGINS, edge)
+	if state == "selected" or state == "pressed":
+		_calm_slice(canvas, "card_focus", box.grow(3.0), CALM_CARD_MARGINS, Color.WHITE)
+
+
+# Panels and chips: V2 body, plus a thin accent stroke unless it is the quiet default.
+static func _calm_panel(canvas: CanvasItem, rect: Rect2, accent: Color, kind: String, margins: Vector4) -> void:
+	_calm_slice(canvas, kind + "_body", rect, margins, Color.WHITE)
+	var edge := calm_color(accent)
+	if not edge.is_equal_approx(UiStyle.CALM_EDGE):
+		_calm_slice(canvas, kind + "_edge", rect, margins, Color(edge, edge.a * 0.8))
+
+
+static func _calm_button(canvas: CanvasItem, rect: Rect2, kind: String, pressed: bool) -> void:
+	var box := rect
+	if pressed:
+		var k := rect.size.y / BUTTON_HEIGHT
+		box = Rect2(rect.position + Vector2(0.0, 3.0 * k), rect.size).grow(-2.0 * k)
+	var file := "button_primary" if kind == "primary" else "button_secondary"
+	_calm_slice(canvas, file, box, CALM_BUTTON_MARGINS, Color(0.82, 0.8, 0.78) if pressed else Color.WHITE)

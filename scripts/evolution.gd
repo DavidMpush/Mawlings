@@ -12,7 +12,7 @@ const TRAITS = [
 	["scatter", "Fluchtreflex", "−10 % Verluste ohne Rally pro Rang"],
 	["armor", "Knochenpanzer", "−10 % Verluste pro Rang"],
 	# Etappe 10 (nur über Trophäen freischaltbar, nicht im Standard-Pool):
-	["regeneration", "Regeneration", "+1 LP für den Anführer je 12/9/6 Kills"],
+	["regeneration", "Regeneration", "+1 LP für den Anführer je 12/9/6 Kills (höchstens alle 30/25/20 s)"],
 	["dornenhaut", "Dornenhaut", "+40 % Rückschaden pro Rang"]
 ]
 const ATTACKS = [
@@ -47,10 +47,15 @@ const UNLOCK_ONLY = ["regeneration", "dornenhaut", "graeber", "blitzbiss", "brut
 # Regeneration: HuntWorld meldet jeden Kill mit note_kills(n); der Rückgabewert
 # (und das Signal leader_regenerated) sind die LP, die der Anführer zurückbekommt
 # (HuntWorld kappt auf leader_max_hp). regen_kills = Fortschritt zum nächsten LP.
+# Etappe 10 Teil 2: Kills zählen gewichtet (Moorbrut nur REGEN_HORDE_WEIGHT), und mit
+# Spielzeit `now` heilt Regeneration höchstens 1 LP je REGEN_GAP[Rang] s; Fortschritt
+# über ein volles Intervall hinaus verfällt in der Pause (kein Ansparen).
 # Dornenhaut: thorn_factor() (0 ohne Anlage, 0,4 je Rang) und thorn_damage(loss,
 # leader_struck) = Rückschaden für einen Gegner, der den Schwarm im Nahkampf trifft
 # (vor enemy_scale). Anwenden z. B. über AttackForms.reflect_thorns().
 const REGEN_KILLS = [12, 9, 6]
+const REGEN_HORDE_WEIGHT = 0.15
+const REGEN_GAP = [30.0, 25.0, 20.0]
 const THORN_STEP = 0.40
 const THORN_BASE = 30.0
 const THORN_PER_LOSS = 4.0
@@ -77,7 +82,9 @@ var signature := ""
 # Meta multipliers (1.0 neutral); armor is an additive loss reduction share.
 var mods: Dictionary = {"damage": 1.0, "armor": 0.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0, "rally_damage": 1.0}
 # Etappe 10: Kills seit dem letzten Regenerations-LP.
-var regen_kills := 0
+var regen_kills := 0.0
+# Spielzeit, ab der das nächste Regenerations-LP frühestens kommt.
+var regen_ready_at := 0.0
 
 
 func _init() -> void:
@@ -347,14 +354,30 @@ func regeneration_interval() -> int:
 	return int(REGEN_KILLS[mini(level, MAX_RANK) - 1]) if level > 0 else 0
 
 
-# Zählt `count` Kills; liefert die LP, die der Anführer dafür zurückbekommt.
-func note_kills(count: int = 1) -> int:
+# Mindestabstand zwischen zwei Regenerations-LP in Sekunden (0 = Anlage fehlt).
+func regeneration_gap() -> float:
+	var level := rank("regeneration")
+	return float(REGEN_GAP[mini(level, MAX_RANK) - 1]) if level > 0 else 0.0
+
+
+# Zählt `count` Kills mit Gewicht `weight` (Moorbrut: REGEN_HORDE_WEIGHT); liefert die
+# LP, die der Anführer dafür zurückbekommt. Mit `now` >= 0 (Spielzeit) höchstens 1 LP
+# je regeneration_gap(); ohne `now` (Tests/Werkzeuge) ohne Zeitdeckel.
+func note_kills(count: int = 1, weight: float = 1.0, now: float = -1.0) -> int:
 	var interval := regeneration_interval()
-	if interval <= 0 or count <= 0:
+	if interval <= 0 or count <= 0 or weight <= 0.0:
 		return 0
-	regen_kills += count
-	var healed := regen_kills / interval
-	regen_kills -= healed * interval
+	regen_kills += float(count) * weight
+	var healed := int(floor((regen_kills + 0.00001) / float(interval)))
+	if now >= 0.0:
+		if healed > 0 and now >= regen_ready_at:
+			healed = 1
+			regen_ready_at = now + regeneration_gap()
+		else:
+			healed = 0
+		regen_kills = minf(regen_kills - float(healed * interval), float(interval))
+	else:
+		regen_kills -= float(healed * interval)
 	if healed > 0:
 		leader_regenerated.emit(healed)
 	return healed

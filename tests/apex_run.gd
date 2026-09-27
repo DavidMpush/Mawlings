@@ -231,9 +231,13 @@ func _check_kill() -> void:
 	_check(int(world.model.kills_by_type.get("apex", 0)) == 1 and world.model.bosses == bosses_before, "Counted as apex kill, not as Bog King")
 	_check(world.alpha_pickups.size() == pickups_before + TUNING.APEX_ALPHA_CORES, "Apex drops %d Alpha-Kerne" % TUNING.APEX_ALPHA_CORES)
 	_check(world.apex_victories == 1 and main.king_zoom_left > 0.0, "Königsmoment (victory banner + zoom)")
+	# The victory plays the "fanfare" sound (no second music stinger "king").
+	var sfx: Variant = scene.get_node_or_null("Sfx")
+	if sfx != null:
+		_check(sfx.recently_played("fanfare", 5000), "Victory fanfare")
 	var music: Variant = scene.get_node_or_null("Music")
 	if music != null:
-		_check(music.last_stinger() == "king", "Victory stinger")
+		_check(music.last_stinger() != "king", "No doubled king stinger")
 	_check(world.portal == null and world.apex_dying != null, "Body sinks first, the maw opens after the delay")
 	_steps(TUNING.APEX_PORTAL_DELAY + 0.1)
 	_check(world.portal != null and _maws() == 1, "Exactly one migration maw")

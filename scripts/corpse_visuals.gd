@@ -9,14 +9,30 @@ extends Node3D
 #   corpse_visuals.remove(id)                          # eaten completely
 #   corpse_visuals.clear()                             # new run
 #
+# Biomass crystals (Hunyuan drops, assets/gameplay/props/*Drop_game.glb) hover,
+# turn and pulse above the remains: small shards (1-3) on normal enemies, a
+# medium crystal on mini-bosses, a big crystal on bosses and brood nests. They
+# shrink with the fill; the motion runs in the vertex shader (no per-frame CPU).
+#
 # Performance: ONE MultiMesh per design (+ one for all amber pools, + one for
-# all glow halos) with shared meshes/materials. Per corpse only instance data
-# (transform + INSTANCE_CUSTOM: fill, glow, phase, pulse speed) is written; no
-# node per corpse. 60 mixed corpses = at most 12 draw calls.
+# all glow halos, + one per crystal size) with shared meshes/materials. Per
+# corpse only instance data (transform + INSTANCE_CUSTOM: fill, glow, phase,
+# pulse speed) is written; no node per corpse. 60 mixed corpses = at most 15
+# draw calls.
 
 const NIBBLER_SCENE = preload("res://assets/gameplay/characters/Nibbler_game.glb")
 const REAPER_SCENE = preload("res://assets/gameplay/characters/MireReaper_game.glb")
 const ROOT_ARCH_SCENE = preload("res://assets/gameplay/props/RootArch_game.glb")
+const DROP_SCENES := {
+	"drop_small": preload("res://assets/gameplay/props/SmallDrop_game.glb"),
+	"drop_medium": preload("res://assets/gameplay/props/MediumDrop_game.glb"),
+	"drop_big": preload("res://assets/gameplay/props/BigDrop_game.glb"),
+}
+# Model height (m) of each crystal mesh at instance scale 1 and its glow colour.
+const DROP_HEIGHT := {"drop_small": 0.9, "drop_medium": 1.0, "drop_big": 1.2}
+const DROP_GLOW := {"drop_small": Color("5ff2dc"), "drop_medium": Color("ffa53a"), "drop_big": Color("d9a8ff")}
+# Up to 4 shards per corpse: layer keys are id * DROP_SLOTS + shard.
+const DROP_SLOTS := 4
 
 const BATCH_STEP := 32
 const POOL_LAYER := "pool"
@@ -35,17 +51,20 @@ const KIND_DESIGN := {
 # (0 = none). ref: biomass that gives scale 1 (pools grow a little with biomass).
 # remains_min: remains scale at fill 0 (bones of bosses stay, flesh shrinks).
 # pulse: angular speed of the glow (bosses slow and big, small ones subtle).
+# drop: crystal layer ("" = none), drop_size: height in m at full fill,
+# drop_count: max shards (normal enemies get 1-3 by biomass), drop_at: offset
+# (corpse-local, before yaw) of the first crystal, drop_lift: hover height.
 const DESIGNS := {
-	"prey": {"rank": "normal", "pool": 0.8, "glow": 0.35, "halo": 0.0, "pulse": 2.6, "ref": 6.0, "remains_min": 0.55},
-	"hunter": {"rank": "normal", "pool": 0.9, "glow": 0.35, "halo": 0.0, "pulse": 2.6, "ref": 8.0, "remains_min": 0.55},
-	"skitter": {"rank": "normal", "pool": 0.85, "glow": 0.35, "halo": 0.0, "pulse": 2.6, "ref": 9.0, "remains_min": 0.55},
-	"horde": {"rank": "normal", "pool": 0.42, "glow": 0.3, "halo": 0.0, "pulse": 3.0, "ref": 1.5, "remains_min": 0.5},
-	"elite": {"rank": "mini", "pool": 1.45, "glow": 0.85, "halo": 4.4, "halo_color": Color(1.0, 0.72, 0.28), "halo_strength": 0.8, "pulse": 2.1, "ref": 26.0, "remains_min": 0.75},
-	"leaper": {"rank": "mini", "pool": 1.35, "glow": 0.8, "halo": 4.2, "halo_color": Color(0.95, 0.8, 0.35), "halo_strength": 0.75, "pulse": 2.1, "ref": 10.0, "remains_min": 0.75},
-	"boss": {"rank": "boss", "pool": 2.7, "glow": 1.0, "halo": 10.0, "halo_color": Color(1.0, 0.66, 0.24), "halo_strength": 0.9, "pulse": 1.3, "ref": 60.0, "remains_min": 0.93},
-	"apex": {"rank": "boss", "pool": 3.1, "glow": 1.0, "halo": 11.0, "halo_color": Color(0.95, 0.8, 0.32), "halo_strength": 0.9, "pulse": 1.1, "ref": 60.0, "remains_min": 0.93},
-	"mawling": {"rank": "special", "pool": 0.0, "glow": 1.0, "halo": 1.6, "halo_color": Color(1.0, 0.5, 0.18), "halo_strength": 0.9, "pulse": 4.0, "ref": 1.0, "remains_min": 0.6},
-	"nest": {"rank": "special", "pool": 1.1, "glow": 0.6, "halo": 0.0, "pulse": 2.0, "ref": 18.0, "remains_min": 0.7},
+	"prey": {"rank": "normal", "pool": 0.8, "glow": 0.35, "halo": 0.0, "pulse": 2.6, "ref": 6.0, "remains_min": 0.55, "drop": "drop_small", "drop_size": 0.72, "drop_count": 3, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.42},
+	"hunter": {"rank": "normal", "pool": 0.9, "glow": 0.35, "halo": 0.0, "pulse": 2.6, "ref": 8.0, "remains_min": 0.55, "drop": "drop_small", "drop_size": 0.82, "drop_count": 3, "drop_at": Vector3(0.0, 0.0, -0.2), "drop_lift": 0.95},
+	"skitter": {"rank": "normal", "pool": 0.85, "glow": 0.35, "halo": 0.0, "pulse": 2.6, "ref": 9.0, "remains_min": 0.55, "drop": "drop_small", "drop_size": 0.78, "drop_count": 3, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.75},
+	"horde": {"rank": "normal", "pool": 0.42, "glow": 0.3, "halo": 0.0, "pulse": 3.0, "ref": 1.5, "remains_min": 0.5, "drop": "drop_small", "drop_size": 0.48, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.2},
+	"elite": {"rank": "mini", "pool": 1.45, "glow": 0.85, "halo": 4.4, "halo_color": Color(1.0, 0.72, 0.28), "halo_strength": 0.8, "pulse": 2.1, "ref": 26.0, "remains_min": 0.75, "drop": "drop_medium", "drop_size": 1.05, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, -0.3), "drop_lift": 1.35},
+	"leaper": {"rank": "mini", "pool": 1.35, "glow": 0.8, "halo": 4.2, "halo_color": Color(0.95, 0.8, 0.35), "halo_strength": 0.75, "pulse": 2.1, "ref": 10.0, "remains_min": 0.75, "drop": "drop_medium", "drop_size": 0.95, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.9},
+	"boss": {"rank": "boss", "pool": 2.7, "glow": 1.0, "halo": 10.0, "halo_color": Color(1.0, 0.66, 0.24), "halo_strength": 0.9, "pulse": 1.3, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 1.9, "drop_count": 1, "drop_at": Vector3(2.35, 0.0, 0.4), "drop_lift": 0.35},
+	"apex": {"rank": "boss", "pool": 3.1, "glow": 1.0, "halo": 11.0, "halo_color": Color(0.95, 0.8, 0.32), "halo_strength": 0.9, "pulse": 1.1, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(-2.55, 0.0, 0.6), "drop_lift": 0.35},
+	"mawling": {"rank": "special", "pool": 0.0, "glow": 1.0, "halo": 1.6, "halo_color": Color(1.0, 0.5, 0.18), "halo_strength": 0.9, "pulse": 4.0, "ref": 1.0, "remains_min": 0.6, "drop": ""},
+	"nest": {"rank": "special", "pool": 1.1, "glow": 0.6, "halo": 0.0, "pulse": 2.0, "ref": 18.0, "remains_min": 0.7, "drop": "drop_big", "drop_size": 0.95, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.3},
 }
 
 # Palette (living colours, the shader darkens and desaturates the remains).
@@ -77,7 +96,7 @@ func add(id: int, kind: String, location: Vector3, biomass: float) -> void:
 	corpses[id] = {
 		"kind": kind, "design": design_name, "position": location,
 		"yaw": rng.randf() * TAU, "pool_yaw": rng.randf() * TAU, "phase": rng.randf(),
-		"fill": 1.0, "scale": size,
+		"fill": 1.0, "scale": size, "drops": _drop_layout(design, size, rng),
 	}
 	_apply(id)
 
@@ -98,8 +117,13 @@ func set_fill(id: int, fraction: float) -> void:
 func remove(id: int) -> void:
 	if not corpses.has(id):
 		return
-	for layer: Layer in layers.values():
-		layer.erase(id)
+	for layer_name: String in layers:
+		var layer: Layer = layers[layer_name]
+		if DROP_SCENES.has(layer_name):
+			for shard in DROP_SLOTS:
+				layer.erase(id * DROP_SLOTS + shard)
+		else:
+			layer.erase(id)
 	corpses.erase(id)
 
 
@@ -125,7 +149,17 @@ static func rank_of(kind: String) -> String:
 	return DESIGNS[KIND_DESIGN.get(kind, KIND_DESIGN[FALLBACK_KIND])].rank
 
 
-## Visible instances in one layer (design name, "pool" or "halo").
+## Crystal layer of a kind ("drop_small", "drop_medium", "drop_big" or "").
+static func drop_of(kind: String) -> String:
+	return DESIGNS[KIND_DESIGN.get(kind, KIND_DESIGN[FALLBACK_KIND])].drop
+
+
+## Crystal shards of one corpse (0 = none).
+func drops_of(id: int) -> int:
+	return (corpses[id].drops as Array).size() if corpses.has(id) else 0
+
+
+## Visible instances in one layer (design name, "pool", "halo" or "drop_*").
 func instances(layer_name: String) -> int:
 	return layers[layer_name].ids.size() if layers.has(layer_name) else 0
 
@@ -164,6 +198,45 @@ func _apply(id: int) -> void:
 		var halo_custom := Color(fill, strength, float(corpse.phase), float(design.pulse))
 		var halo_basis := Basis.from_scale(Vector3(halo_size, 1.0, halo_size))
 		_layer(HALO_LAYER).put(id, Transform3D(halo_basis, origin + Vector3(0.0, 0.035, 0.0)), halo_custom, design.halo_color)
+	# Biomass crystals: hover above the remains, shrink with the fill; extra
+	# shards of normal enemies shrink faster, so the first one is eaten last.
+	var drops: Array = corpse.drops
+	if drops.is_empty():
+		return
+	var drop_layer := _layer(design.drop)
+	var turn := Basis(Vector3.UP, corpse.yaw)
+	var drop_custom := Color(fill, float(design.glow), float(corpse.phase), float(design.pulse))
+	for shard in drops.size():
+		var spec: Array = drops[shard]
+		var shrink := lerpf(0.3, 1.0, pow(fill, 1.0 + 0.6 * float(shard)))
+		var height: float = float(spec[2]) * shrink
+		var drop_basis := Basis(Vector3.UP, float(spec[1])).scaled(Vector3.ONE * height / float(DROP_HEIGHT[design.drop]))
+		var place: Vector3 = origin + turn * (spec[0] as Vector3)
+		place.y += float(design.drop_lift) * lerpf(0.75, 1.0, fill)
+		drop_custom.b = fmod(float(corpse.phase) + 0.37 * float(shard), 1.0)
+		drop_layer.put(id * DROP_SLOTS + shard, Transform3D(drop_basis, place), drop_custom)
+
+
+# Shard positions / turn / height (corpse-local), fixed per corpse.
+static func _drop_layout(design: Dictionary, size: float, rng: RandomNumberGenerator) -> Array:
+	if String(design.get("drop", "")) == "":
+		return []
+	var count := 1
+	if int(design.drop_count) > 1:
+		# 1-3 shards by biomass (size 0.85..1.3; the reference biomass gives 2).
+		count = clampi(1 + int(size >= 0.97) + int(size >= 1.18), 1, int(design.drop_count))
+	var result := []
+	var first: Vector3 = design.drop_at
+	var base_height := float(design.drop_size) * lerpf(0.9, 1.12, inverse_lerp(0.85, 1.3, size))
+	for shard in count:
+		var at := first
+		var height := base_height
+		if shard > 0:
+			var angle := rng.randf() * TAU
+			at += Vector3(cos(angle), 0.0, sin(angle)) * (0.32 + 0.1 * rng.randf())
+			height *= 0.62 - 0.08 * float(shard - 1)
+		result.append([at, rng.randf() * TAU, height])
+	return result
 
 
 func _layer(layer_name: String) -> Layer:
@@ -328,8 +401,47 @@ void fragment() {
 """
 
 
+const DROP_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+// Biomass crystal: turns and bobs around its own axis (model space, before the
+// instance transform), glows at the rim and pulses; dims when nearly eaten.
+uniform vec3 glow_color : source_color = vec3(1.0, 0.8, 0.3);
+uniform float bob = 0.06;
+uniform float spin = 0.6;
+uniform float tint_mix = 0.2;
+uniform float brightness = 1.0;
+uniform float saturation = 1.2;
+varying vec4 corpse;
+void vertex() {
+	corpse = INSTANCE_CUSTOM;
+	float phase = corpse.z * 6.2832;
+	float a = TIME * spin + phase;
+	mat2 turn = mat2(vec2(cos(a), sin(a)), vec2(-sin(a), cos(a)));
+	VERTEX.xz = turn * VERTEX.xz;
+	NORMAL.xz = turn * NORMAL.xz;
+	VERTEX.y += bob * (0.5 + 0.5 * sin(TIME * 1.6 + phase));
+}
+void fragment() {
+	float pulse = 0.5 + 0.5 * sin(TIME * corpse.w + corpse.z * 6.2832);
+	float facing = clamp(dot(normalize(NORMAL), VIEW), 0.0, 1.0);
+	vec3 base = mix(COLOR.rgb, glow_color * 0.8, tint_mix);
+	// Saturate a little so the crystal reads as gem, not as rock.
+	float grey = dot(base, vec3(0.3, 0.55, 0.15));
+	base = mix(vec3(grey), base, saturation);
+	vec3 col = base * (brightness + 0.4 * facing);
+	col += glow_color * pow(1.0 - facing, 2.0) * (0.45 + 0.4 * pulse) * (0.4 + 0.6 * corpse.y);
+	col += glow_color * 0.1 * pulse * corpse.y;
+	col *= mix(0.62, 1.0, corpse.x);
+	ALBEDO = col;
+}
+"""
+
+
 static func _material(layer_name: String) -> ShaderMaterial:
 	var key := "pool" if layer_name == POOL_LAYER else ("halo" if layer_name == HALO_LAYER else "remains")
+	if DROP_SCENES.has(layer_name):
+		key = layer_name
 	if _materials.has(key):
 		return _materials[key]
 	var shader := Shader.new()
@@ -339,6 +451,14 @@ static func _material(layer_name: String) -> ShaderMaterial:
 			shader.code = POOL_SHADER
 		"halo":
 			shader.code = HALO_SHADER
+		"drop_small", "drop_medium", "drop_big":
+			shader.code = DROP_SHADER
+			material.set_shader_parameter("glow_color", DROP_GLOW[key])
+			material.set_shader_parameter("bob", 0.07 if key == "drop_small" else 0.05)
+			material.set_shader_parameter("spin", 0.9 if key == "drop_small" else 0.45)
+			material.set_shader_parameter("tint_mix", 0.16 if key == "drop_big" else 0.12)
+			material.set_shader_parameter("brightness", 1.35 if key == "drop_big" else 1.05)
+			material.set_shader_parameter("saturation", 1.5 if key == "drop_big" else 1.15)
 		_:
 			shader.code = REMAINS_SHADER
 			material.set_shader_parameter("brightness", 0.82)
@@ -366,6 +486,9 @@ static func _mesh(layer_name: String) -> Mesh:
 		mesh = quad
 	else:
 		var b := Builder.new()
+		if DROP_SCENES.has(layer_name):
+			# Upright crystal, centred on its axis, base at y = 0.
+			b.glb(DROP_SCENES[layer_name], 1.0, Basis.IDENTITY, Vector3.ZERO, Color.WHITE, true, DROP_HEIGHT[layer_name])
 		match layer_name:
 			POOL_LAYER: _build_pool(b)
 			"prey": _build_prey(b)
@@ -737,13 +860,16 @@ class Builder:
 
 	# A GLB model (first mesh, its node transform baked), scaled to `length`
 	# along its longest ground axis, rotated, centred, resting on the ground.
-	func glb(scene: PackedScene, length: float, rotation: Basis, offset: Vector3, tint: Color, rest_on_ground := true) -> void:
+	# height > 0 scales to that height instead (upright props like crystals).
+	func glb(scene: PackedScene, length: float, rotation: Basis, offset: Vector3, tint: Color, rest_on_ground := true, height := 0.0) -> void:
 		var source: Array = CorpseVisualsMeshes.extract(scene)
 		var mesh: Mesh = source[0]
 		var base: Transform3D = source[1]
 		var shaped := Transform3D(rotation, Vector3.ZERO) * base
 		var bounds: AABB = shaped * mesh.get_aabb()
 		var scale := length / maxf(maxf(bounds.size.x, bounds.size.z), 0.01)
+		if height > 0.0:
+			scale = height / maxf(bounds.size.y, 0.01)
 		shaped = Transform3D(Basis.from_scale(Vector3.ONE * scale), Vector3.ZERO) * shaped
 		bounds = shaped * mesh.get_aabb()
 		var center := bounds.get_center()

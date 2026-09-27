@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
 $projectDir = Split-Path -Parent $PSScriptRoot
-$tests = @('smoke','run_model','hunt_flow','survival','evolution','arena','skitter','leaper','model_budget','boss','motion','per_unit_hits','leader','objectives','horde','flood','eruptions','apex','apex_run','migration','onboarding','meta','attack_forms','forms_extra','run_config','menu','sfx','music','corpse_visuals','chronicle')
+$tests = @('smoke','run_model','hunt_flow','survival','evolution','arena','skitter','leaper','model_budget','boss','motion','per_unit_hits','leader','objectives','horde','flood','eruptions','apex','apex_run','migration','onboarding','meta','attack_forms','forms_extra','run_config','menu','sfx','sfx_hooks','music','corpse_visuals','chronicle')
 $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 if ($Only.Count -gt 0) { $tests = $tests | Where-Object { $Only -contains $_ } }
 
@@ -53,14 +53,14 @@ function Report([string]$Name, $Run, [string]$Pattern) {
 & $godotExe --headless --editor --import --path $projectDir --quit *> $null
 $failed = @()
 foreach ($testName in $tests) {
-	$run = Invoke-Godot @('--headless', '--path', $projectDir, '--script', "res://tests/$testName.gd")
+	$run = Invoke-Godot @('--headless', '--audio-driver', 'Dummy', '--path', $projectDir, '--script', "res://tests/$testName.gd")
 	if (-not (Report $testName $run '')) { $failed += $testName }
 }
 if (-not $SkipPlaythrough -and $Only.Count -eq 0) {
-	$run = Invoke-Godot @('--headless', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/endless_playthrough.gd')
+	$run = Invoke-Godot @('--headless', '--audio-driver', 'Dummy', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/endless_playthrough.gd')
 	if (-not (Report 'endless_playthrough' $run 'PLAYTEST')) { $failed += 'endless_playthrough' }
 	# Balance regression: two short bot runs against the difficulty target curve.
-	$run = Invoke-Godot @('--headless', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/balance_sim.gd', '--', 'regress')
+	$run = Invoke-Godot @('--headless', '--audio-driver', 'Dummy', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/balance_sim.gd', '--', 'regress')
 	if (-not (Report 'balance_regress' $run 'BALANCE|PASS')) { $failed += 'balance_regress' }
 }
 if ($failed.Count -gt 0) {

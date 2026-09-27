@@ -210,6 +210,7 @@ func reset_run() -> void:
 	if horde != null and is_instance_valid(horde) and horde.has_method("clear"):
 		horde.clear()
 	horde = null
+	_portal_hum(false)
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
@@ -389,7 +390,7 @@ func _step_flood(delta: float, damage: float) -> bool:
 	if flood_state == 0 and model.elapsed >= flood_start - TUNING.FLOOD_WARNING_SECONDS:
 		flood_state = 1
 		flood_beep = -1
-		_sfx("warn", 150)
+		_sfx("flood_warn", 150)
 	if flood_state == 1:
 		var countdown := ceili(flood_start - model.elapsed)
 		# Short beeps over the last three seconds (the sfx rules rate-limit them).
@@ -500,7 +501,7 @@ func _flood_kills(delta: float) -> bool:
 			horde_kills += count
 			for index in count:
 				model.record_kill("horde")
-			_note_kills(count)
+			_note_kills(count, EVOLUTION.REGEN_HORDE_WEIGHT)
 	flood_bundle_clock += delta
 	if flood_bundle_clock < TUNING.FLOOD_BUNDLE_SECONDS or flood_bundles.is_empty():
 		return false
@@ -589,6 +590,8 @@ func toggle_pause() -> void:
 	if model.extinct:
 		return
 	paused = not paused
+	# The portal hum has no pause of its own: stop it while paused, resume after.
+	_portal_hum(not paused and portal != null and migration_state != 1)
 	hud.clear_pointers()
 	swarm.set_controls(Vector2.ZERO, false)
 	_update_hud("")
@@ -1020,6 +1023,7 @@ func _spawn_boss(location: Vector3) -> Node3D:
 	_tint_enemy(target, "bog_king")
 	_on_boss_spawned(target)
 	_music_cue("boss")
+	_sfx("boss_roar", 120)
 	return target
 
 
@@ -1161,7 +1165,7 @@ func _step_alpha_pickups(delta: float) -> void:
 
 # Stores one Alpha-Kern and evolves at once when a rule is satisfied.
 func collect_alpha_core() -> void:
-	_sfx("pickup", 25)
+	_sfx("alpha_core", 25)
 	evolution.add_alpha_core()
 	if not _try_evolve():
 		evolve_name = ""
@@ -1278,7 +1282,7 @@ func begin_apex_warning() -> void:
 	var arena: Node3D = get_parent().get_node("Arena")
 	apex_spot = arena.safe_spawn(swarm.position + Vector3(0.0, 0.0, -TUNING.APEX_SPAWN_DISTANCE), TUNING.APEX_BODY_RADIUS + 0.5)
 	apex_spot.y = 0.0
-	_sfx("warn", 160)
+	_sfx("quake", 160)
 	_shake(0.3)
 
 
@@ -1301,6 +1305,7 @@ func spawn_apex(location: Vector3) -> Node3D:
 	apex_state = 2
 	_music_cue("boss")
 	_sfx("stomp", 220)
+	_sfx("boss_roar")
 	return target
 
 
@@ -1363,8 +1368,8 @@ func _apex_defeated(location: Vector3) -> void:
 	portal_clock = TUNING.APEX_PORTAL_DELAY
 	if apex_dying != null:
 		apex_dying.set("migration_point", portal_point)
-	_sfx("evolve", 160)
-	_music_cue("king")
+	# A real fanfare instead of evolve + the music stinger "king".
+	_sfx("fanfare", 160)
 	var main := get_parent()
 	if main != null and main.has_method("king_moment"):
 		main.king_moment(location)
@@ -1384,7 +1389,8 @@ func open_portal(location: Vector3) -> Node3D:
 	apex_state = maxi(apex_state, 3)
 	FX.ring(self, portal.position, Color(1.0, 0.8, 0.5, 0.9), 0.6, TUNING.MIGRATION_RADIUS + 3.0, 0.9)
 	FX.ring(self, portal.position, Color(0.7, 0.3, 0.55, 0.8), 0.4, TUNING.MIGRATION_RADIUS + 1.0, 1.2)
-	_sfx("evolve", 60)
+	_sfx("portal_open", 60)
+	_portal_hum(true)
 	return portal
 
 
@@ -1426,7 +1432,8 @@ func _begin_migration() -> void:
 	migration_to = portal.target_biome if portal != null else BIOMES.next_biome(biome_id)
 	swarm.clear_focus()
 	swarm.set_controls(Vector2.ZERO, false)
-	_sfx("evolve", 120)
+	_portal_hum(false)
+	_sfx("migration_whoosh", 120)
 	_shake(0.35)
 	_update_hud("MIGRATION · %s" % BIOMES.display_name(migration_to).to_upper())
 
@@ -1462,6 +1469,7 @@ func _arrive() -> void:
 	if portal != null:
 		portal.queue_free()
 		portal = null
+	_portal_hum(false)
 	_shake(0.25)
 
 
@@ -1963,8 +1971,8 @@ func _popup_screen() -> Array:
 # Bog King eaten: big HUD moment, sound and vibration; Main adds slow motion and zoom.
 func _king_moment(location: Vector3) -> void:
 	king_moments += 1
-	_sfx("evolve", 120)
-	_music_cue("king")
+	# A real fanfare instead of evolve + the music stinger "king".
+	_sfx("fanfare", 120)
 	var main := get_parent()
 	if main != null and main.has_method("king_moment"):
 		main.king_moment(location)
@@ -2027,6 +2035,7 @@ func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3
 		var player := _sfx_node()
 		if player != null and player.has_method("stop_ambience"):
 			player.stop_ambience()
+		_portal_hum(false)
 		var music := _music_node()
 		if music != null:
 			music.stinger("extinct")
@@ -2050,10 +2059,11 @@ func _sync_leader() -> void:
 
 # Etappe 10 (INHALT) - Regeneration: every kill counts towards leader LP
 # (evolution.note_kills); healing is capped at leader_max_hp.
-func _note_kills(count: int) -> void:
+# Etappe 10 Teil 2: Moorbrut zählt nur `weight` Kill, höchstens 1 LP je REGEN_GAP s.
+func _note_kills(count: int, weight: float = 1.0) -> void:
 	if count <= 0 or model.extinct or not evolution.has_method("note_kills"):
 		return
-	var healed: int = evolution.note_kills(count)
+	var healed: int = evolution.note_kills(count, weight, model.elapsed)
 	if healed <= 0:
 		return
 	var before: int = model.leader_hp
@@ -2061,7 +2071,7 @@ func _note_kills(count: int) -> void:
 	if model.leader_hp > before:
 		_sync_leader()
 		FX.ring(self, swarm.position, Color(0.6, 1.0, 0.55, 0.85), 0.4, 2.6, 0.5)
-		_sfx("pickup", 15)
+		_sfx("regen", 15)
 
 
 # New Mawlings grew from biomass: cell division, milestones (+1 LP per 25).
@@ -2200,6 +2210,17 @@ func _sfx(id: String, vibrate_ms: int = 0, volume_db: float = 0.0) -> void:
 		player.vibrate(vibrate_ms)
 
 
+# Loop "portal_hum" while the Migrationsschlund is open (Sfx start_loop/stop_loop).
+func _portal_hum(on: bool) -> void:
+	var player := _sfx_node()
+	if player == null or not player.has_method("start_loop"):
+		return
+	if on:
+		player.start_loop("portal_hum")
+	else:
+		player.stop_loop("portal_hum")
+
+
 # Sound cues from state changes, so enemy scripts stay free of audio code.
 func _audio_step(delta: float, population_before: int) -> void:
 	# Stage 09: with cell division _on_growth() plays "split" instead.
@@ -2227,7 +2248,7 @@ func _audio_step(delta: float, population_before: int) -> void:
 		if enemy == apex:
 			# WINDUP (2) warns through the shared branch below; the strike stomps.
 			if state == APEX_BOSS.State.WINDUP:
-				_sfx("warn")
+				_sfx("quake" if enemy.current_pattern == APEX_BOSS.Pattern.QUAKE else "warn")
 			elif state == APEX_BOSS.State.STRIKE:
 				_sfx("stomp", 80)
 			elif state == APEX_BOSS.State.PHASE_SHIFT:
@@ -2239,7 +2260,7 @@ func _audio_step(delta: float, population_before: int) -> void:
 				_sfx("stomp", 60)
 		elif enemy is MIRE_LEAPER:
 			if state == MIRE_LEAPER.State.WARNING:
-				_sfx("warn")
+				_sfx("leaper_windup")
 			elif before == MIRE_LEAPER.State.LEAP:
 				_sfx("stomp", 40)
 		elif state == 2 and before != -1:

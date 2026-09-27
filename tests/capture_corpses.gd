@@ -7,6 +7,7 @@ extends SceneTree
 # preview_corpses_fill.png    normal + mini-boss kinds at 100 / 50 / 10 %
 # preview_corpses_boss.png    Bog King carcass at 100 / 50 / 10 %
 # preview_corpses_apex.png    Moosschlund carcass at 100 / 50 / 10 %
+# (every corpse carries its biomass crystal: small shards, medium, big)
 # plus the draw-call cost of 60 mixed corpses (printed)
 # preview_corpses_swarm.png   the swarm feeding on a Bog King carcass
 
