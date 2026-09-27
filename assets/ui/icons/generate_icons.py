@@ -29,6 +29,7 @@ PAL = {
     "magenta": ("#ffb8f2", "#e04ad0", "#7a1470", "#22041f"),
     "teal": ("#b8fff0", "#2fb8a8", "#0f5a5a", "#041a1a"),
     "plum": ("#e6a8e6", "#8e3a92", "#3a0e3e", "#16041a"),
+    "earth": ("#f0c98e", "#b07840", "#5a3418", "#1e0f05"),
 }
 
 OUT_W = 22  # outline stroke width (half of it shows outside the fill)
@@ -1009,6 +1010,176 @@ def hub(ic):
     for s in (-1, 1):
         ic.part(f"M{128 + s*96} 226 C{128 + s*100} 150 {128 + s*60} 96 {128 + s*14} 70 C{128 + s*50} 108 {128 + s*80} 160 {128 + s*80} 226 Z",
                 ic.lin("bone", 0), "bone", ow=14)
+
+
+# --- stage 10: new attack forms, traits and evolutions ---------------------
+def evo_ring(ic, color="#b07ae8", light="#ead2ff", dark="#1a0a2b"):
+    """Evolution mark shared with meute: glowing ring behind the motif."""
+    ic.glow(color, 128, 128, 128, 0.8)
+    ic.back.append(f'<circle cx="128" cy="128" r="110" fill="none" stroke="{dark}" stroke-width="26"/>'
+                   f'<circle cx="128" cy="128" r="110" fill="none" stroke="{color}" stroke-width="14"/>'
+                   f'<circle cx="128" cy="128" r="110" fill="none" stroke="{light}" stroke-width="4" stroke-opacity="0.8"/>')
+
+
+def rock_shard(ic, x, y, h, w, rot=0, pal="earth"):
+    d = f"M{-w} 0 L{-w * 0.35:.1f} {-h * 0.72:.1f} L0 {-h} L{w * 0.45:.1f} {-h * 0.6:.1f} L{w} 0 Z"
+    ic.part(d, ic.lin(pal, 20), pal,
+            hl(f"M{-w * 0.8:.1f} -4 L{-w * 0.3:.1f} {-h * 0.7:.1f} L0 {-h * 0.95:.1f} L{-w * 0.1:.1f} -4 Z", 0.45),
+            f"translate({x} {y}) rotate({rot})", ow=16)
+
+
+def burrow_scene(ic, tf=""):
+    """Mole-like tunnel humps along the ground, bursting open on the right."""
+    ic.part("M8 238 L8 214 C60 204 196 204 248 214 L248 238 Z", ic.lin("earth", 0), "earth",
+            f'<path d="M24 226 L40 224 M70 230 L96 228 M128 226 L150 228" stroke="{PAL["earth"][3]}" stroke-width="5" stroke-linecap="round"/>', tf)
+    for (x, w, h) in [(38, 42, 26), (94, 54, 40)]:
+        d = f"M{x - w / 2} 212 C{x - w / 2} {212 - h * 1.3} {x + w / 2} {212 - h * 1.3} {x + w / 2} 212 Z"
+        ic.part(d, ic.lin("earth", 15), "earth",
+                hl(f"M{x - w * 0.32} 204 C{x - w * 0.3} {212 - h} {x} {212 - h * 1.05} {x + w * 0.1} {212 - h * 0.95} C{x - w * 0.1} {212 - h * 0.8} {x - w * 0.2} {210 - h * 0.5} {x - w * 0.22} 204 Z", 0.45), tf, ow=16)
+    ic.part(ell_path(180, 206, 62, 20), "#1e0f05", "earth", tf=tf, ow=16)
+    for (x, y, h, w, r) in [(144, 210, 84, 22, -28), (218, 206, 92, 22, 26), (182, 208, 140, 28, 0)]:
+        rock_shard(ic, x, y, h, w, r)
+    for (x, y, r) in [(128, 70, 10), (236, 52, 9), (108, 124, 7), (244, 120, 7)]:
+        ic.part(circle_path(x, y, r), ic.rad("earth"), "earth", tf=tf, ow=8)
+
+
+@icon
+def graeber(ic):
+    ic.glow("#efb642", 180, 120, 96, 0.5)
+    burrow_scene(ic)
+
+
+def bolt_path(pts, width):
+    """Zig-zag lightning ribbon through pts (list of (x, y))."""
+    left, right = [], []
+    for i, (x, y) in enumerate(pts):
+        if i == 0:
+            dx, dy = pts[1][0] - x, pts[1][1] - y
+        elif i == len(pts) - 1:
+            dx, dy = x - pts[i - 1][0], y - pts[i - 1][1]
+        else:
+            dx, dy = pts[i + 1][0] - pts[i - 1][0], pts[i + 1][1] - pts[i - 1][1]
+        ln = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / ln, dx / ln
+        w = width * (0.35 if i in (0, len(pts) - 1) else 1.0)
+        left.append((x + nx * w, y + ny * w))
+        right.append((x - nx * w, y - ny * w))
+    return poly(left + right[::-1])
+
+
+def bite_node(ic, x, y, r, pal):
+    """Small round bite mark: jaw ring with two teeth, used as chain node."""
+    ic.part(circle_path(x, y, r), ic.rad(pal, 0.4, 0.35, 0.85), pal,
+            circ(x, y, r * 0.52, "#06131f") +
+            f'<path d="{poly([(x - r * 0.42, y - r * 0.28), (x - r * 0.18, y + r * 0.12), (x - r * 0.02, y - r * 0.34)])}" fill="#ffffff"/>' +
+            f'<path d="{poly([(x + r * 0.42, y + r * 0.28), (x + r * 0.18, y - r * 0.12), (x + r * 0.02, y + r * 0.34)])}" fill="#ffffff"/>' +
+            hl(ell_path(x - r * 0.35, y - r * 0.5, r * 0.35, r * 0.2), 0.55), ow=14)
+
+
+@icon
+def blitzbiss(ic):
+    ic.glow("#5a86ff", 160, 100, 120, 0.55)
+    zig = [(112, 162), (146, 118), (126, 104), (176, 72), (160, 56), (222, 28)]
+    d = bolt_path(zig, 22)
+    oc = PAL["blue"][3]
+    ic.raw(f'<path d="{d}" fill="{oc}" stroke="{oc}" stroke-width="{OUT_W}" stroke-linejoin="round"/>'
+           f'<path d="{d}" fill="{ic.lin("cyan", 30)}"/>'
+           f'<path d="{bolt_path(zig, 7)}" fill="#ffffff" fill-opacity="0.9"/>')
+    head(ic, "blue", "translate(-14 116) scale(0.52)")
+    # hit sparks where the chain jumps
+    for x, y, s_ in [(146, 118, 1.4), (176, 72, 1.3), (222, 28, 1.1)]:
+        ic.part(star(x, y, s_), ic.rad("gold"), "gold", ow=8)
+    # a second, smaller jump branching off: the chain keeps going
+    branch = [(176, 72), (206, 104), (196, 118), (236, 146)]
+    ic.raw(f'<path d="{bolt_path(branch, 12)}" fill="{oc}" stroke="{oc}" stroke-width="16" stroke-linejoin="round"/>'
+           f'<path d="{bolt_path(branch, 12)}" fill="{ic.lin("cyan", 30)}"/>'
+           f'<path d="{bolt_path(branch, 4)}" fill="#ffffff" fill-opacity="0.85"/>')
+    ic.part(star(236, 146, 1.1), ic.rad("gold"), "gold", ow=8)
+
+
+def sac_blob(ic, x, y, r, tf=""):
+    d = (f"M{x} {y - r} C{x + r * 0.62} {y - r} {x + r} {y - r * 0.5} {x + r} {y + r * 0.05} "
+         f"C{x + r} {y + r * 0.62} {x + r * 0.55} {y + r} {x} {y + r} C{x - r * 0.55} {y + r} {x - r} {y + r * 0.62} {x - r} {y + r * 0.05} "
+         f"C{x - r} {y - r * 0.5} {x - r * 0.62} {y - r} {x} {y - r} Z")
+    ic.part(d, ic.rad("magenta", 0.38, 0.32, 0.85), "magenta",
+            "".join(ell(x + dx * r, y + dy * r, r * s, r * s * 0.8, PAL["magenta"][2], 0.75) for dx, dy, s in [(-0.3, 0.2, 0.16), (0.25, -0.1, 0.12), (0.2, 0.45, 0.14), (-0.45, -0.25, 0.09)]) +
+            ell(x - r * 0.35, y - r * 0.45, r * 0.26, r * 0.16, "#ffffff", 0.75, -30) +
+            shade(f"M{x - r * 0.9} {y + r * 0.3} C{x - r * 0.5} {y + r * 1.05} {x + r * 0.5} {y + r * 1.05} {x + r * 0.9} {y + r * 0.3} C{x + r * 0.5} {y + r * 0.8} {x - r * 0.5} {y + r * 0.8} {x - r * 0.9} {y + r * 0.3} Z", 0.3), tf)
+
+
+@icon
+def brutsack(ic):
+    ic.glow("#e04ad0", 110, 150, 110, 0.4)
+    sac_blob(ic, 104, 152, 76)
+    # burst crack at the top right and biters leaping out
+    ic.part("M150 88 L166 70 L162 96 L186 84 L170 106 Z", "#3a0636", "magenta", ow=10)
+    head(ic, "magenta", "translate(150 12) scale(0.36) rotate(-18 128 128)")
+    head(ic, "magenta", "translate(176 96) scale(0.3) rotate(10 128 128)")
+    for x, y, r in [(222, 40, 7), (140, 40, 6), (236, 188, 6)]:
+        ic.part(circle_path(x, y, r), ic.rad("magenta"), "magenta", ow=8)
+
+
+HEART = "M128 226 C80 190 26 152 26 98 C26 62 54 36 86 36 C106 36 120 48 128 64 C136 48 150 36 170 36 C202 36 230 62 230 98 C230 152 176 190 128 226 Z"
+
+
+@icon
+def regeneration(ic):
+    ic.glow("#9be15d", 128, 128, 120, 0.4)
+    ic.tf = "translate(118 118) scale(0.88) translate(-128 -128)"
+    ic.part(HEART, ic.lin("flesh", 25), "flesh",
+            hl("M50 96 C50 70 68 54 88 54 C70 66 62 82 64 110 Z", 0.55) +
+            shade("M128 226 C176 190 230 152 230 98 C224 150 176 184 128 212 Z", 0.3) +
+            # leader crown notch: three small bone spikes on top
+            f'<path d="M60 148 L92 148 L106 120 L122 176 L138 132 L150 148 L196 148" stroke="#fff3e8" stroke-width="10" fill="none" stroke-linejoin="round" stroke-linecap="round"/>')
+    ic.tf = ""
+    plus_badge(ic, 198, 196, 44, "toxic")
+
+
+@icon
+def dornenhaut(ic):
+    ic.glow("#ff4a3a", 128, 128, 110, 0.35)
+    ic.tf = "translate(128 128) scale(0.86) translate(-128 -128)"
+    # thorns all around a leathery hide disc
+    for i in range(10):
+        a = i * 36 + 18
+        ic.part("M-16 0 C-12 -28 -2 -46 10 -64 C6 -42 12 -22 16 0 Z", ic.lin("bone", 0), "leaf",
+                hl("M-10 -2 C-8 -22 -2 -38 6 -54 C0 -34 -3 -16 -4 -2 Z", 0.5),
+                f"translate(128 128) rotate({a}) translate(0 -78)", ow=12)
+        ic.raw(f'<circle cx="10" cy="-140" r="6" fill="{PAL["danger"][1]}"/>', f"translate(128 128) rotate({a})")
+    ic.part(circle_path(128, 128, 84), ic.rad("leaf", 0.36, 0.3, 0.9), "leaf",
+            f'<path d="M72 96 C96 110 104 136 96 170 M184 92 C164 112 156 140 166 176 M110 70 C124 88 138 88 150 70" stroke="{PAL["leaf"][2]}" stroke-width="7" fill="none" stroke-linecap="round"/>' +
+            hl("M56 110 C62 80 88 56 120 50 C92 66 72 88 66 118 Z", 0.45) +
+            shade(circle_path(136, 138, 72), 0.18))
+    # red reflected-damage spark in the middle
+    ic.part(star(128, 128, 1.9), ic.rad("danger"), "danger", ow=10)
+
+
+@icon
+def erdbeben(ic):
+    evo_ring(ic, "#efb642", "#fff3b8", "#2a1603")
+    # cracked ground slab with three rock columns bursting out
+    slab = "M22 196 L66 170 L120 182 L162 164 L234 186 L220 214 L150 204 L102 222 L40 214 Z"
+    ic.part(slab, ic.lin("earth", 10), "earth",
+            f'<path d="M66 170 L84 200 L102 222 M162 164 L150 204 M120 182 L128 208" stroke="#1e0f05" stroke-width="6" fill="none" stroke-linecap="round"/>' +
+            hl("M30 196 L66 176 L112 186 L70 184 Z", 0.35))
+    for (x, y, h, w, r) in [(70, 184, 92, 22, -14), (186, 180, 100, 22, 14), (128, 186, 138, 28, 0)]:
+        rock_shard(ic, x, y, h, w, r)
+    for x, y, s in [(40, 70, 1.0), (222, 64, 0.9), (128, 30, 0.7)]:
+        ic.part(star(x, y, s), ic.rad("gold"), "gold", ow=8)
+
+
+@icon
+def sturmrudel(ic):
+    evo_ring(ic, "#5a86ff", "#c2d8ff", "#0a0b2a")
+    oc = PAL["blue"][3]
+    for zig, w in [([(28, 120), (60, 96), (54, 132), (96, 110)], 11), ([(160, 110), (200, 132), (196, 96), (230, 120)], 11),
+                   ([(120, 20), (138, 52), (116, 60), (136, 92)], 10)]:
+        d = bolt_path(zig, w)
+        ic.raw(f'<path d="{d}" fill="{oc}" stroke="{oc}" stroke-width="16" stroke-linejoin="round"/>'
+               f'<path d="{d}" fill="{ic.lin("cyan", 30)}"/><path d="{bolt_path(zig, w * 0.35)}" fill="#ffffff" fill-opacity="0.85"/>')
+    head(ic, "blue", "translate(-2 92) scale(0.46)")
+    head(ic, "blue", "translate(122 84) scale(0.46)")
+    head(ic, "blue", "translate(46 112) scale(0.6)")
 
 
 def main():

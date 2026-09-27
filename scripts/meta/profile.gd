@@ -71,6 +71,8 @@ static func _default_records() -> Dictionary:
 		"total_skitters": 0, "total_leapers": 0, "total_bosses": 0, "total_evolutions": 0,
 		"total_biomass": 0.0, "total_lost": 0, "evolutions_seen": [],
 		"diff_time": [0.0, 0.0, 0.0], "strain_time": {},
+		# Etappe 10: Moosschlund kills, migrations, best seconds per biome in one run.
+		"total_apex": 0, "total_migrations": 0, "biome_time": {},
 	}
 
 # --- Laden / Speichern -------------------------------------------------------
@@ -490,6 +492,14 @@ func _update_records(stats: Dictionary) -> void:
 	var strain_id := String(stats.get("strain_id", ""))
 	if strain_id != "":
 		records.strain_time[strain_id] = maxf(float(records.strain_time.get(strain_id, 0.0)), seconds)
+	records.total_apex += maxi(0, _int(stats.get("apex_kills"), 0))
+	records.total_migrations += maxi(0, _int(stats.get("migrations"), 0))
+	var biome_seconds: Variant = stats.get("biome_seconds", {})
+	if biome_seconds is Dictionary:
+		for id in biome_seconds:
+			var value: Variant = biome_seconds[id]
+			if value is float or value is int:
+				records.biome_time[String(id)] = maxf(float(records.biome_time.get(String(id), 0.0)), float(value))
 
 # --- Trophäen -------------------------------------------------------------------
 
@@ -504,6 +514,8 @@ func quest_value(stat: String) -> float:
 				return float(records.diff_time[index]) if index >= 0 and index < records.diff_time.size() else 0.0
 			"strain_time":
 				return float(records.strain_time.get(parts[1], 0.0))
+			"biome_time":
+				return float(records.biome_time.get(parts[1], 0.0))
 		return 0.0
 	return float(records.get(stat, 0))
 

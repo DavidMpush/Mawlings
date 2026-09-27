@@ -11,6 +11,7 @@ const DIR := "res://assets/ui/icons/"
 const IDS := [
 	"jaws", "brood", "glutton", "pack", "scatter", "armor",
 	"rudelbiss", "sporenwolke", "saeurespucker", "stachelruecken", "aetzflut", "meute",
+	"graeber", "blitzbiss", "brutsack", "erdbeben", "sturmrudel", "regeneration", "dornenhaut",
 	"essence", "crown_tooth", "dna", "skull", "mawling_head", "mawling_head_color",
 	"crown", "alpha_core", "pause", "lock", "trophy", "biome_verdant", "biome_glutsumpf",
 	"diff_wild", "diff_brutal", "diff_apex", "clock", "reroll", "banish", "skip",

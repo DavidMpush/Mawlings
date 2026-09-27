@@ -251,3 +251,65 @@ const RECOVERY_PRESSURE_CUT := 0.2
 
 static func recovery(base: float, pressure: float, minimum: float) -> float:
 	return maxf(minimum, base / (1.0 + RECOVERY_PRESSURE_CUT * log(maxf(1.0, pressure)) / log(2.0)))
+
+
+# Etappe 10 – Apex-Boss „Moosschlund“ (scripts/apex_boss.gd) im Run. Er erscheint vor
+# der Flut, einmal je Run: APEX_SPAWN_SECONDS je Schwierigkeit (Wild/Brutal/Apex), sobald
+# die Population >= APEX_MIN_POPULATION ist, spätestens APEX_LATEST_EXTRA s danach; ein
+# lebender Bog King schiebt ihn auf (höchstens bis Flutbeginn - APEX_FLOOD_MARGIN).
+# APEX_WARNING_SECONDS vorher bebt der Boden an der Auftauchstelle (Ankündigung, nichts
+# trifft). Solange der Apex lebt, kommt kein neuer Bog King.
+const APEX_SPAWN_SECONDS := [225.0, 180.0, 135.0]
+const APEX_MIN_POPULATION := 30
+const APEX_LATEST_EXTRA := 30.0
+const APEX_FLOOD_MARGIN := 15.0
+const APEX_WARNING_SECONDS := 3.0
+const APEX_SPAWN_DISTANCE := 12.0
+# HP = APEX_HEALTH auf jeder Schwierigkeit (Brutal/Apex bringen ihn schon früher gegen
+# einen kleineren Schwarm) und nicht mit dem Druck skaliert, damit der Kampf in der Zeit
+# bis zur Flut zu schaffen ist.
+const APEX_HEALTH := 650.0
+const APEX_BIOMASS := 70.0
+const APEX_DNA := 120
+const APEX_ALPHA_CORES := 2
+# Nach dem Tod sinkt der Körper so lange ein, dann öffnet sich der Migrationsschlund
+# APEX_PORTAL_OFFSET m hinter dem Kadaver (vom Schwarm aus), damit Fressen nicht migriert.
+const APEX_SINK_SECONDS := 2.6
+const APEX_PORTAL_DELAY := 1.8
+const APEX_PORTAL_OFFSET := 12.0
+# Angriffsmuster (Phase 1 / Phase 2); Basisverlust x Druck. Bisher in apex_boss.gd.
+const APEX_BODY_RADIUS := 3.4
+const APEX_MELEE_RANGE := 5.2
+const APEX_SPEED := [1.3, 1.7]
+const APEX_ARRIVE_SECONDS := 2.2
+const APEX_PHASE_TWO_SHARE := 0.5
+const APEX_PHASE_SHIFT_SECONDS := 1.8
+const APEX_ATTACK_RANGE := 14.0
+const APEX_KEEP_DISTANCE := 6.0
+const APEX_COOLDOWN := [2.2, 1.4]
+const APEX_EXHAUSTED_SECONDS := [4.0, 3.0]
+const APEX_EXHAUSTED_VULNERABILITY := 1.5
+const APEX_ROOT_WINDUP := [1.5, 1.25]
+const APEX_ROOT_DAMAGE := 7.0
+const APEX_SPORE_WINDUP := [1.8, 1.5]
+const APEX_SPORE_DAMAGE := 6.0
+const APEX_QUAKE_WINDUP := [2.2, 1.9]
+const APEX_QUAKE_DAMAGE := 11.0
+# Apex-Verluste wachsen nur mit Druck^APEX_PRESSURE_EXPONENT: seine Flächen decken fast
+# immer den ganzen Schwarm ab (kein Teiltreffer wie beim Jäger-Ring), und auf Brutal/Apex
+# trifft er kleinere Schwärme (~50 statt ~150 auf Wild) bei ähnlichem Druck.
+const APEX_PRESSURE_EXPONENT := 0.6
+
+# Migration (Etappe 10): der Migrationsschlund (scripts/migration_maw.gd) bleibt offen,
+# bis der Schwarm ihn betritt (Anteil sichtbarer Tiere >= MIGRATION_SHARE für
+# MIGRATION_HOLD_SECONDS; beim Verlassen sinkt der Fortschritt doppelt so schnell).
+# Übergang MIGRATION_TRANSITION_SECONDS (Wirbel zu, Biomwechsel bei MIGRATION_SWITCH_AT,
+# Wirbel auf); die Welt steht in der Zeit still. Ankunft: keine Eruption im Umkreis
+# MIGRATION_SAFE_RADIUS, Anführer MIGRATION_ARRIVAL_GRACE s unverwundbar.
+const MIGRATION_RADIUS := 4.0
+const MIGRATION_SHARE := 0.6
+const MIGRATION_HOLD_SECONDS := 1.0
+const MIGRATION_TRANSITION_SECONDS := 1.1
+const MIGRATION_SWITCH_AT := 0.5
+const MIGRATION_SAFE_RADIUS := 12.0
+const MIGRATION_ARRIVAL_GRACE := 2.0

@@ -10,24 +10,52 @@ const TRAITS = [
 	["glutton", "Vielfraß", "+25 % Biomasse bei künftigen Kills"],
 	["pack", "Rudelinstinkt", "+20 % Schaden bei Rally pro Rang"],
 	["scatter", "Fluchtreflex", "−10 % Verluste ohne Rally pro Rang"],
-	["armor", "Knochenpanzer", "−10 % Verluste pro Rang"]
+	["armor", "Knochenpanzer", "−10 % Verluste pro Rang"],
+	# Etappe 10 (nur über Trophäen freischaltbar, nicht im Standard-Pool):
+	["regeneration", "Regeneration", "+1 LP für den Anführer je 12/9/6 Kills"],
+	["dornenhaut", "Dornenhaut", "+40 % Rückschaden pro Rang"]
 ]
 const ATTACKS = [
 	["rudelbiss", "Rudelbiss", "Rally löst Sprungangriffe auf nahe Gegner aus"],
 	["sporenwolke", "Sporenwolke", "Aura: Schaden über Zeit und Verlangsamung"],
 	["saeurespucker", "Säurespucker", "Spuckt Säure auf den nächsten Gegner"],
-	["stachelruecken", "Stachelrücken", "Wer den Schwarm trifft, erleidet Schaden"]
+	["stachelruecken", "Stachelrücken", "Wer den Schwarm trifft, erleidet Schaden"],
+	# Etappe 10 (nur über Trophäen freischaltbar, nicht im Standard-Pool):
+	["graeber", "Gräber", "Tunnelstoß bricht beim entferntesten Gegner aus"],
+	["blitzbiss", "Blitzbiss", "Kettenbiss springt zwischen nahen Gegnern"],
+	["brutsack", "Brutsack", "Platzende Brutblasen setzen Hilfs-Beißer frei"]
 ]
 # Evolved attack forms replace their base form and occupy its slot.
 const EVOLVED = [
 	["aetzflut", "Ätzflut", "Säureflut: durchschlagende Salven, ätzende Pfützen"],
-	["meute", "Meute", "Rally entfesselt eine jagende Meute"]
+	["meute", "Meute", "Rally entfesselt eine jagende Meute"],
+	["erdbeben", "Erdbeben", "Drei Tunnelstöße zugleich, jeder mit Nachbeben"],
+	["sturmrudel", "Sturmrudel", "Kettenbiss über sechs Ziele ohne Abschwächung"]
 ]
 # base form at MAX_RANK + partner trait >= 1 + one Alpha-Kern.
 const EVOLUTION_RULES = [
 	{"id": "aetzflut", "base": "saeurespucker", "partner": "glutton"},
-	{"id": "meute", "base": "rudelbiss", "partner": "pack"}
+	{"id": "meute", "base": "rudelbiss", "partner": "pack"},
+	{"id": "erdbeben", "base": "graeber", "partner": "armor"},
+	{"id": "sturmrudel", "base": "blitzbiss", "partner": "jaws"}
 ]
+# Etappe 10: IDs, die nur über Trophäen (meta_data "mutation:<id>") in den Pool
+# kommen. Ohne RunConfig bleibt der Standard-Pool der von Etappe 03.
+const UNLOCK_ONLY = ["regeneration", "dornenhaut", "graeber", "blitzbiss", "brutsack"]
+
+# --- Etappe 10: Schnittstellen der neuen Anlagen für HuntWorld ---------------
+# Regeneration: HuntWorld meldet jeden Kill mit note_kills(n); der Rückgabewert
+# (und das Signal leader_regenerated) sind die LP, die der Anführer zurückbekommt
+# (HuntWorld kappt auf leader_max_hp). regen_kills = Fortschritt zum nächsten LP.
+# Dornenhaut: thorn_factor() (0 ohne Anlage, 0,4 je Rang) und thorn_damage(loss,
+# leader_struck) = Rückschaden für einen Gegner, der den Schwarm im Nahkampf trifft
+# (vor enemy_scale). Anwenden z. B. über AttackForms.reflect_thorns().
+const REGEN_KILLS = [12, 9, 6]
+const THORN_STEP = 0.40
+const THORN_BASE = 30.0
+const THORN_PER_LOSS = 4.0
+const THORN_LEADER = 10.0
+signal leader_regenerated(amount: int)
 const MAX_RANK = 3
 const DEFAULT_SLOTS = {"attack": 2, "trait": 3}
 
@@ -48,6 +76,8 @@ var evolutions: Array[String] = []
 var signature := ""
 # Meta multipliers (1.0 neutral); armor is an additive loss reduction share.
 var mods: Dictionary = {"damage": 1.0, "armor": 0.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0, "rally_damage": 1.0}
+# Etappe 10: Kills seit dem letzten Regenerations-LP.
+var regen_kills := 0
 
 
 func _init() -> void:
@@ -58,9 +88,11 @@ func _init() -> void:
 static func _default_pool() -> Array:
 	var ids: Array = []
 	for entry in TRAITS:
-		ids.append(entry[0])
+		if not UNLOCK_ONLY.has(entry[0]):
+			ids.append(entry[0])
 	for entry in ATTACKS:
-		ids.append(entry[0])
+		if not UNLOCK_ONLY.has(entry[0]):
+			ids.append(entry[0])
 	return ids
 
 
@@ -305,3 +337,37 @@ func summary() -> String:
 			if rank(mutation[0]) > 0:
 				parts.append("%s %d" % [mutation[1], rank(mutation[0])])
 	return " · ".join(parts)
+
+
+# --- Etappe 10: Regeneration ---------------------------------------------
+
+# Kills je Anführer-LP (0 = Anlage fehlt).
+func regeneration_interval() -> int:
+	var level := rank("regeneration")
+	return int(REGEN_KILLS[mini(level, MAX_RANK) - 1]) if level > 0 else 0
+
+
+# Zählt `count` Kills; liefert die LP, die der Anführer dafür zurückbekommt.
+func note_kills(count: int = 1) -> int:
+	var interval := regeneration_interval()
+	if interval <= 0 or count <= 0:
+		return 0
+	regen_kills += count
+	var healed := regen_kills / interval
+	regen_kills -= healed * interval
+	if healed > 0:
+		leader_regenerated.emit(healed)
+	return healed
+
+
+# --- Etappe 10: Dornenhaut -----------------------------------------------
+
+func thorn_factor() -> float:
+	return THORN_STEP * float(mini(rank("dornenhaut"), MAX_RANK))
+
+
+func thorn_damage(loss: int, leader_struck: bool = false) -> float:
+	var factor := thorn_factor()
+	if factor <= 0.0:
+		return 0.0
+	return factor * (THORN_BASE + THORN_PER_LOSS * float(maxi(0, loss)) + (THORN_LEADER if leader_struck else 0.0))

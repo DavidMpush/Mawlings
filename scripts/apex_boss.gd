@@ -1,7 +1,7 @@
 extends Node3D
 
-# MOOSSCHLUND – apex boss of the Verdant Maw (stage 07 building block; wired
-# into HuntWorld in stage 08). Much larger and more dangerous than the Bog King,
+# MOOSSCHLUND – apex boss of the Verdant Maw (stage 07 building block, wired
+# into HuntWorld in stage 10). Much larger and more dangerous than the Bog King,
 # but every loss is announced: each attack locks its shape at the start of the
 # wind-up, shows its own ground telegraph and resolves exactly once.
 #
@@ -15,23 +15,25 @@ extends Node3D
 #
 # Attack patterns (numbers per phase 1 / phase 2, base loss x pressure):
 #   ROOTS  "Wurzelbruch" – 3 / 5 root lanes (2.2 / 2.4 m wide, 18 m long) fan out
-#          from the boss towards the swarm; wind-up 1.5 / 1.25 s; loss 10.
+#          from the boss towards the swarm; wind-up 1.5 / 1.25 s; loss APEX_ROOT_DAMAGE.
 #          Dodge: step sideways out of the lane (or between lanes further out).
 #   SPORES "Sporenring" – ring around the boss from 3.8 / 3.4 m to 9 / 11 m;
-#          wind-up 1.8 / 1.5 s; loss 8. Dodge: hug the boss (inside) or run out.
+#          wind-up 1.8 / 1.5 s; loss APEX_SPORE_DAMAGE. Dodge: hug the boss (inside) or run out.
 #   QUAKE  "Beben" – disc of 13 / 15 m with 3 / 2 safe islands (2.6 / 2.2 m) at
-#          7.5 m from the boss; wind-up 2.2 / 1.9 s; loss 16. Dodge: stand on a
+#          7.5 m from the boss; wind-up 2.2 / 1.9 s; loss APEX_QUAKE_DAMAGE. Dodge: stand on a
 #          bright island (Rally packs the swarm) or leave the disc.
 # After every quake the boss is EXHAUSTED (4.0 / 3.0 s, takes x1.5 damage).
 # At 50 % health it roars (PHASE_SHIFT 1.8 s, immune, a pending attack is
 # cancelled without damage) and enters phase 2: faster, more lanes, shorter
 # wind-ups, pattern cycle ROOTS-SPORES-ROOTS-QUAKE.
-# The numbers stay here until stage 08 moves them to tuning.gd.
+# Stage 10: the balance numbers (health, speed, wind-ups, damage, cooldowns)
+# live in tuning.gd (APEX_*); shapes and looks stay here.
 
 signal defeated(location: Vector3)
 signal phase_changed(phase: int)
 
 const FX = preload("res://scripts/fx.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 const UI_STYLE = preload("res://scripts/ui/ui_style.gd")
 const MODEL = preload("res://assets/gameplay/characters/BogKing_game.glb")
 const CROWN_MODEL = preload("res://assets/gameplay/props/RootArch_game.glb")
@@ -42,39 +44,39 @@ enum State { ARRIVING, CHASE, WINDUP, STRIKE, EXHAUSTED, PHASE_SHIFT, DEAD }
 enum Pattern { ROOTS, SPORES, QUAKE }
 
 const DISPLAY_NAME := "Moosschlund"
-const HEALTH := 900.0
+const HEALTH := TUNING.APEX_HEALTH
 const MODEL_SCALE := 11.0
-const BODY_RADIUS := 3.4
-const MELEE_RANGE := 5.2
+const BODY_RADIUS := TUNING.APEX_BODY_RADIUS
+const MELEE_RANGE := TUNING.APEX_MELEE_RANGE
 const MOVE_RADIUS := 3.0
-const SPEED := [1.3, 1.7]
-const ARRIVE_SECONDS := 2.2
+const SPEED := TUNING.APEX_SPEED
+const ARRIVE_SECONDS := TUNING.APEX_ARRIVE_SECONDS
 const EMERGE_DEPTH := 6.0
-const PHASE_TWO_SHARE := 0.5
-const PHASE_SHIFT_SECONDS := 1.8
+const PHASE_TWO_SHARE := TUNING.APEX_PHASE_TWO_SHARE
+const PHASE_SHIFT_SECONDS := TUNING.APEX_PHASE_SHIFT_SECONDS
 const STRIKE_SECONDS := 0.5
-const ATTACK_RANGE := 14.0
-const KEEP_DISTANCE := 6.0
-const COOLDOWN := [2.2, 1.4]
-const EXHAUSTED_SECONDS := [4.0, 3.0]
-const EXHAUSTED_VULNERABILITY := 1.5
+const ATTACK_RANGE := TUNING.APEX_ATTACK_RANGE
+const KEEP_DISTANCE := TUNING.APEX_KEEP_DISTANCE
+const COOLDOWN := TUNING.APEX_COOLDOWN
+const EXHAUSTED_SECONDS := TUNING.APEX_EXHAUSTED_SECONDS
+const EXHAUSTED_VULNERABILITY := TUNING.APEX_EXHAUSTED_VULNERABILITY
 const CYCLE := [[Pattern.ROOTS, Pattern.SPORES, Pattern.QUAKE], [Pattern.ROOTS, Pattern.SPORES, Pattern.ROOTS, Pattern.QUAKE]]
 
-const ROOT_WINDUP := [1.5, 1.25]
-const ROOT_DAMAGE := 10.0
+const ROOT_WINDUP := TUNING.APEX_ROOT_WINDUP
+const ROOT_DAMAGE := TUNING.APEX_ROOT_DAMAGE
 const ROOT_LANES := [3, 5]
 const ROOT_SPREAD := [0.5, 0.42]
 const ROOT_WIDTH := [2.2, 2.4]
 const ROOT_LENGTH := 18.0
 const ROOT_START := 2.0
 
-const SPORE_WINDUP := [1.8, 1.5]
-const SPORE_DAMAGE := 8.0
+const SPORE_WINDUP := TUNING.APEX_SPORE_WINDUP
+const SPORE_DAMAGE := TUNING.APEX_SPORE_DAMAGE
 const SPORE_INNER := [3.8, 3.4]
 const SPORE_OUTER := [9.0, 11.0]
 
-const QUAKE_WINDUP := [2.2, 1.9]
-const QUAKE_DAMAGE := 16.0
+const QUAKE_WINDUP := TUNING.APEX_QUAKE_WINDUP
+const QUAKE_DAMAGE := TUNING.APEX_QUAKE_DAMAGE
 const QUAKE_RADIUS := [13.0, 15.0]
 const QUAKE_ISLANDS := [3, 2]
 const QUAKE_ISLAND_RADIUS := [2.6, 2.2]
@@ -198,6 +200,11 @@ func vulnerability() -> float:
 		State.EXHAUSTED:
 			return EXHAUSTED_VULNERABILITY
 	return 1.0
+
+
+# Attack forms skip targets that cannot be hit (immune while emerging/roaring/dead).
+func can_be_hit() -> bool:
+	return vulnerability() > 0.0
 
 
 func step(delta: float, swarm_position: Vector3, pressure: float) -> int:

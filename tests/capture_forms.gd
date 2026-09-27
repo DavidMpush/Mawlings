@@ -1,6 +1,7 @@
 extends SceneTree
 
 # Bilder der Angriffsformen aus der echten Spielkamera (ohne --headless ausführen).
+# Etappe 10: zusätzlich Gräber, Blitzbiss, Brutsack, Erdbeben, Sturmrudel.
 # Ergebnis: preview_forms_*.png im Projektordner.
 
 const FORMS_SCRIPT = preload("res://scripts/attack_forms.gd")
@@ -76,6 +77,47 @@ func _capture() -> void:
 	forms.set_ranks({"rudelbiss": 3, "meute": 1, "sporenwolke": 2})
 	_step(1.34, targets, false)
 	await _save("res://preview_forms_kombi.png")
+
+	# --- Etappe 10 ---------------------------------------------------------
+	# 7) Gräber R3: Erdhügel wandern zum entferntesten Jäger, dann Ausbruch.
+	forms.clear()
+	targets = _place([Vector3(-4.5, 0, -7.0), Vector3(1.8, 0, 1.2)], origin)
+	forms.set_ranks({"graeber": 3})
+	_step(0.36, targets, false)
+	await _save("res://preview_forms_graeber.png")
+	_step(0.36, targets, false)
+	await _save("res://preview_forms_graeber_burst.png")
+
+	# 8) Blitzbiss R3: Kettenbiss über mehrere Jäger.
+	forms.clear()
+	targets = _place([Vector3(2.0, 0, -1.2), Vector3(4.2, 0, -3.0), Vector3(2.4, 0, -5.4), Vector3(-0.6, 0, -6.0), Vector3(-3.5, 0, 2.5)], origin)
+	forms.set_ranks({"blitzbiss": 3})
+	_step(0.06, targets, false)
+	await _save("res://preview_forms_blitzbiss.png")
+
+	# 9) Brutsack R3: Blase schwillt an, platzt, Hilfs-Beißer springen los.
+	forms.clear()
+	targets = _place([Vector3(4.2, 0, -2.4), Vector3(-3.8, 0, 3.0)], origin)
+	forms.set_ranks({"brutsack": 3})
+	_step(0.42, targets, false)
+	await _save("res://preview_forms_brutsack.png")
+	_step(0.26, targets, false)
+	await _save("res://preview_forms_brutsack_biters.png")
+
+	# 10) Erdbeben: drei Tunnelstöße zugleich, Nachbeben.
+	forms.clear()
+	targets = _place([Vector3(-4.5, 0, -6.5), Vector3(4.6, 0, -5.0), Vector3(3.8, 0, 4.2), Vector3(1.0, 0, 1.0)], origin)
+	forms.set_ranks({"erdbeben": 1})
+	_step(0.5, targets, false)
+	await _save("res://preview_forms_erdbeben.png")
+
+	# 11) Sturmrudel mit Rally: lange Kette über sieben Jäger.
+	forms.clear()
+	targets = _place([Vector3(2.0, 0, 0.5), Vector3(4.5, 0, -1.0), Vector3(3.5, 0, -4.2), Vector3(0.5, 0, -5.5),
+		Vector3(-2.8, 0, -4.5), Vector3(-4.2, 0, -1.2), Vector3(-3.0, 0, 2.2)], origin)
+	forms.set_ranks({"sturmrudel": 1})
+	_step(0.06, targets, true)
+	await _save("res://preview_forms_sturmrudel.png")
 	print("Saved attack form review frames")
 	quit()
 

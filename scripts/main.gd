@@ -14,6 +14,9 @@ const PROFILE_PATH := "res://scripts/meta/profile.gd"
 const MENU_SCENE := "res://scenes/menu.tscn"
 const ONBOARDING_PATH := "res://scripts/onboarding.gd"
 const QUALITY = preload("res://scripts/quality.gd")
+const BIOMES = preload("res://scripts/biomes.gd")
+# Stage 10 migration swirl: the camera pushes towards the maw while it closes.
+const MIGRATION_ZOOM := 0.82
 
 const KING_SLOW_SCALE := 0.3
 const KING_SLOW_SECONDS := 0.6      # real time, not game time
@@ -119,7 +122,9 @@ func _process(delta: float) -> void:
 	var movement: Vector2 = controls.movement_vector if controls.movement_vector.length() > 0.05 else keyboard
 	var active: bool = not world.paused and not world.model.extinct and not world.choosing()
 	swarm.frozen = not active
-	swarm.set_controls(movement if active else Vector2.ZERO, active and (controls.rally_pressed or Input.is_key_pressed(KEY_SPACE)))
+	# Stage 10: during the migration swirl the swarm is drawn into the maw.
+	var steering: bool = active and not world.migrating()
+	swarm.set_controls(movement if steering else Vector2.ZERO, steering and (controls.rally_pressed or Input.is_key_pressed(KEY_SPACE)))
 	arena.sync(swarm.position)
 	# Pull back for a large swarm and a nearby boss so both fit the portrait frame.
 	var wanted := 1.0 + clampf(float(swarm.population - 25) / 225.0, 0.0, 1.0) * 0.12
@@ -127,13 +132,23 @@ func _process(delta: float) -> void:
 	wanted *= lerpf(0.8, 1.0, sqrt(clampf(float(swarm.population - 1) / 24.0, 0.0, 1.0)))
 	if world.boss != null and world.boss.position.distance_to(swarm.position) < 16.0:
 		wanted += 0.14
+	# Stage 10: the Moosschlund is bigger; pull back further while it is close.
+	var apex_close: bool = world.apex != null and world.apex.position.distance_to(swarm.position) < 22.0
+	if apex_close:
+		wanted += 0.3
 	var look_at_point: Vector3 = swarm.position
+	# ... and look a little towards it so its crown stays below the top HUD.
+	if apex_close:
+		look_at_point = swarm.position.lerp(Vector3(world.apex.position.x, 0.0, world.apex.position.z), 0.18)
 	var zoom_rate := 1.5
 	if king_zoom_left > 0.0:
 		# Push in fast, then let the normal framing ease back out.
 		wanted *= KING_ZOOM
 		zoom_rate = 6.0
 		look_at_point = swarm.position.lerp(king_focus, 0.35)
+	if world.migrating():
+		wanted *= MIGRATION_ZOOM
+		zoom_rate = 4.0
 	zoom = lerpf(zoom, wanted, 1.0 - exp(-zoom_rate * real_delta))
 	camera_base = camera_base.lerp(look_at_point + CAMERA_OFFSET * zoom, 1.0 - exp(-5.0 * real_delta))
 	shake = maxf(0.0, shake - delta * 2.4)
@@ -182,6 +197,17 @@ func _apply_quality(settings: Variant) -> void:
 	var shadows: Variant = swarm.get("shadows")
 	if shadows is Node3D:
 		(shadows as Node3D).visible = bool(quality.get("unit_shadows", true))
+
+
+## Stage 10: sun colour and energy of a biome (biomes.gd "light"); HuntWorld
+## calls it on reset and when the migration swirl covers the screen.
+func apply_biome_light(id: String) -> void:
+	var sun := get_node_or_null("Sun") as DirectionalLight3D
+	if sun == null:
+		return
+	var light: Dictionary = BIOMES.get_data(id).get("light", {})
+	sun.light_color = light.get("color", Color(1, 1, 1))
+	sun.light_energy = float(light.get("energy", 1.15))
 
 
 ## Display switch of the active quality tier, e.g. "decor_density" (read later by

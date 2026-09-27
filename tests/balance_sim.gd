@@ -24,6 +24,8 @@ const HUNTER = preload("res://scripts/hunter.gd")
 const SKITTER = preload("res://scripts/skitter.gd")
 const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
 const BOG_KING = preload("res://scripts/bog_king.gd")
+const APEX = preload("res://scripts/apex_boss.gd")
+const ERUPTIONS = preload("res://scripts/eruptions.gd")
 var profile_path := "user://balance_sim_%d.json" % OS.get_process_id()
 const STEP := 0.05
 const TIME_SCALE := 3.0
@@ -38,6 +40,12 @@ const LOW_HP_MARGIN := 0.8
 const SMALL_SWARM := 16
 # Stage 09: reaction time and overlook chance x this while the leader has 1 LP.
 const LOW_HP_FOCUS := 0.5
+# Stage 10: the bot eats corpses within this distance before it walks into the
+# Migrationsschlund; apex dodge keeps this margin (m) around the leader.
+const PORTAL_CORPSE_REACH := 6.0
+const APEX_MARGIN := 1.4
+# ... and eats corpses closer than this before it engages the Moosschlund.
+const APEX_CORPSE_REACH := 8.0
 var low_hp := false
 
 # Quick regression (~40 s): three seeded runs with wide tolerances. They catch a
@@ -64,6 +72,8 @@ var seen := {}
 var failures: Array[String] = []
 # "trace" argument: print every loss / leader hit (debugging the curve).
 var trace := false
+# "noapex" argument: skip the Moosschlund (stage 10 comparison runs).
+var no_apex := false
 
 
 func _initialize() -> void:
@@ -89,6 +99,7 @@ func _run() -> void:
 	var started := Time.get_ticks_msec()
 	react = float(args.react)
 	trace = args.has("trace")
+	no_apex = args.has("noapex") or OS.get_environment("BALANCE_NOAPEX") != ""
 	miss = float(args.miss)
 	if args.has("regress"):
 		for spec in REGRESS_RUNS:
@@ -174,7 +185,13 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 	var hud: Variant = scene.get_node("HUD/Controls")
 	world.evolution.rng.seed = run_seed
 	world.drop_rng.seed = run_seed + 101
-	var losses := {"hunter": 0, "skitter": 0, "leaper": 0, "boss": 0, "other": 0, "flood": 0}
+	if no_apex and world.get("apex_state") != null:
+		world.apex_state = 4
+	var losses := {"hunter": 0, "skitter": 0, "leaper": 0, "boss": 0, "other": 0, "flood": 0, "apex": 0, "lava": 0}
+	# Stage 10: game time of the apex spawn / kill / migration (-1 = never).
+	var apex_seen := -1.0
+	var apex_killed := -1.0
+	var migrated := -1.0
 	var states := {}
 	var cause := "timeout"
 	var picks: Array[String] = []
@@ -218,6 +235,9 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 					if int(prey.get("resolved_power")) > 0:
 						var lead: Vector3 = swarm.unit_world_points()[0] if not swarm.units.is_empty() else swarm.position
 						detail += " snap: centre->swarm %.2f leader %.2f seen=%s" % [Vector2(prey.snap_center.x - swarm.position.x, prey.snap_center.z - swarm.position.z).length(), Vector2(prey.snap_center.x - lead.x, prey.snap_center.z - lead.z).length(), str(seen.get(prey.get_instance_id(), "-"))]
+				var apex_now: Variant = world.get("apex")
+				if apex_now != null:
+					detail += " apex: pattern=%d state=%d phase=%d power=%d leader_safe=%s seen=%s pop=%d" % [apex_now.current_pattern, apex_now.state, apex_now.phase, apex_now.attack_power, str(apex_now.contains(_leader_point(swarm)) == false), str(seen.get(apex_now.get_instance_id(), "-")), world.model.population]
 				print("TRACE t=%.1f by=%s lost=%d pop=%d leader=%d/%d%s" % [world.model.elapsed, hitter, lost, world.model.population, hp_now, int(world.model.get("leader_max_hp")), detail])
 		states = before_states
 		if pop60 < 0 and world.model.elapsed >= 60.0:
@@ -228,6 +248,12 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 			bio120 = world.model.consumed_biomass
 		if pop_flood < 0 and int(world.get("flood_state")) == 2:
 			pop_flood = world.model.population
+		if apex_seen < 0.0 and world.get("apex") != null:
+			apex_seen = world.model.elapsed
+		if apex_killed < 0.0 and int(world.get("apex_kills")) > 0:
+			apex_killed = world.model.elapsed
+		if migrated < 0.0 and int(world.get("migrations")) > 0:
+			migrated = world.model.elapsed
 	if world.model.extinct and cause == "timeout":
 		cause = "other"
 	var forms: Array = world.attack_forms.damage_dealt.keys() if world.attack_forms != null else []
@@ -244,12 +270,15 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"swaps": int(world.model.get("leader_swaps")) if world.model.get("leader_swaps") != null else 0,
 		"flood": float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
 		"flood_lost": int(losses.flood),
+		"apex_seen": apex_seen,
+		"apex_killed": apex_killed,
+		"migrated": migrated,
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s wall=%.1f" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d wall=%.1f" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
 		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop60, pop120, pop_flood, stats.swaps, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
-		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), (Time.get_ticks_msec() - wall) / 1000.0])
+		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), (Time.get_ticks_msec() - wall) / 1000.0])
 	root.remove_child(scene)
 	scene.free()
 	await process_frame
@@ -330,10 +359,22 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	# Brutnest (stage 06): walk into it when no enemy is announcing an attack and
 	# no corpse lies close by; stay until it hatches.
 	var nest: Variant = world.get("nest")
-	if nest != null and (best == INF or best > 6.0) and not _any_armed(world):
+	if nest != null and (best == INF or best > 6.0) and not _any_armed(world) and world.get("apex") == null:
 		var inside: float = Vector2(nest.position.x - here.x, nest.position.z - here.z).length()
 		best = inside
 		target = nest.position if inside > 1.2 else here
+		harvesting = false
+	# Stage 10: walk into the Migrationsschlund once nothing edible lies close.
+	var portal: Variant = world.get("portal")
+	if portal != null and (best == INF or best > PORTAL_CORPSE_REACH) and not _any_armed(world):
+		best = Vector2(portal.position.x - here.x, portal.position.z - here.z).length()
+		target = portal.position
+		harvesting = false
+	# Stage 10: fight the Moosschlund (it is the biggest threat and the best meal).
+	var apex: Variant = world.get("apex")
+	if apex != null and apex.can_be_hit() and (best == INF or best > APEX_CORPSE_REACH):
+		best = apex.position.distance_to(here)
+		target = apex.position
 		harvesting = false
 	if best == INF:
 		for prey in world.prey:
@@ -344,7 +385,7 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	var enemy_near := INF
 	for enemy in _enemies(world):
 		if _hittable(enemy):
-			enemy_near = minf(enemy_near, enemy.position.distance_to(here) - (2.0 if enemy == world.boss else 0.0))
+			enemy_near = minf(enemy_near, enemy.position.distance_to(here) - _body(world, enemy))
 	var direction: Vector3 = target - here
 	direction.y = 0.0
 	if harvesting and direction.length() < 1.0:
@@ -424,7 +465,58 @@ func _dodge(world: Variant, here: Vector3, now: float) -> Vector3:
 	for prey in world.prey:
 		if int(prey.get("snap_state")) == 1 and _noticed(prey, now):
 			escape += _away_all(here, points, prey.snap_center, TUNING.NIBBLER_SNAP_RADIUS + 0.6 + extra, TUNING.NIBBLER_SNAP_RADIUS + 0.25)
+	# Stage 10: Moosschlund wind-ups (lanes, ring, quake with islands).
+	var apex: Variant = world.get("apex")
+	if apex != null and apex.state == APEX.State.WINDUP and _noticed(apex, now):
+		# The whole swarm must leave the locked shape: margin = its spread.
+		var spread := 0.0
+		for point in swarm.unit_world_points():
+			spread = maxf(spread, Vector2(point.x - here.x, point.z - here.z).length())
+		escape += _apex_escape(apex, here, points, minf(spread, 4.0) + APEX_MARGIN * 0.5 + extra)
+	# Stage 10: Glutsumpf eruptions (announced lava rings).
+	var eruptions: Variant = world.get("eruptions")
+	if eruptions != null:
+		for eruption in eruptions.pending:
+			if _noticed(eruption.node, now):
+				escape += _away_all(here, points, eruption.center, ERUPTIONS.RADIUS + 0.8 + extra, ERUPTIONS.RADIUS + 0.3)
 	return escape
+
+
+# Nearest safe spot around the leader (and the stragglers) from the locked apex
+# shape; ZERO when already safe with margin.
+func _apex_escape(apex: Variant, here: Vector3, points: PackedVector3Array, margin: float) -> Vector3:
+	if _apex_safe(apex, here, points, margin):
+		return Vector3.ZERO
+	for distance in [1.5, 3.0, 4.5, 6.0, 8.0, 10.0, 13.0]:
+		for index in 16:
+			var angle := TAU * float(index) / 16.0
+			var spot: Vector3 = here + Vector3(cos(angle), 0.0, sin(angle)) * float(distance)
+			if _apex_safe(apex, spot, PackedVector3Array(), margin):
+				return (spot - here).normalized()
+	var away: Vector3 = here - apex.attack_center
+	away.y = 0.0
+	return away.normalized() if away.length() > 0.01 else Vector3.RIGHT
+
+
+func _apex_safe(apex: Variant, spot: Vector3, points: PackedVector3Array, margin: float) -> bool:
+	if not apex.is_safe(spot):
+		return false
+	for index in 8:
+		var angle := TAU * float(index) / 8.0
+		if not apex.is_safe(spot + Vector3(cos(angle), 0.0, sin(angle)) * margin):
+			return false
+	for point in points:
+		if not apex.is_safe(point):
+			return false
+	return true
+
+
+func _body(world: Variant, enemy: Variant) -> float:
+	if enemy == world.boss:
+		return 2.0
+	if enemy is APEX:
+		return TUNING.APEX_BODY_RADIUS
+	return 0.0
 
 
 # Away from `center` while the leader is within `reach` or any straggler within `inner`.
@@ -469,6 +561,10 @@ func _forget(world: Variant) -> void:
 	for prey in world.prey:
 		if int(prey.get("snap_state")) == 1:
 			armed[prey.get_instance_id()] = true
+	var eruptions: Variant = world.get("eruptions")
+	if eruptions != null:
+		for eruption in eruptions.pending:
+			armed[(eruption.node as Object).get_instance_id()] = true
 	for key in seen.keys():
 		if not armed.has(key):
 			seen.erase(key)
@@ -481,6 +577,8 @@ func _is_armed(enemy: Variant) -> bool:
 		return enemy.state in [SKITTER.State.WARNING, SKITTER.State.DASH]
 	if enemy is MIRE_LEAPER:
 		return enemy.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP]
+	if enemy is APEX:
+		return enemy.state == APEX.State.WINDUP
 	return enemy.state == BOG_KING.State.WARNING
 
 
@@ -498,11 +596,13 @@ func _enemies(world: Variant) -> Array:
 	result.append_array(world.leapers)
 	if world.boss != null:
 		result.append(world.boss)
+	if world.get("apex") != null:
+		result.append(world.apex)
 	return result
 
 
 func _hittable(enemy: Variant) -> bool:
-	if enemy is MIRE_LEAPER:
+	if enemy is MIRE_LEAPER or enemy is APEX:
 		return enemy.can_be_hit()
 	return enemy.state != 0
 
@@ -523,6 +623,8 @@ func _kind(enemy: Variant) -> String:
 		return "skitter"
 	if enemy is MIRE_LEAPER:
 		return "leaper"
+	if enemy is APEX:
+		return "apex"
 	return "boss"
 
 
@@ -530,9 +632,12 @@ func _kind(enemy: Variant) -> String:
 # announced phase). Falls back to the closest armed enemy.
 func _hitter(world: Variant, before: Dictionary, _older: Dictionary) -> String:
 	var armed := {"hunter": [HUNTER.State.WARNING], "skitter": [SKITTER.State.DASH, SKITTER.State.WARNING],
-		"leaper": [MIRE_LEAPER.State.LEAP, MIRE_LEAPER.State.WARNING], "boss": [BOG_KING.State.WARNING]}
+		"leaper": [MIRE_LEAPER.State.LEAP, MIRE_LEAPER.State.WARNING], "boss": [BOG_KING.State.WARNING], "apex": [APEX.State.WINDUP]}
 	# Without an armed enemy the loss came from Moorbrut (flood) or a Nibbler snap (other).
 	var fallback := "flood" if int(world.get("flood_state")) == 2 else "other"
+	var eruptions: Variant = world.get("eruptions")
+	if eruptions != null and int(eruptions.resolved_power) > 0:
+		fallback = "lava"
 	for id in before:
 		var entry: Array = before[id]
 		if not (entry[1] in armed[entry[0]]):

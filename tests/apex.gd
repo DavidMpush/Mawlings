@@ -1,10 +1,12 @@
 extends SceneTree
 
 # Stage 07 APEX building blocks: Moosschlund (scripts/apex_boss.gd) and the
-# biome data (scripts/biomes.gd + Arena.set_biome). Not wired into HuntWorld yet.
+# biome data (scripts/biomes.gd + Arena.set_biome). The run integration is
+# checked in tests/apex_run.gd and tests/migration.gd (stage 10).
 
 const APEX = preload("res://scripts/apex_boss.gd")
 const BIOMES = preload("res://scripts/biomes.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 const SWARM_SPEED := 7.0
 # Share of the wind-up the player may lose to reaction time before moving.
 const REACTION := 0.45
@@ -71,7 +73,7 @@ func _run_windup(boss: Variant, swarm: Vector3, pressure: float = 1.0) -> Array:
 
 func _check_boss_flow() -> void:
 	var boss: Variant = _spawn()
-	_check(boss.state == APEX.State.ARRIVING and boss.max_health >= 3.0 * 230.0, "Apex arrives with far more health than the Bog King")
+	_check(boss.state == APEX.State.ARRIVING and boss.max_health >= 2.5 * TUNING.BOSS_HEALTH, "Apex arrives with far more (base) health than the Bog King")
 	_check(boss.model.scale.x > 7.0 and boss.crown != null and boss.sacs.size() >= 3, "Larger model with root crown and spore sacs")
 	var before: float = boss.health
 	boss.take_damage(50.0)
@@ -109,13 +111,13 @@ func _check_patterns() -> void:
 	_check(boss.telegraphs.size() == APEX.ROOT_LANES[0], "Three root lanes announced")
 	_check(boss.step(0.01, swarm, 2.0) == 0 and boss.resolved_power == 0, "No loss during root wind-up")
 	var hit := _run_windup(boss, swarm, 2.0)
-	_check(hit[0] == 20 and hit[1] >= APEX.ROOT_WINDUP[0] - 0.02, "Root lane hits after full wind-up (10 x pressure)")
+	_check(hit[0] == int(ceil(APEX.ROOT_DAMAGE * 2.0)) and hit[1] >= APEX.ROOT_WINDUP[0] - 0.02, "Root lane hits after full wind-up (ROOT_DAMAGE x pressure)")
 	_check(boss.step(0.1, swarm, 2.0) == 0, "Roots resolve only once")
 	boss.state = APEX.State.CHASE
 	boss.begin_attack(APEX.Pattern.ROOTS, swarm, 1.0)
 	var aside := swarm + Vector3(0, 0, 2.6)
 	hit = _run_windup(boss, aside)
-	_check(hit[0] == 0 and boss.resolved_power == 10, "Side step out of the lane avoids the loss")
+	_check(hit[0] == 0 and boss.resolved_power == int(ceil(APEX.ROOT_DAMAGE)), "Side step out of the lane avoids the loss")
 	# Partial hit: half the units in the centre lane.
 	var points := PackedVector3Array([swarm, swarm + Vector3(0, 0, 0.5), swarm + Vector3(0, 0, 2.4), swarm + Vector3(0, 0, -2.4)])
 	_check(is_equal_approx(boss.hit_fraction(points), 0.5), "hit_fraction counts units inside the lanes")

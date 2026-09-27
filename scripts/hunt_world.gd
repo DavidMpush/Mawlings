@@ -13,6 +13,9 @@ const FX_BATCH = preload("res://scripts/fx_batch.gd")
 const QUALITY = preload("res://scripts/quality.gd")
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
 const ERUPTIONS = preload("res://scripts/eruptions.gd")
+const APEX_BOSS = preload("res://scripts/apex_boss.gd")
+const MIGRATION_MAW = preload("res://scripts/migration_maw.gd")
+const BIOMES = preload("res://scripts/biomes.gd")
 const BROOD_NEST = preload("res://scripts/objectives/brood_nest.gd")
 const CURSE_TOTEM = preload("res://scripts/objectives/curse_totem.gd")
 const HUD_OBJECTIVES_PATH := "res://scripts/ui/hud_objectives.gd"
@@ -32,7 +35,7 @@ const ALPHA_PICKUP_RADIUS := 1.7
 const MELEE_REACH := 1.2
 const MELEE_FULL_SHARE := 0.6
 const MELEE_MIN_ENGAGE := 0.5
-const BODY_RADIUS := {"prey": 0.45, "hunter": 0.72, "elite": 1.05, "skitter": 0.55, "leaper": 0.7, "boss": 2.3}
+const BODY_RADIUS := {"prey": 0.45, "hunter": 0.72, "elite": 1.05, "skitter": 0.55, "leaper": 0.7, "boss": 2.3, "apex": TUNING.APEX_BODY_RADIUS}
 const POPUP_SECONDS := 0.9
 const POPUP_MAX := 6
 const POPUP_MERGE_SECONDS := 0.3
@@ -142,6 +145,34 @@ var snap_gap := 0.0
 # Corpse kind per corpse id (prey, hunter, elite, skitter, leaper, boss, horde,
 # mawling, nest) for scripts/corpse_visuals.gd; entries leave with the corpse.
 var corpse_kinds: Dictionary = {}
+# Etappe 10 - Apex "Moosschlund" and migration. apex_state: 0 waiting, 1 ground
+# warning (announced, nothing hits), 2 alive, 3 defeated (Migrationsschlund open
+# or opening), 4 migrated. One apex per run.
+var apex: Node3D
+var apex_state := 0
+var apex_clock := 0.0
+var apex_spot := Vector3.ZERO
+var apex_pulse := 0.0
+var apex_kills := 0
+# Victory banner counter for hud_objectives (like king_moments for the Bog King).
+var apex_victories := 0
+# The defeated body sinks for APEX_SINK_SECONDS before it is freed.
+var apex_dying: Node3D
+var apex_dying_clock := 0.0
+var portal: Node3D
+var portal_clock := -1.0
+var portal_point := Vector3.ZERO
+# 0 none, 1 transition running (the world holds still), 2 done.
+var migration_state := 0
+var migration_timer := 0.0
+var migration_switched := false
+var migration_to := ""
+var migrations := 0
+# Active biome (scripts/biomes.gd) and the run's biome record.
+var biome_id: String = BIOMES.DEFAULT
+var biomes_visited: Array[String] = []
+var biome_seconds: Dictionary = {}
+var arrivals := 0
 
 
 func _ready() -> void:
@@ -153,6 +184,8 @@ func _ready() -> void:
 	_create_horde()
 	_create_world_views()
 	_reset_flood()
+	_reset_apex()
+	_set_world_biome(_start_biome(), false)
 	_starting_prey()
 	_update_hud("")
 
@@ -190,6 +223,7 @@ func reset_run() -> void:
 	corpse_view = null
 	eruptions = null
 	corpse_kinds.clear()
+	_reset_apex()
 	evolution = EVOLUTION.new()
 	model = RUN_MODEL.new()
 	_configure_run()
@@ -225,6 +259,8 @@ func reset_run() -> void:
 	_create_horde()
 	_create_world_views()
 	_reset_flood()
+	# Stage 10: a migrated run starts again in its configured biome.
+	_set_world_biome(_start_biome(), false)
 	_starting_prey()
 	_update_hud("")
 
@@ -464,6 +500,7 @@ func _flood_kills(delta: float) -> bool:
 			horde_kills += count
 			for index in count:
 				model.record_kill("horde")
+			_note_kills(count)
 	flood_bundle_clock += delta
 	if flood_bundle_clock < TUNING.FLOOD_BUNDLE_SECONDS or flood_bundles.is_empty():
 		return false
@@ -566,7 +603,13 @@ func step(delta: float) -> void:
 	if paused or model.extinct or choosing():
 		swarm.clear_focus()
 		return
+	# Stage 10: while the migration swirl runs the world holds still (no time,
+	# no enemy step); pause and reset freeze or drop it like everything else.
+	if migration_state == 1:
+		_step_migration(delta)
+		return
 	model.advance(delta)
+	biome_seconds[biome_id] = float(biome_seconds.get(biome_id, 0.0)) + delta
 	unit_points_valid = false
 	_age_popups(delta)
 	hit_feedback = maxf(0.0, hit_feedback - delta)
@@ -717,6 +760,11 @@ func step(delta: float) -> void:
 				message = "BOG KING ERSCHÖPFT · JETZT ANGREIFEN!"
 			elif boss.state == BOG_KING.State.ARRIVING:
 				message = "DER BOG KING TAUCHT AUF!"
+	# Stage 10: Moosschlund (apex) - melee, attack forms and its locked areas.
+	var apex_result := _step_apex(delta, damage, pressure, message)
+	if apex_result.ended:
+		return
+	message = apex_result.message
 	# Glutsumpf lava eruptions: announced ground rings, then one area hit each
 	# (same per-animal path and leader-LP rule as the enemy areas).
 	if eruptions != null:
@@ -788,7 +836,8 @@ func step(delta: float) -> void:
 	if model.elapsed >= TUNING.FIRST_LEAPER_SECONDS and leaper_clock <= 0.0 and leapers.size() < leaper_budget:
 		_spawn_leaper(_spawn_position(10.0))
 		leaper_clock = maxf(TUNING.LEAPER_SPAWN_MIN, TUNING.LEAPER_SPAWN_SECONDS / sqrt(pressure))
-	if boss == null:
+	# Stage 10: no new Bog King while the Moosschlund rises or lives.
+	if boss == null and apex_state != 1 and apex_state != 2:
 		boss_clock -= delta
 		# Stage 09: the first Bog King waits for a real swarm (or BOSS_LATEST).
 		var boss_ready: bool = boss_cycles > 0 or model.population >= TUNING.BOSS_MIN_POPULATION or model.elapsed >= TUNING.BOSS_LATEST_SECONDS
@@ -796,6 +845,7 @@ func step(delta: float) -> void:
 			_spawn_boss(_spawn_position(11.0))
 	message = _step_objectives(delta, message)
 	message = _flood_message(message)
+	message = _apex_schedule(delta, message)
 	_update_hud(message)
 
 
@@ -821,6 +871,8 @@ func _living_targets() -> Array:
 			result.append(target)
 	if boss != null and boss.health > 0.0 and boss.state != BOG_KING.State.ARRIVING:
 		result.append(boss)
+	if apex != null and apex.health > 0.0 and apex.can_be_hit():
+		result.append(apex)
 	return result
 
 
@@ -870,15 +922,32 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			_create_corpse(location, TUNING.BOSS_BIOMASS * evolution.biomass_multiplier(), "boss")
 			boss_clock = TUNING.BOSS_RESPAWN_SECONDS
 			_drop_alpha_core(location)
+		"apex":
+			if enemy != apex:
+				return false
+			apex = null
+			_kill_burst(location, Color("e8f59a"), 9.0, 0.8)
+			_kill_burst(location, Color("c8a0ff"), 6.5, 0.0)
+			_create_corpse(location, TUNING.APEX_BIOMASS * evolution.biomass_multiplier(), "apex")
+			for index in TUNING.APEX_ALPHA_CORES:
+				_drop_alpha_core(location)
 		_:
 			return false
 	model.record_kill(kind)
-	enemy.queue_free()
-	var base_dna: int = {"hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50}[kind]
+	_note_kills(1)
+	if kind == "apex":
+		# The body sinks into the ground (apex_boss DEAD pose) before it is freed.
+		apex_dying = enemy
+		apex_dying_clock = TUNING.APEX_SINK_SECONDS
+	else:
+		enemy.queue_free()
+	var base_dna: int = {"hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50, "apex": TUNING.APEX_DNA}[kind]
 	if kind == "hunter" and enemy.elite:
 		base_dna = TUNING.ELITE_DNA
 	var dna := _reward_dna(base_dna)
 	_add_popup(location, dna, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
+	if kind == "apex":
+		_apex_defeated(location)
 	if kind == "boss":
 		_king_moment(location)
 		# The curse (and its double reward) ends with the cursed boss; its own
@@ -901,6 +970,7 @@ func _spawn_prey(location: Vector3) -> void:
 	target.position = location
 	add_child(target)
 	prey.append(target)
+	_tint_enemy(target, "prey")
 
 
 func _spawn_hunter(location: Vector3) -> Node3D:
@@ -911,6 +981,7 @@ func _spawn_hunter(location: Vector3) -> Node3D:
 	target.max_health = target.health
 	add_child(target)
 	hunters.append(target)
+	_tint_enemy(target, "hunter")
 	return target
 
 
@@ -922,6 +993,7 @@ func _spawn_skitter(location: Vector3) -> Node3D:
 	target.max_health = target.health
 	add_child(target)
 	skitters.append(target)
+	_tint_enemy(target, "skitter")
 	return target
 
 
@@ -933,6 +1005,7 @@ func _spawn_leaper(location: Vector3) -> Node3D:
 	target.max_health = target.health
 	add_child(target)
 	leapers.append(target)
+	_tint_enemy(target, "leaper")
 	return target
 
 
@@ -944,6 +1017,7 @@ func _spawn_boss(location: Vector3) -> Node3D:
 	target.max_health = target.health
 	add_child(target)
 	boss = target
+	_tint_enemy(target, "bog_king")
 	_on_boss_spawned(target)
 	_music_cue("boss")
 	return target
@@ -957,6 +1031,7 @@ func _kill_prey(target: Node3D) -> void:
 	var corpses_before: int = model.corpses.size()
 	_create_corpse(target.position, CORPSE_BIOMASS * evolution.biomass_multiplier(), "prey")
 	model.record_kill("prey")
+	_note_kills(1)
 	target.queue_free()
 	var dna := _reward_dna(10)
 	_add_popup(target.position, dna, model.corpses[-1].initial if model.corpses.size() > corpses_before else 0.0)
@@ -1105,6 +1180,335 @@ func _try_evolve() -> bool:
 	_kill_burst(swarm.position, ALPHA_VIOLET, 4.2, 0.0)
 	_update_hud("EVOLUTION · %s!" % evolve_name.to_upper())
 	return true
+
+
+# ---------------------------------------------------------------- Apex & Migration (stage 10)
+
+func _reset_apex() -> void:
+	apex = null
+	apex_state = 0
+	apex_clock = 0.0
+	apex_spot = Vector3.ZERO
+	apex_pulse = 0.0
+	apex_kills = 0
+	apex_victories = 0
+	apex_dying = null
+	apex_dying_clock = 0.0
+	portal = null
+	portal_clock = -1.0
+	portal_point = Vector3.ZERO
+	migration_state = 0
+	migration_timer = 0.0
+	migration_switched = false
+	migration_to = ""
+	migrations = 0
+	arrivals = 0
+	biomes_visited.clear()
+	biome_seconds.clear()
+
+
+# Biome of the RunConfig (menu choice); Verdant Maw without one.
+func _start_biome() -> String:
+	var id := str(config.get("biome_id", BIOMES.DEFAULT))
+	return id if BIOMES.has(id) else BIOMES.DEFAULT
+
+
+# Switches arena look, sun light and enemy tints to `id` (layout and every run
+# value stay). staggered = migration inside a running game (arena.set_biome).
+func _set_world_biome(id: String, staggered: bool) -> void:
+	biome_id = id if BIOMES.has(id) else BIOMES.DEFAULT
+	if not biomes_visited.has(biome_id):
+		biomes_visited.append(biome_id)
+	var arena: Node3D = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	if arena != null and String(arena.get("biome_id")) != biome_id:
+		arena.set_biome(biome_id, staggered)
+	var main := get_parent()
+	if main != null and main.has_method("apply_biome_light"):
+		main.apply_biome_light(biome_id)
+	_tint_living_enemies()
+
+
+# Time the Moosschlund is due on the configured difficulty (Wild without config).
+func apex_spawn_seconds() -> float:
+	var table: Array = TUNING.APEX_SPAWN_SECONDS
+	return float(table[clampi(int(config.get("difficulty", 0)), 0, table.size() - 1)])
+
+
+# Calm hints may be replaced by apex / migration hints; warnings never are.
+func _is_calm(message: String) -> bool:
+	for prefix in ["Jage", "Mawlings greifen", "Biomasse", "Schwarm voll", "DIE FLUT ·", "Fluch aktiv", "Brutnest füllen", "Alpha-Kern", "Mutation", "Neue Auswahl"]:
+		if message.begins_with(prefix):
+			return true
+	return message == ""
+
+
+# Waiting -> ground warning -> spawn. Called at the end of step().
+func _apex_schedule(delta: float, message: String) -> String:
+	if apex_state == 0:
+		var due := apex_spawn_seconds()
+		if model.elapsed < due:
+			return message
+		var swarm_ready: bool = model.population >= TUNING.APEX_MIN_POPULATION or model.elapsed >= due + TUNING.APEX_LATEST_EXTRA
+		var king_clear: bool = boss == null or model.elapsed >= flood_start - TUNING.APEX_FLOOD_MARGIN
+		if swarm_ready and king_clear:
+			begin_apex_warning()
+	if apex_state == 1:
+		apex_clock -= delta
+		apex_pulse -= delta
+		if apex_pulse <= 0.0:
+			apex_pulse = 0.5
+			FX.ring(self, apex_spot, Color(0.62, 0.82, 0.32, 0.85), 1.0, TUNING.APEX_BODY_RADIUS + 3.5, 0.7)
+			FX.ring(self, apex_spot, Color(0.3, 0.22, 0.12, 0.7), 0.5, TUNING.APEX_BODY_RADIUS + 1.0, 0.9)
+			_shake(0.14)
+		if apex_clock <= 0.0:
+			spawn_apex(apex_spot)
+			return "DER MOOSSCHLUND ERWACHT!"
+		if _is_calm(message):
+			return "DER BODEN BEBT · DER MOOSSCHLUND ERWACHT"
+	return message
+
+
+## Announces the apex: the ground shakes at the (visible) spot ahead of the swarm.
+func begin_apex_warning() -> void:
+	if apex_state != 0:
+		return
+	apex_state = 1
+	apex_clock = TUNING.APEX_WARNING_SECONDS
+	apex_pulse = 0.0
+	var arena: Node3D = get_parent().get_node("Arena")
+	apex_spot = arena.safe_spawn(swarm.position + Vector3(0.0, 0.0, -TUNING.APEX_SPAWN_DISTANCE), TUNING.APEX_BODY_RADIUS + 0.5)
+	apex_spot.y = 0.0
+	_sfx("warn", 160)
+	_shake(0.3)
+
+
+## Spawns the Moosschlund now (public for tests and captures).
+func spawn_apex(location: Vector3) -> Node3D:
+	if apex != null:
+		return apex
+	var arena: Node3D = get_parent().get_node("Arena")
+	var target = APEX_BOSS.new()
+	target.name = "Moosschlund"
+	target.arena = arena
+	target.position = arena.safe_spawn(Vector3(location.x, 0.0, location.z), TUNING.APEX_BODY_RADIUS + 0.5)
+	var facing: Vector3 = swarm.position - target.position
+	target.rotation.y = atan2(facing.x, facing.z) + PI * 0.5
+	# The difficulty already brings it earlier against a smaller swarm; no extra HP.
+	target.health = TUNING.APEX_HEALTH
+	target.max_health = target.health
+	add_child(target)
+	apex = target
+	apex_state = 2
+	_music_cue("boss")
+	_sfx("stomp", 220)
+	return target
+
+
+# Melee, attack-form deaths, the locked attack areas and the portal. Returns
+# {"ended": step() must stop, "message": hint}.
+func _step_apex(delta: float, damage: float, pressure: float, message: String) -> Dictionary:
+	var result := {"ended": false, "message": message}
+	if apex_dying != null:
+		apex_dying.step(delta, swarm.position, pressure)
+		apex_dying_clock -= delta
+		if apex_dying_clock <= 0.0:
+			apex_dying.queue_free()
+			apex_dying = null
+	if apex_state == 3:
+		_step_portal(delta, result)
+		if result.ended:
+			return result
+	if apex == null:
+		return result
+	if _resolve_death(apex, "apex"):
+		result.ended = choosing()
+		return result
+	var hittable: bool = apex.can_be_hit()
+	if hittable:
+		_consider_focus(apex.position, TUNING.APEX_MELEE_RANGE + 2.0)
+	var bite := melee_factor(apex.position, "apex", apex.melee_range) if hittable else 0.0
+	if bite > 0.0:
+		apex.take_damage(damage * bite * delta)
+		melee_contact = true
+		if _resolve_death(apex, "apex"):
+			result.ended = choosing()
+			return result
+	apex.step(delta, swarm.position, pow(pressure, TUNING.APEX_PRESSURE_EXPONENT))
+	if _resolve_area_hit(apex, apex.attack_center, 0.5):
+		result.ended = true
+		return result
+	var text: String = apex.hud_message()
+	if apex.state == APEX_BOSS.State.WINDUP or apex.state == APEX_BOSS.State.PHASE_SHIFT:
+		result.message = text
+	elif text != "" and not String(result.message).begins_with("RAUS") and not String(result.message).begins_with("SPRINT"):
+		result.message = text
+	elif bite > 0.0 and _is_calm(result.message):
+		result.message = "MOOSSCHLUND · RALLY ZUM ANGRIFF"
+	return result
+
+
+# Victory: Königsmoment (slow motion + zoom in Main, stinger), banner counter
+# for hud_objectives, and the Migrationsschlund behind the corpse.
+func _apex_defeated(location: Vector3) -> void:
+	apex_kills += 1
+	apex_victories += 1
+	apex_state = 3
+	var away: Vector3 = location - swarm.position
+	away.y = 0.0
+	if away.length_squared() < 0.01:
+		away = Vector3(0.0, 0.0, -1.0)
+	var arena: Node3D = get_parent().get_node("Arena")
+	portal_point = arena.safe_spawn(location + away.normalized() * TUNING.APEX_PORTAL_OFFSET, TUNING.MIGRATION_RADIUS + 0.5)
+	portal_point.y = 0.0
+	portal_clock = TUNING.APEX_PORTAL_DELAY
+	if apex_dying != null:
+		apex_dying.set("migration_point", portal_point)
+	_sfx("evolve", 160)
+	_music_cue("king")
+	var main := get_parent()
+	if main != null and main.has_method("king_moment"):
+		main.king_moment(location)
+
+
+## Opens the Migrationsschlund now (public for tests and captures).
+func open_portal(location: Vector3) -> Node3D:
+	if portal != null:
+		return portal
+	portal = MIGRATION_MAW.new()
+	portal.name = "Migration maw"
+	portal.setup(BIOMES.next_biome(biome_id))
+	portal.position = Vector3(location.x, 0.0, location.z)
+	add_child(portal)
+	portal_point = portal.position
+	portal_clock = -1.0
+	apex_state = maxi(apex_state, 3)
+	FX.ring(self, portal.position, Color(1.0, 0.8, 0.5, 0.9), 0.6, TUNING.MIGRATION_RADIUS + 3.0, 0.9)
+	FX.ring(self, portal.position, Color(0.7, 0.3, 0.55, 0.8), 0.4, TUNING.MIGRATION_RADIUS + 1.0, 1.2)
+	_sfx("evolve", 60)
+	return portal
+
+
+func _step_portal(delta: float, result: Dictionary) -> void:
+	if portal == null:
+		if portal_clock < 0.0:
+			return
+		portal_clock -= delta
+		if _is_calm(String(result.message)):
+			result.message = "DER MIGRATIONSSCHLUND ÖFFNET SICH"
+		if portal_clock <= 0.0:
+			open_portal(portal_point)
+		return
+	var points := _unit_points()
+	var share: float = portal.hit_fraction(points) if not points.is_empty() else (1.0 if portal.contains(swarm.position) else 0.0)
+	if portal.step(delta, share):
+		_begin_migration()
+		result.ended = true
+		return
+	if not _is_calm(String(result.message)):
+		return
+	if share >= TUNING.MIGRATION_SHARE or portal.hold > 0.0:
+		result.message = "MIGRATION · %d Prozent" % int(portal.hold * 100.0)
+	elif share > 0.0:
+		result.message = "MIGRATIONSSCHLUND · ganz hinein!"
+	else:
+		result.message = "MIGRATIONSSCHLUND · hinein = %s (freiwillig)" % BIOMES.display_name(portal.target_biome).to_upper()
+
+
+func migrating() -> bool:
+	return migration_state == 1
+
+
+# Entered: the swirl closes, the biome switches behind it, the swirl opens.
+func _begin_migration() -> void:
+	migration_state = 1
+	migration_timer = 0.0
+	migration_switched = false
+	migration_to = portal.target_biome if portal != null else BIOMES.next_biome(biome_id)
+	swarm.clear_focus()
+	swarm.set_controls(Vector2.ZERO, false)
+	_sfx("evolve", 120)
+	_shake(0.35)
+	_update_hud("MIGRATION · %s" % BIOMES.display_name(migration_to).to_upper())
+
+
+func _step_migration(delta: float) -> void:
+	migration_timer += delta
+	if portal != null:
+		var centre := Vector3(portal.position.x, swarm.position.y, portal.position.z)
+		swarm.position = swarm.position.lerp(centre, minf(1.0, delta * 5.0))
+		portal.step(delta, 1.0)
+	if not migration_switched and migration_timer >= TUNING.MIGRATION_SWITCH_AT:
+		_arrive()
+	if migration_timer >= TUNING.MIGRATION_TRANSITION_SECONDS:
+		migration_state = 2
+	_update_hud("MIGRATION · %s" % BIOMES.display_name(migration_to).to_upper())
+
+
+# The new biome: arena restyle (staggered), light, tints, eruptions active but
+# never at the arrival spot, a short leader grace; swarm, build, pressure and
+# flood carry on unchanged.
+func _arrive() -> void:
+	migration_switched = true
+	var at: Vector3 = portal.position if portal != null else swarm.position
+	_set_world_biome(migration_to, true)
+	migrations += 1
+	arrivals += 1
+	apex_state = 4
+	if eruptions != null:
+		eruptions.safe_zones.append(Vector4(at.x, 0.0, at.z, TUNING.MIGRATION_SAFE_RADIUS))
+		eruptions.clear()
+	model.leader_invulnerable = maxf(model.leader_invulnerable, TUNING.MIGRATION_ARRIVAL_GRACE)
+	_sync_leader()
+	if portal != null:
+		portal.queue_free()
+		portal = null
+	_shake(0.25)
+
+
+# ------------------------------------------------------------ biome tints
+
+# Biome tint (biomes.gd enemy_tints) on the materials an enemy already has:
+# creature shaders get their body_tint uniform, shared StandardMaterials are
+# swapped for the shared tinted variant (fx_batch cache, one per colour).
+func _tint_enemy(enemy: Node, kind: String) -> void:
+	if enemy == null:
+		return
+	var tint: Color = BIOMES.enemy_tint(biome_id, kind)
+	for node in enemy.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		var material := mesh.material_override
+		if material is ShaderMaterial:
+			var shader: Shader = (material as ShaderMaterial).shader
+			if shader != null and shader.resource_path.contains("creature"):
+				(material as ShaderMaterial).set_shader_parameter("body_tint", tint)
+			continue
+		var base: Variant = mesh.get_meta("base_material") if mesh.has_meta("base_material") else material
+		if not (base is StandardMaterial3D):
+			continue
+		var standard := base as StandardMaterial3D
+		if standard.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
+			continue
+		mesh.set_meta("base_material", standard)
+		if tint.a <= 0.0:
+			mesh.material_override = standard
+			continue
+		var color := standard.albedo_color
+		var shade := clampf(color.get_luminance() * 2.4, 0.0, 1.4)
+		var target := Color(tint.r * shade, tint.g * shade, tint.b * shade, color.a)
+		mesh.material_override = FX_BATCH.shared_material(color.lerp(target, tint.a), false, standard.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED, standard.roughness)
+
+
+func _tint_living_enemies() -> void:
+	for target in prey:
+		_tint_enemy(target, "prey")
+	for target in hunters:
+		_tint_enemy(target, "hunter")
+	for target in skitters:
+		_tint_enemy(target, "skitter")
+	for target in leapers:
+		_tint_enemy(target, "leaper")
+	if boss != null:
+		_tint_enemy(boss, "bog_king")
 
 
 # ---------------------------------------------------------------- Run-Ziele
@@ -1320,6 +1724,26 @@ func _objective_hud() -> Dictionary:
 		"curse": curse_state,
 		"reward_multiplier": reward_multiplier(),
 		"nests": nests_completed,
+		# Stage 10: apex bar/pointer, migration pointer, swirl and banners.
+		"apex_state": apex_state,
+		"apex_warning": apex_clock / TUNING.APEX_WARNING_SECONDS if apex_state == 1 else 0.0,
+		"apex_health": apex.health if apex != null else 0.0,
+		"apex_max_health": apex.max_health if apex != null else 0.0,
+		"apex_phase": int(apex.phase) if apex != null else 1,
+		"apex_vulnerable": apex != null and apex.state == APEX_BOSS.State.EXHAUSTED,
+		"apex_pointer": _edge_pointer(apex.position + Vector3.UP * 3.0) if apex != null else Vector2.INF,
+		"apex_victories": apex_victories,
+		"portal_active": portal != null,
+		"portal_hold": portal.hold if portal != null else 0.0,
+		"portal_target": BIOMES.display_name(portal.target_biome).to_upper() if portal != null else "",
+		"portal_pointer": _edge_pointer(portal.position + Vector3.UP * 1.5) if portal != null else Vector2.INF,
+		"migration": clampf(migration_timer / TUNING.MIGRATION_TRANSITION_SECONDS, 0.0, 1.0) if migration_state == 1 else -1.0,
+		"migration_screen": _screen_point(portal.position) if portal != null else Vector2.INF,
+		"migration_switch": TUNING.MIGRATION_SWITCH_AT / TUNING.MIGRATION_TRANSITION_SECONDS,
+		"migration_to": migration_to,
+		"arrivals": arrivals,
+		"biome_title": String(BIOMES.get_data(biome_id).get("title", "")),
+		"biome_id": biome_id,
 	}
 
 
@@ -1589,6 +2013,9 @@ func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3
 	_sfx("hit", 30)
 	if attack_forms != null and attack_forms.has_method("on_swarm_hit") and not model.extinct:
 		attack_forms.on_swarm_hit(attacker, last_loss)
+	# Etappe 10 (INHALT) - Dornenhaut: the attacker (and brood close by) takes thorn damage.
+	if attack_forms != null and attack_forms.has_method("reflect_thorns") and evolution.has_method("thorn_damage") and not model.extinct:
+		attack_forms.reflect_thorns(attacker, evolution.thorn_damage(last_loss, leader_struck), impact)
 	if model.extinct:
 		swarm.clear_focus()
 		swarm.set_controls(Vector2.ZERO, false)
@@ -1619,6 +2046,22 @@ func _sync_leader() -> void:
 	leader_state_key = key
 	if swarm.has_method("set_leader_state"):
 		swarm.set_leader_state(key.x, key.y, key.z == 1)
+
+
+# Etappe 10 (INHALT) - Regeneration: every kill counts towards leader LP
+# (evolution.note_kills); healing is capped at leader_max_hp.
+func _note_kills(count: int) -> void:
+	if count <= 0 or model.extinct or not evolution.has_method("note_kills"):
+		return
+	var healed: int = evolution.note_kills(count)
+	if healed <= 0:
+		return
+	var before: int = model.leader_hp
+	model.leader_hp = mini(model.leader_max_hp, model.leader_hp + healed)
+	if model.leader_hp > before:
+		_sync_leader()
+		FX.ring(self, swarm.position, Color(0.6, 1.0, 0.55, 0.85), 0.4, 2.6, 0.5)
+		_sfx("pickup", 15)
 
 
 # New Mawlings grew from biomass: cell division, milestones (+1 LP per 25).
@@ -1694,6 +2137,12 @@ func run_stats() -> Dictionary:
 		"flood_seconds": flood_seconds(),
 		"horde_kills": horde_kills,
 		"leader_swaps": model.leader_swaps,
+		# Stage 10: apex and migration.
+		"apex_kills": apex_kills,
+		"biomes_visited": biomes_visited.size(),
+		"biome_list": Array(biomes_visited),
+		"migrations": migrations,
+		"biome_seconds": biome_seconds.duplicate(),
 		"seed": int(config.get("seed", 0)),
 		"daily": bool(config.get("daily", false)),
 		"daily_date": str(config.get("daily_date", "")),
@@ -1729,7 +2178,7 @@ func _music_node() -> Node:
 func _music_step() -> void:
 	var music := _music_node()
 	if music != null:
-		music.set_intensity(model.pressure(), flood_state == 2, boss != null)
+		music.set_intensity(model.pressure(), flood_state == 2, boss != null or apex != null)
 
 
 func _music_cue(id: String) -> void:
@@ -1766,6 +2215,8 @@ func _audio_step(delta: float, population_before: int) -> void:
 	enemies.append_array(leapers)
 	if boss != null:
 		enemies.append(boss)
+	if apex != null:
+		enemies.append(apex)
 	for enemy in enemies:
 		var key: int = enemy.get_instance_id()
 		var state: int = enemy.get("state")
@@ -1773,7 +2224,15 @@ func _audio_step(delta: float, population_before: int) -> void:
 		if state == before:
 			continue
 		enemy_states[key] = state
-		if enemy == boss:
+		if enemy == apex:
+			# WINDUP (2) warns through the shared branch below; the strike stomps.
+			if state == APEX_BOSS.State.WINDUP:
+				_sfx("warn")
+			elif state == APEX_BOSS.State.STRIKE:
+				_sfx("stomp", 80)
+			elif state == APEX_BOSS.State.PHASE_SHIFT:
+				_sfx("stomp", 120)
+		elif enemy == boss:
 			if state == BOG_KING.State.WARNING:
 				_sfx("warn")
 			elif before == BOG_KING.State.WARNING and state == BOG_KING.State.RECOVERY:

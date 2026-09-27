@@ -32,11 +32,18 @@ const CATEGORY_OF := {
 	"brood": "growth", "glutton": "growth",
 	"scatter": "special", "sporenwolke": "special", "aetzflut": "special", "meute": "special",
 	"armor": "protect", "stachelruecken": "protect",
+	"graeber": "attack", "blitzbiss": "attack", "erdbeben": "attack", "sturmrudel": "attack",
+	"brutsack": "growth", "regeneration": "protect", "dornenhaut": "protect",
 }
 # Short effect wording per trait; the numbers are parsed from evolution.gd.
 const EFFECT_LABEL := {
 	"jaws": "BISSSCHADEN", "brood": "ERNTETEMPO", "glutton": "BIOMASSE PRO KILL",
 	"pack": "SCHADEN BEI RALLY", "scatter": "VERLUSTE OHNE RALLY", "armor": "VERLUSTE",
+	"dornenhaut": "RÜCKSCHADEN",
+}
+# Traits whose effect is not a percentage: shown as rank-specific text instead.
+const RANK_TEXT := {
+	"regeneration": ["+1 LP JE 12 KILLS", "+1 LP JE 9 KILLS", "+1 LP JE 6 KILLS"],
 }
 const ROMAN := ["I", "II", "III", "IV", "V"]
 
@@ -748,6 +755,11 @@ func _icon(c: CanvasItem, id: String, r: Rect2, tint: Color) -> void:
 
 # "+25 % BISSSCHADEN" (with label) or "+25 %" for a given total rank.
 func _effect(id: String, entry: Array, total_rank: int, with_label: bool) -> String:
+	if RANK_TEXT.has(id):
+		var texts: Array = RANK_TEXT[id]
+		if total_rank <= 0:
+			return "—"
+		return str(texts[clampi(total_rank - 1, 0, texts.size() - 1)])
 	var desc := str(entry[2])
 	var regex := RegEx.create_from_string("^([+−-])\\s*(\\d+)")
 	var found := regex.search(desc)

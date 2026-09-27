@@ -23,7 +23,9 @@ const BASE_SLOTS := {"attack": 2, "trait": 3}
 const BASE_REROLLS := 1
 const BASE_BANISHES := 0
 const BASE_SKIPS := 0
-const MUTATION_NAMES := {"rudelbiss": "Rudelbiss", "sporenwolke": "Sporenwolke", "saeurespucker": "Säurespucker", "stachelruecken": "Stachelrücken"}
+const MUTATION_NAMES := {"rudelbiss": "Rudelbiss", "sporenwolke": "Sporenwolke", "saeurespucker": "Säurespucker", "stachelruecken": "Stachelrücken",
+	# Etappe 10: nur über Trophäen (form_*/trait_*) freischaltbar.
+	"graeber": "Gräber", "blitzbiss": "Blitzbiss", "brutsack": "Brutsack", "regeneration": "Regeneration", "dornenhaut": "Dornenhaut"}
 const MAX_POPULATION := 250
 const META_ARMOR_CAP := 0.3
 const ARMOR_CAP := 0.6
@@ -121,6 +123,14 @@ const QUESTS := [
 	{"id": "evolutions_5", "name": "Formwandler", "description": "Wähle insgesamt 5 Evolutionen.", "stat": "total_evolutions", "target": 5, "reward": {"unlock": ["banish"]}},
 	{"id": "evo_aetzflut", "name": "Ätzflut", "description": "Entfessle die Evolution Ätzflut.", "stat": "evo:aetzflut", "target": 1, "reward": {"essence": 200, "unlock": ["strain:aetzmaul"]}},
 	{"id": "evo_meute", "name": "Meute", "description": "Entfessle die Evolution Meute.", "stat": "evo:meute", "target": 1, "reward": {"essence": 200, "crowns": 2}},
+	# Etappe 10 (INHALT): Freischaltung der neuen Formen/Anlagen und Evolutions-Trophäen.
+	{"id": "form_graeber", "name": "Wühlarbeit", "description": "Besiege insgesamt 40 Skitter.", "stat": "total_skitters", "target": 40, "reward": {"essence": 120, "unlock": ["mutation:graeber"]}},
+	{"id": "form_blitzbiss", "name": "Kettenreaktion", "description": "Besiege insgesamt 250 Jäger.", "stat": "total_hunters", "target": 250, "reward": {"essence": 150, "unlock": ["mutation:blitzbiss"]}},
+	{"id": "form_brutsack", "name": "Brutpflege", "description": "Erreiche 150 Mawlings gleichzeitig.", "stat": "best_peak", "target": 150, "reward": {"essence": 150, "unlock": ["mutation:brutsack"]}},
+	{"id": "trait_regeneration", "name": "Zähes Herz", "description": "Überlebe 7 Minuten.", "stat": "best_seconds", "target": 420, "reward": {"essence": 150, "unlock": ["mutation:regeneration"]}},
+	{"id": "trait_dornenhaut", "name": "Dornige Haut", "description": "Besiege insgesamt 30 Mire Leaper.", "stat": "total_leapers", "target": 30, "reward": {"essence": 150, "unlock": ["mutation:dornenhaut"]}},
+	{"id": "evo_erdbeben", "name": "Erdbeben", "description": "Entfessle die Evolution Erdbeben.", "stat": "evo:erdbeben", "target": 1, "reward": {"essence": 200, "crowns": 2}},
+	{"id": "evo_sturmrudel", "name": "Sturmrudel", "description": "Entfessle die Evolution Sturmrudel.", "stat": "evo:sturmrudel", "target": 1, "reward": {"essence": 200, "crowns": 2}},
 	{"id": "no_rally_2", "name": "Stille Jagd", "description": "Überlebe 2 Minuten, ohne Rally zu nutzen.", "stat": "best_no_rally_seconds", "target": 120, "reward": {"essence": 150}},
 	{"id": "brutal_3", "name": "Brutal", "description": "Überlebe 3 Minuten auf Brutal.", "stat": "diff_time:1", "target": 180, "reward": {"crowns": 2, "unlock": ["difficulty:2"]}},
 	{"id": "apex_3", "name": "Apex", "description": "Überlebe 3 Minuten auf Apex.", "stat": "diff_time:2", "target": 180, "reward": {"crowns": 3, "unlock": ["strain:nachtmaul"]}},
@@ -133,6 +143,10 @@ const QUESTS := [
 	{"id": "biomass_1000", "name": "Vollgefressen", "description": "Sammle insgesamt 1000 Biomasse.", "stat": "total_biomass", "target": 1000, "reward": {"essence": 100}},
 	{"id": "biomass_10000", "name": "Nimmersatt", "description": "Sammle insgesamt 10000 Biomasse.", "stat": "total_biomass", "target": 10000, "reward": {"crowns": 1}},
 	{"id": "runs_10", "name": "Zehn Bruten", "description": "Spiele 10 Runs.", "stat": "runs", "target": 10, "reward": {"unlock": ["reroll"]}},
+	# Etappe 10 (APEX): Moosschlund, Migration, Glutsumpf.
+	{"id": "apex_moosschlund", "name": "Moosschlund bezwungen", "description": "Besiege den Moosschlund.", "stat": "total_apex", "target": 1, "reward": {"crowns": 2, "essence": 200}},
+	{"id": "migration_1", "name": "Migration", "description": "Wandere durch den Migrationsschlund in ein neues Biom.", "stat": "total_migrations", "target": 1, "reward": {"crowns": 1, "essence": 150}},
+	{"id": "glutsumpf_2", "name": "Glutherz", "description": "Überlebe 2 Minuten im Glutsumpf.", "stat": "biome_time:glutsumpf", "target": 120, "reward": {"crowns": 2}},
 ]
 
 static func quest(id: String) -> Dictionary:
