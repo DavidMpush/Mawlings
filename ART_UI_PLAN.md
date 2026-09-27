@@ -26,6 +26,6 @@ Beide gelieferten Modelle nutzen jetzt `shaders/creature.gdshader`: Scheitelpunk
 1. **Weltmaterial:** ruhiger, leicht strukturierter Sand-/Moosboden und seltene klare Landmarken. Die bestehenden Laufwege und Steine bleiben offen; keine Randwände aus Laub.
 2. **Weitere Figuren:** Nibbler, Jäger und Skitter in derselben vereinfachten Formensprache modellieren oder vorhandene passende Assets aufbereiten. Ihre Warnflächen müssen in der Spielansicht stärker auffallen als Oberflächendetails.
 3. **Bewegung und Treffer:** prozeduraler Erst-Pass erledigt (Etappe 01). Offen: echte Skelettanimationen, falls Modelle mit Rig geliefert werden; Sicht aus steiler Kamera macht Aufbäumen des Bosses nur mäßig sichtbar.
-4. **Referenz Swarm:** Beobachtungen zu Farbregeln, Gefahrenformen, Trefferzahlen, Belohnungsmomenten und HUD in `REFERENCE_SWARM.md`; die Übertragung ist als Etappe 14 im Backlog geplant.
+4. **Referenz Swarm:** Beobachtungen zu Farbregeln, Gefahrenformen, Trefferzahlen, Belohnungsmomenten und HUD in `stages/REFERENCE_SWARM.md`; die Übertragung ist als Etappe 14 im Backlog geplant.
 5. **Geräteprüfung:** Touchabstände und Leistung auf dem Samsung S25 prüfen. Bei hohen Populationen zuerst Modellanzahl, Material-/Draw-Calls und Deckung durch Dekoration messen und anpassen.
 

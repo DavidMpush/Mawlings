@@ -10,7 +10,7 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 6. **13 UI-Stil** – Nutzer hat entschieden: V2-Kit (ruhig, jetzt Standard). Rest: Eigenzeichnungen (Rally, Joystick, Mutationstitel, Menü-Kacheln) auf den gewählten Skin umstellen; `shardcluster.glb` als Drop-Variante nutzen.
 3. **10 Teilen** – Teilen-Karte am Run-Ende (Zeit, Peak, Build, Seed-Code), lokale Bestenliste je Tages-Brut, Vorbereitung Clip-Export (letzte 15 s, 9:16) soweit ohne Plattform-SDK möglich.
 4. **11 Typografie-Pass** – sobald die Schriften freigegeben sind: Display-/Textschrift überall, Größen und Abstände neu abstimmen, Boss-Balken zeigt Fluch, Tipp-Panel schmaler.
-7. **14 Lesbarkeit & Belohnung nach Swarm-Vorbild** – Ideen S1–S13 aus `REFERENCE_SWARM.md`. Vorgeschlagene Reihenfolge: (a) Farbregeln, Anführer-Ring, drei Gefahrenformen, Treffer-Blitz am Anführer (S1–S4); (b) Einsammel-Zahlen zusammenzählen, Moment beim Aufleveln, Auswahlkarten, Evolutions-Hinweis (S5–S8); (c) HUD-Leiste, Boss-Dramaturgie Moosschlund, Kartenzonen, Kommentare, Aufgaben am Run-Ende (S9–S13). Priorität gegenüber 10–13 noch mit dem Nutzer abstimmen.
+7. **14 Lesbarkeit & Belohnung nach Swarm-Vorbild** – Ideen S1–S13 aus `stages/REFERENCE_SWARM.md`. Vorgeschlagene Reihenfolge: (a) Farbregeln, Anführer-Ring, drei Gefahrenformen, Treffer-Blitz am Anführer (S1–S4); (b) Einsammel-Zahlen zusammenzählen, Moment beim Aufleveln, Auswahlkarten, Evolutions-Hinweis (S5–S8); (c) HUD-Leiste, Boss-Dramaturgie Moosschlund, Kartenzonen, Kommentare, Aufgaben am Run-Ende (S9–S13). Priorität gegenüber 10–13 noch mit dem Nutzer abstimmen.
 
 ## Wartet auf Nutzer
 

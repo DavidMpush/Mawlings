@@ -1,6 +1,6 @@
 # MAWLINGS — Projektkontext für Claude Code
 
-Arbeite im **Godot-Projekt dieses Verzeichnisses**. Antworte dem Nutzer auf Deutsch. Das alte Unity-Projekt unter `C:\Users\vrxby\Documents\Codex\Swarm` ist nur eine historische Referenz; ändere es nicht. Die verbindliche Spielrichtung steht in `DESIGN_BRIEF.md`, die gewünschte Arbeitsweise zusätzlich in `AGENTS.md`. Lies vor einer größeren Änderung auch `README.md`, `ART_UI_PLAN.md` und bei Bedarf `CLAUDE_HANDOFF.md`.
+Arbeite im **Godot-Projekt dieses Verzeichnisses**. Antworte dem Nutzer auf Deutsch. Das alte Unity-Projekt unter `C:\Users\vrxby\Documents\Codex\Swarm` ist nur eine historische Referenz; ändere es nicht. Die verbindliche Spielrichtung steht in `DESIGN_BRIEF.md`, die gewünschte Arbeitsweise zusätzlich in `AGENTS.md`. Lies vor einer größeren Änderung auch `README.md`, `ART_UI_PLAN.md` und `stages/BACKLOG.md`.
 
 ## Arbeitsweise
 
@@ -49,6 +49,5 @@ Die `tests/capture_*.gd`-Skripte erzeugen Bilder aus der echten Spielkamera. **O
 - `DESIGN_BRIEF.md`: bestätigte Regeln.
 - `README.md`: Spielablauf, Steuerung, Testbefehle.
 - `ART_UI_PLAN.md`: aktuelle Formensprache und nächste Designschritte.
-- `BOSS_VERIFICATION.md`, weitere `*_VERIFICATION.md`: Prüfstand und bekannte Grenzen.
+- `stages/NN_*.md`: Etappen mit Kriterien, Ergebnissen und bekannten Grenzen; `stages/REFERENCE_SWARM.md`: Referenzanalyse LoL Swarm; `stages/archive/`: alte Prüfnachweise des Prototyps (Stand 25./26.09.).
 - `assets/README.md`: Herkunft, Ordnerstruktur, Optimierung der Modelle.
-- `CLAUDE_HANDOFF.md`: Übergabestand und mögliche erste Etappe.

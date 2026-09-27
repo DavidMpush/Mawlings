@@ -57,7 +57,7 @@ Nibbler geben 10 DNA, Skitter 15 DNA, Jäger 20 DNA. Ab 20 DNA öffnet sich eine
 
 Ränge derselben Mutation addieren sich. Die zwei Angriffsboni multiplizieren sich; Schutz addiert sich bis maximal 60 %, Treffer kosten mindestens ein Tier. Alte Kadaver ändern ihren Biomassewert nicht. Pause und Ergebnis zeigen den gewählten Build. Neustart setzt DNA und Mutationen zurück. Nach allen 18 Rängen läuft der Survival-Run weiter.
 
-Prüfung dieser Etappe: [Evolution](EVOLUTION_VERIFICATION.md).
+Prüfung dieser Etappe: [Evolution](stages/archive/EVOLUTION_VERIFICATION.md).
 
 ## Arbeitsweise ab dem Neustart
 
@@ -85,6 +85,6 @@ Einzelne Prüfungen mit der installierten Godot-Konsole (zusätzlich `tests/moti
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --fixed-fps 60 --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/endless_playthrough.gd'
 ```
 
-Prüfstand und Grenzen: [Survival-Prüfung](SURVIVAL_VERIFICATION.md), [Evolution](EVOLUTION_VERIFICATION.md), [Arena](ARENA_VERIFICATION.md) , [Skitter](SKITTER_VERIFICATION.md) und [Etappe 01 – Bewegung und Lesbarkeit](stages/01_motion_readability.md). Der Arbeitsablauf mit Claude Code steht in [stages/README.md](stages/README.md).
+Prüfstand und Grenzen: [Survival-Prüfung](stages/archive/SURVIVAL_VERIFICATION.md), [Evolution](stages/archive/EVOLUTION_VERIFICATION.md), [Arena](stages/archive/ARENA_VERIFICATION.md), [Skitter](stages/archive/SKITTER_VERIFICATION.md) (archiviert, Stand Prototyp) und [Etappe 01 – Bewegung und Lesbarkeit](stages/01_motion_readability.md). Der Arbeitsablauf mit Claude Code steht in [stages/README.md](stages/README.md).
 
 Projektdateien liegen unter `scenes/` und `scripts/`; `.godot/` wird nicht versioniert. Das Projekt besitzt ein eigenes Git-Repository, damit Dateien außerhalb dieses Ordners nicht dazugehören.
