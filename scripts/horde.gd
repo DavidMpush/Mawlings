@@ -39,6 +39,10 @@ const APPEAR_SECONDS := 0.35
 const SNAP_SECONDS := 0.2
 const FLASH_DECAY := 6.0
 const KILL_BUNDLE_RADIUS := 2.2
+# Etappe 18b: jenseits dieser Entfernung zur Schwarmmitte folgt die Brut dem
+# Flussfeld; die Richtung wird je Brut alle FLOW_REFRESH Logikrunden erneuert.
+const FLOW_NEAR := 7.0
+const FLOW_REFRESH := 5
 
 # Gitter um den Schwarm (Weltmeter), ±16,8 m. Punkte: 0,6-m-Zellen, das 3x3-Umfeld
 # deckt mindestens die Bissreichweite ab; weiter entfernte Brut läuft zur Mitte.
@@ -107,6 +111,9 @@ var _dna := PackedInt32Array()
 # Leistung: die Logik läuft je Brut jeden zweiten Frame (siehe step()); der
 # Separationsschub gilt zwischen seinen Berechnungen weiter.
 var _push := PackedVector3Array()
+# Etappe 18b: Laufrichtung aus dem Flussfeld der Arena (Wege statt Luftlinie),
+# je Brut alle FLOW_REFRESH Logikrunden aufgefrischt.
+var _flow := PackedVector3Array()
 # Quadratischer Abstand zum Zielpunkt aus dem letzten step() (für melee()).
 var _near_d2 := PackedFloat32Array()
 var _settled := PackedByteArray()
@@ -141,6 +148,8 @@ var _s_bitten := PackedByteArray()
 var _b_head := PackedInt32Array()
 var _b_next := PackedInt32Array()
 var _o_anchor := Vector3(INF, 0.0, INF)
+# Etappe 18: spielbare Kartenfläche minus Körperradius (leer = unbegrenzt).
+var _limit := Rect2()
 var _o_head := PackedInt32Array()
 var _o_next := PackedInt32Array()
 var _o_item := PackedInt32Array()
@@ -189,6 +198,10 @@ func spawn_ring(center: Vector3, amount: int, radius: float, stats: Dictionary) 
 	var dna := maxi(0, int(stats.get("dna", DEFAULT_STATS.dna)))
 	var spawned := 0
 	var offset := fposmod(float(_frame) * 0.618034 + center.x * 0.13, 1.0) * TAU
+	# Etappe 18b: auf einer Karte mit Wegen entsteht die Brut an Weg- und
+	# Lichtungsrändern in 24-44 m Laufweite (außerhalb des Bildes) und strömt
+	# durch die Wege heran.
+	var from_paths: bool = arena != null and is_instance_valid(arena) and arena.has_method("flood_point") and arena.has_layout()
 	for k in room:
 		var angle := offset + TAU * float(k) / float(room)
 		var place := Vector3.INF
@@ -197,6 +210,13 @@ func spawn_ring(center: Vector3, amount: int, radius: float, stats: Dictionary) 
 			var a := angle + float(attempt) * 0.21
 			var r := radius + float(attempt) * 1.3 + 0.6 * sin(float(k) * 2.3)
 			var candidate := Vector3(center.x + cos(a) * r, 0.0, center.z + sin(a) * r)
+			if from_paths:
+				var mouth: Vector3 = arena.flood_point(_frame * 131 + k * 17 + attempt * 7919 + total_kills)
+				if mouth.is_finite():
+					candidate = mouth
+			# Etappe 18: Ringpunkte jenseits des Kartenrands an der Kante nach innen spiegeln.
+			if arena != null and is_instance_valid(arena) and arena.has_method("fold_inside"):
+				candidate = arena.fold_inside(candidate, BODY_RADIUS + 1.0)
 			if _is_open(candidate):
 				place = candidate
 				break
@@ -223,6 +243,7 @@ func spawn_ring(center: Vector3, amount: int, radius: float, stats: Dictionary) 
 		_biomass[i] = biomass
 		_dna[i] = dna
 		_push[i] = Vector3.ZERO
+		_flow[i] = Vector3.ZERO
 		_near_d2[i] = INF
 		_settled[i] = 0
 		_dirty[i] = 1
@@ -246,6 +267,12 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 	var has_points := not swarm_points.is_empty()
 	var point_count := swarm_points.size()
 	var rocks := _o_anchor.x != INF and arena != null and is_instance_valid(arena)
+	# Etappe 18: Kartenrand als Lokale (Klemmen pro Brut = vier Vergleiche).
+	var limited := _limit.size.x > 0.0
+	var lim_lx := _limit.position.x
+	var lim_lz := _limit.position.y
+	var lim_hx := _limit.end.x
+	var lim_hz := _limit.end.y
 	_step_points = point_count
 	_step_tick = Engine.get_process_frames()
 	# Leistung: Arrays und Felder als Lokale (GDScript-Memberzugriff ist ~2x teurer).
@@ -283,6 +310,23 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 	var sep2 := SEPARATION * SEPARATION
 	var bite2 := BITE_RANGE * BITE_RANGE
 	var settled := _settled
+	# Etappe 18b: Wände (Abstandsgitter der Arena, nächste Zelle als Vorfilter)
+	# und Flussfeld für Brut abseits des Schwarms.
+	var walls := PackedFloat32Array()
+	var wgrid := 0
+	var wox := 0.0
+	var woz := 0.0
+	var winv := 0.5
+	var guided := false
+	if arena != null and is_instance_valid(arena) and arena.has_method("has_layout") and arena.has_layout():
+		var layout: RefCounted = arena.layout
+		walls = layout.sdf
+		wgrid = layout.grid
+		wox = layout.grid_origin.x
+		woz = layout.grid_origin.y
+		winv = 1.0 / float(layout.NAV)
+		guided = true
+	var wall_reach := BODY_RADIUS + 1.6
 	for i in _n:
 		# Logik (Ziel, Separation, Kollision, Biss) je Brut nur jeden zweiten Frame
 		# (versetzte Hälften) mit doppeltem Zeitschritt. Dazwischen gleitet laufende
@@ -299,6 +343,14 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 					var goz := (glide.z - oaz) / OCELL
 					if gox < 0.0 or goz < 0.0 or gox >= OGRID or goz >= OGRID or o_head[int(goz) * OGRID + int(gox)] >= 0:
 						glide = _collide(i, glide)
+				if guided:
+					var gwx := int((glide.x - wox) * winv)
+					var gwz := int((glide.z - woz) * winv)
+					if gwx >= 0 and gwz >= 0 and gwx < wgrid and gwz < wgrid and walls[gwz * wgrid + gwx] < wall_reach:
+						glide = arena.push_walls(glide, BODY_RADIUS)
+				if limited:
+					glide.x = clampf(glide.x, lim_lx, lim_hx)
+					glide.z = clampf(glide.z, lim_lz, lim_hz)
 				pos[i] = glide
 			continue
 		var dt := delta * 2.0
@@ -349,6 +401,15 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 				pull *= -0.6 if distance < CLING_RANGE * 0.6 else 0.0
 			dvx = tx * pull
 			dvz = tz * pull
+			# Etappe 18b: weit weg vom Schwarm folgt die Brut den Wegen (Flussfeld).
+			if guided and best < 0 and distance > FLOW_NEAR:
+				var fdir := _flow[i]
+				if ((i + frame) >> 1) % FLOW_REFRESH == 0 or fdir == Vector3.ZERO:
+					fdir = arena.flow_direction(p)
+					_flow[i] = fdir
+				if fdir != Vector3.ZERO:
+					dvx = fdir.x * speed
+					dvz = fdir.z * speed
 		# Am Schwarmrand bleiben: wer tiefer als der Rand steckt, wird hinausgedrängt.
 		if has_points:
 			var rx := p.x - center_x
@@ -407,6 +468,14 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 			var loz := (next.z - oaz) / OCELL
 			if lox < 0.0 or loz < 0.0 or lox >= OGRID or loz >= OGRID or o_head[int(loz) * OGRID + int(lox)] >= 0:
 				next = _collide(i, next)
+		if guided:
+			var nwx := int((next.x - wox) * winv)
+			var nwz := int((next.z - woz) * winv)
+			if nwx >= 0 and nwz >= 0 and nwx < wgrid and nwz < wgrid and walls[nwz * wgrid + nwx] < wall_reach:
+				next = arena.push_walls(next, BODY_RADIUS)
+		if limited:
+			next.x = clampf(next.x, lim_lx, lim_hx)
+			next.z = clampf(next.z, lim_lz, lim_hz)
 		pos[i] = next
 		# Blickrichtung/Gang aus der tatsächlichen Bewegung; beim Festklammern zum Ziel.
 		var mx := next.x - p.x
@@ -667,6 +736,7 @@ func _kill(i: int) -> void:
 		_biomass[i] = _biomass[last]
 		_dna[i] = _dna[last]
 		_push[i] = _push[last]
+		_flow[i] = _flow[last]
 		_near_d2[i] = _near_d2[last]
 		_settled[i] = _settled[last]
 		_dirty[i] = 1
@@ -707,6 +777,7 @@ func _allocate() -> void:
 	_biomass.resize(MAX_BROOD)
 	_dna.resize(MAX_BROOD)
 	_push.resize(MAX_BROOD)
+	_flow.resize(MAX_BROOD)
 	_near_d2.resize(MAX_BROOD)
 	_settled.resize(MAX_BROOD)
 	_dirty.resize(MAX_BROOD)
@@ -776,6 +847,8 @@ func _index_brood() -> void:
 func _refresh_obstacles() -> void:
 	if arena == null or not is_instance_valid(arena) or not arena.has_method("obstacles"):
 		return
+	if arena.has_method("playable_rect"):
+		_limit = (arena.playable_rect() as Rect2).grow(-BODY_RADIUS)
 	var half := float(OGRID) * OCELL * 0.5
 	var anchor := Vector3(floor(_center.x / OANCHOR_STEP) * OANCHOR_STEP - half, 0.0, floor(_center.z / OANCHOR_STEP) * OANCHOR_STEP - half)
 	if anchor == _o_anchor:

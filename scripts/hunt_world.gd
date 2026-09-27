@@ -8,11 +8,13 @@ const SKITTER = preload("res://scripts/skitter.gd")
 const BOG_KING = preload("res://scripts/bog_king.gd")
 const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
 const TUNING = preload("res://scripts/tuning.gd")
+const META_DATA = preload("res://scripts/meta/meta_data.gd")
 const FX = preload("res://scripts/fx.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
 const QUALITY = preload("res://scripts/quality.gd")
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
 const LOOT = preload("res://scripts/loot.gd")
+const LOOT_NODES = preload("res://scripts/loot_nodes.gd")
 const ERUPTIONS = preload("res://scripts/eruptions.gd")
 const APEX_BOSS = preload("res://scripts/apex_boss.gd")
 const APEX_TOAD = preload("res://scripts/apex_toad.gd")
@@ -89,6 +91,8 @@ var boss: Node3D
 # TUNING.CORPSE_LIFE; the biomass lies in the loot crystals (scripts/loot.gd).
 var corpse_view: Node3D
 var loot: Node3D
+# Stage 18c: breakable amber nodes of the exploration map (scripts/loot_nodes.gd).
+var loot_nodes: Node3D
 # Remains bookkeeping: id -> {"age", "life"}; remains_order oldest first.
 var remains := {}
 var remains_order: Array[int] = []
@@ -139,6 +143,8 @@ var last_hit_share := 1.0
 var nest: Node3D
 var totem: Node3D
 var objective_rng := RandomNumberGenerator.new()
+# Stage 18b: last clearing slot used per objective kind (the next one moves on).
+var _last_objective: Dictionary = {}
 var nest_clock := TUNING.NEST_FIRST_SECONDS
 var elite_clock := TUNING.ELITE_FIRST_SECONDS
 # True once this boss cycle had its totem roll; boss_cycles counts boss spawns.
@@ -248,6 +254,8 @@ func _ready() -> void:
 	_seed_objectives()
 	_ensure_objective_hud()
 	_ensure_flood_hud()
+	# Etappe 17: also the config-less first run (F5, tests) gets its start weapon.
+	_configure_run()
 	_create_attack_forms()
 	_create_horde()
 	_create_world_views()
@@ -292,6 +300,7 @@ func reset_run() -> void:
 	boss = null
 	corpse_view = null
 	loot = null
+	loot_nodes = null
 	eruptions = null
 	corpse_kinds.clear()
 	remains.clear()
@@ -329,7 +338,7 @@ func reset_run() -> void:
 	result_stored = false
 	evolve_flash = 0.0
 	evolve_name = ""
-	swarm.position = Vector3.ZERO
+	swarm.position = _start_point()
 	swarm.set_population(model.population, false)
 	_sync_leader()
 	swarm.clear_focus()
@@ -351,6 +360,10 @@ func _configure_run() -> void:
 	enemy_damage = 1.0
 	flood_start = _difficulty_flood_start()
 	if config.is_empty():
+		# Etappe 17: Waffen gibt es nur noch als Startwaffe und über Kokons. Ohne
+		# RunConfig (F5, Tests) trägt der Schwarm deshalb die Startwaffe des
+		# Standardstamms, wie jeder Run aus dem Menü (vorher kam sie per Level).
+		evolution.configure({"signature_attack": String(META_DATA.STRAINS[META_DATA.STRAIN_ORDER[0]].signature)})
 		return
 	model.configure(int(config.get("start_population", model.population)), float(config.get("pressure_doubling", TUNING.PRESSURE_DOUBLING_SECONDS)), int(config.get("leader_hp", TUNING.LEADER_HP)))
 	evolution.configure(config)
@@ -373,9 +386,30 @@ func _create_attack_forms() -> void:
 	_sync_attack_forms()
 
 
+# Etappe 17: Werte und Arsenal -> Waffen-Ränge, Waffen-Modifikatoren und die
+# Anführer-LP-Zulage (Anführerherz/Blutmond). Läuft erneut, sobald
+# evolution.revision steigt (Level-Wahl, Kokon, debug_grant).
+var progression_revision := -1
+var progression_hp := 0
+var _progression_model: RefCounted = null
+
+
 func _sync_attack_forms() -> void:
+	progression_revision = evolution.revision
 	if attack_forms != null and attack_forms.has_method("set_ranks"):
 		attack_forms.set_ranks(evolution.attack_ranks())
+		if attack_forms.has_method("set_modifiers"):
+			attack_forms.set_modifiers(evolution.form_modifiers())
+	if _progression_model != model:
+		_progression_model = model
+		progression_hp = 0
+	var bonus: int = evolution.leader_hp_bonus()
+	if bonus != progression_hp and not model.extinct:
+		var change := bonus - progression_hp
+		progression_hp = bonus
+		model.leader_max_hp = maxi(1, model.leader_max_hp + change)
+		model.leader_hp = clampi(model.leader_hp + maxi(0, change), 1, model.leader_max_hp)
+		_sync_leader()
 
 
 # ---------------------------------------------------------------- Die Flut
@@ -686,6 +720,12 @@ func step(delta: float) -> void:
 	_music_step()
 	if swarm.rally_pressed:
 		model.used_rally = true
+	# Etappe 17: Werte/Arsenal geändert (Level, Kokon) -> Waffen und LP nachziehen;
+	# Tempo aus Stamm, Sprinter, Relikten und Rally (Rudelhorn).
+	if evolution.revision != progression_revision:
+		_sync_attack_forms()
+		_try_evolve()
+	swarm.speed_multiplier = evolution.speed_multiplier(swarm.rally_pressed)
 	var message := "Jage Beute · Kristalle fliegen zu dir"
 	var pressure: float = model.pressure()
 	var attack_range := 1.15 if swarm.rally_pressed else 1.5
@@ -995,7 +1035,7 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 		_:
 			return false
 	model.record_kill(kind)
-	_note_kills(1)
+	_note_kills(1, 1.0, location)
 	if kind == "apex":
 		# The body sinks into the ground (apex_boss DEAD pose) before it is freed.
 		apex_dying = enemy
@@ -1014,7 +1054,27 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 func _spawn_position(radius: float) -> Vector3:
 	spawn_number += 1
 	var angle := float(spawn_number) * 2.39996323
-	return get_parent().get_node("Arena").safe_spawn(swarm.position + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius), 0.9)
+	var arena: Node3D = get_parent().get_node("Arena")
+	var point: Vector3 = swarm.position + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+	# Stage 18b: on the path map an open, reachable spot near that ring point
+	# (never behind a thick wall).
+	if arena.has_method("spawn_point_near") and arena.has_layout():
+		var near: Vector3 = arena.spawn_point_near(swarm.position, radius, angle, 0.9)
+		if near.is_finite():
+			return arena.safe_spawn(near, 0.9)
+	# Stage 18: a ring point beyond the map edge is mirrored to the inner side.
+	if arena.has_method("fold_inside"):
+		point = arena.fold_inside(point, 1.5)
+	return arena.safe_spawn(point, 0.9)
+
+
+# Stage 18: the swarm starts in the middle of the bounded map (solo: the origin).
+func _start_point() -> Vector3:
+	var arena: Node3D = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	if arena == null or not arena.has_method("spawn_points"):
+		return Vector3.ZERO
+	var points: Array = arena.spawn_points(1)
+	return Vector3(points[0].x, 0.0, points[0].z)
 
 
 func _spawn_prey(location: Vector3) -> void:
@@ -1084,7 +1144,7 @@ func _kill_prey(target: Node3D) -> void:
 	_kill_burst(target.position, Color("7de6d2"), 1.8, 0.0)
 	_drop_rewards(target.position, "prey", CORPSE_BIOMASS, KILL_DNA.prey)
 	model.record_kill("prey")
-	_note_kills(1)
+	_note_kills(1, 1.0, target.position)
 	target.queue_free()
 
 
@@ -1165,6 +1225,10 @@ func _create_world_views() -> void:
 	loot.name = "Loot"
 	add_child(loot)
 	loot.setup(get_parent().get_node_or_null("Arena") as Node3D)
+	loot_nodes = LOOT_NODES.new()
+	loot_nodes.name = "LootNodes"
+	add_child(loot_nodes)
+	loot_nodes.setup(self, get_parent().get_node_or_null("Arena") as Node3D)
 	eruptions = ERUPTIONS.new()
 	eruptions.name = "Eruptions"
 	eruptions.arena = get_parent().get_node_or_null("Arena") as Node3D
@@ -1183,8 +1247,16 @@ func _piece(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -
 
 # ---------------------------------------------------------------- Alpha-Kern
 
+# Etappe 17: der Alpha-Kern entfällt als Ressource (Evolutionen kommen aus dem
+# Boss-Kokon, Welle 2 ersetzt die Drops durch Elite-/Boss-Kokons). Nur Tests und
+# Aufnahmen schalten das alte Objekt noch ein.
+var alpha_cores_enabled := false
+
+
 # Drops a glowing amber-violet core beside the corpse; it stays until touched.
 func _drop_alpha_core(location: Vector3) -> Node3D:
+	if not alpha_cores_enabled:
+		return null
 	var offset := Vector3(1.3, 0.0, 0.0).rotated(Vector3.UP, drop_rng.randf() * TAU)
 	var pickup := Node3D.new()
 	pickup.name = "Alpha core"
@@ -1410,7 +1482,25 @@ func begin_apex_warning() -> void:
 	apex_kind = apex_kind_for(biome_id)
 	var radius: float = APEX_TOAD.BODY_RADIUS if apex_kind == "apex_toad" else TUNING.APEX_BODY_RADIUS
 	var arena: Node3D = get_parent().get_node("Arena")
-	apex_spot = arena.safe_spawn(swarm.position + Vector3(0.0, 0.0, -TUNING.APEX_SPAWN_DISTANCE), radius + 0.5)
+	# Stage 18: in front of the swarm, mirrored inwards at the map edge, with room
+	# for the fight between the apex and the wall.
+	var ahead: Vector3 = swarm.position + Vector3(0.0, 0.0, -TUNING.APEX_SPAWN_DISTANCE)
+	if arena.has_method("fold_inside"):
+		ahead = arena.fold_inside(ahead, radius + 6.0)
+	# Stage 18b: on the path map the apex rises in the boss arena (the nearest
+	# one) and comes along the paths; standing in the arena already, the swarm
+	# gets it on the far side.
+	var arenas: Array = arena.poi_slots("boss") if arena.has_method("poi_slots") else []
+	if not arenas.is_empty():
+		ahead = arenas[0]
+		for spot in arenas:
+			if swarm.position.distance_to(spot) < swarm.position.distance_to(ahead):
+				ahead = spot
+		var off: Vector3 = ahead - swarm.position
+		off.y = 0.0
+		if off.length() < TUNING.APEX_SPAWN_DISTANCE:
+			ahead = swarm.position + (off.normalized() if off.length() > 0.5 else Vector3(0.0, 0.0, -1.0)) * TUNING.APEX_SPAWN_DISTANCE
+	apex_spot = arena.safe_spawn(ahead, radius + 0.5)
 	apex_spot.y = 0.0
 	_sfx("quake", 160)
 	_shake(0.3)
@@ -1509,7 +1599,18 @@ func _apex_defeated(location: Vector3, toad: bool = false) -> void:
 	if away.length_squared() < 0.01:
 		away = Vector3(0.0, 0.0, -1.0)
 	var arena: Node3D = get_parent().get_node("Arena")
-	portal_point = arena.safe_spawn(location + away.normalized() * TUNING.APEX_PORTAL_OFFSET, TUNING.MIGRATION_RADIUS + 0.5)
+	var behind := location + away.normalized() * TUNING.APEX_PORTAL_OFFSET
+	if arena.has_method("fold_inside"):
+		behind = arena.fold_inside(behind, TUNING.MIGRATION_RADIUS + 3.0)
+	# Stage 18b: on the path map the Migrationsschlund opens in its own clearing
+	# near the map edge (away from the boss arena): the way there is the last
+	# stretch of the biome. Only a kill right at that spot keeps the old rule.
+	var maws: Array = arena.poi_slots("maw") if arena.has_method("poi_slots") else []
+	if not maws.is_empty():
+		var maw_spot: Vector3 = maws[0]
+		if maw_spot.distance_to(location) > TUNING.MIGRATION_RADIUS + 8.0:
+			behind = maw_spot
+	portal_point = arena.safe_spawn(behind, TUNING.MIGRATION_RADIUS + 0.5)
 	portal_point.y = 0.0
 	portal_clock = TUNING.APEX_PORTAL_DELAY
 	if apex_dying != null:
@@ -1603,7 +1704,21 @@ func _step_migration(delta: float) -> void:
 func _arrive() -> void:
 	migration_switched = true
 	var at: Vector3 = portal.position if portal != null else swarm.position
+	# Stage 18: the next biome is a new map of the same size; the arrival point
+	# stays a clearing inside it.
+	var map: Node3D = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	if map != null and map.has_method("prepare_arrival"):
+		at = map.prepare_arrival(at)
 	_set_world_biome(migration_to, true)
+	if map != null and map.has_method("safe_spawn"):
+		var landing: Vector3 = map.safe_spawn(Vector3(swarm.position.x, 0.0, swarm.position.z), 1.5)
+		swarm.position = Vector3(landing.x, swarm.position.y, landing.z)
+	# Stage 18b: the new map has other walls - an objective left on its old spot
+	# moves to the nearest open ground (enemies are pushed out as they move).
+	if map != null and map.has_method("has_layout") and map.has_layout():
+		for objective in [nest, totem]:
+			if objective != null and is_instance_valid(objective):
+				objective.position = map.safe_spawn(objective.position, 3.0)
 	migrations += 1
 	arrivals += 1
 	# One apex per biome visit: the new biome's apex rises APEX_ARRIVAL_DELAY s
@@ -1714,7 +1829,7 @@ func _step_objectives(delta: float, message: String) -> String:
 	if nest == null:
 		nest_clock -= delta
 		if nest_clock <= 0.0:
-			spawn_nest(_objective_position(TUNING.NEST_RADIUS, [totem]))
+			spawn_nest(_objective_position(TUNING.NEST_RADIUS, [totem], "nest"))
 	if nest != null:
 		var share := 0.0
 		var points := _unit_points()
@@ -1733,7 +1848,7 @@ func _step_objectives(delta: float, message: String) -> String:
 	if boss == null and totem == null and curse_state == 0 and not totem_offered and boss_clock <= TUNING.TOTEM_LEAD_SECONDS and boss_clock >= TUNING.TOTEM_MIN_LEAD_SECONDS:
 		totem_offered = true
 		if boss_cycles == 0 or objective_rng.randf() < TUNING.TOTEM_CHANCE:
-			spawn_totem(_objective_position(TUNING.TOTEM_RADIUS + 0.6, [nest]))
+			spawn_totem(_objective_position(TUNING.TOTEM_RADIUS + 0.6, [nest], "totem"))
 	if totem != null:
 		if totem.hold_step(delta, swarm.position):
 			_accept_curse()
@@ -1831,8 +1946,27 @@ func _on_boss_spawned(target: Node3D) -> void:
 
 # Seeded point 14-22 m from the swarm on open ground, away from the start and
 # from the other objective. `clearance` is the radius that must stay open.
-func _objective_position(clearance: float, avoid: Array) -> Vector3:
+# Stage 18b: on the path map a nest / totem sits in a clearing of its type -
+# the nearest slot at least OBJECTIVE_MIN_DISTANCE away, never the last one.
+func _objective_position(clearance: float, avoid: Array, kind: String = "") -> Vector3:
 	var arena: Node3D = get_parent().get_node("Arena")
+	var slots: Array = arena.poi_slots(kind) if kind != "" and arena.has_method("poi_slots") else []
+	var pick := Vector3.INF
+	for spot in slots:
+		var flat := Vector3(spot.x, 0.0, spot.z)
+		if flat.distance_to(Vector3(swarm.position.x, 0.0, swarm.position.z)) < TUNING.OBJECTIVE_MIN_DISTANCE:
+			continue
+		if _last_objective.get(kind, Vector3.INF) == flat and slots.size() > 1:
+			continue
+		var blocked := false
+		for other in avoid:
+			if other != null and is_instance_valid(other) and other.position.distance_to(flat) < 9.0:
+				blocked = true
+		if not blocked and (not pick.is_finite() or swarm.position.distance_to(flat) < swarm.position.distance_to(pick)):
+			pick = flat
+	if pick.is_finite():
+		_last_objective[kind] = pick
+		return arena.safe_spawn(pick, clearance)
 	var fallback := Vector3.ZERO
 	for attempt in 40:
 		var angle := objective_rng.randf() * TAU
@@ -2144,6 +2278,9 @@ func _step_loot(delta: float, message: String) -> String:
 	if loot == null:
 		return message
 	loot.flood = flood_state == 2
+	# Stage 18c: a Mawling touching an amber node breaks it into crystals.
+	if loot_nodes != null and not model.extinct:
+		loot_nodes.step(swarm.position, _unit_points())
 	var room: bool = model.biomass_capacity() > 0.0
 	var got: Dictionary = loot.step(delta, swarm.position, magnet_radius(), _unit_points(), room)
 	if loot.lures_taken > 0:
@@ -2228,7 +2365,8 @@ func drop_lure(location: Vector3) -> Node3D:
 
 # Rare Lockruf from ordinary hunters/skitters/leapers once enough crystals lie around.
 func _maybe_lure(location: Vector3) -> void:
-	if loot != null and loot.lying_count() >= TUNING.LURE_MIN_LYING and drop_rng.randf() < TUNING.LURE_CHANCE:
+	# Etappe 17: Magnetkern (Relikt) macht Lockrufe häufiger.
+	if loot != null and loot.lying_count() >= TUNING.LURE_MIN_LYING and drop_rng.randf() < TUNING.LURE_CHANCE * evolution.lure_multiplier():
 		drop_lure(location)
 
 
@@ -2342,9 +2480,13 @@ func _sync_leader() -> void:
 # Etappe 10 (INHALT) - Regeneration: every kill counts towards leader LP
 # (evolution.note_kills); healing is capped at leader_max_hp.
 # Etappe 10 Teil 2: Moorbrut zählt nur `weight` Kill, höchstens 1 LP je REGEN_GAP s.
-func _note_kills(count: int, weight: float = 1.0) -> void:
+# Etappe 17: der Kill-Hook bündelt auch Königszahnkette (in note_kills) sowie
+# Sporenherz/Pilzreich (Sporenwolke an `at`, attack_forms.on_kill).
+func _note_kills(count: int, weight: float = 1.0, at: Vector3 = Vector3.INF) -> void:
 	if count <= 0 or model.extinct or not evolution.has_method("note_kills"):
 		return
+	if at != Vector3.INF and attack_forms != null and attack_forms.has_method("on_kill"):
+		attack_forms.on_kill(at, evolution.roll_kill_burst())
 	var healed: int = evolution.note_kills(count, weight, model.elapsed)
 	if healed <= 0:
 		return
@@ -2358,6 +2500,15 @@ func _note_kills(count: int, weight: float = 1.0) -> void:
 
 # New Mawlings grew from biomass: cell division, milestones (+1 LP per 25).
 func _on_growth(count: int) -> void:
+	# Etappe 17 – Zellteilungs-Hook (Zwillingsbrut): jede N-te Teilung ergibt ein
+	# zweites Tier (ohne Biomasse-Kosten, bis zum Limit).
+	var twins: int = evolution.note_divisions(count) if evolution.has_method("note_divisions") else 0
+	if twins > 0:
+		var before: int = model.population
+		model.absorb(float(twins) * TUNING.BIOMASS_PER_MAWLING)
+		if model.population > before:
+			count += model.population - before
+			swarm.set_population(model.population)
 	if swarm.has_method("split_new_units"):
 		# The plop plays in swarm.gd at the moment each cell pinches off (throttled).
 		swarm.split_new_units(count)
@@ -2578,8 +2729,9 @@ func _shake(amount: float) -> void:
 		get_parent().add_shake(amount)
 
 
+# Etappe 17: auch eine offene Boss-Kokon-Wahl (evolution.chest_offers) hält die Welt an.
 func choosing() -> bool:
-	return not evolution.offers.is_empty()
+	return not evolution.offers.is_empty() or not evolution.chest_offers.is_empty()
 
 
 func _award_dna(amount: int) -> void:
@@ -2591,6 +2743,14 @@ func _award_dna(amount: int) -> void:
 
 
 func choose_mutation(slot: int) -> void:
+	# Etappe 17: während der Boss-Kokon-Wahl wählt dieselbe Karte die Beute.
+	if not evolution.chest_offers.is_empty():
+		if paused or model.extinct or evolution.choose_chest(slot).is_empty():
+			return
+		_after_offer_change("Beute aktiv · weiter jagen!")
+		_sfx("mutate")
+		_try_evolve()
+		return
 	if paused or model.extinct or not evolution.choose(slot):
 		return
 	_after_offer_change("Mutation aktiv · weiter jagen!")

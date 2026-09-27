@@ -171,7 +171,8 @@ func _run() -> void:
 		elite.health = 0.0
 		world._resolve_death(elite, "hunter")
 		world.evolution.offers.clear()
-		_check(world.alpha_pickups.size() == cores + 1, "Elite always drops an Alpha-Kern")
+		# Etappe 17: kein Alpha-Kern mehr (Welle 2: Elite-Kokon).
+		_check(world.alpha_pickups.size() == cores, "Elite drops no Alpha-Kern any more")
 		_check(int(round(world.loot.total(1) - elite_dna)) == TUNING.ELITE_DNA, "Elite drops %d DNA" % TUNING.ELITE_DNA)
 		_check(world.loot.lures.size() >= 1, "Elite always drops a Lockruf")
 

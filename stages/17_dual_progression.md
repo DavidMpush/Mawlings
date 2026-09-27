@@ -151,3 +151,33 @@ Kurze Booster als Aufsammel-Objekte, die das Spiel dynamischer machen. Sie werde
 4. Evolution über Waffe 5 + Relikt + Boss-Kokon.
 5. Tests: neue Tests `progression_stats`, `arsenal`, `chests`, `powerups`; alle bestehenden angepasst und grün; Balance-Zielkurven eingehalten.
 6. Captures: Level-up mit seltener Karte, Kokon mit Preis, Öffnungsmoment je Seltenheit, Boss-Kokon-Auswahl, HUD mit 4 Waffen und Relikten.
+
+## Ergebnis Welle 1 – Datenschicht und Level-Spur (27.09.2026)
+
+### Umgesetzt
+- **Werte** (`scripts/progression/stats.gd`): 14 Werte, 5 Ränge, Seltenheitswurf 70/22/7/1 mit Glück (+10 % relativ je Punkt), `roll_offers(rng, luck, pool, banished, exclude)`. Rang = Anzahl Wahlen, „Wert“ = Summe der Seltenheitsfaktoren (Wirkung = Basis × Wert). Alte Anlagen-IDs werden abgebildet (`jaws→bite`, `pack→rally`, `scatter→evade`, `glutton/brood→brood`, `lockduft→magnet`, `regeneration→regen`).
+- **Arsenal** (`scripts/progression/arsenal.gd`): 10 Waffen, 20 Relikte (6/7/4/3), 6 Evolutionsregeln, 4 Plätze (+Urmutter, +Meta-Waffenplatz), `roll_chest(rng, luck, kind)`, `grant(item)`, `evolution_ready()`, `chest_price(luck)`. Waffen-Seltenheit = Rang-Sprung (gewöhnlich/selten +1, episch +2, legendär +3).
+- **Waffen** (`scripts/attack_forms.gd`): Ränge 1–5 für die 7 Formen (Rang 1–3 wie bisher, Sprünge: Rudelbiss Folgesprung/Betäubung, Sporen +30 % Fläche/starke Lähmung, Säure Doppelsalve/Durchschlag, Stacheln +50 %/Stachelsalve, Gräber 2 Stöße/Nachbeben, Blitzbiss +2 Ziele/keine Abschwächung, Brutsack 2 Blasen/langlebige Beißer). Neu **Klauenwirbel** (kreisende Klingen mit Glutschweif), **Giftbiss** (zuschnappende Fänge, Gift als DoT mit Bodenring und Blasen, Rang 5 springt über), **Schallbrüller** (Schallbögen im Kegel, Rückstoß leichter Gegner, Rang 5 doppelter Kegel). Neue Evolutionen **Pilzreich** und **Dornenwall** sind gebaut. Alles über FX-Batches (je Effekt ein Draw-Call).
+- **Relikte:** alle 20 wirken; Hooks gebündelt in `evolution.gd` (`note_kills`, `note_divisions`, `roll_kill_burst`, `form_modifiers`, Multiplikatoren) plus `attack_forms.on_kill/spore_burst`. HuntWorld ruft sie an genau einer Stelle je Hook.
+- **Fassade** `scripts/evolution.gd`: Level geben nur Werte; `offers` = `[id, Name, Text, Seltenheit]`. Alpha-Kern ist Stub (`add_alpha_core` leer, Drops aus, `hunt_world.alpha_cores_enabled` nur für Tests). `debug_grant(id, rarity)`.
+- **Mutation-Screen:** Seltenheitsrand (neutral/info/special/loot + Glanz), Chip, Wert vorher → nachher, 5 Rang-Punkte; Modus `chest` (Boss-Kokon) mit Waffe/Relikt/Evolution, Rang- bzw. Stapelwechsel und Evolutions-Pille.
+- **Meta:** neue Pools (`TRAIT_IDS`, `START_WEAPONS`, `START_RELICS`), Token `weapon:`/`relic:`, Trophäen umgestellt, neue Relikt-Freischaltungen (Urmutter: boss_5, Blutmond: kills_2000, Schlundherz: Moosschlund), Evolutions-Trophäen Pilzreich/Dornenwall. Profile migrieren alte IDs und tragen Relikte früher erfüllter Trophäen nach. „Anlagenslot“ heißt jetzt „Mutationswurf“ (+1 Neu würfeln je Rang), „Angriffsslot“ „Waffenplatz“.
+
+### API für Welle 2
+- `evolution.open_chest(kind)` → map/elite: Beute sofort (`granted`), zählt den Preis hoch; boss: füllt `chest_offers`, die Welt hält an (`HuntWorld.choosing()`), `HuntWorld.choose_mutation(slot)` wählt die Beute (auch per Tap/1-2-3). `evolution.chest_price()`, `evolution.roll_chest(kind)`, `evolution.grant(item)`, `evolution.evolution_ready()`.
+- Jede Änderung erhöht `evolution.revision`; HuntWorld synchronisiert dann Waffen, Modifikatoren, Anführer-LP und zeigt eine neue Evolution (`try_evolve()` liefert sie einmal).
+- Power-ups: `evolution.boosts` (`damage`, `speed`, `magnet`, `cooldown`, `loss`, `leader_immune` – letzteres noch ohne Wirkung, Welle 2 schließt es im Treffer-Pfad an).
+- Elite-/Boss-Drops: die alten `_drop_alpha_core`-Stellen in `hunt_world._resolve_death` sind die Einhängepunkte für Elite- und Boss-Kokon.
+
+### Balance (ohne Kokons, 3 Stämme × 6 Seeds, greedy)
+Ohne Waffen-Aufstieg fiel der Wild-Median auf ~230 s. Ausgleich: Startwaffe auf Rang 4 (`SIGNATURE_START_RANK`) und einige Werte über Konzept (Biss 12, Kritbiss 5, Tempo 8, Reichweite 10, Rudelinstinkt 12, Panzer/Flucht 8, Brutrate 10 %). Ergebnis: Wild 503 s (Wachstum 9,5/38,5/133 ok), Brutal 307 s ok, Apex 226 s ok. Offen: Stammspreizung (Knochenkiefer mit passivem Stachelrücken deutlich schwächer, Sporling stärker), einzelne 900-s-Läufe auf Wild. Welle 2 muss mit Kokons neu balancieren und `SIGNATURE_START_RANK` voraussichtlich auf 1 senken. Die Messungen liefen parallel zu Umbauten des Karten-Agenten und sind deshalb verrauscht.
+
+### Tests und Bilder
+- Neu: `tests/progression_stats.gd`, `tests/arsenal.gd` (in `tools/test.ps1`). Angepasst: evolution, run_config, attack_forms (+ neue Waffen/Relikte/Evolutionen), forms_extra, meta, loot_magnet, sfx, sfx_hooks, migration, toad_run, apex_run, objectives, perf_bench, Captures.
+- Bilder: `preview_ui_mutations_rarity|legendary|long|levelup|flash|chest|chest_ranks[_540].png` (`tests/capture_ui_mutations.gd`), `preview_weapons17_*.png` (`tests/capture_weapons17.gd`).
+
+### Offen
+- Icons fehlen (Prompts in `stages/ICON_REQUESTS.md`); Klauenwirbel, Giftbiss, Schallbrüller und Glutdrüse zeigen eine Buchstaben-Plakette.
+- HUD oben zeigt Waffen-Medaillons noch mit 3 Rangpunkten, keine Relikt-Leiste (Welle 2, `hud_top.gd`).
+- Kritbiss wirkt als Erwartungswert (keine sichtbaren Krit-Treffer).
+- Schallbrüller schiebt nur Gegner mit `slow_factor` (Nibbler, Jäger, Skitter), nie Bosse/Leaper.

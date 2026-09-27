@@ -128,12 +128,12 @@ func _combo(title: String, body: String) -> void:
 	await create_timer(1.4).timeout
 	frames.hud = await _grab()
 
-	evo.ranks = {"scatter": 1, "rudelbiss": 0}
+	evo.ranks = {"evade": 1, "rudelbiss": 1}
 	evo.rerolls = 1
 	evo.banishes = 1
 	evo.skips = 1
 	evo.dna = maxi(evo.dna, evo.threshold() * 3)
-	evo.offers = [evo.info("scatter"), evo.info("rudelbiss"), evo.info("glutton")]
+	evo.offers = [evo.info("evade") + ["rare"], evo.info("reach") + ["common"], evo.info("brood") + ["epic"]]
 	world._update_hud("")
 	await create_timer(1.2).timeout
 	frames.mut = await _grab()

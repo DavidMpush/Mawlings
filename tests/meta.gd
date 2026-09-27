@@ -55,11 +55,18 @@ func _run() -> void:
 	for key in ["damage", "armor", "speed", "harvest", "dna", "growth"]:
 		check(config.mods.has(key), "Mods key %s" % key)
 	check(config.start_population == 1 and config.tint is Color and config.signature_attack == "rudelbiss", "Glutmaw base")
-	check(config.slots.attack == 2 and config.slots.trait == 3, "Base slots")
+	check(config.slots.attack == 4 and config.slots.trait == 14, "Base slots (4 weapons, stats unlimited)")
 	check(is_equal_approx(config.pressure_doubling, float(DATA.DIFFICULTIES[0].pressure_doubling)) and is_equal_approx(config.enemy_hp, float(DATA.DIFFICULTIES[0].enemy_hp)), "Wild difficulty")
-	for id in ["jaws", "brood", "glutton", "pack", "scatter", "armor", "rudelbiss", "sporenwolke"]:
+	# Etappe 17: ein Pool mit Werten, Waffen und Relikten.
+	for id in ["bite", "crit", "brood", "rally", "evade", "armor", "luck", "rudelbiss", "sporenwolke", "klauenwirbel", "giftbiss", "schallbrueller", "hungerstein", "magnetkern"]:
 		check(config.pool.has(id), "Start pool has %s" % id)
-	check(not config.pool.has("saeurespucker") and not config.pool.has("stachelruecken"), "Locked forms not in pool")
+	for id in ["saeurespucker", "stachelruecken", "regen", "dornenhaut", "urmutter", "blutmond", "schlundherz", "jaws"]:
+		check(not config.pool.has(id), "Locked or old id not in pool: %s" % id)
+	check(DATA.migrate_token("mutation:graeber") == "weapon:graeber" and DATA.migrate_token("mutation:dornenhaut") == "relic:dornenhaut" and DATA.migrate_token("mutation:regeneration") == "mutation:regen", "Old unlock tokens migrate")
+	check(DATA.unlock_label("weapon:giftbiss") == "Neue Waffe: Giftbiss" and DATA.unlock_label("relic:urmutter") == "Neues Relikt: Urmutter", "Weapon/relic unlock labels")
+	for q in DATA.QUESTS:
+		for token in q.reward.get("unlock", []):
+			check(DATA.migrate_token(String(token)) == String(token), "Quest %s uses a current token (%s)" % [q.id, token])
 	var spore: Dictionary = p.build_run_config("sporling", "verdant_maw", 0)
 	check(spore.start_population == 1 and is_equal_approx(spore.mods.growth, 1.3) and is_equal_approx(spore.mods.damage, 0.85), "Sporling mods")
 
@@ -167,6 +174,18 @@ func _run() -> void:
 	file.store_string("{\"version\":1,\"records\":{\"total_apex\":1,\"total_toads\":3}}")
 	file.close()
 	check(PROFILE.load_or_create(TEST_PATH).records.total_moss == 0, "Migration never goes negative")
+	# Etappe 17: alte Freischaltungen (Anlagen-IDs) werden migriert, Relikte aus früher
+	# erfüllten Trophäen nachgetragen.
+	file = FileAccess.open(TEST_PATH, FileAccess.WRITE)
+	file.store_string("{\"version\":1,\"unlocked_mutations\":[\"rudelbiss\",\"jaws\",\"regeneration\",\"graeber\",\"dornenhaut\"],\"completed_quests\":[\"boss_5\"],\"upgrades\":{\"trait_slot\":2}}")
+	file.close()
+	var legacy = PROFILE.load_or_create(TEST_PATH)
+	for id in ["bite", "regen", "graeber", "dornenhaut", "urmutter"]:
+		check(legacy.unlocked_mutations.has(id), "Legacy profile unlocks %s" % id)
+	check(not legacy.unlocked_mutations.has("jaws") and not legacy.unlocked_mutations.has("regeneration"), "Old ids are gone after migration")
+	var legacy_config: Dictionary = legacy.build_run_config("glutmaw", "verdant_maw", 0)
+	check(legacy_config.pool.has("regen") and legacy_config.pool.has("graeber") and legacy_config.pool.has("urmutter"), "Migrated unlocks reach the pool")
+	check(legacy_config.rerolls == DATA.BASE_REROLLS + 2, "Old Anlagenslot ranks become rerolls")
 	_clean()
 	var missing = PROFILE.load_or_create(TEST_PATH)
 	check(missing.essence == 0 and not FileAccess.file_exists(TEST_PATH), "Missing file is not an error")
@@ -176,5 +195,5 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 	else:
-		print("PASS meta: data, config fields, upgrades, quests once, strain unlock+buy, difficulty lock, save/load, broken file, apex trophies + total_moss migration")
+		print("PASS meta: data, config fields, upgrades, quests once, strain unlock+buy, difficulty lock, save/load, broken file, apex trophies + total_moss migration, stage 17 pools + unlock migration")
 		quit(0)

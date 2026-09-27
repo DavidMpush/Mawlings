@@ -47,7 +47,7 @@ func _capture() -> void:
 	hud.movement_vector = Vector2(0.7, -0.7)
 	hud.hint = ""
 	hud.alpha_cores = 1
-	world.evolution.ranks = {"saeurespucker": 2, "sporenwolke": 1, "jaws": 1}
+	world.evolution.ranks = {"saeurespucker": 2, "sporenwolke": 1, "bite": 1}
 	hud.queue_redraw()
 	# UI components animate in; give them time before each frame.
 	await create_timer(1.6).timeout
@@ -55,7 +55,7 @@ func _capture() -> void:
 	root.get_texture().get_image().save_png("res://preview_design_busy.png")
 	hud.rally_pressed = false
 	hud.movement_vector = Vector2.ZERO
-	world.evolution.offers = [world.evolution.ATTACKS[2], world.evolution.TRAITS[4], world.evolution.ATTACKS[0]]
+	world.evolution.offers = [world.evolution.info("bite") + ["rare"], world.evolution.info("evade") + ["common"], world.evolution.info("brood") + ["epic"]]
 	world.evolution.rerolls = 1
 	world.evolution.skips = 1
 	world.evolution.banishes = 1

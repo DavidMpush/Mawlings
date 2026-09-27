@@ -67,6 +67,26 @@ Gemeinsamer Zusatz: `Original tiny alien pack predator leader, compact low body,
 | Anlagen-Icons ×2 (Regeneration, Dornenhaut) | 1254×1254 | `glowing heart-shaped amber core with a regrowing leaf` · `thorny bark skin plate with sharp spikes` |
 | Währungen (Essenz, Königszahn) | 512×512 | `violet glowing essence drop` · `large ivory king's tooth with a small gold crown band` |
 
+## A – Wüstenwelt „Dürrschlund“ (Nutzerwunsch 27.09.2026)
+
+Jeweils an die 3D-Vorlage oben anhängen. Referenzbild zuerst erzeugen, dann Hunyuan3D, GLB nach `assets/`.
+
+| Asset | Motivzusatz |
+|---|---|
+| **Sandwurm (Endboss)** | `Original colossal desert sandworm boss, segmented armored body in sandstone and bone-white plates, huge round maw at the front with rings of inward-pointing teeth, small glowing amber eyes around the maw, rough sand clinging to the segments, body rising in an S-curve out of a mound of sand, only the front half visible.` |
+| Sandwurm-Maul (Durchbruch) | `One huge round worm maw bursting vertically out of cracked desert ground, rings of teeth, sand and rocks flying, seen from slightly above.` |
+| Sandmade (kleiner Gegner) | `Original tiny desert grub creature, pale sand-colored segmented body, small round mouth with teeth, four stubby legs, amber eyes.` |
+| Riesenrippen (Wand/Engpass) | `Group of giant bleached rib bones arching out of desert sand like a fence, partly buried, cracked and weathered.` |
+| Sandstein-Klippe | `One chunky sandstone cliff block with layered stripes in ochre and rust, flat top, a few cracks, low and wide.` |
+| Felsbogen | `One natural sandstone rock arch, wide enough to walk under, weathered layers, small desert shrubs at the base.` |
+| Dornbusch/Kaktus | `One stylized desert thorn bush with a few round cactus pads and small pink flowers, compact silhouette.` |
+| Oasen-Palme | `One small stylized oasis palm with a curved trunk and a round crown of broad leaves, a few rocks at the base.` |
+| Knochenschädel (Landmarke) | `One giant half-buried beast skull in desert sand, horned, bleached bone, sand spilling from the eye sockets.` |
+
+2D:
+- Biom-Karte „Dürrschlund“ (1024×512, 2D-Illustration + `Wide landscape vignette of a stylized desert canyon with ochre dunes, giant bleached rib bones, a turquoise oasis and a sand trail of a buried worm.`)
+- Boss-Porträt Sandwurm (512×512, Stil siehe `stages/ICON_REQUESTS.md`).
+
 ## C – später
 - Store-Screenshots-Hintergründe, Trailer-Endkarte, Trophäen-Abzeichen-Rahmen (Bronze/Silber/Gold), Ladebildschirm.
 

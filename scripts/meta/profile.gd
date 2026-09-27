@@ -147,6 +147,23 @@ func _apply(d: Dictionary) -> void:
 	_merge_strings(completed_quests, d.get("completed_quests"), [])
 	_merge_strings(unlocked_upgrades, d.get("unlocked_upgrades"), DATA.UPGRADES.keys())
 	_merge_strings(unlocked_mutations, d.get("unlocked_mutations"), [])
+	# Etappe 17: alte Anlagen-IDs (jaws, regeneration, …) auf die neuen Werte abbilden.
+	var migrated: Array = []
+	for id in unlocked_mutations:
+		var mapped := DATA.migrate_id(String(id))
+		if not migrated.has(mapped):
+			migrated.append(mapped)
+	unlocked_mutations = migrated
+	# Neue Inhalts-Freischaltungen früher erfüllter Trophäen nachtragen (z. B. Relikte).
+	for q in DATA.QUESTS:
+		if not completed_quests.has(q.id):
+			continue
+		for token in q.reward.get("unlock", []):
+			var parts := String(token).split(":", true, 1)
+			if parts.size() == 2 and parts[0] in ["mutation", "weapon", "relic"]:
+				var id := DATA.migrate_id(parts[1])
+				if not unlocked_mutations.has(id):
+					unlocked_mutations.append(id)
 	_merge_strings(seen_tips, d.get("seen_tips"), [])
 	var diffs: Variant = d.get("unlocked_difficulties")
 	if diffs is Array:
@@ -366,12 +383,14 @@ func build_run_config(strain_id: String, biome_id: String, difficulty: int, run_
 		# Etappe 16: Witterung vergrößert den Magnetradius der Beute-Kristalle.
 		"magnet": 1.0 + 0.08 * upgrade_rank("witterung"),
 	}
+	# Etappe 17: ein Pool mit Werten, Waffen und Relikten; evolution.gd teilt ihn auf.
 	var pool: Array[String] = []
-	for id in DATA.TRAIT_IDS:
-		pool.append(id)
+	for id in DATA.start_pool():
+		pool.append(String(id))
 	for id in unlocked_mutations:
-		if not pool.has(id):
-			pool.append(id)
+		var mapped := DATA.migrate_id(String(id))
+		if not pool.has(mapped):
+			pool.append(mapped)
 	var signature := String(strain.signature)
 	if not pool.has(signature):
 		pool.append(signature)
@@ -384,8 +403,9 @@ func build_run_config(strain_id: String, biome_id: String, difficulty: int, run_
 		"enemy_hp": float(diff.enemy_hp), "enemy_damage": float(diff.enemy_damage),
 		"pressure_doubling": float(diff.pressure_doubling),
 		"slots": {"attack": int(DATA.BASE_SLOTS.attack) + upgrade_rank("attack_slot"),
-			"trait": int(DATA.BASE_SLOTS.trait) + upgrade_rank("trait_slot")},
-		"rerolls": DATA.BASE_REROLLS + bonus_rerolls,
+			"trait": int(DATA.BASE_SLOTS.trait)},
+		# Etappe 17: "Mutationswurf" (ehemals Anlagenslot) = +1 Neu würfeln je Rang.
+		"rerolls": DATA.BASE_REROLLS + bonus_rerolls + upgrade_rank("trait_slot"),
 		"banishes": DATA.BASE_BANISHES + bonus_banishes,
 		"skips": DATA.BASE_SKIPS + bonus_skips,
 		"pool": pool,
@@ -455,7 +475,9 @@ func _apply_unlock(token: String) -> bool:
 			if DATA.UPGRADES.has(arg) and not unlocked_upgrades.has(arg):
 				unlocked_upgrades.append(arg)
 				return true
-		"mutation":
+		"mutation", "weapon", "relic":
+			# Etappe 17: Werte, Waffen und Relikte teilen sich eine Freischaltliste.
+			arg = DATA.migrate_id(arg)
 			if arg != "" and not unlocked_mutations.has(arg):
 				unlocked_mutations.append(arg)
 				return true
@@ -469,7 +491,7 @@ func _apply_unlock(token: String) -> bool:
 			bonus_skips += 1
 			return true
 	# Known kinds that were already unlocked simply change nothing.
-	if not parts[0] in ["strain", "difficulty", "upgrade", "mutation"]:
+	if not parts[0] in ["strain", "difficulty", "upgrade", "mutation", "weapon", "relic"]:
 		push_warning("Unbekannte Freischaltung: %s" % token)
 	return false
 

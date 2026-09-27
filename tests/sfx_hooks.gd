@@ -91,7 +91,7 @@ func _check_hooks() -> void:
 	_expect("quake", "apex QUAKE wind-up")
 
 	_fresh()
-	world.evolution.ranks["regeneration"] = 3
+	world.evolution.ranks["regen"] = 3
 	world.model.leader_hp = maxi(1, world.model.leader_max_hp - 1)
 	world._note_kills(40)
 	_expect("regen", "regeneration heal")

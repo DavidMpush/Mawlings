@@ -11,7 +11,10 @@ const ICONS = preload("res://scripts/ui/ui_icons.gd")
 const DT := 1.0 / 60.0
 const NEW_FORMS := ["graeber", "blitzbiss", "brutsack"]
 const NEW_EVOLVED := ["erdbeben", "sturmrudel"]
-const NEW_TRAITS := ["regeneration", "dornenhaut"]
+# Etappe 17: Regeneration ist ein Wert (regen), Dornenhaut ein Relikt.
+const NEW_TRAITS := ["regen"]
+const NEW_RELICS := ["dornenhaut"]
+const STATS = preload("res://scripts/progression/stats.gd")
 
 var failures := 0
 var world: Node3D
@@ -177,26 +180,34 @@ func _dispose(nodes: Array) -> void:
 func _test_catalog() -> void:
 	for id in NEW_FORMS:
 		_check(FORMS_SCRIPT.FORMS.has(id), "FORMS fehlt " + id)
-		_check(FORMS_SCRIPT.FORMS[id].ranks.size() == 3, id + " braucht 3 Rangtexte")
-		_check(EVOLUTION.new().kind_of(id) == "attack", id + " ist keine Angriffsform in evolution.gd")
+		_check(FORMS_SCRIPT.FORMS[id].ranks.size() == 5, id + " braucht 5 Rangtexte")
+		_check(EVOLUTION.new().kind_of(id) == "attack", id + " ist keine Waffe in evolution.gd")
 		_check(DATA.MUTATION_NAMES.has(id), id + " fehlt in MUTATION_NAMES")
 	for id in NEW_EVOLVED:
 		_check(FORMS_SCRIPT.FORMS.has(id) and FORMS_SCRIPT.FORMS[id].get("evolved", false), "Evolution fehlt " + id)
 		_check(EVOLUTION.new().kind_of(id) == "evolved", id + " ist keine Evolution in evolution.gd")
 	for id in NEW_TRAITS:
-		_check(EVOLUTION.new().kind_of(id) == "trait", id + " ist keine Anlage")
+		_check(EVOLUTION.new().kind_of(id) == "trait", id + " ist kein Wert")
 		_check(DATA.MUTATION_NAMES.has(id), id + " fehlt in MUTATION_NAMES")
-	for id in NEW_FORMS + NEW_EVOLVED + NEW_TRAITS:
-		_check(ICONS.IDS.has(id), "Icon-ID fehlt: " + id)
-		_check(ResourceLoader.exists(ICONS.path(id)), "Icon-Datei fehlt: " + id)
-	# Freischaltung nur über Trophäen, Start-Pool unverändert.
+	for id in NEW_RELICS:
+		_check(EVOLUTION.new().kind_of(id) == "relic", id + " ist kein Relikt")
+	for id in NEW_FORMS + NEW_EVOLVED + NEW_TRAITS + NEW_RELICS:
+		var icon: String = EVOLUTION.icon_id(id)
+		_check(ICONS.IDS.has(icon), "Icon-ID fehlt: " + id)
+		_check(ResourceLoader.exists(ICONS.path(icon)), "Icon-Datei fehlt: " + id)
+	# Freischaltung nur über Trophäen, nicht im Start-Pool.
 	var unlocks := {}
 	for quest in DATA.QUESTS:
 		for token in quest.reward.get("unlock", []):
 			unlocks[token] = quest.id
-	for id in NEW_FORMS + NEW_TRAITS:
+	for id in NEW_FORMS:
+		_check(unlocks.has("weapon:" + id), "Keine Trophäe schaltet %s frei" % id)
+	for id in NEW_TRAITS:
 		_check(unlocks.has("mutation:" + id), "Keine Trophäe schaltet %s frei" % id)
-		_check(not DATA.START_ATTACKS.has(id) and not DATA.TRAIT_IDS.has(id), "%s darf nicht im Start-Pool sein" % id)
+	for id in NEW_RELICS:
+		_check(unlocks.has("relic:" + id), "Keine Trophäe schaltet %s frei" % id)
+	for id in NEW_FORMS + NEW_TRAITS + NEW_RELICS:
+		_check(not DATA.start_pool().has(id), "%s darf nicht im Start-Pool sein" % id)
 		_check(not EVOLUTION.new().pool.has(id), "%s darf nicht im Standard-Pool sein" % id)
 	for id in NEW_EVOLVED:
 		_check(not DATA.quest("evo_" + id).is_empty(), "Evolutions-Trophäe fehlt: " + id)
@@ -216,14 +227,23 @@ func _test_graeber() -> void:
 	_check(_lost(outside) == 0.0, "Gräber traf außerhalb von 10 m")
 	_check(float(forms.damage_dealt.get("graeber", 0.0)) > 0.0, "Gräber-Schaden wird nicht verbucht")
 	forms.free()
-	# Rang 3: 12 m Reichweite, 19 Schaden, Fläche 2,2 m.
+	# Etappe 17: Rang 3 gräbt zwei Tunnel (12 m) zu den zwei entferntesten Zielen.
 	var strong := _forms({"graeber": 3})
 	var distant := _brute(Vector3(11.5, 0, 0))
-	var splash := _brute(Vector3(11.5, 0, 2.0))
+	var splash := _brute(Vector3(-11.0, 0, 0.5))
+	strong.step(DT, [distant, splash], false, 1.0)
+	_check(strong.active_count("tunnels") == 2, "Gräber R3 gräbt keine zwei Tunnel")
 	_run_for(strong, 1.5, [distant, splash])
-	_check(_near(_lost(distant), FORMS_SCRIPT.GRAEBER_DAMAGE[2]), "Gräber R3 (12 m, 19) greift nicht, war %s" % _lost(distant))
-	_check(_near(_lost(splash), FORMS_SCRIPT.GRAEBER_DAMAGE[2]), "Gräber R3-Flächenschaden (2,2 m) fehlt")
+	_check(_near(_lost(distant), FORMS_SCRIPT.GRAEBER_DAMAGE[2]) and _near(_lost(splash), FORMS_SCRIPT.GRAEBER_DAMAGE[2]), "Gräber R3 (zwei Stöße, 12 m) greift nicht, war %s/%s" % [_lost(distant), _lost(splash)])
 	strong.free()
+	# Rang 5: Nachbeben (50 %).
+	var shaking := _forms({"graeber": 5})
+	var quake_target := _brute(Vector3(0, 0, 9))
+	_run_for(shaking, 1.4, [quake_target])
+	var with_shock: float = FORMS_SCRIPT.GRAEBER_DAMAGE[4] * (1.0 + FORMS_SCRIPT.QUAKE_AFTERSHOCK)
+	_check(_near(_lost(quake_target), with_shock), "Gräber R5 sollte mit Nachbeben %s machen, war %s" % [with_shock, _lost(quake_target)])
+	shaking.free()
+	quake_target.free()
 	_dispose(targets + [distant, splash])
 
 
@@ -248,7 +268,7 @@ func _test_erdbeben() -> void:
 	var d := _brute(Vector3(0, 0, -3))
 	var targets := [a, b, c, d]
 	_run_for(forms, 1.3, targets)
-	var full: float = FORMS_SCRIPT.GRAEBER_DAMAGE[2] * (1.0 + FORMS_SCRIPT.QUAKE_AFTERSHOCK)
+	var full: float = FORMS_SCRIPT.GRAEBER_DAMAGE[4] * (1.0 + FORMS_SCRIPT.QUAKE_AFTERSHOCK)
 	for target in [a, b, c]:
 		_check(_near(_lost(target), full), "Erdbeben: drei Stöße mit Nachbeben sollten %s machen, war %s" % [full, _lost(target)])
 	_check(_lost(d) == 0.0, "Erdbeben sollte nur die drei entferntesten Ziele wählen")
@@ -276,12 +296,21 @@ func _test_blitzbiss() -> void:
 	_check(_near(_lost(a), base), "Blitzbiss-Intervall zu kurz")
 	forms.free()
 	var strong := _forms({"blitzbiss": 3})
-	var fresh := [_brute(Vector3(2, 0, 0)), _brute(Vector3(5, 0, 0)), _brute(Vector3(8, 0, 0)), _brute(Vector3(11, 0, 0)), _brute(Vector3(14, 0, 0)), _brute(Vector3(17, 0, 0))]
+	var fresh: Array = []
+	for i in 8:
+		fresh.append(_brute(Vector3(2.0 + 3.0 * float(i), 0, 0)))
 	strong.step(DT, fresh, false, 2.0)
 	var top: float = FORMS_SCRIPT.BLITZ_DAMAGE[2] * 2.0
 	_check(_near(_lost(fresh[0]), top), "Blitzbiss R3 × enemy_scale 2 sollte %s sein, war %s" % [top, _lost(fresh[0])])
-	_check(_lost(fresh[4]) > 0.0 and _lost(fresh[5]) == 0.0, "Blitzbiss R3 sollte genau 5 Ziele treffen")
+	_check(_lost(fresh[5]) > 0.0 and _lost(fresh[6]) == 0.0, "Blitzbiss R3 sollte genau 6 Ziele treffen")
 	strong.free()
+	# Rang 5: keine Abschwächung.
+	var even := _forms({"blitzbiss": 5})
+	var pair := [_brute(Vector3(0, 0, 2)), _brute(Vector3(0, 0, 5))]
+	even.step(DT, pair, false, 1.0)
+	_check(_near(_lost(pair[0]), FORMS_SCRIPT.BLITZ_DAMAGE[4]) and _near(_lost(pair[1]), FORMS_SCRIPT.BLITZ_DAMAGE[4]), "Blitzbiss R5 schwächt noch ab")
+	even.free()
+	fresh.append_array(pair)
 	_dispose(targets + fresh)
 
 
@@ -311,7 +340,7 @@ func _test_blitzbiss_horde() -> void:
 func _test_sturmrudel() -> void:
 	var forms := _forms({"blitzbiss": 3, "sturmrudel": 1})
 	var line: Array = []
-	for i in 8:
+	for i in 12:
 		line.append(_brute(Vector3(4.0 * float(i + 1), 0, 0)))
 	_check(FORMS_SCRIPT.STORM_TARGETS < line.size(), "Testaufbau: mehr Ziele als Sturmrudel-Sprünge nötig")
 	forms.step(DT, line, true, 1.0)
@@ -352,7 +381,8 @@ func _test_brutsack() -> void:
 	var strong := _forms({"brutsack": 3})
 	var victim := _brute(Vector3(0, 0, -4))
 	_run_for(strong, 2.3, [victim])
-	var top: float = FORMS_SCRIPT.SAC_BITE[2] * FORMS_SCRIPT.SAC_BITERS[2]
+	# Etappe 17: Rang 3 bildet zwei Blasen.
+	var top: float = FORMS_SCRIPT.SAC_COUNT[2] * FORMS_SCRIPT.SAC_BITE[2] * FORMS_SCRIPT.SAC_BITERS[2]
 	_check(_near(_lost(victim), top), "Brutsack R3 sollte %s Schaden machen, war %s" % [top, _lost(victim)])
 	strong.free()
 	_dispose(targets + [victim])
@@ -383,23 +413,24 @@ func _test_evolution_rules() -> void:
 	for id in EVOLUTION.UNLOCK_ONLY:
 		_check(not evo.pool.has(id), "%s im Standard-Pool" % id)
 	evo.configure({"pool": ["jaws", "armor", "graeber", "blitzbiss", "brutsack", "regeneration", "dornenhaut"]})
-	for id in ["graeber", "blitzbiss", "brutsack", "regeneration", "dornenhaut"]:
+	for id in ["graeber", "blitzbiss", "brutsack", "regen", "dornenhaut", "bite"]:
 		_check(evo.pool.has(id), "%s kommt über RunConfig nicht in den Pool" % id)
-	evo.ranks = {"graeber": 3, "blitzbiss": 3}
-	evo.add_alpha_core()
-	_check(evo.try_evolve() == "", "Evolution ohne Partner-Anlage darf nicht greifen")
-	evo.ranks["armor"] = 1
-	_check(evo.try_evolve() == "erdbeben", "Gräber R3 + Knochenpanzer + Alpha-Kern sollte Erdbeben ergeben")
-	_check(evo.rank("graeber") == 0 and evo.rank("erdbeben") == 1 and evo.alpha_cores == 0, "Erdbeben ersetzt Gräber nicht")
-	_check(evo.attack_ranks().has("erdbeben") and evo.slots_used("attack") == 2, "Erdbeben belegt keinen Angriffsslot")
-	evo.ranks["jaws"] = 1
-	_check(evo.try_evolve() == "", "Evolution ohne Alpha-Kern darf nicht greifen")
-	evo.add_alpha_core()
-	_check(evo.try_evolve() == "sturmrudel", "Blitzbiss R3 + Reißzähne + Alpha-Kern sollte Sturmrudel ergeben")
-	_check(evo.rank("blitzbiss") == 0 and evo.evolutions.has("sturmrudel"), "Sturmrudel ersetzt Blitzbiss nicht")
+	# Etappe 17: Evolution = Waffe Rang 5 + Relikt, angeboten im Boss-Kokon.
+	evo.ranks = {"graeber": 5, "blitzbiss": 5}
+	_check(evo.evolution_ready().is_empty(), "Evolution ohne Relikt darf nicht bereit sein")
+	evo.debug_grant("grabkralle")
+	_check(evo.evolution_ready() == ["erdbeben"], "Gräber R5 + Grabkralle sollte Erdbeben bereitstellen")
+	var result: Dictionary = evo.grant(evo.arsenal.evolution_item("erdbeben"))
+	_check(bool(result.applied) and evo.rank("graeber") == 0 and evo.rank("erdbeben") == 1 and evo.try_evolve() == "erdbeben", "Erdbeben ersetzt Gräber nicht")
+	_check(evo.attack_ranks().has("erdbeben") and evo.slots_used("attack") == 2, "Erdbeben belegt keinen eigenen Platz")
+	evo.debug_grant("gewitterfell")
+	var chest: Dictionary = evo.open_chest("boss")
+	_check(evo.chest_offers.size() == 3 and evo.chest_offers[0][0] == "sturmrudel", "Boss-Kokon bietet Sturmrudel nicht an")
+	evo.choose_chest(0)
+	_check(evo.rank("blitzbiss") == 0 and evo.evolutions.has("sturmrudel") and evo.chest_offers.is_empty(), "Sturmrudel ersetzt Blitzbiss nicht")
 	var hint := EVOLUTION.new()
 	hint.ranks = {"graeber": 2}
-	_check(hint.evolution_hint().begins_with("Erdbeben braucht"), "Evolutions-Hinweis für Erdbeben fehlt: " + hint.evolution_hint())
+	_check(hint.evolution_hint().begins_with("Erdbeben braucht") and hint.evolution_hint().contains("Grabkralle"), "Evolutions-Hinweis für Erdbeben fehlt: " + hint.evolution_hint())
 
 
 var _regen_signal := 0
@@ -413,33 +444,42 @@ func _test_regeneration() -> void:
 	var evo := EVOLUTION.new()
 	_check(evo.regeneration_interval() == 0 and evo.note_kills(50) == 0, "Ohne Regeneration kein LP")
 	evo.leader_regenerated.connect(_on_regen)
-	evo.ranks["regeneration"] = 1
-	_check(evo.regeneration_interval() == EVOLUTION.REGEN_KILLS[0], "Regeneration R1: LP je %d Kills" % EVOLUTION.REGEN_KILLS[0])
-	_check(evo.note_kills(EVOLUTION.REGEN_KILLS[0] - 1) == 0, "Regeneration heilt zu früh")
+	evo.ranks["regen"] = 1
+	var n1: int = STATS.regen_kills(1.0)
+	_check(evo.regeneration_interval() == n1 and n1 == 14, "Regeneration R1: LP je 14 Kills")
+	_check(evo.note_kills(n1 - 1) == 0, "Regeneration heilt zu früh")
 	_check(evo.note_kills(1) == 1 and _regen_signal == 1 and evo.regen_kills == 0, "Regeneration heilt nach N Kills nicht (Signal/Rückgabe)")
-	evo.ranks["regeneration"] = 3
-	_check(evo.note_kills(EVOLUTION.REGEN_KILLS[2] * 2 + 1) == 2 and is_equal_approx(evo.regen_kills, 1.0), "Regeneration R3 zählt Mehrfach-Kills falsch")
-	# Teil 2: Moorbrut zählt nur REGEN_HORDE_WEIGHT, mit Spielzeit höchstens 1 LP je REGEN_GAP.
+	evo.ranks["regen"] = 5
+	var n5: int = STATS.regen_kills(5.0)
+	_check(n5 == 8, "Regeneration R5: LP je 8 Kills (%d)" % n5)
+	_check(evo.note_kills(n5 * 2 + 1) == 2 and is_equal_approx(evo.regen_kills, 1.0), "Regeneration R5 zählt Mehrfach-Kills falsch")
+	# Seltenheit: legendärer Wert 3 heilt schneller als gewöhnlich.
+	_check(STATS.regen_kills(3.0) < STATS.regen_kills(1.0), "N muss mit dem Wert sinken")
+	# Moorbrut zählt nur REGEN_HORDE_WEIGHT, mit Spielzeit höchstens 1 LP je Abstand.
 	var timed := EVOLUTION.new()
-	timed.ranks["regeneration"] = 3
-	var need := EVOLUTION.REGEN_KILLS[2]
-	_check(timed.note_kills(need - 1, EVOLUTION.REGEN_HORDE_WEIGHT, 10.0) == 0, "Moorbrut-Kills zählen zu viel für Regeneration")
-	_check(timed.note_kills(need * 10, 1.0, 10.0) == 1, "Regeneration heilt mit Spielzeit mehr als 1 LP auf einmal")
-	_check(timed.regen_kills <= float(need) + 0.001, "Regeneration spart Fortschritt über ein Intervall hinaus an")
-	_check(timed.note_kills(need * 5, 1.0, 10.0 + EVOLUTION.REGEN_GAP[2] - 1.0) == 0, "Regeneration ignoriert den Zeitdeckel")
-	_check(timed.note_kills(1, 1.0, 10.0 + EVOLUTION.REGEN_GAP[2]) == 1, "Regeneration heilt nach dem Zeitdeckel nicht wieder")
+	timed.ranks["regen"] = 5
+	var gap: float = timed.regeneration_gap()
+	_check(is_equal_approx(gap, 20.0), "Regeneration R5: höchstens alle 20 s (%s)" % gap)
+	_check(timed.note_kills(n5 - 1, EVOLUTION.REGEN_HORDE_WEIGHT, 10.0) == 0, "Moorbrut-Kills zählen zu viel für Regeneration")
+	_check(timed.note_kills(n5 * 10, 1.0, 10.0) == 1, "Regeneration heilt mit Spielzeit mehr als 1 LP auf einmal")
+	_check(timed.regen_kills <= float(n5) + 0.001, "Regeneration spart Fortschritt über ein Intervall hinaus an")
+	_check(timed.note_kills(n5 * 5, 1.0, 10.0 + gap - 1.0) == 0, "Regeneration ignoriert den Zeitdeckel")
+	_check(timed.note_kills(1, 1.0, 10.0 + gap) == 1, "Regeneration heilt nach dem Zeitdeckel nicht wieder")
 	_check(EVOLUTION.REGEN_HORDE_WEIGHT > 0.0 and EVOLUTION.REGEN_HORDE_WEIGHT <= 0.25, "Moorbrut-Gewicht außerhalb 0-0,25")
-	_check(EVOLUTION.REGEN_KILLS[0] > EVOLUTION.REGEN_KILLS[1] and EVOLUTION.REGEN_KILLS[1] > EVOLUTION.REGEN_KILLS[2], "N muss mit dem Rang sinken")
+	# Relikt Königszahnkette: jeder 15. Kill heilt 1 LP (ohne Zeitdeckel).
+	var chain := EVOLUTION.new()
+	chain.debug_grant("koenigszahnkette")
+	_check(chain.note_kills(14, 1.0, 5.0) == 0 and chain.note_kills(1, 1.0, 5.0) == 1, "Königszahnkette heilt nicht beim 15. Kill")
 
 
 func _test_dornenhaut() -> void:
 	var evo := EVOLUTION.new()
 	_check(evo.thorn_factor() == 0.0 and evo.thorn_damage(5, true) == 0.0, "Ohne Dornenhaut kein Rückschaden")
-	evo.ranks["dornenhaut"] = 1
+	# Etappe 17: Dornenhaut ist ein Relikt; jeder Stapel +40 %.
+	evo.debug_grant("dornenhaut")
 	var r1 := evo.thorn_factor()
-	evo.ranks["dornenhaut"] = 3
-	_check(r1 > 0.0 and evo.thorn_factor() > r1, "Dornenhaut skaliert nicht mit dem Rang")
-	evo.ranks["dornenhaut"] = 2
+	evo.debug_grant("dornenhaut")
+	_check(r1 > 0.0 and evo.thorn_factor() > r1 and evo.stacks("dornenhaut") == 2, "Dornenhaut skaliert nicht mit den Stapeln")
 	var expected := 0.8 * (EVOLUTION.THORN_BASE + 2.0 * EVOLUTION.THORN_PER_LOSS + EVOLUTION.THORN_LEADER)
 	_check(_near(evo.thorn_damage(2, true), expected), "thorn_damage(2, true) R2 sollte %s sein, war %s" % [expected, evo.thorn_damage(2, true)])
 	var horde := _horde()

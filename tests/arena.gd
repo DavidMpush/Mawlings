@@ -78,9 +78,11 @@ static func _legacy_landmark_center(key: Vector2i) -> Variant:
 	var center := Vector3(key.x * 28.0, 0.0, key.y * 28.0 + 14.0 + float(_legacy_hash(key.x, key.y, 720) % 5 - 2) * 0.5)
 	return center if Vector2(center.x, center.z).length() >= 22.0 else null
 
+# Stage 18: the map is bounded (chunks -6..5); only chunks well inside the
+# edge keep every classic stone and landmark (edge ones make room for the wall).
 func _classic_matches(arena: Variant) -> bool:
-	for x in range(-6, 7):
-		for z in range(-6, 7):
+	for x in range(-4, 5):
+		for z in range(-4, 5):
 			var key := Vector2i(x, z)
 			if arena.obstacle_centers(key) != _legacy_centers(key):
 				return false
@@ -99,6 +101,9 @@ func _snapshot(arena: Variant) -> Array:
 		for z in range(-5, 6):
 			result.append(arena.obstacles(Vector2i(x, z)).duplicate())
 			result.append(arena.landmark(Vector2i(x, z)).duplicate())
+			# Stage 18b: walls and paths are part of the layout too.
+			result.append(arena.trail_samples(Vector2i(x, z)).size())
+			result.append(snappedf(arena.wall_distance(Vector3((x + 0.5) * arena.CELL, 0.0, (z + 0.5) * arena.CELL)), 0.01))
 	return result
 
 func _check_seeds(arena: Variant) -> void:
@@ -124,8 +129,7 @@ func _check_seeds(arena: Variant) -> void:
 	var worst_gap := INF
 	var worst_share := 0.0
 	var stones := 0
-	var chunks_seen := 0
-	var dirs := {}
+	var clearings := 0
 	var landmarks := 0
 	for seed_value in SEEDS:
 		arena.set_seed(seed_value)
@@ -139,14 +143,15 @@ func _check_seeds(arena: Variant) -> void:
 				if not mark.is_empty():
 					check(Vector2(mark.center.x, mark.center.z).length() >= arena.START_CLEARANCE, "Start zone free of landmarks (seed %d)" % seed_value)
 		check(arena.is_open(Vector3.ZERO, 3.0), "Start position open (seed %d)" % seed_value)
+		# Stage 18b: stones are cover inside clearings, landmarks stand in theirs.
+		clearings += arena.clearings().size()
+		stones += arena.layout.stones.size()
+		landmarks += arena.layout.landmarks.size()
+		for stone in arena.layout.stones:
+			check(arena.clearing_at(Vector3(stone.x, 0.0, stone.z)) >= 0 and arena.wall_distance(Vector3(stone.x, 0.0, stone.z)) >= stone.w + 3.0, "Stone inside a clearing with a passage to the wall (seed %d)" % seed_value)
 		for sample in 200:
-			var key := Vector2i(rng.randi_range(-400, 400), rng.randi_range(-400, 400))
-			chunks_seen += 1
-			dirs[int(arena.region_params(arena._region_key(key)).dir)] = true
+			var key := Vector2i(rng.randi_range(-6, 5), rng.randi_range(-6, 5))
 			var own: Array[Vector4] = arena.obstacles(key)
-			stones += arena.obstacle_centers(key).size()
-			if not arena.landmark(key).is_empty():
-				landmarks += 1
 			var share := 0.0
 			for circle in own:
 				share += PI * circle.w * circle.w
@@ -157,8 +162,8 @@ func _check_seeds(arena: Variant) -> void:
 			for x in range(key.x - 1, key.x + 2):
 				for z in range(key.y - 1, key.y + 2):
 					near.append_array(arena.obstacles(Vector2i(x, z)))
-			# Every pair is either one touching formation (stone + leaning stone,
-			# log knots) or leaves a walkable passage of at least 3 m.
+			# Every pair is either one touching formation (log knots) or leaves a
+			# walkable passage of at least 3 m.
 			for circle in own:
 				for other in near:
 					if other == circle:
@@ -167,31 +172,30 @@ func _check_seeds(arena: Variant) -> void:
 					if gap > 0.9:
 						worst_gap = minf(worst_gap, gap)
 						check(gap >= arena.MIN_PASSAGE - 0.001, "Passage %.2f m near %s (seed %d)" % [gap, key, seed_value])
-			# No collision anywhere on the sand trail.
+			# No collision anywhere on the sand of a path.
 			var trail: Array[Vector4] = arena.trail_samples(key)
 			for point in trail:
-				if not arena.is_open(Vector3(point.x, 0.0, point.z), point.w):
+				if not arena.is_open(Vector3(point.x, 0.0, point.z), minf(point.w, 2.0)):
 					check(false, "Collision on trail at %s (seed %d)" % [Vector2(point.x, point.z), seed_value])
 					break
-	check(dirs.size() == 4, "All four trail directions occur")
-	var mean := float(stones) / float(chunks_seen)
-	check(mean > 1.3 and mean < 2.6, "Stone mean per chunk %.2f" % mean)
-	print("Seeds: stones/chunk %.2f, landmark chunks %.1f %%, worst passage %.2f m, worst collision share %.1f %%" % [mean, 100.0 * landmarks / chunks_seen, worst_gap, 100.0 * worst_share])
+	var mean := float(stones) / float(clearings)
+	check(mean > 0.3 and mean < 2.0, "Cover stones per clearing %.2f" % mean)
+	print("Seeds: %d clearings, stones/clearing %.2f, landmarks %d, worst passage %.2f m, worst collision share %.1f %%" % [clearings, mean, landmarks, worst_gap, 100.0 * worst_share])
 	# Movement helpers follow the seeded obstacles.
 	arena.set_seed(SEEDS[2])
 	var found := false
-	for x in range(1, 8):
-		if found:
-			break
-		for stone in arena.obstacle_centers(Vector2i(x, 0)):
-			var start: Vector3 = stone + Vector3(4, 0, 0)
-			var stopped: Vector3 = arena.resolve_motion(start, Vector3(-4, 0, 0), 0.75)
-			check(not arena.is_open(stone, 0.5) and arena.safe_spawn(stone, 0.9).distance_to(stone) >= 0.9, "Seeded stone blocks and pushes out")
-			check(stopped.distance_to(stone) >= 0.75 + 0.9 - 0.001, "Seeded stone stops motion")
-			check(arena.clear_line(start, stone, 0.5).distance_to(stone) > 0.5, "clear_line stops at seeded stone")
-			found = true
-			break
-	check(found, "Seeded map has stones near the start row")
+	for stone4 in arena.layout.stones:
+		var stone := Vector3(stone4.x, 0.0, stone4.z)
+		var start: Vector3 = stone + Vector3(4, 0, 0)
+		if not arena.is_open(start, 0.8):
+			continue
+		var stopped: Vector3 = arena.resolve_motion(start, Vector3(-4, 0, 0), 0.75)
+		check(not arena.is_open(stone, 0.5) and arena.safe_spawn(stone, 0.9).distance_to(stone) >= 0.9, "Seeded stone blocks and pushes out")
+		check(stopped.distance_to(stone) >= 0.75 + stone4.w - 0.001, "Seeded stone stops motion")
+		check(arena.clear_line(start, stone, 0.5).distance_to(stone) > 0.5, "clear_line stops at seeded stone")
+		found = true
+		break
+	check(found, "Seeded map has a free-standing cover stone")
 	arena.set_seed(0)
 
 # --- Biome transition and decoration density ----------------------------------
@@ -274,7 +278,9 @@ func _check_decor_density(arena: Variant) -> void:
 # Fingerprint of the Verdant Maw chunks as built before the Glutsumpf work (stage
 # 09 prep): every part's name, transform, mesh shape and material values for the
 # classic map and one seeded map. Any drift here would change the Verdant image.
-const VERDANT_FINGERPRINT := "d8a62474c7fdbf239e8a5a1de5f9b872"
+# Stage 18b: re-baselined (seed 4242 is now a clearing/path map with inner walls,
+# low camera-side wall fronts; the seed-0 classic map is unchanged).
+const VERDANT_FINGERPRINT := "21f9c51d8a52303df6feb319034f0282"
 const FINGERPRINT_SPOTS := [Vector3.ZERO, Vector3(57, 0, -85), Vector3(-88, 0, 56)]
 
 

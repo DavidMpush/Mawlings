@@ -86,7 +86,15 @@ func _run() -> void:
 					avoiding = true
 					break
 		hud.movement_vector = Vector2(direction.x, direction.z).limit_length(1.0)
-		hud.rally_pressed = best < 1.05 and not avoiding
+		# Etappe 17: the start weapon Rudelbiss leaps only during Rally - like a
+		# player (and the balance bot) the bot holds Rally with an enemy close by.
+		var leap: bool = world.evolution.rank("rudelbiss") > 0 or world.evolution.rank("meute") > 0
+		var enemy_near := INF
+		if leap:
+			for group in [world.prey, world.hunters, world.skitters, world.leapers]:
+				for enemy in group:
+					enemy_near = minf(enemy_near, enemy.position.distance_to(swarm.position))
+		hud.rally_pressed = (best < 1.05 or enemy_near < 4.0) and not avoiding
 		await process_frame
 	print("PLAYTEST seconds=%.1f population=%d peak=%d kills=%d lost=%d crystals=%d hunters=%d skitters=%d nests=%d leader=%d/%d swaps=%d extinct=%s" % [world.model.elapsed, world.model.population, world.model.peak_population, world.model.kills, world.model.lost_population, world.loot.count(), world.hunters.size(), world.skitters.size(), world.nests_completed, world.model.leader_hp, world.model.leader_max_hp, world.model.leader_swaps, world.model.extinct])
 	print("EVOLUTION level=%d build=%s" % [world.evolution.level, world.evolution.summary()])

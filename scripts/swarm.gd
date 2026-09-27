@@ -6,6 +6,8 @@ const FX = preload("res://scripts/fx.gd")
 
 const START_POPULATION := 25
 const MOVE_SPEED := 7.0
+# Stage 18b: every animal keeps this distance to a wall of the path map.
+const UNIT_WALL_RADIUS := 0.3
 const FOLLOW_SPEED := 7.0
 const GOLDEN_ANGLE := 2.39996323
 const VISUAL_LIMIT := 120
@@ -555,6 +557,18 @@ func _animate_units(delta: float) -> void:
 	var focus_strength := attack_blend * 0.5 + harvest_blend * 0.3
 	var reach := radius * 2.2 + 1.0
 	var count := units.size()
+	# Stage 18: near the map edge the animals stay inside the playable area
+	# (fence in swarm-local metres; only active close to the edge).
+	var fence := Rect2()
+	var fenced := false
+	var field: Node = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	if field != null and field.has_method("playable_rect"):
+		var play: Rect2 = field.playable_rect()
+		fence = Rect2(play.position.x - position.x, play.position.y - position.z, play.size.x, play.size.y).grow(-0.3)
+		fenced = not fence.grow(-(radius * 2.5 + 4.0)).has_point(Vector2.ZERO)
+	# Stage 18b: close to a wall of the path map every animal is pushed out of
+	# it (no Mawling stands inside the thicket or squeezes through a wall).
+	var walled: bool = field != null and field.has_method("has_layout") and field.has_layout() and field.wall_distance(position) < radius * 2.5 + 4.0
 	var damping := exp(-PUSH_DAMPING * delta)
 	var body_mesh := bodies.multimesh
 	var shadow_mesh := shadows.multimesh
@@ -609,6 +623,15 @@ func _animate_units(delta: float) -> void:
 			# A child still inside (or sliding out of) its parent is placed by the division.
 			if _fx_place.has(unit):
 				next = _fx_place[unit]
+		if fenced:
+			next.x = clampf(next.x, fence.position.x, fence.end.x)
+			next.z = clampf(next.z, fence.position.y, fence.end.y)
+		if walled:
+			var spot := Vector3(position.x + next.x, 0.0, position.z + next.z)
+			if field.wall_distance(spot) < UNIT_WALL_RADIUS:
+				var pushed: Vector3 = field.push_walls(spot, UNIT_WALL_RADIUS)
+				next.x = pushed.x - position.x
+				next.z = pushed.z - position.z
 		unit.position = next
 		# Own world velocity drives facing and gait.
 		var velocity := (next - old) / maxf(delta, 0.001) + swarm_velocity

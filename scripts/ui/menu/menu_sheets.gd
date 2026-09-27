@@ -466,9 +466,10 @@ func _upgrade_effect(id: String, rank: int) -> String:
 		"witterung":
 			return "+%d %% Sammelradius" % (8 * rank)
 		"attack_slot":
-			return "%d Angriffsslots" % (int(menu.meta.BASE_SLOTS.attack) + rank)
+			return "%d Waffenplätze" % (int(menu.meta.BASE_SLOTS.attack) + rank)
 		"trait_slot":
-			return "%d Anlagenslots" % (int(menu.meta.BASE_SLOTS.trait) + rank)
+			# Etappe 17: ehemals Anlagenslot, jetzt +1 Neu würfeln je Rang.
+			return "+%d Neu würfeln" % rank
 	return "Rang %d" % rank
 
 

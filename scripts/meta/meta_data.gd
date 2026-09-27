@@ -5,9 +5,13 @@ extends RefCounted
 ##   "strain:<id>"      Stamm wird kaufbar (Königszähne)
 ##   "difficulty:<n>"   Schwierigkeit n wird wählbar
 ##   "upgrade:<id>"     Brutkammer-Upgrade wird kaufbar (z. B. attack_slot)
-##   "mutation:<id>"    Mutation kommt in den Angebots-Pool
+##   "mutation:<id>"    Wert (Level-Spur) kommt in den Angebots-Pool
+##   "weapon:<id>"      Waffe kommt in die Kokon-Beute (Etappe 17)
+##   "relic:<id>"       Relikt kommt in die Kokon-Beute (Etappe 17)
 ##   "reroll" / "banish" / "skip"   +1 pro Run
-## unlock_label(token) liefert die deutsche Anzeige.
+## unlock_label(token) liefert die deutsche Anzeige. Alte Token/IDs (Anlagen der
+## Etappen 03–16, z. B. "mutation:graeber", "jaws") bildet migrate_id() bzw.
+## migrate_token() ab; Profile.gd migriert gespeicherte Freischaltungen damit.
 ##
 ## Einzelstart (Etappe 09): jeder Stamm beginnt mit einem Mawling (dem Anführer);
 ## "Brutgröße" gibt +1 je Rang (max. 4 Ränge -> 5 Tiere). Da jedes Starttier jetzt
@@ -17,15 +21,29 @@ extends RefCounted
 ## das Endergebnis in RunConfig.mods.armor wird auf 0.0..0.6 gekappt (keine Zusatzverluste).
 ## Glutmaws Rally-Bonus steht zusätzlich als mods.rally_damage (Multiplikator, sonst 1.0).
 
-const TRAIT_IDS := ["jaws", "brood", "glutton", "pack", "scatter", "armor", "lockduft"]
-const START_ATTACKS := ["rudelbiss", "sporenwolke"]
-const BASE_SLOTS := {"attack": 2, "trait": 3}
+const ARSENAL = preload("res://scripts/progression/arsenal.gd")
+
+## Etappe 17: Start-Pools der beiden Spuren. Werte: alle außer Regeneration
+## (Trophäe „Zähes Herz“). Waffen/Relikte wie Arsenal.START_WEAPONS/UNLOCK_*.
+const TRAIT_IDS := ["bite", "crit", "haste", "reach", "rally", "armor", "evade", "vigor", "brood", "magnet", "gene", "speed", "luck"]
+const START_WEAPONS := ["rudelbiss", "sporenwolke", "klauenwirbel", "giftbiss", "schallbrueller"]
+const START_RELICS := ["hungerstein", "zaehe_haut", "scharfe_zaehne", "flinke_beine", "witterungsnase", "dna_splitter",
+	"sporenherz", "aetzdruese", "rudelhorn", "gewitterfell", "grabkralle", "gluecksknochen",
+	"koenigszahnkette", "glutdruese", "zwillingsbrut", "magnetkern"]
+## Alt-Name (Etappe 03–16); gleich START_WEAPONS.
+const START_ATTACKS := START_WEAPONS
+## attack = Waffenplätze (Arsenal); trait = Werte haben kein Platzlimit (14).
+const BASE_SLOTS := {"attack": 4, "trait": 14}
 const BASE_REROLLS := 1
 const BASE_BANISHES := 0
 const BASE_SKIPS := 0
+## Anzeigenamen freischaltbarer Inhalte (Menü, Belohnungen).
 const MUTATION_NAMES := {"rudelbiss": "Rudelbiss", "sporenwolke": "Sporenwolke", "saeurespucker": "Säurespucker", "stachelruecken": "Stachelrücken",
-	# Etappe 10: nur über Trophäen (form_*/trait_*) freischaltbar.
-	"graeber": "Gräber", "blitzbiss": "Blitzbiss", "brutsack": "Brutsack", "regeneration": "Regeneration", "dornenhaut": "Dornenhaut"}
+	"graeber": "Gräber", "blitzbiss": "Blitzbiss", "brutsack": "Brutsack",
+	"klauenwirbel": "Klauenwirbel", "giftbiss": "Giftbiss", "schallbrueller": "Schallbrüller",
+	"regen": "Regeneration", "dornenhaut": "Dornenhaut", "urmutter": "Urmutter", "blutmond": "Blutmond", "schlundherz": "Schlundherz"}
+## Alt-IDs der Anlagen -> neue Werte (dornenhaut bleibt als Relikt-ID gleich).
+const LEGACY_IDS := {"jaws": "bite", "pack": "rally", "scatter": "evade", "glutton": "brood", "lockduft": "magnet", "regeneration": "regen"}
 const MAX_POPULATION := 250
 const META_ARMOR_CAP := 0.3
 const ARMOR_CAP := 0.6
@@ -90,8 +108,10 @@ const UPGRADES := {
 	# Etappe 16: größerer Magnetradius für Beute-Kristalle.
 	"witterung": {"name": "Witterung", "description": "+8 % Sammelradius", "max": 5, "base": 60, "growth": 1.6, "requires": ""},
 	"geneflow": {"name": "Genfluss", "description": "+6 % DNA", "max": 10, "base": 50, "growth": 1.5, "requires": ""},
-	"attack_slot": {"name": "Angriffsslot", "description": "+1 Slot für Angriffsformen", "max": 1, "base": 2500, "growth": 1.0, "requires": "survive_10"},
-	"trait_slot": {"name": "Anlagenslot", "description": "+1 Slot für Anlagen", "max": 2, "base": 800, "growth": 2.0, "requires": ""},
+	"attack_slot": {"name": "Waffenplatz", "description": "+1 Platz für Waffen", "max": 1, "base": 2500, "growth": 1.0, "requires": "survive_10"},
+	# Etappe 17: Werte haben kein Platzlimit mehr; die ID bleibt für gespeicherte Profile
+	# und gibt jetzt +1 Neu würfeln je Rang.
+	"trait_slot": {"name": "Mutationswurf", "description": "+1 Neu würfeln pro Run", "max": 2, "base": 800, "growth": 2.0, "requires": ""},
 }
 const UPGRADE_ORDER := ["brood_size", "rending", "chitin", "sprinter", "digestion", "witterung", "geneflow", "attack_slot", "trait_slot"]
 const INSTINCT_ID := "instinct"
@@ -108,31 +128,34 @@ const QUESTS := [
 	{"id": "survive_10", "name": "Unersättlich", "description": "Überlebe 10 Minuten.", "stat": "best_seconds", "target": 600, "reward": {"crowns": 2, "unlock": ["upgrade:attack_slot"]}},
 	{"id": "survive_15", "name": "Uralter Schwarm", "description": "Überlebe 15 Minuten.", "stat": "best_seconds", "target": 900, "reward": {"crowns": 3}},
 	{"id": "peak_50", "name": "Rudel", "description": "Erreiche 50 Mawlings gleichzeitig.", "stat": "best_peak", "target": 50, "reward": {"essence": 80}},
-	{"id": "peak_100", "name": "Horde", "description": "Erreiche 100 Mawlings gleichzeitig.", "stat": "best_peak", "target": 100, "reward": {"unlock": ["mutation:stachelruecken"]}},
+	{"id": "peak_100", "name": "Horde", "description": "Erreiche 100 Mawlings gleichzeitig.", "stat": "best_peak", "target": 100, "reward": {"unlock": ["weapon:stachelruecken"]}},
 	{"id": "peak_200", "name": "Flut", "description": "Erreiche 200 Mawlings gleichzeitig.", "stat": "best_peak", "target": 200, "reward": {"crowns": 2}},
 	{"id": "peak_250", "name": "Die volle Brut", "description": "Erreiche das Limit von 250 Mawlings.", "stat": "best_peak", "target": 250, "reward": {"crowns": 3}},
 	{"id": "kills_100", "name": "Erste Beute", "description": "Erlege insgesamt 100 Tiere.", "stat": "total_kills", "target": 100, "reward": {"essence": 100}},
-	{"id": "kills_500", "name": "Jagdrausch", "description": "Erlege insgesamt 500 Tiere.", "stat": "total_kills", "target": 500, "reward": {"unlock": ["mutation:saeurespucker", "reroll"]}},
-	{"id": "kills_2000", "name": "Schlächter", "description": "Erlege insgesamt 2000 Tiere.", "stat": "total_kills", "target": 2000, "reward": {"crowns": 2}},
+	{"id": "kills_500", "name": "Jagdrausch", "description": "Erlege insgesamt 500 Tiere.", "stat": "total_kills", "target": 500, "reward": {"unlock": ["weapon:saeurespucker", "reroll"]}},
+	{"id": "kills_2000", "name": "Schlächter", "description": "Erlege insgesamt 2000 Tiere.", "stat": "total_kills", "target": 2000, "reward": {"crowns": 2, "unlock": ["relic:blutmond"]}},
 	{"id": "kills_5000", "name": "Plage", "description": "Erlege insgesamt 5000 Tiere.", "stat": "total_kills", "target": 5000, "reward": {"unlock": ["skip"]}},
 	{"id": "prey_200", "name": "Weidegänger", "description": "Reiße insgesamt 200 Beutetiere.", "stat": "total_prey", "target": 200, "reward": {"essence": 100}},
 	{"id": "hunter_100", "name": "Jäger der Jäger", "description": "Besiege insgesamt 100 Jäger.", "stat": "total_hunters", "target": 100, "reward": {"essence": 150}},
 	{"id": "skitter_10", "name": "Krabbelzeug", "description": "Besiege insgesamt 10 Skitter.", "stat": "total_skitters", "target": 10, "reward": {"essence": 100}},
 	{"id": "leaper_10", "name": "Sprungfalle", "description": "Besiege insgesamt 10 Mire Leaper.", "stat": "total_leapers", "target": 10, "reward": {"essence": 120, "unlock": ["strain:flinkzahn"]}},
 	{"id": "boss_1", "name": "Königsmord", "description": "Besiege den Bog King.", "stat": "total_bosses", "target": 1, "reward": {"crowns": 1, "unlock": ["strain:knochenkiefer"]}},
-	{"id": "boss_5", "name": "Kronensammler", "description": "Besiege den Bog King 5-mal.", "stat": "total_bosses", "target": 5, "reward": {"crowns": 3}},
+	{"id": "boss_5", "name": "Kronensammler", "description": "Besiege den Bog King 5-mal.", "stat": "total_bosses", "target": 5, "reward": {"crowns": 3, "unlock": ["relic:urmutter"]}},
 	{"id": "boss_20", "name": "Sumpfherrscher", "description": "Besiege den Bog King 20-mal.", "stat": "total_bosses", "target": 20, "reward": {"unlock": ["banish"]}},
 	{"id": "evolutions_5", "name": "Formwandler", "description": "Wähle insgesamt 5 Evolutionen.", "stat": "total_evolutions", "target": 5, "reward": {"unlock": ["banish"]}},
 	{"id": "evo_aetzflut", "name": "Ätzflut", "description": "Entfessle die Evolution Ätzflut.", "stat": "evo:aetzflut", "target": 1, "reward": {"essence": 200, "unlock": ["strain:aetzmaul"]}},
 	{"id": "evo_meute", "name": "Meute", "description": "Entfessle die Evolution Meute.", "stat": "evo:meute", "target": 1, "reward": {"essence": 200, "crowns": 2}},
 	# Etappe 10 (INHALT): Freischaltung der neuen Formen/Anlagen und Evolutions-Trophäen.
-	{"id": "form_graeber", "name": "Wühlarbeit", "description": "Besiege insgesamt 40 Skitter.", "stat": "total_skitters", "target": 40, "reward": {"essence": 120, "unlock": ["mutation:graeber"]}},
-	{"id": "form_blitzbiss", "name": "Kettenreaktion", "description": "Besiege insgesamt 250 Jäger.", "stat": "total_hunters", "target": 250, "reward": {"essence": 150, "unlock": ["mutation:blitzbiss"]}},
-	{"id": "form_brutsack", "name": "Brutpflege", "description": "Erreiche 150 Mawlings gleichzeitig.", "stat": "best_peak", "target": 150, "reward": {"essence": 150, "unlock": ["mutation:brutsack"]}},
-	{"id": "trait_regeneration", "name": "Zähes Herz", "description": "Überlebe 7 Minuten.", "stat": "best_seconds", "target": 420, "reward": {"essence": 150, "unlock": ["mutation:regeneration"]}},
-	{"id": "trait_dornenhaut", "name": "Dornige Haut", "description": "Besiege insgesamt 30 Mire Leaper.", "stat": "total_leapers", "target": 30, "reward": {"essence": 150, "unlock": ["mutation:dornenhaut"]}},
+	{"id": "form_graeber", "name": "Wühlarbeit", "description": "Besiege insgesamt 40 Skitter.", "stat": "total_skitters", "target": 40, "reward": {"essence": 120, "unlock": ["weapon:graeber"]}},
+	{"id": "form_blitzbiss", "name": "Kettenreaktion", "description": "Besiege insgesamt 250 Jäger.", "stat": "total_hunters", "target": 250, "reward": {"essence": 150, "unlock": ["weapon:blitzbiss"]}},
+	{"id": "form_brutsack", "name": "Brutpflege", "description": "Erreiche 150 Mawlings gleichzeitig.", "stat": "best_peak", "target": 150, "reward": {"essence": 150, "unlock": ["weapon:brutsack"]}},
+	{"id": "trait_regeneration", "name": "Zähes Herz", "description": "Überlebe 7 Minuten.", "stat": "best_seconds", "target": 420, "reward": {"essence": 150, "unlock": ["mutation:regen"]}},
+	{"id": "trait_dornenhaut", "name": "Dornige Haut", "description": "Besiege insgesamt 30 Mire Leaper.", "stat": "total_leapers", "target": 30, "reward": {"essence": 150, "unlock": ["relic:dornenhaut"]}},
 	{"id": "evo_erdbeben", "name": "Erdbeben", "description": "Entfessle die Evolution Erdbeben.", "stat": "evo:erdbeben", "target": 1, "reward": {"essence": 200, "crowns": 2}},
 	{"id": "evo_sturmrudel", "name": "Sturmrudel", "description": "Entfessle die Evolution Sturmrudel.", "stat": "evo:sturmrudel", "target": 1, "reward": {"essence": 200, "crowns": 2}},
+	# Etappe 17: neue Evolutionen.
+	{"id": "evo_pilzreich", "name": "Pilzreich", "description": "Entfessle die Evolution Pilzreich.", "stat": "evo:pilzreich", "target": 1, "reward": {"essence": 200, "crowns": 2}},
+	{"id": "evo_dornenwall", "name": "Dornenwall", "description": "Entfessle die Evolution Dornenwall.", "stat": "evo:dornenwall", "target": 1, "reward": {"essence": 200, "crowns": 2}},
 	{"id": "no_rally_2", "name": "Stille Jagd", "description": "Überlebe 2 Minuten, ohne Rally zu nutzen.", "stat": "best_no_rally_seconds", "target": 120, "reward": {"essence": 150}},
 	{"id": "brutal_3", "name": "Brutal", "description": "Überlebe 3 Minuten auf Brutal.", "stat": "diff_time:1", "target": 180, "reward": {"crowns": 2, "unlock": ["difficulty:2"]}},
 	{"id": "apex_3", "name": "Apex", "description": "Überlebe 3 Minuten auf Apex.", "stat": "diff_time:2", "target": 180, "reward": {"crowns": 3, "unlock": ["strain:nachtmaul"]}},
@@ -146,7 +169,7 @@ const QUESTS := [
 	{"id": "biomass_10000", "name": "Nimmersatt", "description": "Sammle insgesamt 10000 Biomasse.", "stat": "total_biomass", "target": 10000, "reward": {"crowns": 1}},
 	{"id": "runs_10", "name": "Zehn Bruten", "description": "Spiele 10 Runs.", "stat": "runs", "target": 10, "reward": {"unlock": ["reroll"]}},
 	# Etappe 10 (APEX): Moosschlund, Migration, Glutsumpf.
-	{"id": "apex_moosschlund", "name": "Moosschlund bezwungen", "description": "Besiege den Moosschlund.", "stat": "total_moss", "target": 1, "reward": {"crowns": 2, "essence": 200}},
+	{"id": "apex_moosschlund", "name": "Moosschlund bezwungen", "description": "Besiege den Moosschlund.", "stat": "total_moss", "target": 1, "reward": {"crowns": 2, "essence": 200, "unlock": ["relic:schlundherz"]}},
 	{"id": "migration_1", "name": "Migration", "description": "Wandere durch den Migrationsschlund in ein neues Biom.", "stat": "total_migrations", "target": 1, "reward": {"crowns": 1, "essence": 150}},
 	{"id": "glutsumpf_2", "name": "Glutherz", "description": "Überlebe 2 Minuten im Glutsumpf.", "stat": "biome_time:glutsumpf", "target": 120, "reward": {"crowns": 2}},
 	{"id": "apex_aschenkroete", "name": "Aschenkröte bezwungen", "description": "Besiege die Aschenkröte im Glutsumpf.", "stat": "total_toads", "target": 1, "reward": {"crowns": 3, "essence": 300}},
@@ -171,7 +194,11 @@ static func unlock_label(token: String) -> String:
 		"upgrade":
 			return "Upgrade kaufbar: %s" % UPGRADES.get(arg, {}).get("name", arg)
 		"mutation":
-			return "Neue Mutation: %s" % MUTATION_NAMES.get(arg, arg)
+			return "Neuer Wert: %s" % MUTATION_NAMES.get(migrate_id(arg), migrate_id(arg))
+		"weapon":
+			return "Neue Waffe: %s" % MUTATION_NAMES.get(arg, arg)
+		"relic":
+			return "Neues Relikt: %s" % MUTATION_NAMES.get(arg, arg)
 		"reroll":
 			return "+1 Neu würfeln pro Run"
 		"banish":
@@ -179,3 +206,31 @@ static func unlock_label(token: String) -> String:
 		"skip":
 			return "+1 Überspringen pro Run"
 	return token
+
+
+## Etappe 17: alte Anlagen-ID -> neuer Wert (sonst unverändert).
+static func migrate_id(id: String) -> String:
+	return String(LEGACY_IDS.get(id, id))
+
+
+## Etappe 17: altes Freischalt-Token -> neues ("mutation:graeber" -> "weapon:graeber",
+## "mutation:dornenhaut" -> "relic:dornenhaut", "mutation:regeneration" -> "mutation:regen").
+static func migrate_token(token: String) -> String:
+	var parts := token.split(":", true, 1)
+	if parts.size() < 2 or parts[0] != "mutation":
+		return token
+	var id := migrate_id(parts[1])
+	if ARSENAL.is_weapon(id):
+		return "weapon:" + id
+	if ARSENAL.is_relic(id):
+		return "relic:" + id
+	return "mutation:" + id
+
+
+## Etappe 17: alle IDs, die ein Run ohne Freischaltung kennt (Werte, Waffen, Relikte).
+static func start_pool() -> Array:
+	var ids: Array = []
+	ids.append_array(TRAIT_IDS)
+	ids.append_array(START_WEAPONS)
+	ids.append_array(START_RELICS)
+	return ids

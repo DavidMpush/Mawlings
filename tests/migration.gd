@@ -111,7 +111,7 @@ func _check_hold_rule() -> void:
 
 func _check_transition() -> void:
 	_fresh(40)
-	world.evolution.ranks["jaws"] = 2
+	world.evolution.ranks["bite"] = 2
 	world.flood_state = 2
 	world.flood_start = 300.0
 	var ranks_before: Dictionary = world.evolution.ranks.duplicate()

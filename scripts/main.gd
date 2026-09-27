@@ -54,6 +54,10 @@ func _ready() -> void:
 	_apply_quality(config.get("settings", {}))
 	if not config.is_empty():
 		# The map is generated from the run seed before the world spawns into it.
+		# Stage 18: bounded map; multiplayer configs bring "players" (bigger map).
+		if config.has("players") or config.has("map_regions"):
+			var players := int(config.get("players", 1))
+			arena.configure_map(int(config.get("map_regions", arena.regions_for_players(players))), players)
 		arena.set_seed(int(config.get("seed", 0)))
 		_apply_settings(config.get("settings", {}))
 		world.apply_config(config)

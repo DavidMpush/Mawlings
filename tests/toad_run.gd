@@ -264,7 +264,7 @@ func _check_kill_and_circle() -> void:
 	toad.health = 0.5
 	var remains_before: int = world.remains.size()
 	var pickups_before: int = world.alpha_pickups.size()
-	world.evolution.ranks["jaws"] = 3
+	world.evolution.ranks["bite"] = 3
 	toad.position = swarm.position + Vector3(0, 0, -(toad.body_radius + 0.5))
 	world.unit_points_valid = false
 	_steps(0.3)
@@ -275,7 +275,8 @@ func _check_kill_and_circle() -> void:
 			toad_corpses += 1
 	_check(toad_corpses == 1 and world.remains.size() >= remains_before + 1, "Exactly one apex_toad corpse (%d)" % toad_corpses)
 	_check(world.corpse_view != null and world.corpse_view.has_method("add"), "Corpse view present")
-	_check(world.alpha_pickups.size() == pickups_before + TUNING.APEX_TOAD_ALPHA_CORES, "Toad drops %d Alpha-Kerne" % TUNING.APEX_TOAD_ALPHA_CORES)
+	# Etappe 17: kein Alpha-Kern mehr (Welle 2: Boss-Kokon).
+	_check(world.alpha_pickups.size() == pickups_before, "Toad drops no Alpha-Kern any more")
 	_check(int(world.model.kills_by_type.get("apex", 0)) == 1, "Counted as apex kill")
 	_check(world.apex_victories == 1 and main.king_zoom_left > 0.0, "Königsmoment (victory banner + zoom)")
 	var sfx: Variant = scene.get_node_or_null("Sfx")

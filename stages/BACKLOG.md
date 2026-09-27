@@ -7,6 +7,18 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 1. **15/16 abschließen** – Polier-Runde erledigt (siehe `stages/16_loot_magnet.md`, Abschnitt Polier-Runde). Offen: README neu gliedern, Vorschaubilder/Import-Cache aufräumen, eigene Kristallmodelle, Handtest der Flut-Momente und Kristallgrößen auf dem S25.
 2. **17 Duale Progression** – Werte über Level, Waffen und Relikte über Kokons und Bosse, Seltenheit, Evolutionen über Waffe 5 + Relikt. Konzept und Schnittstellen: `stages/17_dual_progression.md`.
 3. **18 Lesbarkeit nach Swarm-Vorbild (Rest)** – S1–S4 (Farbregeln in der Welt, Anführer-Ring, drei Gefahrenformen, Treffer-Blitz am Anführer), S11 Kartenzonen, S12 Kommentare. S5–S10 und S13 sind mit 15/16 erledigt.
+3b. **18b Kartenlayout** – Die begrenzte Karte (Etappe 18) braucht ein gestaltetes Wegenetz statt zufälliger Streifen und Sackgassen: Wege verbinden die Regionen, eine Mitte, klare POI-Plätze (Nest, Kokon, Boss-Arena, Migrationsschlund), Landmarken als Orientierung. Glutsumpf-Rand als echte Klippe statt Geröllfeld; eigene Baum- und Klippenmodelle anfragen (`stages/ASSET_REQUESTS.md`).
+3c. **19 Wüstenwelt „Dürrschlund“ mit Sandwurm** (Nutzerwunsch 27.09.2026) – Neue Biom-Reihenfolge: **Verdant Maw → Wüste → Glutsumpf**. Der Moosschlund-Schlund führt in die Wüste; deren Endboss ist der **Sandwurm**, erst sein Schlund führt in den Glutsumpf.
+   - **Biom:** Dünen, Knochenfelder (Riesenrippen als Wände/Engpässe), Felsbögen, Sandstein-Klippen, vereinzelte Kakteen/Dornbüsche, Oasen als Lichtungen; Gefahr: Treibsand-Flächen (verlangsamen) und Sandstürme (Sicht, kurze Wellen). Farbwelt warmes Ocker/Sand mit türkisen Oasen, der Schwarm bleibt klar lesbar (Sand nicht zu orange).
+   - **Gegner-Tints bzw. neue Wüstengegner** später; zunächst Tints der bestehenden Gegner.
+   - **Sandwurm (Apex/Endboss):**
+     - gräbt sich unter dem Boden (sichtbare Sandspur, Staub);
+     - **Durchbruch:** Warnring unter/vor dem Schwarm, bricht senkrecht mit Rundmaul heraus, trifft pro Tier;
+     - **Schwanzfeger:** halb aufgetaucht, Bogen-Fläche;
+     - verwundbar nur aufgetaucht, danach kurz erschöpft (Angriffsfenster);
+     - **Phase 2:** schneller und öfter, setzt Sandmaden frei (kleine Horde);
+     - eigener Kadaver, Boss-Kokon (Etappe 17), Trophäe.
+   - **Voraussetzung:** Modelle vom Nutzer (Prompts in `stages/ASSET_REQUESTS.md`, Abschnitt „Wüstenwelt“).
 4. **19 Balance und Inhalt** – Stammspreizung nach dem Kristall-System (Sporling zu stark, Knochenkiefer auf Apex schwach), Apex-Kampfdauer 25–35 s auf allen Stufen, Aschenkröte in der Flut messen, weitere Biome/Bosse nach Modell-Lieferungen.
 5. **20 Gerät und Leistung** – Samsung S25: APK installieren, Frametime/Hitze/Akku messen, Qualitätsstufen justieren, Touch-Handtest.
 6. **Später: Multiplayer (Solo/Duo/Trio/Quad)** – siehe unten.
@@ -56,4 +68,4 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 - **Handtest:** 5–10 Minuten Spielgefühl.
 
 ## Erledigt
-- 01 Bewegung & Lesbarkeit · 02 Welt & Assets · 03 Progression · 04 UI-Komponenten · 05 Spielgefühl, Balance, Lesbarkeit · 06 Ziele, Einstieg, UI-Politur, Leistungsmessung · 07 Leistung · 08 Die Flut & Schwierigkeit · 09 Einzelstart & Anführer · 10 Apex, Migration, Build-Vielfalt, Nutzer-Sounds/Drops/Icons · Minimap · V2-Stil · Aschenkröte · Asset-Paket V3 · Android-Export · 16 Beute-Kristalle & Magnet
+- 01 Bewegung & Lesbarkeit · 02 Welt & Assets · 03 Progression · 04 UI-Komponenten · 05 Spielgefühl, Balance, Lesbarkeit · 06 Ziele, Einstieg, UI-Politur, Leistungsmessung · 07 Leistung · 08 Die Flut & Schwierigkeit · 09 Einzelstart & Anführer · 10 Apex, Migration, Build-Vielfalt, Nutzer-Sounds/Drops/Icons · Minimap · V2-Stil · Aschenkröte · Asset-Paket V3 · Android-Export · 16 Beute-Kristalle & Magnet · 18 Begrenzte Karte (`stages/18_bounded_map.md`)

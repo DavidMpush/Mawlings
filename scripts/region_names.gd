@@ -43,22 +43,70 @@ static func _mix(seed_value: int, region: Vector2i, salt: int) -> int:
 
 ## Short region name ("Moosgrund"); deterministic per seed, region and biome.
 static func name_for(seed_value: int, region: Vector2i, biome_id: String) -> String:
+	for attempt in 8:
+		var result := _candidate(seed_value, region, biome_id, attempt)
+		if result != "":
+			return result
+	var kit := _kit(biome_id)
+	var prefixes: Array = kit.prefix
+	var salt := 17 if biome_id == "glutsumpf" else 3
+	return String(prefixes[_mix(seed_value, region, salt) % prefixes.size()]) + String(kit.suffix[0])
+
+
+# Name of one attempt, or "" if it reads badly.
+static func _candidate(seed_value: int, region: Vector2i, biome_id: String, attempt: int) -> String:
 	var kit := _kit(biome_id)
 	var prefixes: Array = kit.prefix
 	var suffixes: Array = kit.suffix
 	var salt := 17 if biome_id == "glutsumpf" else 3
-	for attempt in 8:
-		var roll := _mix(seed_value, region, salt + attempt * 31)
-		var prefix: String = prefixes[roll % prefixes.size()]
-		var suffix: String = suffixes[(roll / prefixes.size()) % suffixes.size()]
-		# Avoid doubled letters at the seam that read badly ("Moorrinne" is fine,
-		# "Auau" is not) and names too long for the minimap label.
-		if prefix.to_lower().ends_with(suffix.substr(0, 2)):
-			continue
-		var result := prefix + suffix
-		if result.length() <= MAX_LENGTH:
-			return result
-	return String(prefixes[_mix(seed_value, region, salt) % prefixes.size()]) + String(suffixes[0])
+	var roll := _mix(seed_value, region, salt + attempt * 31)
+	var prefix: String = prefixes[roll % prefixes.size()]
+	var suffix: String = suffixes[(roll / prefixes.size()) % suffixes.size()]
+	# Avoid doubled letters at the seam that read badly ("Moorrinne" is fine,
+	# "Auau" is not) and names too long for the minimap label.
+	if prefix.to_lower().ends_with(suffix.substr(0, 2)):
+		return ""
+	var result := prefix + suffix
+	return result if result.length() <= MAX_LENGTH else ""
+
+
+## Unique names for every region of a bounded map (stage 18): each region keeps
+## its own name_for() unless an earlier region (in the given order) already has
+## it; then further attempts are tried. Prefixes are also kept apart where the
+## kit allows, so neighbours never read alike ("Moosgrund" / "Moostal").
+static func map_names(seed_value: int, regions: Array, biome_id: String) -> Dictionary:
+	var result := {}
+	var used := {}
+	var prefixes_used := {}
+	var prefix_count := (_kit(biome_id).prefix as Array).size()
+	for region in regions:
+		var chosen := ""
+		for pass_index in 2:
+			for attempt in 64:
+				var name := _candidate(seed_value, region, biome_id, attempt)
+				if name == "" or used.has(name):
+					continue
+				var prefix := _prefix_of(name, biome_id)
+				# First pass: a fresh prefix while there are enough of them.
+				if pass_index == 0 and prefixes_used.has(prefix) and prefixes_used.size() < prefix_count:
+					continue
+				chosen = name
+				break
+			if chosen != "":
+				break
+		if chosen == "":
+			chosen = "%s %d" % [name_for(seed_value, region, biome_id), used.size() + 1]
+		used[chosen] = true
+		prefixes_used[_prefix_of(chosen, biome_id)] = true
+		result[region] = chosen
+	return result
+
+
+static func _prefix_of(name: String, biome_id: String) -> String:
+	for prefix in _kit(biome_id).prefix:
+		if name.begins_with(String(prefix)):
+			return String(prefix)
+	return name
 
 
 ## Landmark phrase for the region ("am Wurzelbogen") or "" (no landmark, or the

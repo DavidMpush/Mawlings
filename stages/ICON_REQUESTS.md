@@ -96,3 +96,49 @@ One original boss portrait for the mobile game Mawlings in the art style of Supe
 | `portrait_aschenkroete.png` | **Aschenkröte** (Apex-Boss 2, Glutsumpf). Stil-Block Boss-Porträt. | `Motif: a giant lava toad with cracked charcoal-black skin and glowing orange magma seams, a very wide mouth, three bubbling ember blisters on its back. Main colors charcoal black and glowing orange.` |
 
 **Optional (B-Icons später veredeln, gleicher Stil-Block):** `erdbeben.png` ohne Goldring (`Motif: three bone-white stone spikes erupting from cracked brown earth with flying rock chunks, orange shock lines.`), `biome_verdant.png`/`biome_glutsumpf.png` als kräftigere Mini-Landschaftsembleme, `flood.png` für „Die Flut“ (heute Schädel: `Motif: a dark olive wave made of many tiny snarling swamp creatures with toxic yellow eyes, crashing forward.`).
+
+## Etappe 17 – Werte, Waffen, Relikte, Evolutionen
+
+Bis zur Lieferung zeigen die Karten vorhandene Symbole (`evolution.gd` → `ICON_IDS`) oder eine Buchstaben-Plakette. Gleicher Stil-Block wie oben; Kategoriefarben: Angriff Glut-Orange/Rot, Schutz Grün, Wachstum Türkis-Blau, Spezial Violett, Relikte in ihrer Materialfarbe (die Karte trägt die Seltenheitsfarbe am Rand, das Icon selbst bleibt neutral).
+
+**Priorität A (heute Buchstaben-Plakette):**
+
+| Datei | Wofür (deutsch) | Motivzusatz (englisch, an Stil-Block hängen) |
+|---|---|---|
+| `klauenwirbel.png` | **Klauenwirbel** (Waffe): Knochenklingen kreisen um den Schwarm. | `Motif: three curved bone-white claw blades arranged in a spinning pinwheel around a small empty center, each blade with a short ember-orange motion streak behind it. Main colors bone white and ember orange.` |
+| `giftbiss.png` | **Giftbiss** (Waffe): Giftfänge, Schaden über Zeit. | `Motif: a snapping creature jaw seen from the side with two long fangs dripping bright toxic green venom, three round green droplets falling. Main colors ember orange jaw, toxic green venom.` |
+| `schallbrueller.png` | **Schallbrüller** (Waffe): Schallkegel, wirft zurück. | `Motif: a roaring creature head in profile with a wide open mouth, three bold pale-blue sound wave arcs fanning out forward from the mouth. Main colors ember orange head, pale blue waves.` |
+| `glutdruese.png` | **Glutdrüse** (Relikt, episch): Bisse setzen Brand. | `Motif: a glowing ember-orange gland shaped like a small cracked egg with little flames licking out of the cracks. Main colors ember orange and yellow flame.` |
+
+**Priorität B (heute ein ähnliches, aber doppelt genutztes Symbol):**
+
+| Datei | Wofür (deutsch) | heute | Motivzusatz (englisch) |
+|---|---|---|---|
+| `bite.png` | **Biss** (Wert, Angriff) | `jaws` | bleibt `jaws`; keine Lieferung nötig |
+| `crit.png` | **Kritbiss** (Wert, Angriff): doppelter Schaden | `crown_tooth` | `Motif: a single sharp fang cracking a small stone with a bright yellow star-shaped impact burst. Main colors bone white and ember orange, yellow burst.` |
+| `haste.png` | **Angriffstempo** (Wert, Angriff) | `clock` | `Motif: a small stopwatch with a bold ember-orange claw slash across its face and two speed lines. Main colors ember orange, cream.` |
+| `reach.png` | **Reichweite** (Wert, Angriff) | `branch_attack` | `Motif: a claw mark with three concentric ember-orange range rings expanding outward from it. Main colors ember orange and red.` |
+| `vigor.png` | **Anführerherz** (Wert, Schutz): mehr Anführer-LP | `crown` | `Motif: a small golden crown sitting on top of a plump green heart with a white plus sign. Main colors green heart, gold crown.` |
+| `gene.png` | **Genfluss** (Wert, Wachstum): mehr DNA | `dna` | `Motif: a turquoise DNA double helix with a small upward arrow and two sparkles. Main colors turquoise and white.` |
+| `speed.png` | **Sprinter** (Wert, Spezial): Tempo | `instinct` | `Motif: a violet creature paw with three bold motion streaks behind it. Main colors violet and white.` |
+| `luck.png` | **Glück** (Wert, Spezial) | `essence` | `Motif: a violet four-leaf clover made of small creature claws with a golden sparkle. Main colors violet and gold.` |
+| `pilzreich.png` | **Pilzreich** (Evolution aus Sporenwolke) | `sporenwolke` | `Motif: a ring of three fat magenta-capped mushrooms releasing a big lime-green spore cloud upward. Main colors magenta caps, lime green spores.` |
+| `dornenwall.png` | **Dornenwall** (Evolution aus Stachelrücken) | `dornenhaut` | `Motif: a closed ring of crimson thorns standing upright like a fence, seen slightly from above, one bone-white spike in front. Main colors crimson and bone white.` |
+| `hungerstein.png` | **Hungerstein** (Relikt) | `glutton` | `Motif: a heavy dark-grey stone shaped like a stomach with a golden biomass crystal stuck in it. Main colors grey stone, gold crystal.` |
+| `zaehe_haut.png` | **Zähe Haut** (Relikt) | `armor` | `Motif: a folded piece of thick leathery olive hide with stitched seams. Main colors olive and brown.` |
+| `scharfe_zaehne.png` | **Scharfe Zähne** (Relikt) | `jaws` | `Motif: three loose sharpened fangs on a small leather cord. Main colors bone white, brown cord.` |
+| `flinke_beine.png` | **Flinke Beine** (Relikt) | `scatter` | `Motif: a single slim insect-like leg with a small wing-like fin and speed lines. Main colors teal and white.` |
+| `witterungsnase.png` | **Witterungsnase** (Relikt) | `branch_growth` | `Motif: a creature snout sniffing with two turquoise scent swirls entering the nostrils. Main colors ember snout, turquoise swirls.` |
+| `dna_splitter.png` | **DNA-Splitter** (Relikt) | `dna` | `Motif: a cracked turquoise crystal shard with a tiny helix glowing inside. Main colors turquoise and white.` |
+| `sporenherz.png` | **Sporenherz** (Relikt) | `sporenwolke` | `Motif: a lime-green heart-shaped mushroom puffing a small spore cloud from its top. Main colors lime green and pink.` |
+| `aetzdruese.png` | **Ätzdrüse** (Relikt) | `saeurespucker` | `Motif: a bulbous translucent green gland filled with bubbling acid, one drop falling. Main colors acid green.` |
+| `rudelhorn.png` | **Rudelhorn** (Relikt) | `pack` | `Motif: a curved bone war horn with ember-orange sound lines coming out of its mouth. Main colors bone white and ember orange.` |
+| `gewitterfell.png` | **Gewitterfell** (Relikt) | `blitzbiss` | `Motif: a tuft of dark blue fur crackling with small bright cyan lightning sparks. Main colors dark blue and cyan.` |
+| `grabkralle.png` | **Grabkralle** (Relikt) | `graeber` | `Motif: a heavy brown digging claw pushing through cracked earth with flying dirt chunks. Main colors brown and cream.` |
+| `gluecksknochen.png` | **Glücksknochen** (Relikt) | `crown_tooth` | `Motif: a small wishbone-shaped bone with a golden sparkle at its tip. Main colors bone white and gold.` |
+| `koenigszahnkette.png` | **Königszahnkette** (Relikt) | `crown` | `Motif: a necklace of big golden fangs on a dark cord, the middle fang with a red gem. Main colors gold and red.` |
+| `zwillingsbrut.png` | **Zwillingsbrut** (Relikt) | `brood` | `Motif: two small turquoise eggs fused together with two tiny creature heads peeking out. Main colors turquoise and ember orange.` |
+| `magnetkern.png` | **Magnetkern** (Relikt) | `alpha_core` | `Motif: a glowing violet core crystal held in a horseshoe of bone, small gold crystals flying towards it. Main colors violet, bone white, gold.` |
+| `urmutter.png` | **Urmutter** (Relikt, legendär): +1 Waffenplatz | `nest` | `Motif: a large ancient mother creature silhouette curled protectively around a glowing golden egg. Main colors deep violet and gold.` |
+| `blutmond.png` | **Blutmond** (Relikt, legendär) | `skull` | `Motif: a big blood-red crescent moon with a small snarling jaw silhouette in front of it. Main colors blood red and dark violet.` |
+| `schlundherz.png` | **Schlundherz** (Relikt, legendär): Kokons billiger | `biomass` | `Motif: a heart-shaped maw with golden teeth swallowing a small cocoon. Main colors crimson and gold.` |

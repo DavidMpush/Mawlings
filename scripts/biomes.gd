@@ -77,6 +77,9 @@ const DATA := {
 		"pond_one_in": 5,
 		"flower_one_in": 3,
 		"eruptions": false,
+		# Map edge (stage 18, arena_border.gd): forest floor under the wall, fog it
+		# fades into (= the project clear colour), swamp water of the edge.
+		"border": {"floor": Color("4a6a34"), "fog": Color(0.16, 0.23, 0.18), "water": Color("2b8a86"), "shore": Color("6f8a44")},
 		"light": {"color": Color(1, 1, 1), "energy": 1.15},
 		"enemy_tints": {},
 	},
@@ -112,6 +115,7 @@ const DATA := {
 		"pond_one_in": 3,
 		"flower_one_in": 4,
 		"eruptions": true,
+		"border": {"floor": Color("3a2e33"), "fog": Color("1d1417"), "water": Color("ffb040"), "shore": Color("2a2124"), "crust": Color("2e2327"), "crust_glow": Color("1a0802")},
 		"light": {"color": Color(1.0, 0.86, 0.74), "energy": 1.2},
 		# Shader look of arena.gd (only biomes with this block use it).
 		"ember": {

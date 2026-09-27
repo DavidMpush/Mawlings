@@ -117,7 +117,8 @@ func _swarm_spot() -> Vector3:
 		for x in range(-radius, radius + 1):
 			for z in [-radius, radius]:
 				for site in arena.eruption_sites(Vector2i(x, z)):
-					if site.w == 0.0 and Vector2(site.x, site.z).length() > 50.0:
+					# Stage 18b: the path map erupts on its paths and clearings (kind 1).
+					if (site.w == 0.0 or arena.has_layout()) and Vector2(site.x, site.z).length() > 50.0:
 						var spot := Vector3(site.x + 5.0, 0.0, site.z)
 						arena.set_biome(saved)
 						return spot

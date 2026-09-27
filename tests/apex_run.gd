@@ -230,7 +230,8 @@ func _check_kill() -> void:
 	_check(apex_corpses == 1 and world.remains.size() >= remains_before + 1, "Exactly one apex corpse (%d)" % apex_corpses)
 	_check(world.loot.lures.size() >= 1, "The apex drops a Lockruf")
 	_check(int(world.model.kills_by_type.get("apex", 0)) == 1 and world.model.bosses == bosses_before, "Counted as apex kill, not as Bog King")
-	_check(world.alpha_pickups.size() == pickups_before + TUNING.APEX_ALPHA_CORES, "Apex drops %d Alpha-Kerne" % TUNING.APEX_ALPHA_CORES)
+	# Etappe 17: kein Alpha-Kern mehr (Welle 2: Boss-Kokon).
+	_check(world.alpha_pickups.size() == pickups_before, "Apex drops no Alpha-Kern any more")
 	_check(world.apex_victories == 1 and main.king_zoom_left > 0.0, "Königsmoment (victory banner + zoom)")
 	# The victory plays the "fanfare" sound (no second music stinger "king").
 	var sfx: Variant = scene.get_node_or_null("Sfx")

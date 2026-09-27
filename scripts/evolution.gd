@@ -1,84 +1,112 @@
 extends RefCounted
 
-# Run-bound mutation state. Two slot kinds: attack forms ("attack") and the
-# passive traits ("trait"). Offers come only from the configured pool and never
-# propose a new ID for a full slot kind; rank-ups of owned mutations stay open.
+# Etappe 17: Fassade der dualen Progression für HuntWorld und HUD.
+#   Spur 1 – Werte (scripts/progression/stats.gd): nur über Level (DNA).
+#   Spur 2 – Arsenal (scripts/progression/arsenal.gd): Waffen und Relikte, nur
+#            über Kokons und Bosse (Welle 2: chests.gd), Evolution = Waffe Rang 5
+#            + passendes Relikt, angeboten im Boss-Kokon.
+# Level-Angebote: `offers` = [[id, Name, Beschreibung, Seltenheit], ...] (id an
+# Stelle 0 wie bisher; der Balance-Bot und das HUD lesen nur das).
+# `ranks` ist ein gemeinsames Dictionary (Werte + Waffen), das Stats und Arsenal
+# mitbenutzen; Tests dürfen es direkt setzen. Relikt-Stapel liegen in `relics`.
+# Alle Relikt-Hooks (Kill, Treffer, Zellteilung) laufen hier bzw. über
+# form_modifiers() gebündelt; HuntWorld ruft nur note_kills(), note_divisions()
+# und roll_kill_burst().
 
+const STATS = preload("res://scripts/progression/stats.gd")
+const ARSENAL = preload("res://scripts/progression/arsenal.gd")
+
+# Werte im alten Format [id, Name, Beschreibung] (Texte = Stats.describe_step).
 const TRAITS = [
-	["jaws", "Reißzähne", "+25 % Angriffsschaden pro Rang"],
-	["brood", "Schnelle Brut", "+10 % Biomasse beim Einsammeln pro Rang"],
-	["glutton", "Vielfraß", "+25 % Biomasse bei künftigen Kills"],
-	["pack", "Rudelinstinkt", "+20 % Schaden bei Rally pro Rang"],
-	["scatter", "Fluchtreflex", "−10 % Verluste ohne Rally pro Rang"],
-	["armor", "Knochenpanzer", "−10 % Verluste pro Rang"],
-	# Etappe 16: größerer Magnetradius für Beute-Kristalle.
-	["lockduft", "Lockduft", "+25 % Sammelradius pro Rang"],
-	# Etappe 10 (nur über Trophäen freischaltbar, nicht im Standard-Pool):
-	["regeneration", "Regeneration", "+1 LP für den Anführer je 12/9/6 Kills (höchstens alle 30/25/20 s)"],
-	["dornenhaut", "Dornenhaut", "+40 % Rückschaden pro Rang"]
+	["bite", "Biss", "+12 % Schaden pro Rang"],
+	["crit", "Kritbiss", "+5 % Chance auf doppelten Schaden pro Rang"],
+	["haste", "Angriffstempo", "−8 % Abklingzeit der Waffen pro Rang"],
+	["reach", "Reichweite", "+10 % Fläche und Reichweite der Waffen pro Rang"],
+	["rally", "Rudelinstinkt", "+12 % Schaden während Rally pro Rang"],
+	["armor", "Knochenpanzer", "−8 % Verluste pro Rang"],
+	["evade", "Fluchtreflex", "−8 % Verluste ohne Rally pro Rang"],
+	["vigor", "Anführerherz", "+1 Anführer-LP auf Rang 1, 3 und 5"],
+	["regen", "Regeneration", "Anführer +1 LP je 14 Kills (sinkt bis 8)"],
+	["brood", "Brutrate", "+10 % Biomasse je Kristall pro Rang"],
+	["magnet", "Lockduft", "+12 % Sammelradius pro Rang"],
+	["gene", "Genfluss", "+8 % DNA pro Rang"],
+	["speed", "Sprinter", "+5 % Tempo pro Rang"],
+	["luck", "Glück", "+1 Glück pro Rang: seltenere Karten, Kokons 3 % billiger"],
 ]
-const ATTACKS = [
-	["rudelbiss", "Rudelbiss", "Rally löst Sprungangriffe auf nahe Gegner aus"],
-	["sporenwolke", "Sporenwolke", "Aura: Schaden über Zeit und Verlangsamung"],
-	["saeurespucker", "Säurespucker", "Spuckt Säure auf den nächsten Gegner"],
-	["stachelruecken", "Stachelrücken", "Wer den Schwarm trifft, erleidet Schaden"],
-	# Etappe 10 (nur über Trophäen freischaltbar, nicht im Standard-Pool):
-	["graeber", "Gräber", "Tunnelstoß bricht beim entferntesten Gegner aus"],
-	["blitzbiss", "Blitzbiss", "Kettenbiss springt zwischen nahen Gegnern"],
-	["brutsack", "Brutsack", "Platzende Brutblasen setzen Hilfs-Beißer frei"]
-]
-# Evolved attack forms replace their base form and occupy its slot.
-const EVOLVED = [
-	["aetzflut", "Ätzflut", "Säureflut: durchschlagende Salven, ätzende Pfützen"],
-	["meute", "Meute", "Rally entfesselt eine jagende Meute"],
-	["erdbeben", "Erdbeben", "Drei Tunnelstöße zugleich, jeder mit Nachbeben"],
-	["sturmrudel", "Sturmrudel", "Kettenbiss über sechs Ziele ohne Abschwächung"]
-]
-# base form at MAX_RANK + partner trait >= 1 + one Alpha-Kern.
-const EVOLUTION_RULES = [
-	{"id": "aetzflut", "base": "saeurespucker", "partner": "glutton"},
-	{"id": "meute", "base": "rudelbiss", "partner": "pack"},
-	{"id": "erdbeben", "base": "graeber", "partner": "armor"},
-	{"id": "sturmrudel", "base": "blitzbiss", "partner": "jaws"}
-]
-# Etappe 10: IDs, die nur über Trophäen (meta_data "mutation:<id>") in den Pool
-# kommen. Ohne RunConfig bleibt der Standard-Pool der von Etappe 03.
-const UNLOCK_ONLY = ["regeneration", "dornenhaut", "graeber", "blitzbiss", "brutsack"]
+const ATTACKS = ARSENAL.WEAPONS
+const EVOLVED = ARSENAL.EVOLVED
+const RELICS = ARSENAL.RELICS
+const EVOLUTION_RULES = ARSENAL.EVOLUTION_RULES
+# Nur über Trophäen (meta_data „mutation:“, „weapon:“, „relic:“) im Pool.
+const UNLOCK_ONLY = ["regen", "saeurespucker", "stachelruecken", "graeber", "blitzbiss", "brutsack",
+	"dornenhaut", "urmutter", "blutmond", "schlundherz"]
+const MAX_RANK = 5
 
-# --- Etappe 10: Schnittstellen der neuen Anlagen für HuntWorld ---------------
-# Regeneration: HuntWorld meldet jeden Kill mit note_kills(n); der Rückgabewert
-# (und das Signal leader_regenerated) sind die LP, die der Anführer zurückbekommt
-# (HuntWorld kappt auf leader_max_hp). regen_kills = Fortschritt zum nächsten LP.
-# Etappe 10 Teil 2: Kills zählen gewichtet (Moorbrut nur REGEN_HORDE_WEIGHT), und mit
-# Spielzeit `now` heilt Regeneration höchstens 1 LP je REGEN_GAP[Rang] s; Fortschritt
-# über ein volles Intervall hinaus verfällt in der Pause (kein Ansparen).
-# Dornenhaut: thorn_factor() (0 ohne Anlage, 0,4 je Rang) und thorn_damage(loss,
-# leader_struck) = Rückschaden für einen Gegner, der den Schwarm im Nahkampf trifft
-# (vor enemy_scale). Anwenden z. B. über AttackForms.reflect_thorns().
-const REGEN_KILLS = [12, 9, 6]
+# Regeneration/Königszahnkette: Moorbrut zählt nur REGEN_HORDE_WEIGHT Kill.
 const REGEN_HORDE_WEIGHT = 0.15
-const REGEN_GAP = [30.0, 25.0, 20.0]
+# Dornenhaut (Relikt): +40 % Rückschaden je Stapel.
 const THORN_STEP = 0.40
 const THORN_BASE = 30.0
 const THORN_PER_LOSS = 4.0
 const THORN_LEADER = 10.0
-signal leader_regenerated(amount: int)
-const MAX_RANK = 3
-# Etappe 16: Magnet (Lockduft) +LURE_SCENT_STEP Radius je Rang; Schnelle Brut
-# +BROOD_STEP Biomasse je eingesammeltem Kristall (vorher Erntetempo).
-const LURE_SCENT_STEP = 0.25
-const BROOD_STEP = 0.10
-# Etappe 16: Anlagen ohne eigenes Symbol in ui_icons.gd nutzen vorerst ein vorhandenes.
-# Lockduft: the crystal cluster (same as Witterung in the Brutkammer: both widen the
-# collect radius); its card/plate tone is info via the growth branch.
-const ICON_IDS = {"lockduft": "branch_growth"}
-const DEFAULT_SLOTS = {"attack": 2, "trait": 3}
+# Relikt-Zahlen (je Stapel).
+const RELIC = {
+	"hungerstein_harvest": 0.20, "hungerstein_speed": -0.05, "zaehe_haut": 0.04, "scharfe_zaehne": 0.06,
+	"flinke_beine": 0.06, "witterungsnase": 0.15, "dna_splitter": 0.10, "sporenherz": 0.15,
+	"aetzdruese": 0.20, "rudelhorn": 0.15, "gewitterfell": 0.10, "grabkralle": 1.0, "gluecksknochen": 2.0,
+	"koenigszahnkette": 15, "zwillingsbrut": 4, "blutmond": 0.40,
+}
+# Waffen: Angriffstempo höchstens −60 % Abklingzeit.
+const HASTE_FLOOR = 0.4
+# Vorhandene Symbole (ui_icons.gd) für neue IDs, bis eigene Icons geliefert sind
+# (stages/ICON_REQUESTS.md). Fehlt ein Eintrag, zeichnet die Karte eine Plakette.
+const ICON_IDS = {
+	"bite": "jaws", "crit": "crown_tooth", "haste": "clock", "reach": "branch_attack", "rally": "pack",
+	"evade": "scatter", "vigor": "crown", "regen": "regeneration", "magnet": "branch_growth",
+	"gene": "dna", "speed": "instinct", "luck": "essence",
+	"pilzreich": "sporenwolke", "dornenwall": "dornenhaut",
+	"hungerstein": "glutton", "zaehe_haut": "armor", "scharfe_zaehne": "jaws", "flinke_beine": "scatter",
+	"witterungsnase": "branch_growth", "dna_splitter": "dna", "sporenherz": "sporenwolke",
+	"aetzdruese": "saeurespucker", "rudelhorn": "pack", "gewitterfell": "blitzbiss", "grabkralle": "graeber",
+	"gluecksknochen": "crown_tooth", "koenigszahnkette": "crown", "zwillingsbrut": "brood",
+	"magnetkern": "alpha_core", "urmutter": "nest", "blutmond": "skull", "schlundherz": "biomass",
+	# Alt-IDs (Etappe 16) für alte Build-Anzeigen.
+	"lockduft": "branch_growth",
+}
+const DEFAULT_SLOTS = {"attack": ARSENAL.BASE_SLOTS, "trait": 14}
+## Welle-1-Ausgleich (Etappe 17): Ohne Kokons steigt keine Waffe mehr über Level.
+## Die Startwaffe des Stammes beginnt deshalb auf diesem Rang (vorher erreichte
+## der Bot Rang 3 nach zwei Level-Wahlen). Welle 2 (Kokons) balanciert neu und
+## setzt ihn voraussichtlich auf 1 zurück.
+const SIGNATURE_START_RANK = 4
 
-var ranks: Dictionary = {}
+signal leader_regenerated(amount: int)
+
+var stats = STATS.new()
+var arsenal = ARSENAL.new()
+var ranks: Dictionary = {}:
+	set(value):
+		ranks = value
+		if stats != null:
+			stats.ranks = value
+		if arsenal != null:
+			arsenal.ranks = value
+var relics: Dictionary = {}:
+	set(value):
+		relics = value
+		if arsenal != null:
+			arsenal.relics = value
+var evolutions: Array[String] = []
 var dna := 0
 var level := 0
 var offers: Array = []
+## Boss-Kokon: 1 aus 3 (Welle 2 öffnet ihn; die Karten zeigt mutation_screen im
+## Modus „chest“). Einträge [id, Name, Beschreibung, Seltenheit, item].
+var chest_offers: Array = []
 var rng := RandomNumberGenerator.new()
+## Eigener Zufall für Kokons und Relikt-Hooks (ändert die Level-Angebote nicht).
+var chest_rng := RandomNumberGenerator.new()
+var hook_rng := RandomNumberGenerator.new()
 
 var slots: Dictionary = DEFAULT_SLOTS.duplicate()
 var pool: Array = []
@@ -86,19 +114,34 @@ var banished: Array = []
 var rerolls := 0
 var banishes := 0
 var skips := 0
+## Etappe 17: Alpha-Kern entfällt; bleibt 0 (Altaufrufer, HUD-Chip).
 var alpha_cores := 0
-var evolutions: Array[String] = []
 var signature := ""
-# Meta multipliers (1.0 neutral); armor is an additive loss reduction share.
-var mods: Dictionary = {"damage": 1.0, "armor": 0.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0, "rally_damage": 1.0, "magnet": 1.0}
-# Etappe 10: Kills seit dem letzten Regenerations-LP.
+# Meta-Multiplikatoren (1.0 neutral); armor = additiver Verlust-Abzug.
+var mods: Dictionary = {"damage": 1.0, "armor": 0.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0, "rally_damage": 1.0, "magnet": 1.0, "speed": 1.0}
+## Kurzzeit-Multiplikatoren (Welle 2: Power-ups). damage/speed/magnet ×,
+## cooldown × Abklingzeit, loss × Verluste, leader_immune = Anführer unverwundbar.
+var boosts: Dictionary = {"damage": 1.0, "speed": 1.0, "magnet": 1.0, "cooldown": 1.0, "loss": 1.0, "leader_immune": false}
+## Steigt bei jeder Änderung an Werten/Arsenal; HuntWorld synchronisiert dann
+## Waffen, Anführer-LP und Modifikatoren.
+var revision := 0
+## Letzte Evolution (für den Evolutions-Moment im HUD).
+var last_evolution := ""
+# Hook-Zähler.
 var regen_kills := 0.0
-# Spielzeit, ab der das nächste Regenerations-LP frühestens kommt.
 var regen_ready_at := 0.0
+var chain_kills := 0.0
+var divisions := 0
 
 
 func _init() -> void:
 	rng.randomize()
+	chest_rng.randomize()
+	hook_rng.randomize()
+	stats.ranks = ranks
+	arsenal.ranks = ranks
+	arsenal.relics = relics
+	evolutions = arsenal.evolutions
 	pool = _default_pool()
 
 
@@ -107,86 +150,101 @@ static func _default_pool() -> Array:
 	for entry in TRAITS:
 		if not UNLOCK_ONLY.has(entry[0]):
 			ids.append(entry[0])
-	for entry in ATTACKS:
-		if not UNLOCK_ONLY.has(entry[0]):
-			ids.append(entry[0])
+	for id in ARSENAL.default_weapon_pool():
+		ids.append(id)
+	for id in ARSENAL.default_relic_pool():
+		ids.append(id)
 	return ids
 
 
-# Applies a RunConfig (see stages/03_progression.md). Missing keys keep defaults.
+## Alte IDs (Etappe 03–16) auf die neuen abbilden (Profile, RunConfigs, Tests).
+static func migrate_id(id: String) -> String:
+	return STATS.migrate(id)
+
+
+# Applies a RunConfig (see stages/03_progression.md, 17). Missing keys keep defaults.
 func configure(config: Dictionary) -> void:
 	var slot_config: Dictionary = config.get("slots", {})
-	slots = {"attack": int(slot_config.get("attack", DEFAULT_SLOTS.attack)), "trait": int(slot_config.get("trait", DEFAULT_SLOTS.trait))}
-	var configured_pool: Array = config.get("pool", [])
+	arsenal.slots = maxi(1, int(slot_config.get("attack", DEFAULT_SLOTS.attack)))
+	slots = {"attack": arsenal.slots, "trait": DEFAULT_SLOTS.trait}
+	var configured: Array = []
+	for raw in config.get("pool", []):
+		var id := migrate_id(str(raw))
+		if info(id).size() > 0 and kind_of(id) != "evolved" and not configured.has(id):
+			configured.append(id)
+	var has_stats := configured.any(func(id): return kind_of(id) == "trait")
+	var has_weapons := configured.any(func(id): return kind_of(id) == "attack")
+	var has_relics := configured.any(func(id): return kind_of(id) == "relic")
+	var defaults := _default_pool()
 	pool = []
-	for id in (configured_pool if not configured_pool.is_empty() else _default_pool()):
-		if info(str(id)).size() > 0 and kind_of(str(id)) != "evolved" and not pool.has(str(id)):
-			pool.append(str(id))
+	for id in configured + defaults:
+		var kind := kind_of(id)
+		var from_config: bool = (kind == "trait" and has_stats) or (kind == "attack" and has_weapons) or (kind == "relic" and has_relics)
+		if (from_config and configured.has(id)) or (not from_config and defaults.has(id)):
+			if not pool.has(id):
+				pool.append(id)
+	arsenal.weapon_pool = pool.filter(func(id): return kind_of(id) == "attack")
+	arsenal.relic_pool = pool.filter(func(id): return kind_of(id) == "relic")
 	rerolls = int(config.get("rerolls", 0))
 	banishes = int(config.get("banishes", 0))
 	skips = int(config.get("skips", 0))
 	var meta: Dictionary = config.get("mods", {})
-	for key in ["damage", "harvest", "dna", "growth", "rally_damage", "magnet"]:
+	for key in ["damage", "harvest", "dna", "growth", "rally_damage", "magnet", "speed"]:
 		mods[key] = float(meta.get(key, 1.0))
+	mods["speed"] = clampf(float(mods.speed), 0.5, 2.0)
 	# Negative armor (e.g. a fast strain) means extra losses.
 	mods["armor"] = clampf(float(meta.get("armor", 0.0)), -0.5, 0.6)
+	if config.has("seed"):
+		var run_seed := int(config.get("seed", 0))
+		chest_rng.seed = hash([run_seed, "chest"])
+		hook_rng.seed = hash([run_seed, "hook"])
+	# Die Startwaffe des Stammes (Welle 1: einzige Waffe ohne Kokons).
 	signature = str(config.get("signature_attack", ""))
 	if signature != "" and kind_of(signature) == "attack":
-		ranks[signature] = maxi(1, rank(signature))
+		ranks[signature] = maxi(SIGNATURE_START_RANK, rank(signature))
 		if not pool.has(signature):
 			pool.append(signature)
+		if not arsenal.weapon_pool.has(signature):
+			arsenal.weapon_pool.append(signature)
+	revision += 1
 
+
+# ---------------------------------------------------------------- Level (Werte)
 
 func threshold() -> int:
 	return 20 + level * 10
 
 
-# True when no further mutation can ever be offered in this run.
+# True when no further stat can ever be offered in this run.
 func complete() -> bool:
-	return _candidates().is_empty()
+	return stats.candidates(_stat_pool(), banished).is_empty()
 
 
 func earn(amount: int) -> void:
 	if complete():
 		return
-	dna += maxi(0, int(round(float(maxi(0, amount)) * float(mods.dna))))
+	dna += maxi(0, int(round(float(maxi(0, amount)) * dna_multiplier())))
 	_prepare()
 
 
-func _candidates() -> Array:
-	var result: Array = []
-	for id in pool:
-		if banished.has(id) or _base_evolved(id):
-			continue
-		var current := rank(id)
-		if current >= MAX_RANK:
-			continue
-		if current == 0 and slots_used(kind_of(id)) >= slot_limit(kind_of(id)):
-			continue
-		result.append(info(id))
-	return result
+func _stat_pool() -> Array:
+	return pool.filter(func(id): return kind_of(id) == "trait")
 
 
 func _prepare(exclude: Array = []) -> void:
 	if not offers.is_empty() or dna < threshold():
 		return
-	var candidates := _candidates()
-	if candidates.is_empty():
-		return
-	# Prefer fresh cards after a reroll, but never show fewer than possible.
-	var fresh: Array = candidates.filter(func(entry): return not exclude.has(entry[0]))
-	var source: Array = fresh if fresh.size() >= mini(3, candidates.size()) else candidates
-	while offers.size() < 3 and not source.is_empty():
-		offers.append(source.pop_at(rng.randi_range(0, source.size() - 1)))
+	offers = stats.roll_offers(rng, luck(), _stat_pool(), banished, exclude)
 
 
 func choose(slot: int) -> bool:
 	if slot < 0 or slot >= offers.size():
 		return false
-	var id: String = offers[slot][0]
+	var entry: Array = offers[slot]
 	dna -= threshold()
-	ranks[id] = rank(id) + 1
+	stats.apply(str(entry[0]), str(entry[3]) if entry.size() > 3 else "common")
 	level += 1
+	revision += 1
 	offers.clear()
 	_prepare()
 	return true
@@ -202,29 +260,28 @@ func reroll() -> bool:
 	return true
 
 
-# Removes the offered mutation from this run's pool and refills the offer.
+# Removes the offered stat from this run's pool and refills the offer.
 func banish(slot: int) -> bool:
 	if banishes <= 0 or slot < 0 or slot >= offers.size():
 		return false
 	banishes -= 1
 	var id: String = offers[slot][0]
 	banished.append(id)
-	var kept: Array = offers.map(func(entry): return entry[0])
+	var kept: Array = offers.filter(func(entry): return entry[0] != id)
 	offers.clear()
 	_prepare()
-	# Keep the other two cards where possible so a banish is not a free reroll.
-	var ordered: Array = []
+	# Keep the other two cards (with their rarity) so a banish is not a free reroll.
+	var ordered: Array = kept.duplicate()
 	for entry in offers:
-		if kept.has(entry[0]):
-			ordered.append(entry)
-	for entry in offers:
-		if not kept.has(entry[0]):
+		if ordered.size() >= offers.size():
+			break
+		if not ordered.any(func(k): return k[0] == entry[0]):
 			ordered.append(entry)
 	offers = ordered
 	return true
 
 
-# Declines this level-up: the DNA for it is spent, no mutation is gained.
+# Declines this level-up: the DNA for it is spent, no stat is gained.
 func skip() -> bool:
 	if skips <= 0 or offers.is_empty():
 		return false
@@ -235,24 +292,94 @@ func skip() -> bool:
 	return true
 
 
+# ---------------------------------------------------------------- Arsenal
+
+## Würfelt einen Kokon (kind = map/elite/boss) mit dem Kokon-Zufall und Glück.
+func roll_chest(kind: String) -> Dictionary:
+	return arsenal.roll_chest(chest_rng, luck(), kind)
+
+
+## Öffnet einen Kokon: Karte/Elite = Beute sofort anwenden, Boss = chest_offers
+## füllen (1 aus 3, die Welt pausiert, bis choose_chest()). Rückgabe wie
+## roll_chest() plus "granted" (angewandte Teile) bei sofortiger Beute.
+func open_chest(kind: String) -> Dictionary:
+	var result := roll_chest(kind)
+	if kind == "map":
+		arsenal.chests_opened += 1
+	if bool(result.get("pick", false)):
+		chest_offers = []
+		for item in result.items:
+			chest_offers.append(chest_entry(item))
+		return result
+	var granted: Array = []
+	for item in result.items:
+		granted.append(grant(item))
+	result["granted"] = granted
+	return result
+
+
+## Karten-Eintrag für mutation_screen (Modus „chest“).
+static func chest_entry(item: Dictionary) -> Array:
+	return [String(item.get("id", "")), String(item.get("name", "")), String(item.get("desc", "")), String(item.get("rarity", "common")), item]
+
+
+func choose_chest(slot: int) -> Dictionary:
+	if slot < 0 or slot >= chest_offers.size():
+		return {}
+	var entry: Array = chest_offers[slot]
+	chest_offers.clear()
+	return grant(entry[4] if entry.size() > 4 else {})
+
+
+## Wendet ein Beute-Teil an (Waffe/Relikt/Evolution) und meldet die Änderung.
+func grant(item: Dictionary) -> Dictionary:
+	var result: Dictionary = arsenal.grant(item)
+	if bool(result.get("applied", false)):
+		revision += 1
+		if String(result.get("type", "")) == "evolution":
+			last_evolution = String(result.id)
+	return result
+
+
+func chest_price() -> int:
+	return arsenal.chest_price(luck())
+
+
+func evolution_ready() -> Array:
+	return arsenal.evolution_ready()
+
+
+## Test/Debug: gibt einen Wert, eine Waffe, ein Relikt oder eine Evolution direkt.
+func debug_grant(id: String, rarity: String = "common") -> Dictionary:
+	id = migrate_id(id)
+	match kind_of(id):
+		"trait":
+			stats.apply(id, rarity)
+			revision += 1
+			return {"type": "stat", "id": id, "rarity": rarity, "applied": true, "to": rank(id)}
+		"attack":
+			return grant(arsenal.weapon_item(id, rarity))
+		"relic":
+			return grant(arsenal.relic_item(id))
+		"evolved":
+			return grant(arsenal.evolution_item(id))
+	return {"applied": false}
+
+
+# ---------------------------------------------------------------- Alt-Aufrufer
+
+## Etappe 17: Alpha-Kern entfällt (Welle 2: Elite-Kokon). Stub für Altaufrufer.
 func add_alpha_core() -> void:
-	alpha_cores += 1
+	pass
 
 
-# Consumes one stored Alpha-Kern for the first evolution whose rules hold.
-# Returns the evolved ID or "".
+## Evolutionen kommen nur noch über den Boss-Kokon (grant()). try_evolve()
+## liefert die zuletzt gewährte Evolution genau einmal (HuntWorld zeigt dann den
+## Evolutions-Moment), sonst "".
 func try_evolve() -> String:
-	if alpha_cores <= 0:
-		return ""
-	for rule in EVOLUTION_RULES:
-		if evolutions.has(rule.id) or rank(rule.base) < MAX_RANK or rank(rule.partner) < 1:
-			continue
-		alpha_cores -= 1
-		ranks.erase(rule.base)
-		ranks[rule.id] = 1
-		evolutions.append(rule.id)
-		return rule.id
-	return ""
+	var evolved := last_evolution
+	last_evolution = ""
+	return evolved
 
 
 # Next evolution the player is working towards, for hints ("" when none).
@@ -262,131 +389,204 @@ func evolution_hint() -> String:
 			continue
 		var needs := PackedStringArray()
 		if rank(rule.base) < MAX_RANK:
-			needs.append("%s Rang 3" % info(rule.base)[1])
-		if rank(rule.partner) < 1:
+			needs.append("%s Rang %d" % [info(rule.base)[1], MAX_RANK])
+		if arsenal.stacks(rule.partner) < 1:
 			needs.append(info(rule.partner)[1])
-		if alpha_cores <= 0:
-			needs.append("Alpha-Kern")
+		needs.append("Boss-Kokon")
 		return "%s braucht: %s" % [info(rule.id)[1], ", ".join(needs)]
 	return ""
 
 
+# ---------------------------------------------------------------- Katalog
+
 func rank(id: String) -> int:
-	return ranks.get(id, 0)
+	return int(ranks.get(id, 0))
 
 
-func _base_evolved(id: String) -> bool:
-	for rule in EVOLUTION_RULES:
-		if rule.base == id and evolutions.has(rule.id):
-			return true
-	return false
+func stacks(id: String) -> int:
+	return arsenal.stacks(id)
 
 
+## "trait" (Wert), "attack" (Waffe), "evolved", "relic" oder "".
 func kind_of(id: String) -> String:
-	for entry in TRAITS:
-		if entry[0] == id:
-			return "trait"
-	for entry in ATTACKS:
-		if entry[0] == id:
-			return "attack"
-	for entry in EVOLVED:
-		if entry[0] == id:
-			return "evolved"
+	if STATS.has(id):
+		return "trait"
+	if ARSENAL.is_weapon(id):
+		return "attack"
+	if ARSENAL.is_evolved(id):
+		return "evolved"
+	if ARSENAL.is_relic(id):
+		return "relic"
 	return ""
 
 
 func info(id: String) -> Array:
-	for group in [TRAITS, ATTACKS, EVOLVED]:
-		for entry in group:
-			if entry[0] == id:
-				return entry
-	return []
+	if STATS.has(id):
+		return STATS.info(id)
+	return ARSENAL.info(id)
 
 
 func slot_limit(kind: String) -> int:
+	if kind == "attack":
+		return arsenal.slot_limit()
 	return int(slots.get(kind, 0))
 
 
 # Evolved forms count as attack forms.
 func slots_used(kind: String) -> int:
+	if kind == "attack":
+		return arsenal.weapons().size()
 	var used := 0
 	for id in ranks:
-		if ranks[id] <= 0:
-			continue
-		var own := kind_of(id)
-		if own == kind or (kind == "attack" and own == "evolved"):
+		if int(ranks[id]) > 0 and kind_of(id) == kind:
 			used += 1
 	return used
 
 
 # Attack forms (incl. evolved) with their rank, for AttackForms.set_ranks.
 func attack_ranks() -> Dictionary:
-	var result := {}
-	for id in ranks:
-		if kind_of(id) in ["attack", "evolved"] and ranks[id] > 0:
-			result[id] = ranks[id]
-	return result
+	return arsenal.attack_ranks()
 
 
-func damage_multiplier(rally: bool) -> float:
-	return (1.0 + 0.25 * rank("jaws")) * ((1.0 + 0.20 * rank("pack")) * float(mods.rally_damage) if rally else 1.0) * float(mods.damage)
-
-
-# Etappe 16: Biomasse je eingesammeltem Kristall (Schnelle Brut, Meta "harvest" = Verdauung).
-func harvest_multiplier() -> float:
-	return (1.0 + BROOD_STEP * rank("brood")) * float(mods.harvest)
-
-
-# Etappe 16: Magnetradius-Faktor (Lockduft je Rang, Meta "magnet" = Witterung).
-func magnet_multiplier() -> float:
-	return (1.0 + LURE_SCENT_STEP * rank("lockduft")) * float(mods.magnet)
-
-
-# Existing UI icon for a mutation id (itself when ui_icons.gd has one).
+# Existing UI icon for an id (itself when ui_icons.gd has one).
 static func icon_id(id: String) -> String:
 	return String(ICON_IDS.get(id, id))
 
 
+## Wert-Vorschau für eine Karte: {before, after, label}.
+func stat_preview(id: String, rarity: String) -> Dictionary:
+	return stats.preview(id, rarity)
+
+
+# ---------------------------------------------------------------- Wirkung
+
+func luck() -> float:
+	return stats.amount("luck") + RELIC.gluecksknochen * stacks("gluecksknochen")
+
+
+## Kritbiss als Erwartungswert (jeder Treffer ×2 mit Chance crit).
+func crit_chance() -> float:
+	return clampf(stats.amount("crit"), 0.0, 1.0)
+
+
+func damage_multiplier(rally: bool) -> float:
+	var value := (1.0 + stats.amount("bite")) * (1.0 + crit_chance())
+	if rally:
+		value *= (1.0 + stats.amount("rally")) * float(mods.rally_damage)
+	value *= 1.0 + RELIC.scharfe_zaehne * stacks("scharfe_zaehne")
+	value *= 1.0 + RELIC.blutmond * stacks("blutmond")
+	return value * float(mods.damage) * float(boosts.damage)
+
+
+## Tempo des Schwarms (Stamm/Meta × Sprinter × Relikte × Power-up).
+func speed_multiplier(rally: bool = false) -> float:
+	var value := float(mods.speed) * (1.0 + stats.amount("speed"))
+	value *= 1.0 + RELIC.flinke_beine * stacks("flinke_beine")
+	value *= maxf(0.5, 1.0 + RELIC.hungerstein_speed * stacks("hungerstein"))
+	if rally:
+		value *= 1.0 + RELIC.rudelhorn * stacks("rudelhorn")
+	return value * float(boosts.speed)
+
+
+## Faktor auf alle Waffen-Abklingzeiten (Angriffstempo, Power-up).
+func cooldown_scale() -> float:
+	return maxf(HASTE_FLOOR, 1.0 - stats.amount("haste")) * float(boosts.cooldown)
+
+
+## Faktor auf Fläche und Reichweite der Waffen.
+func area_scale() -> float:
+	return 1.0 + stats.amount("reach")
+
+
+# Biomasse je eingesammeltem Kristall (Brutrate, Hungerstein, Meta "harvest" = Verdauung).
+func harvest_multiplier() -> float:
+	return (1.0 + stats.amount("brood")) * (1.0 + RELIC.hungerstein_harvest * stacks("hungerstein")) * float(mods.harvest)
+
+
+# Magnetradius-Faktor (Lockduft, Witterungsnase, Meta "magnet" = Witterung, Power-up).
+func magnet_multiplier() -> float:
+	return (1.0 + stats.amount("magnet")) * (1.0 + RELIC.witterungsnase * stacks("witterungsnase")) * float(mods.magnet) * float(boosts.magnet)
+
+
+# Biomasse künftiger Kills (Stamm "growth"; Vielfraß ist in Brutrate aufgegangen).
 func biomass_multiplier() -> float:
-	return (1.0 + 0.25 * rank("glutton")) * float(mods.growth)
+	return float(mods.growth)
+
+
+func dna_multiplier() -> float:
+	return (1.0 + stats.amount("gene")) * (1.0 + RELIC.dna_splitter * stacks("dna_splitter")) * float(mods.dna)
+
+
+## Lockruf-Chance (Magnetkern: doppelt so oft je Stapel).
+func lure_multiplier() -> float:
+	return 1.0 + float(stacks("magnetkern"))
+
+
+## Zusätzliche Anführer-LP: Anführerherz minus Blutmond.
+func leader_hp_bonus() -> int:
+	return STATS.vigor_hp(stats.units_of("vigor")) - stacks("blutmond")
 
 
 func loss_after_armor(amount: int, rally: bool) -> int:
 	if amount <= 0:
 		return 0
-	var reduction := 0.10 * rank("armor") + (0.0 if rally else 0.10 * rank("scatter")) + float(mods.armor)
-	return maxi(1, ceili(amount * (1.0 - clampf(reduction, -0.5, 0.85))))
+	var reduction := stats.amount("armor") + (0.0 if rally else stats.amount("evade")) + RELIC.zaehe_haut * stacks("zaehe_haut") + float(mods.armor)
+	var scaled := float(amount) * (1.0 - clampf(reduction, -0.5, 0.85)) * float(boosts.loss)
+	return maxi(1, ceili(scaled - 0.0001))
+
+
+## Waffen-Modifikatoren für AttackForms.set_modifiers().
+func form_modifiers() -> Dictionary:
+	return {
+		"cooldown": cooldown_scale(),
+		"area": area_scale(),
+		"acid_damage": 1.0 + RELIC.aetzdruese * stacks("aetzdruese"),
+		"dig_radius": RELIC.grabkralle * stacks("grabkralle"),
+		"chain_chance": 1.0 - pow(1.0 - RELIC.gewitterfell, stacks("gewitterfell")),
+		"burn": stacks("glutdruese"),
+	}
 
 
 func summary() -> String:
-	var parts := PackedStringArray()
-	for group in [ATTACKS, EVOLVED, TRAITS]:
-		for mutation in group:
-			if rank(mutation[0]) > 0:
-				parts.append("%s %d" % [mutation[1], rank(mutation[0])])
+	var parts := arsenal.summary()
+	parts.append_array(stats.summary())
 	return " · ".join(parts)
 
 
-# --- Etappe 10: Regeneration ---------------------------------------------
+# ---------------------------------------------------------------- Hooks
 
-# Kills je Anführer-LP (0 = Anlage fehlt).
+## Kills je Regenerations-LP (0 = kein Wert Regeneration).
 func regeneration_interval() -> int:
-	var level := rank("regeneration")
-	return int(REGEN_KILLS[mini(level, MAX_RANK) - 1]) if level > 0 else 0
+	return STATS.regen_kills(stats.units_of("regen"))
 
 
-# Mindestabstand zwischen zwei Regenerations-LP in Sekunden (0 = Anlage fehlt).
 func regeneration_gap() -> float:
-	var level := rank("regeneration")
-	return float(REGEN_GAP[mini(level, MAX_RANK) - 1]) if level > 0 else 0.0
+	return STATS.regen_gap(stats.units_of("regen"))
 
 
-# Zählt `count` Kills mit Gewicht `weight` (Moorbrut: REGEN_HORDE_WEIGHT); liefert die
-# LP, die der Anführer dafür zurückbekommt. Mit `now` >= 0 (Spielzeit) höchstens 1 LP
-# je regeneration_gap(); ohne `now` (Tests/Werkzeuge) ohne Zeitdeckel.
+## Kill-Hook: zählt `count` Kills mit Gewicht `weight` (Moorbrut:
+## REGEN_HORDE_WEIGHT) für Regeneration und Königszahnkette; liefert die LP, die
+## der Anführer zurückbekommt (HuntWorld kappt auf leader_max_hp). Regeneration
+## heilt mit Spielzeit `now` >= 0 höchstens 1 LP je regeneration_gap().
 func note_kills(count: int = 1, weight: float = 1.0, now: float = -1.0) -> int:
+	if count <= 0 or weight <= 0.0:
+		return 0
+	var healed := _regen(count, weight, now)
+	var chain := stacks("koenigszahnkette")
+	if chain > 0:
+		var every := maxf(1.0, ceilf(float(RELIC.koenigszahnkette) / float(chain)))
+		chain_kills += float(count) * weight
+		var chain_heal := int(floor((chain_kills + 0.00001) / every))
+		chain_kills -= float(chain_heal) * every
+		healed += chain_heal
+	if healed > 0:
+		leader_regenerated.emit(healed)
+	return healed
+
+
+func _regen(count: int, weight: float, now: float) -> int:
 	var interval := regeneration_interval()
-	if interval <= 0 or count <= 0 or weight <= 0.0:
+	if interval <= 0:
 		return 0
 	regen_kills += float(count) * weight
 	var healed := int(floor((regen_kills + 0.00001) / float(interval)))
@@ -399,15 +599,30 @@ func note_kills(count: int = 1, weight: float = 1.0, now: float = -1.0) -> int:
 		regen_kills = minf(regen_kills - float(healed * interval), float(interval))
 	else:
 		regen_kills -= float(healed * interval)
-	if healed > 0:
-		leader_regenerated.emit(healed)
 	return healed
 
 
-# --- Etappe 10: Dornenhaut -----------------------------------------------
+## Zellteilungs-Hook (Zwillingsbrut): liefert zusätzliche Tiere für `count` neue.
+func note_divisions(count: int) -> int:
+	var twins := stacks("zwillingsbrut")
+	if twins <= 0 or count <= 0:
+		return 0
+	var every := maxi(2, int(RELIC.zwillingsbrut) + 1 - twins)
+	var before := divisions
+	divisions += count
+	return floori(float(divisions) / every) - floori(float(before) / every)
+
+
+## Kill-Hook (Sporenherz): platzt dieser Kill als Sporenwolke?
+func roll_kill_burst() -> bool:
+	var hearts := stacks("sporenherz")
+	if hearts <= 0:
+		return false
+	return hook_rng.randf() < 1.0 - pow(1.0 - RELIC.sporenherz, hearts)
+
 
 func thorn_factor() -> float:
-	return THORN_STEP * float(mini(rank("dornenhaut"), MAX_RANK))
+	return THORN_STEP * float(stacks("dornenhaut"))
 
 
 func thorn_damage(loss: int, leader_struck: bool = false) -> float:

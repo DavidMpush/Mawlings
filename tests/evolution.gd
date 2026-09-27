@@ -2,6 +2,7 @@ extends SceneTree
 
 const EVOLUTION = preload("res://scripts/evolution.gd")
 const TUNING = preload("res://scripts/tuning.gd")
+const STATS = preload("res://scripts/progression/stats.gd")
 var failures: Array[String] = []
 
 func check(condition: bool, message: String) -> void:
@@ -19,24 +20,35 @@ func _run() -> void:
 	evo.earn(1)
 	check(evo.offers.size() == 3, "Three offers at threshold")
 	check(evo.offers[0][0] != evo.offers[1][0] and evo.offers[1][0] != evo.offers[2][0] and evo.offers[0][0] != evo.offers[2][0], "Unique offers")
+	for offer in evo.offers:
+		# Etappe 17: Level geben nur Werte, jede Karte mit Seltenheit.
+		check(evo.kind_of(offer[0]) == "trait", "Level offer is a stat (%s)" % offer[0])
+		check(offer.size() >= 4 and ["common", "rare", "epic", "legendary"].has(offer[3]), "Offer has a rarity")
 	check(not evo.choose(-1) and not evo.choose(3), "Reject invalid selection")
-	evo.earn(10000)
-	# Stage 03: 2 attack-form slots + 3 trait slots, 3 ranks each = 15 choices.
-	for i in 15:
-		check(evo.choose(0), "Queued evolution remains selectable")
-	check(evo.complete() and evo.offers.is_empty(), "All slots and ranks complete without deadlock")
-	check(evo.slots_used("attack") == 2 and evo.slots_used("trait") == 3, "Slot limits respected")
+	evo.earn(100000)
+	# Etappe 17: 13 Standard-Werte (ohne Regeneration) mit je 5 Rängen = 65 Wahlen.
+	var picks := 0
+	while not evo.offers.is_empty() and picks < 200:
+		check(evo.choose(0), "Queued level remains selectable")
+		picks += 1
+	check(picks == 65, "65 stat picks until complete (%d)" % picks)
+	check(evo.complete() and evo.offers.is_empty(), "All stats complete without deadlock")
+	check(evo.slots_used("attack") == 0, "Levels never give weapons")
 	for id in evo.ranks:
-		check(evo.rank(id) == 3, "Rank cap")
+		check(evo.rank(id) == 5, "Rank cap 5 (%s)" % id)
 	evo = EVOLUTION.new()
-	for mutation in evo.TRAITS:
-		evo.ranks[mutation[0]] = 3
-	check(is_equal_approx(evo.damage_multiplier(false), 1.75), "Jaws damage")
-	check(is_equal_approx(evo.damage_multiplier(true), 2.8), "Rally damage")
-	check(is_equal_approx(evo.harvest_multiplier(), 1.0 + 3.0 * evo.BROOD_STEP), "Brood: biomass per collected crystal")
-	check(is_equal_approx(evo.magnet_multiplier(), 1.0 + 3.0 * evo.LURE_SCENT_STEP), "Lockduft: magnet radius")
-	check(is_equal_approx(evo.biomass_multiplier(), 1.75), "Future biomass")
-	check(evo.loss_after_armor(100, false) == 40 and evo.loss_after_armor(100, true) == 70, "Conditional armor")
+	for id in ["bite", "rally", "brood", "magnet", "armor", "evade"]:
+		evo.ranks[id] = 5
+	var bite: float = 1.0 + 5.0 * float(STATS.definition("bite").step)
+	var rally: float = 1.0 + 5.0 * float(STATS.definition("rally").step)
+	check(is_equal_approx(evo.damage_multiplier(false), bite), "Biss je Rang (%.3f)" % evo.damage_multiplier(false))
+	check(is_equal_approx(evo.damage_multiplier(true), bite * rally), "Rudelinstinkt je Rang bei Rally")
+	check(is_equal_approx(evo.harvest_multiplier(), 1.0 + 5.0 * float(STATS.definition("brood").step)), "Brutrate: biomass per collected crystal")
+	check(is_equal_approx(evo.magnet_multiplier(), 1.0 + 5.0 * float(STATS.definition("magnet").step)), "Lockduft: magnet radius")
+	check(is_equal_approx(evo.biomass_multiplier(), 1.0), "Future biomass only from the strain")
+	var armor: float = 5.0 * float(STATS.definition("armor").step)
+	var evade: float = 5.0 * float(STATS.definition("evade").step)
+	check(evo.loss_after_armor(100, false) == ceili(100.0 * (1.0 - armor - evade) - 0.0001) and evo.loss_after_armor(100, true) == ceili(100.0 * (1.0 - armor) - 0.0001), "Conditional armor (%d/%d)" % [evo.loss_after_armor(100, false), evo.loss_after_armor(100, true)])
 	check(evo.loss_after_armor(1, false) == 1, "No invulnerability")
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -72,9 +84,8 @@ func _run() -> void:
 	world.toggle_pause()
 	hud._press(3, hud._mutation_rect(0).get_center())
 	check(world.evolution.level == 1 and not world.choosing(), "Touch selection")
-	world.evolution.ranks["glutton"] = 3
 	world._kill_prey(world.prey[0])
-	check(is_equal_approx(world.loot.total(0) - biomass, TUNING.CORPSE_BIOMASS * 1.75), "Only future kills gain biomass")
+	check(is_equal_approx(world.loot.total(0) - biomass, TUNING.CORPSE_BIOMASS), "Prey biomass without multiplier")
 	world.collect_loot_now()
 	world._award_dna(20)
 	var key := InputEventKey.new()
@@ -83,12 +94,15 @@ func _run() -> void:
 	hud._input(key)
 	check(world.evolution.level == 2, "Keyboard selection")
 	world.reset_run()
-	check(world.evolution.level == 0 and world.evolution.ranks.is_empty() and world.evolution.dna == 0 and not world.choosing(), "Restart clears all evolution")
+	# Etappe 17: a fresh run (also without RunConfig) keeps only its start weapon.
+	var fresh: Dictionary = world.evolution.ranks
+	var start_only: bool = fresh.size() == 1 and int(fresh.get(world.evolution.signature, 0)) == world.evolution.SIGNATURE_START_RANK
+	check(world.evolution.level == 0 and start_only and world.evolution.dna == 0 and not world.choosing(), "Restart clears all evolution (%s)" % [fresh])
 	world.evolution.ranks["brood"] = 3
 	world.drop_loot(swarm.position, 12)
 	for tick in 30:
 		world.step(0.05)
-	check(is_equal_approx(world.model.consumed_biomass, 12.0 * (1.0 + 3.0 * world.evolution.BROOD_STEP)), "Schnelle Brut: more biomass per collected crystal (%.2f)" % world.model.consumed_biomass)
+	check(is_equal_approx(world.model.consumed_biomass, 12.0 * (1.0 + 3.0 * float(STATS.definition("brood").step))), "Brutrate: more biomass per collected crystal (%.2f)" % world.model.consumed_biomass)
 	world.reset_run()
 	world.model.population = 250
 	swarm.set_population(250)
@@ -103,8 +117,8 @@ func _run() -> void:
 	# Stage 09 lone start: the modifier checks below use a 25-strong swarm.
 	world.model.population = 25
 	swarm.set_population(25, false)
-	world.evolution.ranks["jaws"] = 3
-	world.evolution.ranks["pack"] = 3
+	world.evolution.ranks["bite"] = 3
+	world.evolution.ranks["rally"] = 3
 	swarm.rally_pressed = true
 	hunter = world._spawn_hunter(Vector3.ZERO)
 	hunter.state = hunter.State.RECOVERY
@@ -114,12 +128,13 @@ func _run() -> void:
 		unit.position = Vector3.ZERO
 	var health: float = hunter.health
 	world.step(0.1)
-	check(is_equal_approx(health - hunter.health, 4.0 * 1.55 * 2.8 * 0.1), "Damage modifier wired into combat")
+	var expected: float = 4.0 * 1.55 * (1.0 + 3.0 * float(STATS.definition("bite").step)) * (1.0 + 3.0 * float(STATS.definition("rally").step)) * 0.1
+	check(is_equal_approx(health - hunter.health, expected), "Damage modifier wired into combat (%.3f / %.3f)" % [health - hunter.health, expected])
 	world.reset_run()
 	world.model.population = 25
 	swarm.set_population(25, false)
-	world.evolution.ranks["armor"] = 3
-	world.evolution.ranks["scatter"] = 3
+	world.evolution.ranks["armor"] = 5
+	world.evolution.ranks["evade"] = 5
 	hunter = world._spawn_hunter(Vector3(3, 0, 0))
 	hunter.state = hunter.State.WARNING
 	hunter.remaining = 0.01
@@ -129,11 +144,12 @@ func _run() -> void:
 	for unit in swarm.units:
 		unit.position = Vector3.ZERO
 	world.step(0.02)
-	check(world.model.population == 17, "Armor modifier wired into incoming hit")
+	var kept: int = 25 - ceili(20.0 * (1.0 - 5.0 * float(STATS.definition("armor").step) - 5.0 * float(STATS.definition("evade").step)) - 0.0001)
+	check(world.model.population == kept, "Armor modifier wired into incoming hit (%d, expected %d)" % [world.model.population, kept])
 	if not failures.is_empty():
 		for failure in failures:
 			push_error(failure)
 		quit(1)
 	else:
-		print("PASS evolution: ranks, modifiers, freeze, input, persistence, reset, hunter reward")
+		print("PASS evolution: stat offers with rarity, 5 ranks, modifiers, freeze, input, persistence, reset, hunter reward")
 		quit(0)

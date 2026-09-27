@@ -114,7 +114,9 @@ static func chip_text(stage: int, seconds: float) -> String:
 
 func _paint_banner(canvas: CanvasItem) -> void:
 	var state := _state()
-	if state.is_empty() or _hidden():
+	# Brawl skin: the short pill (hud_top.flood_slot) and the overlay band replace
+	# this large legacy banner entirely.
+	if state.is_empty() or _hidden() or UiStyle.is_brawl():
 		return
 	var mode := int(state.get("state", 0))
 	if mode == 1:

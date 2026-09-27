@@ -10,17 +10,18 @@ param(
 $ErrorActionPreference = 'Continue'
 $godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
 $projectDir = Split-Path -Parent $PSScriptRoot
-$tests = @('encoding','smoke','run_model','hunt_flow','survival','evolution','arena','skitter','leaper','model_budget','boss','motion','per_unit_hits','leader','objectives','horde','flood','eruptions','apex','apex_run','migration','apex_toad','toad_run','minimap','onboarding','meta','attack_forms','forms_extra','run_config','menu','sfx','sfx_hooks','music','corpse_visuals','loot_magnet','chronicle')
+$tests = @('encoding','smoke','run_model','hunt_flow','survival','evolution','arena','skitter','leaper','model_budget','boss','motion','per_unit_hits','leader','objectives','horde','flood','eruptions','apex','apex_run','migration','apex_toad','toad_run','minimap','onboarding','meta','attack_forms','forms_extra','run_config','menu','sfx','sfx_hooks','music','corpse_visuals','loot_magnet','chronicle','map_bounds','map_layout','progression_stats','arsenal')
 $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 if ($Only.Count -gt 0) { $tests = $tests | Where-Object { $Only -contains $_ } }
 
-function Invoke-Godot([string[]]$GodotArgs) {
+function Invoke-Godot([string[]]$GodotArgs, [int]$Limit = 0) {
+	if ($Limit -le 0) { $Limit = $TimeoutSec }
 	$outFile = [IO.Path]::GetTempFileName()
 	$errFile = [IO.Path]::GetTempFileName()
 	$quoted = $GodotArgs | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }
 	$process = Start-Process -FilePath $godotExe -ArgumentList $quoted -NoNewWindow -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
 	$null = $process.Handle  # keeps ExitCode readable after exit
-	$timedOut = -not $process.WaitForExit($TimeoutSec * 1000)
+	$timedOut = -not $process.WaitForExit($Limit * 1000)
 	if ($timedOut) {
 		try { $process.Kill() } catch {}
 		$process.WaitForExit()
@@ -59,8 +60,9 @@ foreach ($testName in $tests) {
 if (-not $SkipPlaythrough -and $Only.Count -eq 0) {
 	$run = Invoke-Godot @('--headless', '--audio-driver', 'Dummy', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/endless_playthrough.gd')
 	if (-not (Report 'endless_playthrough' $run 'PLAYTEST')) { $failed += 'endless_playthrough' }
-	# Balance regression: two short bot runs against the difficulty target curve.
-	$run = Invoke-Godot @('--headless', '--audio-driver', 'Dummy', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/balance_sim.gd', '--', 'regress')
+	# Balance regression: 3 specs x 5 seeded bot runs against the difficulty target
+	# curve (~3-4 min on the path map), so it gets three times the per-test limit.
+	$run = Invoke-Godot @('--headless', '--audio-driver', 'Dummy', '--fixed-fps', '60', '--path', $projectDir, '--script', 'res://tests/balance_sim.gd', '--', 'regress') ($TimeoutSec * 3)
 	if (-not (Report 'balance_regress' $run 'BALANCE|PASS')) { $failed += 'balance_regress' }
 }
 if ($failed.Count -gt 0) {

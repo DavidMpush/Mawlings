@@ -1,8 +1,9 @@
 extends SceneTree
 
-# Minimap stage: world -> map conversion, POIs and rim arrows, exploration,
-# region names (deterministic per seed), region banner, big map open/close by
-# touch, and steering/Rally unchanged while the big map is open.
+# Minimap stage: world -> map conversion (stage 18: the whole bounded map),
+# POIs, exploration fog, region names (deterministic per seed), region banner,
+# big map open/close by touch, and steering/Rally unchanged while the big map
+# is open; Kokon/Pilzknolle markers prepared.
 
 const REGION_NAMES = preload("res://scripts/region_names.gd")
 const MINIMAP = preload("res://scripts/ui/hud_minimap.gd")
@@ -66,15 +67,21 @@ func _run() -> void:
 	world.model.leader_invulnerable = 100000.0
 	await _frames(20)
 
-	# --- World -> map ---------------------------------------------------------
-	var center: Vector2 = minimap.world_to_minimap(swarm.position)
+	# --- World -> map (the whole map) -------------------------------------------
+	var map_rect: Rect2 = minimap.minimap_rect()
 	var disc: Vector2 = controls._minimap_rect().get_center()
-	check(center.distance_to(disc) < 0.01, "Swarm sits in the minimap centre")
+	var center: Vector2 = minimap.world_to_minimap(swarm.position)
+	check(swarm.position.length() < 0.01 and center.distance_to(map_rect.get_center()) < 0.5, "Swarm at the map centre sits in the middle of the map square")
+	check(map_rect.get_center().distance_to(disc) < 1.0 and controls._minimap_rect().encloses(map_rect), "Map square inside the minimap plaque")
+	var bounds: Rect2 = arena.bounds()
+	var corner: Vector2 = minimap.world_to_minimap(Vector3(bounds.position.x, 0, bounds.position.y))
+	var far_corner: Vector2 = minimap.world_to_minimap(Vector3(bounds.end.x, 0, bounds.end.y))
+	check(corner.distance_to(map_rect.position) < 0.5 and far_corner.distance_to(map_rect.end) < 0.5, "The whole map fits the square")
 	var east: Vector2 = minimap.world_to_minimap(swarm.position + Vector3(10, 0, 0))
 	var north: Vector2 = minimap.world_to_minimap(swarm.position + Vector3(0, 0, -10))
-	var scale: float = minimap.minimap_radius() / MINIMAP.RADIUS_M
-	check(absf(east.x - disc.x - 10.0 * scale) < 0.01 and absf(east.y - disc.y) < 0.01, "East is right")
-	check(absf(north.y - disc.y + 10.0 * scale) < 0.01 and absf(north.x - disc.x) < 0.01, "North is up")
+	var scale: float = minimap.minimap_scale()
+	check(absf(east.x - center.x - 10.0 * scale) < 0.01 and absf(east.y - center.y) < 0.01, "East is right")
+	check(absf(north.y - center.y + 10.0 * scale) < 0.01 and absf(north.x - center.x) < 0.01, "North is up")
 	check(minimap.bakes > 0, "Chunks were baked (%d)" % minimap.bakes)
 	var image: Image = minimap.bake_chunk(Vector2i(3, 1), 0)
 	check(image.get_width() == MINIMAP.CHUNK_PX and image.get_height() == MINIMAP.CHUNK_PX, "Chunk bake size")
@@ -95,11 +102,20 @@ func _run() -> void:
 	if not nest.is_empty():
 		var expected: Vector2 = minimap.world_to_minimap(world.nest.position)
 		check(nest[1].distance_to(expected) < 4.0, "Nest marker at its map position (%s vs %s)" % [nest[1], expected])
-	check(not boss.is_empty() and boss[2], "Far Bog King as rim arrow")
+	check(not boss.is_empty() and not boss[2], "Far Bog King on the whole map")
 	if not boss.is_empty():
-		check(boss[1].y < disc.y - minimap.minimap_radius() * 0.8, "Rim arrow points north")
+		check(boss[1].distance_to(minimap.world_to_minimap(world.boss.position)) < 4.0 and boss[1].y < center.y - 100.0 * scale, "Bog King marker far north")
 	check(not _find(marks, MINIMAP.Mark.CORPSE).is_empty(), "Corpse drop on the minimap")
 	check(not _find(marks, MINIMAP.Mark.HUNTER).is_empty(), "Hunter dot on the minimap")
+	# Second wave: Kokons (chests) and Pilzknollen (power-ups) have marker kinds.
+	var injected: Dictionary = (controls.get_meta("map") as Dictionary).duplicate()
+	injected["chests"] = PackedVector3Array([here + Vector3(20, 0, 10)])
+	injected["powerups"] = PackedVector3Array([here + Vector3(-20, 0, 10)])
+	minimap._state = injected
+	minimap._collect_markers()
+	var future: Array = minimap.markers()
+	check(not _find(future, MINIMAP.Mark.CHEST).is_empty() and not _find(future, MINIMAP.Mark.POWERUP).is_empty(), "Kokon and Pilzknolle markers")
+	check(minimap._legend().size() == MINIMAP.LEGEND.size() + 2, "Legend grows by Kokon and Pilzknolle")
 	world.boss.queue_free()
 	world.boss = null
 
@@ -114,6 +130,7 @@ func _run() -> void:
 		await process_frame
 	await _frames(4)
 	check(world.explored.size() > explored_before and world.explored_version > version_before, "Exploration grows (%d -> %d)" % [explored_before, world.explored.size()])
+	check(arena.explored_regions().size() >= 2 and minimap._fog_tex != null, "Arena fog follows (%d regions)" % arena.explored_regions().size())
 	check(world.region_entries > entries_before, "A new region was entered")
 	check(int(world.run_stats().get("regions_visited", 0)) >= 2, "RunStats count regions")
 	check(String(world.region_name) == String(arena.region_name(arena.region_at(swarm.position))), "Current region name follows the swarm")
@@ -139,6 +156,8 @@ func _run() -> void:
 	await _frames(4)
 	check(minimap.get_node("BigMap").visible, "Big map layer visible")
 	check(minimap._big_tex != null, "Big map composed its terrain")
+	check(minimap.minimap_rect().size.x > 0.0 and minimap.world_to_bigmap(Vector3.ZERO).distance_to(minimap._big_rect_px.get_center()) < 1.0, "Big map shows the whole map")
+	check(not minimap._big_labels.is_empty(), "Big map names the explored regions")
 	# Steering and Rally stay active while the big map is open.
 	var move_center: Vector2 = controls._movement_center()
 	_touch(controls, 1, move_center, true)
@@ -211,5 +230,5 @@ func _finish() -> void:
 		print("MINIMAP FAILED: %d" % failures)
 		quit(1)
 		return
-	print("PASS: minimap conversion, POIs, rim arrows, exploration, region names, banner, big map input")
+	print("PASS: minimap whole-map conversion, POIs, Kokon/Pilzknolle kinds, exploration fog, region names, banner, big map input")
 	quit(0)

@@ -5,6 +5,7 @@ extends SceneTree
 const SESSION = preload("res://scripts/meta/session.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
 const TUNING = preload("res://scripts/tuning.gd")
+const STATS = preload("res://scripts/progression/stats.gd")
 var failures: Array[String] = []
 
 
@@ -37,8 +38,10 @@ func _run() -> void:
 	# Config applied and consumed.
 	_check(SESSION.pending_config.is_empty(), "Main clears the pending config")
 	_check(world.model.population == 40 and swarm.population == 40 and swarm.units.size() == 40, "Start population from config")
-	_check(evo.rank("saeurespucker") == 1 and evo.slots_used("attack") == 1, "Signature attack starts at rank 1")
-	_check(world.attack_forms != null and world.attack_forms.rank("saeurespucker") == 1, "Signature reaches AttackForms")
+	# Etappe 17 Welle 1: die Startwaffe beginnt auf SIGNATURE_START_RANK (ohne Kokons).
+	var start_rank: int = evo.SIGNATURE_START_RANK
+	_check(evo.rank("saeurespucker") == start_rank and evo.slots_used("attack") == 1, "Signature attack starts at rank %d" % start_rank)
+	_check(world.attack_forms != null and world.attack_forms.rank("saeurespucker") == start_rank, "Signature reaches AttackForms")
 	_check(is_equal_approx(swarm.move_speed(), swarm.MOVE_SPEED * 1.2), "Strain speed reaches the swarm")
 	world.model.elapsed = 45.0
 	_check(is_equal_approx(world.model.pressure(), 2.0), "Difficulty pressure doubling")
@@ -56,13 +59,15 @@ func _run() -> void:
 	# Offers respect the pool and free slots; counters work once.
 	world.reset_run()
 	evo = world.evolution
-	_check(world.model.population == 40 and evo.rank("saeurespucker") == 1, "Restart keeps the run config")
+	_check(world.model.population == 40 and evo.rank("saeurespucker") == evo.SIGNATURE_START_RANK, "Restart keeps the run config")
 	evo.rng.seed = 7
 	world._award_dna(20)
 	_check(world.choosing(), "Offer opens at threshold")
 	for offer in evo.offers:
 		_check(evo.pool.has(offer[0]), "Offer comes from the pool")
-		_check(not (offer[0] in ["rudelbiss", "sporenwolke", "stachelruecken"]), "Full attack slot offers no new attack form")
+		# Etappe 17: Level geben nur Werte; alte Anlagen-IDs im Pool werden abgebildet.
+		_check(evo.kind_of(offer[0]) == "trait", "Level offers only stats (%s)" % offer[0])
+		_check(offer[0] in ["bite", "brood", "rally", "armor", "evade"], "Old trait IDs are migrated (%s)" % offer[0])
 	var before: Array = evo.offers.map(func(entry): return entry[0])
 	world.reroll_mutations()
 	_check(evo.rerolls == 0 and evo.offers.size() > 0, "Reroll spends its charge")
@@ -79,23 +84,12 @@ func _run() -> void:
 	_check(evo.skips == 0 and evo.dna == dna_before - 20 and evo.level == 0, "Skip spends the level-up")
 	if not world.choosing():
 		world._award_dna(20)
-	var trait_slot := -1
-	for slot in evo.offers.size():
-		if evo.kind_of(evo.offers[slot][0]) == "trait":
-			trait_slot = slot
-	if trait_slot < 0:
-		evo.offers[0] = evo.info("jaws")
-		trait_slot = 0
-	var trait_id: String = evo.offers[trait_slot][0]
-	world.choose_mutation(trait_slot)
-	evo.dna = 1000
-	evo.offers.clear()
-	evo._prepare()
-	for offer in evo.offers:
-		_check(evo.rank(offer[0]) > 0, "Full slots offer only rank-ups (%s)" % offer[0])
-	_check(evo.rank(trait_id) == 1 and evo.slots_used("trait") == 1, "Trait took its slot")
-	var hud_slots: String = hud._slot_text()
-	_check(hud_slots == "Angriff 1/1 · Anlagen 1/1", "HUD shows slot usage")
+	var stat_id: String = evo.offers[0][0]
+	var rarity: String = evo.offers[0][3]
+	world.choose_mutation(0)
+	_check(evo.rank(stat_id) == 1 and is_equal_approx(evo.stats.units_of(stat_id), float(STATS.RARITY_FACTOR[rarity])), "Stat rank and rarity value (%s %s)" % [stat_id, rarity])
+	_check(evo.slots_used("attack") == 1 and evo.slot_limit("attack") == 1, "Weapon slots come from the config")
+	_check(evo.arsenal.weapon_pool.has("rudelbiss") and not evo.arsenal.weapon_pool.has("klauenwirbel"), "Weapon pool comes from the config")
 
 	# Stage 15: in the brawl skin taps hit the cards mutation_screen draws
 	# (touch_controls asks it for card/banish rects).
@@ -120,48 +114,30 @@ func _run() -> void:
 				hud._release(-2)
 				_check(evo.rank(pick) == rank_before + 1, "Brawl: tap on card_rect(1) chooses card 1")
 
-	# Alpha-Kern: stays on the ground, then evolves on touch.
+	# Etappe 17: der Alpha-Kern entfällt; Evolution = Waffe Rang 5 + Relikt,
+	# angeboten im Boss-Kokon (1 aus 3).
 	world.reset_run()
 	evo = world.evolution
 	_quiet(world)
-	var core: Node3D = world._drop_alpha_core(swarm.position + Vector3(8, 0, 0))
-	for tick in 120:
-		world.step(0.05)
-	_check(world.alpha_pickups.size() == 1 and is_instance_valid(core) and evo.alpha_cores == 0, "Alpha-Kern stays until touched")
-	evo.ranks["saeurespucker"] = 3
-	evo.ranks["glutton"] = 1
-	swarm.position = core.position
-	world.step(0.05)
-	_check(world.alpha_pickups.is_empty() and evo.alpha_cores == 0, "Touch collects the Alpha-Kern")
-	_check(evo.evolutions.has("aetzflut") and evo.rank("aetzflut") == 1 and evo.rank("saeurespucker") == 0, "Ätzflut replaces Säurespucker")
-	_check(world.attack_forms.rank("aetzflut") == 1 and world.attack_forms.rank("saeurespucker") == 0, "Evolution reaches AttackForms")
-	_check(world.evolve_flash > 0.0 and hud.evolve_name == "Ätzflut", "Evolution banner")
-	evo.dna = 1000
-	evo.offers.clear()
-	evo._prepare()
-	for offer in evo.offers:
-		_check(offer[0] != "saeurespucker", "Evolved base form is not offered again")
-
-	# Stored core evolves later when the rules are met.
-	world.reset_run()
-	evo = world.evolution
-	_quiet(world)
-	evo.ranks.erase("saeurespucker")
-	evo.ranks["rudelbiss"] = 3
-	world.collect_alpha_core()
-	_check(evo.alpha_cores == 1 and evo.evolutions.is_empty(), "Alpha-Kern is stored without rules met")
-	evo.offers = [evo.info("pack")]
-	evo.dna = 20
-	world.choose_mutation(0)
-	_check(evo.alpha_cores == 0 and evo.evolutions.has("meute") and evo.rank("rudelbiss") == 0, "Stored core evolves Meute after Rudelinstinkt")
-
-	# Drop rules: Bog King always drops a core.
-	world.reset_run()
-	_quiet(world)
+	_check(world._drop_alpha_core(swarm.position + Vector3(8, 0, 0)) == null and world.alpha_pickups.is_empty(), "No Alpha-Kern drops any more")
 	var king: Variant = world._spawn_boss(swarm.position + Vector3(20, 0, 0))
 	king.health = -1.0
 	world.step(0.01)
-	_check(world.boss == null and world.alpha_pickups.size() == 1 and world.model.bosses == 1, "Bog King drops an Alpha-Kern")
+	_check(world.boss == null and world.alpha_pickups.is_empty() and world.model.bosses == 1, "Bog King drops no Alpha-Kern")
+	evo.debug_grant("saeurespucker", "legendary")
+	evo.debug_grant("saeurespucker", "common")
+	_check(evo.rank("saeurespucker") == 5 and evo.evolution_ready().is_empty(), "Rank 5 alone is not enough")
+	evo.debug_grant("aetzdruese")
+	_check(evo.evolution_ready() == ["aetzflut"], "Rank 5 + Ätzdrüse makes Ätzflut ready")
+	var chest: Dictionary = evo.open_chest("boss")
+	_check(bool(chest.pick) and evo.chest_offers.size() == 3 and evo.chest_offers[0][0] == "aetzflut", "Boss-Kokon offers the ready evolution")
+	_check(world.choosing(), "An open Boss-Kokon choice holds the world")
+	world.choose_mutation(0)
+	_check(not world.choosing() and evo.chest_offers.is_empty(), "Card choice takes the Boss-Kokon item")
+	world.step(0.01)
+	_check(evo.evolutions.has("aetzflut") and evo.rank("aetzflut") == 1 and evo.rank("saeurespucker") == 0, "Ätzflut replaces Säurespucker")
+	_check(world.attack_forms.rank("aetzflut") == 1 and world.attack_forms.rank("saeurespucker") == 0, "Evolution reaches AttackForms")
+	_check(world.evolve_flash > 0.0 and hud.evolve_name == "Ätzflut", "Evolution banner")
 
 	# Ranged kill (Säurespucker) far outside melee reach rewards exactly once.
 	world.reset_run()
@@ -236,7 +212,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS run_config: config, signature, slots, pool, reroll/banish/skip, difficulty, alpha core, evolutions, ranged kill, RunStats, result buttons")
+	print("PASS run_config: config, signature, slots, pool, reroll/banish/skip, difficulty, stats with rarity, boss-chest evolution, ranged kill, RunStats, result buttons")
 	quit(0)
 
 

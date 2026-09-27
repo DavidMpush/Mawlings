@@ -372,7 +372,10 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	# Stage 09: dodge with the leader (units[0]) - it trails the swarm centre a
 	# little, and only its LP decide the run.
 	var dodge := _dodge(world, _leader_point(swarm), world.model.elapsed)
+	# Stage 18b: on the path map an escape never runs into a wall.
+	var arena: Variant = swarm.get_parent().get_node("Arena")
 	if dodge != Vector3.ZERO:
+		dodge = arena.open_direction(here, dodge, 1.0, 3.0)
 		return {"move": Vector2(dodge.x, dodge.z).normalized(), "rally": false}
 	# Stage 08: keep away from the Moorbrut; Rally (more bite) when surrounded.
 	var brood := _brood_escape(world, here)
@@ -412,7 +415,10 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 		harvesting = false
 	# Stage 10: walk into the Migrationsschlund once nothing edible lies close.
 	var portal: Variant = world.get("portal")
-	if portal != null and (best == INF or best > PORTAL_CORPSE_REACH) and not _any_armed(world):
+	# Stage 18b: the Schlund opens in its own clearing across the map - once it
+	# is far away the bot commits to the trip (the magnet collects on the way).
+	var portal_far: bool = portal != null and Vector2(portal.position.x - here.x, portal.position.z - here.z).length() > 30.0
+	if portal != null and (best == INF or best > PORTAL_CORPSE_REACH or portal_far) and not _any_armed(world):
 		best = Vector2(portal.position.x - here.x, portal.position.z - here.z).length()
 		target = portal.position
 		harvesting = false
@@ -436,6 +442,9 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	direction.y = 0.0
 	if harvesting and direction.length() < world.magnet_radius() * 0.5:
 		direction = Vector3.ZERO
+	elif direction.length() > 0.5:
+		# Stage 18b: walk the paths (A* over the flow grid) instead of into walls.
+		direction = arena.nav_direction(here, target, 1.0) * minf(direction.length(), 4.0)
 	var leap: bool = world.evolution.rank("rudelbiss") > 0 or world.evolution.rank("meute") > 0
 	# Etappe 16: no Rally just to collect - a compact swarm without Fluchtreflex
 	# lost clearly more to the next ring (tested); the magnet reaches far enough.
@@ -443,6 +452,7 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	if brood.away != Vector3.ZERO:
 		# Mostly away from the brood, a little towards the goal.
 		direction = brood.away * 0.75 + direction.normalized() * 0.25 if direction.length() > 0.01 else brood.away
+		direction = arena.open_direction(here, direction, 1.0, 3.0)
 	if brood.surrounded:
 		rally = true
 	return {"move": Vector2(direction.x, direction.z).limit_length(1.0), "rally": rally}

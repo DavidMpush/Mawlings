@@ -236,6 +236,7 @@ func _check_game_wiring() -> bool:
 		if music.style() != "classic":
 			_fail("Setting music_v1 off did not restore the classic style")
 			return false
+	world.alpha_cores_enabled = true
 	var core: Node3D = world._drop_alpha_core(Vector3.ZERO)
 	if core.get_node("Float").get_node_or_null("CoreModel") == null:
 		_fail("Alpha core pickup has no CoreModel")

@@ -133,7 +133,7 @@ func _build_worst_case() -> void:
 	# All four attack forms at their top: both evolutions replace their base form.
 	var evo = world.evolution
 	evo.slots = {"attack": 4, "trait": 3}
-	evo.ranks = {"meute": 1, "aetzflut": 1, "sporenwolke": 3, "stachelruecken": 3, "jaws": 3, "pack": 3, "glutton": 3}
+	evo.ranks = {"meute": 1, "aetzflut": 1, "sporenwolke": 5, "stachelruecken": 5, "bite": 5, "rally": 5, "brood": 5}
 	evo.evolutions.assign(["meute", "aetzflut"])
 	evo.offers.clear()
 	world._sync_attack_forms()
@@ -313,7 +313,7 @@ func _apply_switches_to_tree(node: Node) -> void:
 	if _is_off("loot") and world.get("loot") != null:
 		world.loot.visible = false
 	if _is_off("forms") and world.attack_forms != null:
-		world.evolution.ranks = {"jaws": 3, "pack": 3, "glutton": 3}
+		world.evolution.ranks = {"bite": 5, "rally": 5, "brood": 5}
 		world._sync_attack_forms()
 	if _is_off("units"):
 		for key in ["bodies", "ghost_bodies"]:

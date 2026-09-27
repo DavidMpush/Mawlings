@@ -89,9 +89,9 @@ func _run() -> void:
 	world.model.population = 250
 	var r250: float = world.magnet_radius()
 	_check(r1 > 3.0 and r1 < 4.0 and r250 > 7.0 and r250 < 8.5, "Radius 1 -> %.1f m, 250 -> %.1f m" % [r1, r250])
-	world.evolution.ranks["lockduft"] = 2
-	_check(absf(world.magnet_radius() - r250 * 1.5) < 0.01, "Lockduft rank 2 = +50 %% (%.2f)" % world.magnet_radius())
-	world.evolution.ranks.erase("lockduft")
+	world.evolution.ranks["magnet"] = 2
+	_check(absf(world.magnet_radius() - r250 * 1.24) < 0.01, "Lockduft rank 2 = +24 %% (%.2f)" % world.magnet_radius())
+	world.evolution.ranks.erase("magnet")
 	world.evolution.mods["magnet"] = 1.4
 	_check(absf(world.magnet_radius() - r250 * 1.4) < 0.01, "Witterung (meta) scales the radius")
 	world.evolution.mods["magnet"] = 1.0

@@ -21,8 +21,17 @@ extends Control
 # in) can be cut short by a tap: this node eats that first tap in _input(),
 # so it never picks a card the player has not seen yet.
 
+#
+# Stage 17 (dual progression): level cards are stats with a rarity (entry[3]):
+# rarity rim (common neutral, rare info, epic special, legendary loot + glint),
+# rarity chip in the header, value before -> after. The same cards show the
+# Boss-Kokon choice (mode "chest": weapon / relic / evolution, entry[4] = item)
+# whenever evolution.chest_offers is not empty; the input for that mode belongs
+# to wave 2 (touch_controls / HuntWorld).
+
 const UI := preload("res://scripts/ui/ui_style.gd")
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
+const STATS := preload("res://scripts/progression/stats.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 const FORMS_PATH := "res://scripts/attack_forms.gd"
@@ -69,6 +78,9 @@ const BRANCH_OF := {
 	"scatter": "special",
 }
 const BRANCH_TONE := {"attack": "ember", "growth": "info", "protect": "action", "special": "special"}
+# Stage 17: stat category -> branch (stats.gd "cat").
+const STAT_BRANCH := {"attack": "attack", "protect": "protect", "growth": "growth", "special": "special"}
+const LEGEND_GLINT := 2.6   # seconds per sweep of the legendary shine
 const BRANCH_LABEL := {"attack": "ANGRIFF", "growth": "WACHSTUM", "protect": "SCHUTZ", "special": "SPEZIAL"}
 # Level-up moment timeline (seconds after the choice opens; total <= 0.6).
 const LV_DIM := 0.15
@@ -233,10 +245,34 @@ func _evolution() -> RefCounted:
 	return hud.get("evolution") if hud != null else null
 
 
+## Stage 17: "chest" while a Boss-Kokon choice is open, else "level".
+func mode() -> String:
+	var evo := _evolution()
+	if evo != null and "chest_offers" in evo and not evo.chest_offers.is_empty():
+		return "chest"
+	return "level"
+
+
+## Cards of the current mode (chest offers win over level offers).
+func entries() -> Array:
+	var evo := _evolution()
+	if evo == null:
+		return []
+	return evo.chest_offers if mode() == "chest" else evo.offers
+
+
+# Reroll/skip/banish counters; none in the chest choice.
+func _counter(counter: String) -> int:
+	var hud := _hud()
+	if hud == null or mode() == "chest":
+		return 0
+	return hud._count(counter)
+
+
 func _open() -> bool:
 	var hud := _hud()
 	var evo := _evolution()
-	if hud == null or evo == null or evo.offers.is_empty():
+	if hud == null or evo == null or entries().is_empty():
 		return false
 	return not bool(hud.get("extinct")) and not bool(hud.get("paused"))
 
@@ -278,8 +314,8 @@ func card_rect(slot: int) -> Rect2:
 ## All visible card rects (one per offer).
 func card_rects() -> Array:
 	var out: Array = []
-	var evo := _evolution()
-	var n: int = 3 if evo == null or evo.offers.is_empty() else mini(3, evo.offers.size())
+	var cards := entries()
+	var n: int = 3 if cards.is_empty() else mini(3, cards.size())
 	for slot in n:
 		out.append(card_rect(slot))
 	return out
@@ -332,8 +368,8 @@ func _banish_center(card: Rect2) -> Vector2:
 func _button_rect(which: int) -> Rect2:
 	var g := _geometry()
 	var hud := _hud()
-	var rerolls: int = hud._count("rerolls") if hud != null else 0
-	var skips: int = hud._count("skips") if hud != null else 0
+	var rerolls: int = _counter("rerolls") if hud != null else 0
+	var skips: int = _counter("skips") if hud != null else 0
 	var y: float = g.buttons_y
 	if rerolls > 0 and skips > 0:
 		var w := (size.x - 2.0 * B_SIDE - UI.SPACE_XL) * 0.5
@@ -344,11 +380,11 @@ func _button_rect(which: int) -> Rect2:
 
 # Vertical plan: ribbon + level, cards, buttons, hint; centred, below the HUD.
 func _geometry() -> Dictionary:
-	var evo := _evolution()
 	var hud := _hud()
-	var n: int = 3 if evo == null or evo.offers.is_empty() else mini(3, evo.offers.size())
+	var cards := entries()
+	var n: int = 3 if cards.is_empty() else mini(3, cards.size())
 	var block := B_COL_H if layout == "columns" else n * B_CARD_H + (n - 1) * B_GAP
-	var has_buttons: bool = hud != null and (hud._count("rerolls") > 0 or hud._count("skips") > 0)
+	var has_buttons: bool = hud != null and (_counter("rerolls") > 0 or _counter("skips") > 0)
 	var tail := 60.0 + (UI.SPACE_XXL + B_BUTTON_H if has_buttons else 0.0)
 	var top := maxf(B_TOP_MIN, (size.y - (B_TITLE_H + block + tail)) * 0.5)
 	var cards_top := top + B_TITLE_H
@@ -1148,21 +1184,28 @@ func _form_text(id: String, owned_rank: int) -> String:
 	return str(ranks[clampi(owned_rank, 0, ranks.size() - 1)])
 
 
-# Which evolution this card feeds, and whether the pick completes its rules.
-func _evolution_hint(evo: RefCounted, id: String, rank: int) -> Dictionary:
+# Which evolution this card feeds, and whether the pick completes its rules
+# (stage 17: weapon rank 5 + partner relic; stats never feed an evolution).
+func _evolution_hint(evo: RefCounted, id: String, rank: int, entry: Array = []) -> Dictionary:
 	if evo == null:
 		return {}
+	var item: Dictionary = entry[4] if entry.size() > 4 and entry[4] is Dictionary else {}
+	var max_rank: int = int(evo.MAX_RANK)
 	for rule in evo.EVOLUTION_RULES:
 		if evo.evolutions.has(rule.id) or (id != rule.base and id != rule.partner):
 			continue
-		# A partner trait only points at evolutions whose base form is in reach.
-		if id == rule.partner and evo.rank(rule.base) <= 0 and not evo.pool.has(rule.base):
+		if evo.kind_of(id) == "trait":
 			continue
-		var base_rank: int = evo.rank(rule.base) + (1 if id == rule.base else 0)
-		var partner_rank: int = evo.rank(rule.partner) + (1 if id == rule.partner else 0)
+		var stacks: int = evo.stacks(rule.partner) if evo.has_method("stacks") else evo.rank(rule.partner)
+		# A partner relic only points at evolutions whose weapon is owned.
+		if id == rule.partner and evo.rank(rule.base) <= 0:
+			continue
+		var base_rank: int = evo.rank(rule.base)
+		if id == rule.base:
+			base_rank = int(item.get("to", rank + 1))
+		var partner: int = stacks + (1 if id == rule.partner else 0)
 		var name := str(evo.info(rule.id)[1]).to_upper()
-		var ready: bool = base_rank >= evo.MAX_RANK and partner_rank >= 1
-		if ready:
+		if base_rank >= max_rank and partner >= 1:
 			return {"id": rule.id, "ready": true, "text": "BEREIT: %s" % name, "short": name}
 		return {"id": rule.id, "ready": false, "text": "EVOLUTION %s" % name, "short": name}
 	return {}
@@ -1273,12 +1316,12 @@ func _process_brawl(now: float, open: bool) -> void:
 		_ribbon.pivot_offset = rr.size * 0.5
 		_ribbon.scale = Vector2.ONE * lerpf(1.35, 1.0, _back(e))
 		_ribbon.modulate = Color(1, 1, 1, clampf(e * 3.0, 0.0, 1.0))
-		_ribbon.refresh([rr.size, int(evo.level)])
+		_ribbon.refresh([rr.size, int(evo.level), mode()])
 		_footer.position = Vector2.ZERO
 		_footer.size = size
 		_footer.modulate = Color(1, 1, 1, clampf((t - 0.34) / 0.22, 0.0, 1.0))
-		_footer.refresh([size, layout, hud._count("rerolls"), hud._count("skips"), hud._count("banishes"), evo.offers.size()])
-		var offers: Array = evo.offers
+		_footer.refresh([size, layout, _counter("rerolls"), _counter("skips"), _counter("banishes"), entries().size(), mode()])
+		var offers: Array = entries()
 		var fresh := t < 0.05
 		var changed := 0
 		_snapshot = []
@@ -1329,7 +1372,7 @@ func _process_brawl(now: float, open: bool) -> void:
 		_flash_card.refresh(_brawl_card_key(_flash_card.slot, _flash_card.entry, _flash_card.rank, _flash_card.flash, rect.size))
 	var key: Variant = null
 	if open and t >= LV_TOTAL + 0.1 and now - _open_time >= LV_TOTAL + 0.1:
-		key = ["open", size, layout, hud._count("banishes"), evo.offers.size()]
+		key = ["open", size, layout, _counter("banishes"), entries().size(), mode()]
 	elif not open and now - _close_time >= DIM_OUT + 0.05:
 		key = ["closed", size]
 	if key == null or typeof(key) != typeof(_screen_key) or key != _screen_key:
@@ -1340,11 +1383,16 @@ func _process_brawl(now: float, open: bool) -> void:
 func _brawl_card_key(slot: int, entry: Array, rank: int, flash: float, card_size: Vector2) -> Array:
 	var evo := _evolution()
 	var hud := _hud()
-	var key: Array = [slot, entry, rank, flash, layout, card_size, UI.colorblind]
+	var key: Array = [slot, entry, rank, flash, layout, card_size, UI.colorblind, mode()]
 	if hud != null:
-		key.append(hud._count("banishes"))
+		key.append(_counter("banishes"))
 	if evo != null:
 		key.append_array([str(evo.ranks), str(evo.evolutions), evo.slots_used("attack"), evo.slots_used("trait")])
+		if "relics" in evo:
+			key.append(str(evo.relics))
+	# Legendary cards carry a moving glint (20 Hz repaint of that card only).
+	if entry.size() > 3 and str(entry[3]) == "legendary":
+		key.append(int(_now() * 20.0))
 	return key
 
 
@@ -1421,9 +1469,12 @@ func _draw_beam(k: float) -> void:
 func _paint_ribbon(c: CanvasItem) -> void:
 	var evo := _evolution()
 	var r := Rect2(Vector2.ZERO, B_RIBBON)
-	Kit.ribbon(c, r, "special")
-	Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.size.y * 0.5 - 3.0), "MUTATION!", UI.T_HERO, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, r.size.x - 44.0)
-	if evo != null:
+	var chest := mode() == "chest"
+	Kit.ribbon(c, r, "loot" if chest else "special")
+	Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.size.y * 0.5 - 3.0), "BOSS-KOKON!" if chest else "MUTATION!", UI.T_HERO, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, r.size.x - 44.0)
+	if chest:
+		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.end.y + 36.0), "WÄHLE 1 AUS 3", UI.T_BODY, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	elif evo != null:
 		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.end.y + 36.0), "STUFE %d" % (int(evo.level) + 1), UI.T_BODY, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 
 
@@ -1431,14 +1482,15 @@ func _paint_footer(c: CanvasItem) -> void:
 	var hud := _hud()
 	if hud == null or _evolution() == null:
 		return
-	var rerolls: int = hud._count("rerolls")
-	var skips: int = hud._count("skips")
+	var rerolls: int = _counter("rerolls")
+	var skips: int = _counter("skips")
 	if rerolls > 0:
 		_brawl_button(c, reroll_rect(), "reroll", "NEU WÜRFELN", rerolls)
 	if skips > 0:
 		_brawl_button(c, skip_rect(), "skip", "ÜBERSPRINGEN", skips)
 	var g := _geometry()
-	Kit.text_outlined(c, Vector2(size.x * 0.5, g.hint_y), "KARTE ANTIPPEN ZUM WÄHLEN", UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, size.x - 2.0 * B_SIDE)
+	var hint := "BEUTE ANTIPPEN ZUM WÄHLEN" if mode() == "chest" else "KARTE ANTIPPEN ZUM WÄHLEN"
+	Kit.text_outlined(c, Vector2(size.x * 0.5, g.hint_y), hint, UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, size.x - 2.0 * B_SIDE)
 
 
 func _brawl_button(c: CanvasItem, r: Rect2, icon_id: String, label: String, count: int) -> void:
@@ -1457,40 +1509,88 @@ func _brawl_button(c: CanvasItem, r: Rect2, icon_id: String, label: String, coun
 
 func _brawl_card(c: CanvasItem, _slot: int, entry: Array, rank: int, flash: float) -> void:
 	var evo := _evolution()
-	var hud := _hud()
 	var id := str(entry[0])
 	var s: Vector2 = c.size
 	var st := _card_style(evo, id, entry, rank)
 	var rect := Rect2(Vector2.ZERO, s)
-	var gold: Dictionary = UI.brawl_tone("loot")
-	if st.gold:
-		Kit.rrect(c, rect.grow(12.0), UI.R_L + 12.0, Color(gold["light"], 0.3))
-		Kit.ring(c, rect.grow(9.0), UI.R_L + 9.0, 6.0, gold["face"])
+	_rarity_rim(c, rect, st)
 	Kit.card(c, rect, st.tone, "selected" if flash > 0.0 else "normal", B_HEADER)
 	var inset := UI.STROKE_L + 7.0
 	var head := Rect2(Vector2(inset, inset), Vector2(s.x - 2.0 * inset, B_HEADER))
 	var body := Rect2(Vector2(inset, inset + B_HEADER), Vector2(s.x - 2.0 * inset, s.y - 2.0 * inset - B_HEADER))
-	var head_right := head.end.x - 16.0
-	var banish: int = hud._count("banishes") if hud != null else 0
+	var head_right := head.end.x - 12.0
+	var banish: int = _counter("banishes")
 	if banish > 0:
 		var bc := _banish_center(rect)
 		head_right = bc.x - B_BANISH_R - 14.0
+	# Rarity chip at the right of the header ("SELTEN" in the rarity tone).
+	head_right = _rarity_chip(c, Vector2(head_right, head.get_center().y), st) - 14.0
 	if layout == "columns":
 		_card_columns(c, s, head, body, head_right, evo, id, entry, rank, st)
 	else:
 		_card_stack(c, head, body, head_right, evo, id, entry, rank, st)
+	if st.rarity == "legendary":
+		_legend_glint(c, rect)
 	if banish > 0:
 		_banish_button(c, _banish_center(rect), banish)
 	if flash > 0.0:
 		Kit.rrect(c, rect.grow(-UI.STROKE_L), UI.R_L - UI.STROKE_L, Color(UI.brawl_tone(st.tone)["light"], 0.25 * flash))
 
 
-# Wide card: header with title and kind, icon plate left, text right, rank row.
+# Outer rim in the rarity tone (common: none); legendary with a soft gold halo.
+# Evolved forms keep their gold rim.
+func _rarity_rim(c: CanvasItem, rect: Rect2, st: Dictionary) -> void:
+	var tone: String = "loot" if st.gold else String(STATS.RARITY_TONE.get(st.rarity, "neutral"))
+	if st.rarity == "common" and not st.gold:
+		return
+	var t: Dictionary = UI.brawl_tone(tone)
+	if st.rarity == "legendary" or st.gold:
+		Kit.glow(c, rect.grow(6.0), 26.0, tone, 0.55 + 0.15 * sin(_now() * 3.0))
+	Kit.rrect(c, rect.grow(12.0), UI.R_L + 12.0, Color(t["light"], 0.3))
+	Kit.ring(c, rect.grow(9.0), UI.R_L + 9.0, 6.0, t["face"])
+
+
+# Rarity chip right-aligned at `anchor`; returns its left edge.
+func _rarity_chip(c: CanvasItem, anchor: Vector2, st: Dictionary) -> float:
+	var label := String(STATS.RARITY_NAME.get(st.rarity, "GEWÖHNLICH"))
+	var font := UI.display_font()
+	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI.T_LABEL).x + 30.0
+	var h := 42.0
+	var r := Rect2(Vector2(anchor.x - w, anchor.y - h * 0.5), Vector2(w, h))
+	Kit.chip(c, r, String(STATS.RARITY_TONE.get(st.rarity, "neutral")))
+	Kit.text_outlined(c, Vector2(r.get_center().x, r.get_center().y - 1.0), label, UI.T_LABEL, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	return r.position.x
+
+
+# Diagonal light band sweeping over a legendary card every LEGEND_GLINT s.
+func _legend_glint(c: CanvasItem, rect: Rect2) -> void:
+	var inner := rect.grow(-UI.STROKE_L - 2.0)
+	var t := fmod(_now(), LEGEND_GLINT) / LEGEND_GLINT
+	if t > 0.55:
+		return
+	var k := t / 0.55
+	var band := 70.0
+	var skew := inner.size.y * 0.45
+	var x := lerpf(inner.position.x - band - skew, inner.end.x + skew, k)
+	var top := inner.position.y
+	var bottom := inner.end.y
+	var pts := PackedVector2Array([
+		Vector2(clampf(x + skew, inner.position.x, inner.end.x), top),
+		Vector2(clampf(x + skew + band, inner.position.x, inner.end.x), top),
+		Vector2(clampf(x + band, inner.position.x, inner.end.x), bottom),
+		Vector2(clampf(x, inner.position.x, inner.end.x), bottom)])
+	if pts[1].x - pts[0].x < 1.0 and pts[2].x - pts[3].x < 1.0:
+		return
+	var a := 0.16 * sin(k * PI)
+	c.draw_polygon(pts, PackedColorArray([Color(1, 1, 1, a), Color(1, 1, 1, a * 0.4), Color(1, 1, 1, a * 0.4), Color(1, 1, 1, a)]))
+
+
+# Wide card: header with title (rarity chip right), icon plate left, value or
+# text right, rank row + kind (or evolution pill) at the bottom.
 func _card_stack(c: CanvasItem, head: Rect2, body: Rect2, head_right: float, evo: RefCounted, id: String, entry: Array, rank: int, st: Dictionary) -> void:
 	var hy := head.get_center().y
-	var kind_w := Kit.text_outlined(c, Vector2(head_right, hy), st.kind_label, UI.T_LABEL, UI.BRAWL_TEXT, -1, -1, null, Kit.RIGHT | Kit.MIDDLE)
 	var title_x := head.position.x + 18.0
-	Kit.text_outlined(c, Vector2(title_x, hy), str(entry[1]).to_upper(), UI.T_HEAD, UI.BRAWL_TEXT, -1, -1, null, Kit.LEFT | Kit.MIDDLE, head_right - kind_w - 22.0 - title_x)
+	Kit.text_outlined(c, Vector2(title_x, hy), str(entry[1]).to_upper(), UI.T_HEAD, UI.BRAWL_TEXT, -1, -1, null, Kit.LEFT | Kit.MIDDLE, head_right - title_x)
 	var plate := 128.0
 	var pc := Vector2(body.position.x + 20.0 + plate * 0.5, body.get_center().y + 2.0)
 	_plate_with_icon(c, pc, plate, st, rank)
@@ -1498,21 +1598,22 @@ func _card_stack(c: CanvasItem, head: Rect2, body: Rect2, head_right: float, evo
 	var right := body.end.x - 20.0
 	var width := right - x0
 	var row_y := body.end.y - 30.0
-	if st.is_form:
-		Kit.paragraph(c, Vector2(x0, body.position.y + 38.0), _form_body(id, entry, rank), width, UI.T_BODY, UI.BRAWL_TEXT, false, Kit.LEFT, 3)
-	else:
+	if st.kind == "trait":
 		var vals := _trait_values(evo, id, entry, rank)
 		if vals.has("text"):
 			Kit.paragraph(c, Vector2(x0, body.position.y + 38.0), vals.text, width, UI.T_BODY, UI.BRAWL_TEXT, false, Kit.LEFT, 3)
 		else:
 			_value_line(c, Vector2(x0, body.position.y + 44.0), vals.before, vals.after, st, width, Kit.LEFT)
 			Kit.paragraph(c, Vector2(x0, body.position.y + 108.0), vals.label, width, UI.T_BODY, UI.BRAWL_TEXT, true, Kit.LEFT, 1)
+	else:
+		Kit.paragraph(c, Vector2(x0, body.position.y + 38.0), _item_body(id, entry, rank, st), width, UI.T_BODY, UI.BRAWL_TEXT, false, Kit.LEFT, 3)
 	var x := x0
-	if st.kind != "evolved":
+	if int(st.pips) > 0:
 		x = _pips(c, Vector2(x0, row_y), rank, st, evo) + 18.0
-	if st.is_form:
+	if st.change != "":
 		x += _rank_change(c, Vector2(x, row_y), rank, st, Kit.LEFT) + 18.0
-	_evo_pill(c, Vector2(right, row_y), evo, id, rank, Kit.RIGHT, right - x)
+	if not _evo_pill(c, Vector2(right, row_y), evo, id, rank, Kit.RIGHT, right - x, entry):
+		Kit.text_outlined(c, Vector2(right, row_y), st.kind_label, UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.RIGHT | Kit.MIDDLE, maxf(80.0, right - x))
 
 
 # Portrait card (kit preview): header title, big plate, value, text, rank row.
@@ -1529,9 +1630,10 @@ func _card_columns(c: CanvasItem, s: Vector2, head: Rect2, body: Rect2, head_rig
 	Kit.text_outlined(c, Vector2(cx, y), st.kind_label, UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, width)
 	y += 50.0
 	var text := ""
-	if st.is_form:
-		_rank_change(c, Vector2(cx, y), rank, st, Kit.CENTER)
-		text = _form_body(id, entry, rank)
+	if st.kind != "trait":
+		if st.change != "":
+			_rank_change(c, Vector2(cx, y), rank, st, Kit.CENTER)
+		text = _item_body(id, entry, rank, st)
 	else:
 		var vals := _trait_values(evo, id, entry, rank)
 		if vals.has("text"):
@@ -1540,15 +1642,15 @@ func _card_columns(c: CanvasItem, s: Vector2, head: Rect2, body: Rect2, head_rig
 		else:
 			_value_line(c, Vector2(cx, y), vals.before, vals.after, st, width, Kit.CENTER)
 			text = vals.label
-	Kit.paragraph(c, Vector2(body.position.x + 14.0, y + 52.0), text, width, UI.T_BODY, UI.BRAWL_TEXT, not st.is_form, Kit.CENTER, 7)
+	Kit.paragraph(c, Vector2(body.position.x + 14.0, y + 52.0), text, width, UI.T_BODY, UI.BRAWL_TEXT, st.kind == "trait", Kit.CENTER, 7)
 	var row_y := body.end.y - 30.0
-	if _evolution_hint(evo, id, rank).is_empty():
-		if st.kind != "evolved":
-			_pips(c, Vector2(cx - 44.0, row_y), rank, st, evo)
+	if _evolution_hint(evo, id, rank, entry).is_empty():
+		if int(st.pips) > 0:
+			_pips(c, Vector2(cx - 80.0, row_y), rank, st, evo)
 	else:
-		if st.kind != "evolved":
-			_pips(c, Vector2(cx - 44.0, row_y - 58.0), rank, st, evo)
-		_evo_pill(c, Vector2(cx, row_y), evo, id, rank, Kit.CENTER, width)
+		if int(st.pips) > 0:
+			_pips(c, Vector2(cx - 80.0, row_y - 58.0), rank, st, evo)
+		_evo_pill(c, Vector2(cx, row_y), evo, id, rank, Kit.CENTER, width, entry)
 
 
 func _plate_with_icon(c: CanvasItem, pc: Vector2, plate: float, st: Dictionary, rank: int) -> void:
@@ -1556,11 +1658,11 @@ func _plate_with_icon(c: CanvasItem, pc: Vector2, plate: float, st: Dictionary, 
 	var ic := Kit.plate_center(pc, plate)
 	var side := plate * 0.8
 	_icon(c, st.icon, Rect2(ic - Vector2(side, side) * 0.5, Vector2(side, side)), Color.WHITE)
-	# "NEU" for a new mutation, else the rank this pick reaches.
-	if rank == 0:
+	# "NEU" for something new, else the rank/stack this pick reaches.
+	if st.badge == "NEU":
 		Kit.badge(c, pc + Vector2(plate * 0.36, -plate * 0.44), "NEU", "loot", UI.T_LABEL)
-	else:
-		Kit.badge(c, pc + Vector2(0.0, plate * 0.5), "RANG %d" % (rank + 1), "neutral", UI.T_LABEL)
+	elif st.badge != "":
+		Kit.badge(c, pc + Vector2(0.0, plate * 0.5), st.badge, "neutral", UI.T_LABEL)
 
 
 # "0 % → +25 %": before dimmed, arrow in the card tone, after big.
@@ -1579,15 +1681,15 @@ func _value_line(c: CanvasItem, at: Vector2, before: String, after: String, st: 
 	Kit.number(c, Vector2(x, at.y), after, UI.T_TITLE, UI.BRAWL_TEXT, Kit.LEFT | Kit.MIDDLE, w_after * k)
 
 
-# "RANG 1 → 2" (or "RANG 1" for a new form); returns the width. Digits, not
-# roman numerals: Baloo draws "I" as a plain bar.
-func _rank_change(c: CanvasItem, at: Vector2, rank: int, st: Dictionary, align: int) -> float:
+# "RANG 1 → 2" / "STAPEL 1 → 2" (or "RANG 2" for something new); returns
+# the width. Digits, not roman numerals: Baloo draws "I" as a plain bar.
+func _rank_change(c: CanvasItem, at: Vector2, _rank: int, st: Dictionary, align: int) -> float:
 	var t: Dictionary = UI.brawl_tone(st.tone)
-	var parts: Array = [["RANG ", UI.T_LABEL, UI.BRAWL_TEXT_DIM]]
-	if rank > 0:
-		parts.append(["%d " % rank, UI.T_HEAD, UI.BRAWL_TEXT_DIM])
+	var parts: Array = [[str(st.change) + " ", UI.T_LABEL, UI.BRAWL_TEXT_DIM]]
+	if int(st.from) > 0:
+		parts.append(["%d " % int(st.from), UI.T_HEAD, UI.BRAWL_TEXT_DIM])
 		parts.append(["→ ", UI.T_HEAD, t["light"]])
-	parts.append(["%d" % (rank + 1), UI.T_HEAD, UI.BRAWL_TEXT])
+	parts.append(["%d" % int(st.to), UI.T_HEAD, UI.BRAWL_TEXT])
 	var nf := UI.number_font()
 	var total := 0.0
 	for p in parts:
@@ -1598,19 +1700,20 @@ func _rank_change(c: CanvasItem, at: Vector2, rank: int, st: Dictionary, align: 
 	return total
 
 
-# Rank pips; returns the x right of the last one.
-func _pips(c: CanvasItem, at: Vector2, rank: int, st: Dictionary, evo: RefCounted) -> float:
+# Rank pips (st.pips of them): owned ranks filled, the ranks this pick adds
+# highlighted; returns the x right of the last one.
+func _pips(c: CanvasItem, at: Vector2, _rank: int, st: Dictionary, _evo: RefCounted) -> float:
 	var t: Dictionary = UI.brawl_tone(st.tone)
-	var count: int = evo.MAX_RANK if evo != null else 3
+	var count: int = int(st.pips)
 	var x := at.x
 	for i in count:
 		var pc := Vector2(x + 13.0, at.y)
 		Kit.disc(c, pc + Vector2(0, 2), 14.0, UI.BRAWL_INK_SOFT)
 		Kit.disc(c, pc, 14.0, UI.BRAWL_INK)
-		if i < rank:
+		if i < int(st.from):
 			Kit.disc(c, pc, 10.5, t["face"])
 			Kit.disc(c, pc - Vector2(0, 2), 6.0, Color(t["light"], 0.9))
-		elif i == rank:
+		elif i < int(st.to):
 			Kit.disc(c, pc, 10.5, Color.WHITE)
 			Kit.disc(c, pc, 6.5, t["face"])
 		else:
@@ -1620,10 +1723,10 @@ func _pips(c: CanvasItem, at: Vector2, rank: int, st: Dictionary, evo: RefCounte
 
 
 # Small pill "→ STURMRUDEL" (special); gold when this pick makes it ready.
-func _evo_pill(c: CanvasItem, anchor: Vector2, evo: RefCounted, id: String, rank: int, align: int, max_w: float) -> void:
-	var hint := _evolution_hint(evo, id, rank)
+func _evo_pill(c: CanvasItem, anchor: Vector2, evo: RefCounted, id: String, rank: int, align: int, max_w: float, entry: Array = []) -> bool:
+	var hint := _evolution_hint(evo, id, rank, entry)
 	if hint.is_empty():
-		return
+		return false
 	var label := "→ " + str(hint.short)
 	var font := UI.display_font()
 	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI.T_LABEL).x
@@ -1636,6 +1739,7 @@ func _evo_pill(c: CanvasItem, anchor: Vector2, evo: RefCounted, id: String, rank
 	_icon(c, hint.id, Rect2(Vector2(r.position.x + 10.0, r.get_center().y - icon * 0.5 - 1.0), Vector2(icon, icon)), Color.WHITE)
 	var tx := r.position.x + icon + 18.0
 	Kit.text_outlined(c, Vector2(tx, r.get_center().y - 1.0), label, UI.T_LABEL, UI.BRAWL_TEXT, -1, -1, null, Kit.LEFT | Kit.MIDDLE, r.end.x - 14.0 - tx)
+	return true
 
 
 func _banish_button(c: CanvasItem, center: Vector2, count: int) -> void:
@@ -1647,27 +1751,64 @@ func _banish_button(c: CanvasItem, center: Vector2, count: int) -> void:
 
 # ------------------------------------------------------------------ brawl data
 
-# Tone, labels and icon of a card; new ids get a sensible default.
+# Tone, labels, rank data and icon of a card; new ids get a sensible default.
+# Stage 17 keys: rarity, pips, from/to (rank or stack), change ("RANG"/"STAPEL"
+# or ""), badge ("NEU", "RANG 3", "×2", "EVO").
 func _card_style(evo: RefCounted, id: String, entry: Array, rank: int) -> Dictionary:
 	var kind: String = evo.kind_of(id) if evo != null else ""
 	if kind == "":
 		kind = "attack" if _forms.has(id) else "trait"
-	var st := {"kind": kind, "is_form": kind in ["attack", "evolved"], "gold": false, "icon": _icon_id(evo, id)}
+	var item: Dictionary = entry[4] if entry.size() > 4 and entry[4] is Dictionary else {}
+	var rarity := str(entry[3]) if entry.size() > 3 else "common"
+	if not STATS.RARITY_TONE.has(rarity):
+		rarity = "common"
+	var st := {"kind": kind, "rarity": rarity, "is_form": kind in ["attack", "evolved"], "gold": false, "icon": _icon_id(evo, id),
+		"pips": 0, "from": rank, "to": rank + 1, "change": "", "badge": ""}
+	var max_rank: int = int(evo.MAX_RANK) if evo != null else 5
 	if kind == "evolved":
 		st.tone = "special"
 		st.gold = true
 		st.kind_label = "EVOLUTION"
+		st.badge = "EVO"
 	elif kind == "attack":
 		st.tone = "ember"
-		st.kind_label = "ANGRIFFSFORM"
+		st.kind_label = "WAFFE"
+		st.pips = max_rank
+		st.from = int(item.get("from", rank))
+		st.to = int(item.get("to", mini(max_rank, rank + 1)))
+		st.change = "RANG"
+		st.badge = "NEU" if int(st.from) == 0 else "RANG %d" % int(st.to)
+	elif kind == "relic":
+		st.tone = "neutral"
+		st.kind_label = "RELIKT"
+		var owned: int = evo.stacks(id) if evo != null and evo.has_method("stacks") else 0
+		st.from = int(item.get("from", owned))
+		st.to = int(item.get("to", int(st.from) + 1))
+		st.change = "STAPEL" if int(st.from) > 0 else ""
+		st.badge = "NEU" if int(st.from) == 0 else "×%d" % int(st.to)
 	else:
-		var branch: String = BRANCH_OF.get(id, _guess_branch(str(entry[2]) if entry.size() > 2 else ""))
+		var d: Dictionary = STATS.definition(id)
+		var branch: String = STAT_BRANCH.get(String(d.get("cat", "")), BRANCH_OF.get(id, _guess_branch(str(entry[2]) if entry.size() > 2 else "")))
 		st.tone = BRANCH_TONE[branch]
-		st.kind_label = "ANLAGE · " + str(BRANCH_LABEL[branch])
-	var hint := _evolution_hint(evo, id, rank)
+		st.kind_label = str(BRANCH_LABEL[branch])
+		st.pips = max_rank
+		st.badge = "NEU" if rank == 0 else "RANG %d" % (rank + 1)
+	var hint := _evolution_hint(evo, id, rank, entry)
 	if not hint.is_empty() and hint.ready:
 		st.gold = true
 	return st
+
+
+# Text of a weapon / relic / evolution card.
+func _item_body(id: String, entry: Array, _rank: int, st: Dictionary) -> String:
+	match String(st.kind):
+		"attack":
+			var text := _form_text(id, maxi(0, int(st.to) - 1))
+			return text if text != "" else (str(entry[2]) if entry.size() > 2 else "")
+		"evolved":
+			var evolved := _form_text(id, 0)
+			return evolved if evolved != "" else (str(entry[2]) if entry.size() > 2 else "")
+	return str(entry[2]) if entry.size() > 2 else ""
 
 
 static func _guess_branch(desc: String) -> String:
@@ -1700,7 +1841,12 @@ func _form_body(id: String, entry: Array, rank: int) -> String:
 
 # {before, after, label} for a percentage trait, {text} otherwise.
 func _trait_values(evo: RefCounted, id: String, entry: Array, rank: int) -> Dictionary:
-	if id == "regeneration" and evo != null:
+	# Stage 17: value before -> after with this card's rarity (stats.gd).
+	if evo != null and evo.has_method("stat_preview") and STATS.has(id):
+		var preview: Dictionary = evo.stat_preview(id, str(entry[3]) if entry.size() > 3 else "common")
+		if not preview.is_empty():
+			return preview
+	if id == "regeneration" and evo != null and "REGEN_KILLS" in evo:
 		var kills: Array = evo.REGEN_KILLS
 		var gaps: Array = evo.REGEN_GAP
 		var next := clampi(rank, 0, kills.size() - 1)
