@@ -200,7 +200,8 @@ func _run() -> void:
 	_check(world.horde_kills == 4 and int(world.model.kills_by_type.get("horde", 0)) == 4, "Four horde kills counted (%d)" % world.horde_kills)
 	_check(world.model.kills - kills_before == 4, "Kills grow by four (got %d)" % (world.model.kills - kills_before))
 	_check(absf(world.loot.total(0) + world.model.consumed_biomass - bio_before - 4.0 * world.evolution.biomass_multiplier()) < 0.01, "Crystals hold the bundled biomass (%.2f)" % (world.loot.total(0) - bio_before))
-	_check(int(round(world.loot.total(1) - dna_before)) == 3 or world.evolution.dna > 0, "Crystals hold the bundled DNA")
+	# Flood DNA is saved up until a whole crystal (LOOT_DNA_CHUNK) comes together.
+	_check(int(round(world.loot.total(1) - dna_before)) + int(world.flood_dna_pending) == 3 or world.evolution.dna > 0, "Crystals (or the pending flood DNA) hold the bundled DNA")
 	_check(world.corpse_kinds.values().has("horde"), "Horde remains lie there as decoration")
 
 	# Pause freezes the flood (no horde step, no clock).

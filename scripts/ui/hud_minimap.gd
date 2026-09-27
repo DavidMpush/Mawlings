@@ -54,7 +54,10 @@ const HORDE_BIN := 8.0
 const FOG_PX := 6                  # fog texels per chunk (soft edges when filtered)
 
 # Marker kinds (tests read them through markers()).
-enum Mark { PREY, HUNTER, ELITE, SKITTER, LEAPER, CORPSE, CORPSE_BIG, CORPSE_BOSS, ALPHA, NEST, TOTEM, PORTAL, BOSS, APEX, HORDE }
+# CORPSE* = loot crystal clusters (Etappe 16: small / medium / big heap), LURE = Lockruf.
+enum Mark { PREY, HUNTER, ELITE, SKITTER, LEAPER, CORPSE, CORPSE_BIG, CORPSE_BOSS, ALPHA, NEST, TOTEM, PORTAL, BOSS, APEX, HORDE, LURE }
+# Lockruf plate colour (scripts/loot.gd LURE_COLOR).
+const LURE_COLOR := Color("ff7ad9")
 
 # Marker colours repeat the in-world creature/objective colours (as hud_top's chips).
 const PREY_COLOR := Color("8ff7ea")
@@ -633,7 +636,14 @@ func _collect_markers() -> void:
 	var nearest_corpse := Vector2.INF
 	for index in range(0, corpses.size() - 2, 3):
 		var p := Vector2(corpses[index] - _center.x, corpses[index + 1] - _center.z) * _scale
-		var kind := Mark.CORPSE + int(corpses[index + 2])
+		var kind := _loot_mark(corpses[index + 2])
+		if kind == Mark.LURE:
+			# The Lockruf always shows: inside as a plate, outside as a rim arrow.
+			if p.length_squared() <= inner * inner:
+				_add(kind, p, false)
+			else:
+				_add(kind, p.normalized() * (_disc_r - 7.0), true)
+			continue
 		if p.length_squared() <= inner * inner:
 			_add(kind, p, false)
 		elif not nearest_corpse.is_finite() or p.length_squared() < nearest_corpse.length_squared():
@@ -653,6 +663,11 @@ func _collect_markers() -> void:
 		var point: Vector3 = _state.get(pair[0], Vector3.INF)
 		if point.is_finite():
 			_add_poi(pair[1], point)
+
+
+# Loot layer size code -> marker (0..2 crystal heaps, 3 = Lockruf).
+static func _loot_mark(code: float) -> int:
+	return Mark.LURE if int(code) >= 3 else Mark.CORPSE + clampi(int(code), 0, 2)
 
 
 func _add(kind: int, p: Vector2, edge: bool) -> void:
@@ -806,10 +821,11 @@ func _mark_color(kind: int) -> Color:
 			return SKITTER_COLOR
 		Mark.LEAPER:
 			return LEAPER_COLOR
-		Mark.CORPSE, Mark.CORPSE_BIG:
-			return UiStyle.color("amber")
-		Mark.CORPSE_BOSS:
-			return UiStyle.color("gold")
+		Mark.CORPSE, Mark.CORPSE_BIG, Mark.CORPSE_BOSS:
+			# Crystal heaps stay quiet: muted amber, below the creatures.
+			return Color(UiStyle.color("amber"), 0.8)
+		Mark.LURE:
+			return LURE_COLOR
 		Mark.ALPHA:
 			return UiStyle.color("violet")
 		Mark.NEST:
@@ -839,12 +855,24 @@ func _marker(cv: CanvasItem, kind: int, p: Vector2, k: float) -> void:
 			_dot(cv, p, 6.0 * k, UiStyle.color("gold"))
 			_dot(cv, p, 3.8 * k, color)
 		Mark.CORPSE:
-			_drop(cv, p, 3.0 * k, color)
+			_dot(cv, p, 2.4 * k, color)
 		Mark.CORPSE_BIG:
-			_drop(cv, p, 4.2 * k, color)
+			_dot(cv, p, 3.2 * k, color)
 		Mark.CORPSE_BOSS:
-			_dot(cv, p, 8.0 * k, Color(UiStyle.color("gold"), 0.45))
-			_drop(cv, p, 5.2 * k, color)
+			_dot(cv, p, 4.0 * k, color)
+		Mark.LURE:
+			# Pulsing plate: soft halo, ink disc, pink face, white spark.
+			var beat := 0.5 + 0.5 * sin(_time * 6.0)
+			var r := 7.0 * k
+			Kit.glow(cv, p, r * (1.9 + 0.5 * beat), LURE_COLOR, 0.55 + 0.25 * beat)
+			Kit.disc(cv, p, r + 2.0 * k, UiStyle.BRAWL_INK)
+			Kit.disc(cv, p, r, LURE_COLOR)
+			Kit.disc(cv, p - Vector2(0, r * 0.18), r * 0.62, LURE_COLOR.lightened(0.35))
+			var spark := PackedVector2Array()
+			for i in 8:
+				var a := TAU * float(i) / 8.0 - PI * 0.5
+				spark.append(p + Vector2(cos(a), sin(a)) * r * (0.62 if i % 2 == 0 else 0.24))
+			cv.draw_colored_polygon(spark, Color.WHITE)
 		Mark.ALPHA:
 			var r := 5.5 * k
 			var gem := PackedVector2Array([p + Vector2(0, -r), p + Vector2(r * 0.75, 0), p + Vector2(0, r), p + Vector2(-r * 0.75, 0)])
@@ -1237,7 +1265,7 @@ func _paint_big_dots(cv: CanvasItem) -> void:
 	for index in range(0, corpses.size() - 2, 3):
 		var p := _big_local(Vector2(corpses[index], corpses[index + 1]), snap)
 		if view.has_point(p):
-			_marker(cv, Mark.CORPSE + int(corpses[index + 2]), p, 1.1)
+			_marker(cv, _loot_mark(corpses[index + 2]), p, 1.3 if int(corpses[index + 2]) >= 3 else 1.1)
 	var enemies: PackedFloat32Array = _state.get("enemies", PackedFloat32Array())
 	for index in range(0, enemies.size() - 2, 3):
 		var p := _big_local(Vector2(enemies[index], enemies[index + 1]), snap)
@@ -1281,13 +1309,13 @@ func _paint_big_self(cv: CanvasItem) -> void:
 
 
 const LEGEND := [
-	["Schwarm", -1], ["Beute", Mark.PREY], ["Jäger", Mark.HUNTER], ["Horde", Mark.HORDE], ["Kadaver", Mark.CORPSE],
+	["Schwarm", -1], ["Beute", Mark.PREY], ["Jäger", Mark.HUNTER], ["Horde", Mark.HORDE], ["Kristalle", Mark.CORPSE_BIG], ["Lockruf", Mark.LURE],
 	["Alpha-Kern", Mark.ALPHA], ["Brutnest", Mark.NEST], ["Totem", Mark.TOTEM], ["Boss", Mark.BOSS], ["Schlund", Mark.PORTAL],
 ]
 
 
 func _paint_legend(cv: CanvasItem, rect: Rect2) -> void:
-	var columns := 5
+	var columns := ceili(LEGEND.size() / 2.0)
 	var cell := Vector2(rect.size.x / columns, minf(46.0, rect.size.y * 0.5))
 	var body := UiStyle.body_font()
 	for index in LEGEND.size():

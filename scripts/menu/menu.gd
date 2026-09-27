@@ -21,7 +21,7 @@ const GAME_SCENE := "res://scenes/main.tscn"
 const TABS := ["upgrades", "trophies", "instinct", "chronicle"]
 const TAB_NAMES := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK"}
 const DIFFICULTY_COLORS := [Color("8fd46a"), Color("f2a04a"), Color("ff5a44")]
-const UPGRADE_COLORS := {"brood_size": Color("68d8c7"), "rending": Color("f58a4d"), "chitin": Color("b8d879"), "sprinter": Color("7cc3f0"), "digestion": Color("f6cc70"), "geneflow": Color("6ee4d4"), "attack_slot": Color("ff8a3d"), "trait_slot": Color("b798ec")}
+const UPGRADE_COLORS := {"brood_size": Color("68d8c7"), "rending": Color("f58a4d"), "chitin": Color("b8d879"), "sprinter": Color("7cc3f0"), "digestion": Color("f6cc70"), "witterung": Color("7fe6ff"), "geneflow": Color("6ee4d4"), "attack_slot": Color("ff8a3d"), "trait_slot": Color("b798ec")}
 const UI_STYLE_PATH := "res://scripts/ui/ui_style.gd"
 ## Einstellungen im Panel: [Profil-Schlüssel, Titel, Erklärung].
 const SETTINGS := [
@@ -1482,7 +1482,7 @@ func _draw_sheet() -> void:
 	elif tab == "trophies":
 		subtitle = "%d / %d erledigt" % [profile.completed_quests.size(), meta.QUESTS.size()]
 	else:
-		subtitle = "Endlose Stufen für Schaden und Ernte"
+		subtitle = "Endlose Stufen für Schaden und Biomasse"
 	_text(subtitle, Vector2(s.position.x + 38, s.position.y + 122), 21, Color("9ed5b3"))
 	var close := sheet_close_rect()
 	_frame(close, Color("0a1a16"), Color(BONE, 0.7), 0)
@@ -1568,6 +1568,11 @@ func _upgrade_icon(id: String, c: Vector2, r: float, color: Color) -> void:
 			_arrow(c + Vector2(0.45, 0) * r, 0.8 * r, 1.0, color)
 		"digestion":
 			_essence_drop(c + Vector2(0, 0.15 * r), 0.7 * r, color)
+		"witterung":
+			# Collect radius: a crystal with two pulling rings around it.
+			for k in 2:
+				draw_arc(c, (0.55 + 0.35 * k) * r, 0.0, TAU, 28, Color(color, 0.9 - 0.35 * k), 3.5, true)
+			_diamond(c, 0.34 * r, color)
 		"geneflow":
 			var a := PackedVector2Array()
 			var b := PackedVector2Array()
@@ -1658,7 +1663,7 @@ func _draw_instinct() -> void:
 	_text("STUFE", c + Vector2(0, 74), 22, Color("bfeee6"), true)
 	_text("%d" % level, c + Vector2(0, 140), 72, Color.WHITE, true, 8)
 	var bonus := float(info.get("bonus", 0.01)) * level * 100.0
-	_text("+%d %% SCHADEN  ·  +%d %% ERNTE" % [roundi(bonus), roundi(bonus)], Vector2(_cx(), s.position.y + 700), 30, Color("c9f5ec"), true, 5)
+	_text("+%d %% SCHADEN  ·  +%d %% BIOMASSE" % [roundi(bonus), roundi(bonus)], Vector2(_cx(), s.position.y + 700), 30, Color("c9f5ec"), true, 5)
 	_text(info.get("description", ""), Vector2(_cx(), s.position.y + 746), 21, Color("d9ceb0"), true)
 	var cost := _instinct_cost()
 	var buy := instinct_buy_rect()

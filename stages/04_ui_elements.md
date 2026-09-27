@@ -26,7 +26,7 @@ Referenzen (nur lesen): `C:\Users\vrxby\Documents\Codex\Swarm\Design\MAWLINGS_AC
 | HUD_TOP | Obere Leiste (Schwarm, Gefahr+Zeit, DNA/Level, Pause), Chips, Boss-Leiste, Kadaver/Biomasse, Alpha-Chip, Angriffs-Medaillons | `scripts/ui/hud_top.gd`, `tests/capture_ui_hud_top.gd` |
 | CONTROLS | Rally-Knopf, Joystick, Hinweis-Banner | `scripts/ui/hud_controls.gd`, `tests/capture_ui_controls.gd` |
 | MUTATIONS | Mutationswahl: Titel, 3 Karten, Reroll/Banish/Skip | `scripts/ui/mutation_screen.gd`, `tests/capture_ui_mutations.gd` |
-| OVERLAYS | Ergebnis/Pause, Evolutions-Banner, Verlustanzeige, Boss-Zeiger | `scripts/ui/hud_overlays.gd`, `tests/capture_ui_overlays.gd` |
+| OVERLAYS | Ergebnis/Pause, Evolutions-Banner, Verlustanzeige, Boss-Zeiger | `scripts/ui/hud_overlays.gd` (Capture entfernt, heute `tests/capture_ui_result.gd`) |
 | MENU_MAIN | Brutstätte-Hauptansicht: Hintergrund, Logo, Ressourcen, Stammkarte, Biome, Schwierigkeit, SPIELEN, Tabs | `scripts/ui/menu/menu_main.gd`, `tests/capture_ui_menu_main.gd` |
 | MENU_SHEETS | Brutkammer, Trophäen, Urinstinkt, Belohnungs-Overlay, Toast | `scripts/ui/menu/menu_sheets.gd`, `tests/capture_ui_menu_sheets.gd` |
 

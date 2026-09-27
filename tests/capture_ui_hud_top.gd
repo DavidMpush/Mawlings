@@ -38,7 +38,7 @@ func _capture() -> void:
 	evo.offers = []
 
 	# --- early
-	_apply({"population": 1, "elapsed": 9.0, "pressure": 1.0, "hunters": 0, "skitters": 0, "leapers": 0, "boss_health": 0.0, "nearest_corpse": "", "biomass_bank": 0.0, "alpha_cores": 0})
+	_apply({"population": 1, "elapsed": 9.0, "pressure": 1.0, "hunters": 0, "skitters": 0, "leapers": 0, "boss_health": 0.0, "biomass_bank": 0.0, "alpha_cores": 0})
 	evo.level = 0
 	evo.dna = 6
 	await create_timer(1.2).timeout

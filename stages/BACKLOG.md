@@ -2,15 +2,48 @@
 
 Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet (Etappendatei mit Kriterien, parallele Agenten mit getrenntem Dateibesitz, Tests, Bildprüfung, Commit, Bericht). Blockierte Punkte wandern nach „Wartet auf Nutzer“; die Schleife überspringt sie.
 
-## Offen
+## Roadmap (Reihenfolge = Priorität)
 
-1. ~~**07 Leistung umsetzen** – Empfehlungen aus `stages/06_perf_notes.md`: HUD nur bei Änderung neu zeichnen und Schriftgrößen fixieren, Schwarm als ein MultiMesh mit `INSTANCE_CUSTOM`, Kadaver/FX mit geteilten Meshes/Materialien, Menü-Hintergrund cachen; `scripts/quality.gd` einbauen (ohne Kampfergebnis zu verändern). Ziel: Desktop-Worst-Case ≤ 4 ms, Draw Calls ≤ 250, Menü ≤ 4 ms.~~ (erledigt: 3,97 ms / 196 / Menü 1,1 ms)
-2. ~~**09 Apex-Boss & Migration einbinden** (vor der Flut platzieren, z. B. Wild ~3:30; Flut läuft im neuen Biom weiter) – Bausteine aus 07 (`apex_boss.gd`, `biomes.gd`, `arena.set_biome`) in HuntWorld: Apex nach ~8 min, Migrationsschlund nach Sieg, Wechsel ins nächste Biom mit Schwarm und Build, Run bleibt endlos. Glutsumpf als zweites Biom mit eigener Boden-/Farbwelt (Lava-Warnflächen) – Modelle soweit vorhanden, sonst Platzhalter.~~ (erledigt in Etappe 10)
-5. ~~**12 Zweiter Apex „Aschenkröte“**~~ (erledigt: Kröte im Glutsumpf, Biom-Kreislauf, Randtreffer). Rest: Apex-Kampf auf Brutal/Apex noch ~18–20 s statt 25–35 s; Kröten-Kampfdauer in der Flut ungemessen.
-6. **13 UI-Stil** – Nutzer hat entschieden: V2-Kit (ruhig, jetzt Standard). Rest: Eigenzeichnungen (Rally, Joystick, Mutationstitel, Menü-Kacheln) auf den gewählten Skin umstellen; `shardcluster.glb` als Drop-Variante nutzen.
-3. **10 Teilen** – Teilen-Karte am Run-Ende (Zeit, Peak, Build, Seed-Code), lokale Bestenliste je Tages-Brut, Vorbereitung Clip-Export (letzte 15 s, 9:16) soweit ohne Plattform-SDK möglich.
-4. **11 Typografie-Pass** – sobald die Schriften freigegeben sind: Display-/Textschrift überall, Größen und Abstände neu abstimmen, Boss-Balken zeigt Fluch, Tipp-Panel schmaler.
-7. **14 Lesbarkeit & Belohnung nach Swarm-Vorbild** – Ideen S1–S13 aus `stages/REFERENCE_SWARM.md`. Vorgeschlagene Reihenfolge: (a) Farbregeln, Anführer-Ring, drei Gefahrenformen, Treffer-Blitz am Anführer (S1–S4); (b) Einsammel-Zahlen zusammenzählen, Moment beim Aufleveln, Auswahlkarten, Evolutions-Hinweis (S5–S8); (c) HUD-Leiste, Boss-Dramaturgie Moosschlund, Kartenzonen, Kommentare, Aufgaben am Run-Ende (S9–S13). Priorität gegenüber 10–13 noch mit dem Nutzer abstimmen.
+1. **15/16 abschließen** – Polier-Runde erledigt (siehe `stages/16_loot_magnet.md`, Abschnitt Polier-Runde). Offen: README neu gliedern, Vorschaubilder/Import-Cache aufräumen, eigene Kristallmodelle, Handtest der Flut-Momente und Kristallgrößen auf dem S25.
+2. **17 Duale Progression** – Werte über Level, Waffen und Relikte über Kokons und Bosse, Seltenheit, Evolutionen über Waffe 5 + Relikt. Konzept und Schnittstellen: `stages/17_dual_progression.md`.
+3. **18 Lesbarkeit nach Swarm-Vorbild (Rest)** – S1–S4 (Farbregeln in der Welt, Anführer-Ring, drei Gefahrenformen, Treffer-Blitz am Anführer), S11 Kartenzonen, S12 Kommentare. S5–S10 und S13 sind mit 15/16 erledigt.
+4. **19 Balance und Inhalt** – Stammspreizung nach dem Kristall-System (Sporling zu stark, Knochenkiefer auf Apex schwach), Apex-Kampfdauer 25–35 s auf allen Stufen, Aschenkröte in der Flut messen, weitere Biome/Bosse nach Modell-Lieferungen.
+5. **20 Gerät und Leistung** – Samsung S25: APK installieren, Frametime/Hitze/Akku messen, Qualitätsstufen justieren, Touch-Handtest.
+6. **Später: Multiplayer (Solo/Duo/Trio/Quad)** – siehe unten.
+7. **Später: Monetarisierung und Marke** – Free-to-play mit Werbung, Skins, ggf. Währungen; Name/Markenprüfung.
+
+### Multiplayer-Modus (Roadmap, Nutzerwunsch 27.09.2026)
+- **Modi:** Solo, Duo, Trio, Quad. Mehrere Spieler mit je einem eigenen Schwarm auf **derselben Map**; sie konkurrieren darum, wer am längsten überlebt (letzter Schwarm gewinnt, Platzierung nach Todeszeit).
+- **Nach dem Aussterben:** zuschauen mit Wechsel zwischen den verbleibenden Spielern (Kamera folgt deren Schwarm, Wischen/Tippen zum Wechseln) oder das Spiel verlassen (Ergebnis wird verbucht).
+- **Skalierung:** Gegnerzahl, Flut-Stärke, Boss-LP, Kristalle, Kokons und Ressourcen skalieren mit der Spielerzahl (Startwerte je Spieler, z. B. Gegner ×(1 + 0,7·(n−1)), Kokons ×n, Map-Größe/Regionen größer).
+- **Lobby und Matchmaking:**
+  - Solo startet direkt.
+  - Duo, Trio und Quad haben eine Lobby: Freunde einladen (Code/Freundesliste) oder allein zufällig suchen.
+  - Später eine Rangliste (MMR) für faires Matchmaking. Die Meta-Upgrades werden in Ranglistenspielen gedeckelt oder angeglichen.
+- **Vorschlag PvP (vom Nutzer noch zu bestätigen), Battle-Royale-Bogen:**
+  1. Start in eigenen Regionen, 80–100 m auseinander, die Karte wächst mit der Spielerzahl, zuerst reines PvE.
+  2. Indirekter Wettbewerb: Beute wegschnappen, Kokons zuerst öffnen, Gegner und Bosse zu anderen locken.
+  3. Die **gemeinsame Flut** drängt die Spieler zusammen (schrumpfende Zone). Erst ab der Flut schaden sich Schwärme bei Kontakt.
+  4. Gegen Schneeball: kleine Schwärme machen Bonusschaden gegen große; wer einen gegnerischen Anführer tötet, bekommt einen Kokon.
+  - PvP ist als Schalter abschaltbar; erste Version ggf. rein kompetitiv ohne direkten Schaden.
+- **Beute nach Beteiligung (Nutzerwunsch, Fairness-Vorschlag):**
+  - **Gegner:** gehört dem Spieler mit dem meisten Schaden (nicht dem letzten Treffer). Die Kristalle erscheinen in der Besitzerfarbe und sind 6 s geschützt, danach für alle.
+  - **Bosse:** Jeder Spieler mit mindestens 20 % Schadensanteil erhält einen eigenen Boss-Kokon, der Spieler mit dem meisten Schaden zusätzlich einen Seltenheitsbonus.
+  - **POIs (Nest/Totem):** gehören dem Spieler mit der längsten Haltezeit.
+  - **Kokons:** öffnet, wer zahlt.
+- **Gemeinsame Flut** für alle Spieler (Nutzerentscheidung).
+- **Technik (vor Umsetzung zu klären):**
+  - **Netzwerk:** Server-autoritativ (dedizierter Server oder Relay mit Host), Godot High-Level Multiplayer/ENet bzw. WebSocket. Echte Kosten entstehen durch Server-Hosting, Matchmaking-Backend und Konten.
+  - **Synchronisation:** Nur Schwarm-Zentren, Eingaben und Gegner-Zustände übertragen, nicht einzelne Tiere; die Tiere der Schwärme berechnet jeder Client selbst.
+  - **Architektur, die wir schon jetzt nicht verbauen sollten:**
+    - HuntWorld muss mehrere Schwärme verwalten können: `swarm` zu `swarms[]`, Gegner wählen das nächste Ziel, Treffer pro Schwarm.
+    - Eingabe (`touch_controls`) wird vom Schwarm entkoppelt (Eingabe-Befehle statt direkter Zugriffe).
+    - Die Simulation bleibt deterministisch mit Seed (dafür ist die lastunabhängige Balance-Simulation aus 15/16 ein Anfang).
+    - Die Meta-Progression wird serverseitig geprüft, falls gewertet wird.
+  - **Aufwand:** großer eigener Block (mehrere Etappen). Sinnvoll erst, wenn das Einzelspieler-Spiel steht und auf dem Gerät getestet ist.
+
+### Erledigt (Kurzliste)
+07 Leistung · 10 Apex & Migration · 12 Aschenkröte · 13 UI-Stil (ersetzt durch 15) · Teilen-Karte · Typografie (in 15)
 
 ## Wartet auf Nutzer
 

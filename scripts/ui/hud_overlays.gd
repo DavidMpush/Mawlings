@@ -146,17 +146,23 @@ func _draw() -> void:
 		else:
 			_draw_pause(hud)
 		return
-	if _last_one(hud):
-		_draw_last_one(hud)
-	_draw_popups(hud)
-	_draw_loss(hud)
 	if brawl:
+		# Polier-Runde: popups, loss number, last-animal text and the boss pointer
+		# in kit form (outlined numbers, plates, chevron).
+		if _last_one(hud):
+			_draw_last_one_brawl(hud)
+		_draw_popups_brawl(hud)
+		_draw_loss_brawl(hud)
 		# Banners, milestones, king and evolution moments are ribbons on the
 		# banner layer (stage 15); only the full-screen flash stays here.
 		_draw_banner_flash()
 		if hud.boss_pointer.is_finite():
-			_draw_boss_pointer(hud)
+			_draw_boss_pointer_brawl(hud)
 		return
+	if _last_one(hud):
+		_draw_last_one(hud)
+	_draw_popups(hud)
+	_draw_loss(hud)
 	if _milestone_time >= 0.0 and not _choosing(hud) and _king_time < 0.0:
 		_draw_milestone()
 	if _king_time >= 0.0 and not _choosing(hud):
@@ -573,7 +579,7 @@ func _draw_boss_pointer(hud: Control) -> void:
 	var at: Vector2 = hud.boss_pointer
 	var vulnerable: bool = hud.boss_vulnerable
 	var accent: Color = UiStyle.color("gold") if vulnerable else UiStyle.color("ember")
-	var direction := (at - size * 0.5).normalized()
+	var direction := _pointer_direction(at)
 	var side := Vector2(-direction.y, direction.x)
 	# Keep medallion plus arrow tip on screen.
 	var reach := at + direction * 92.0
@@ -602,6 +608,163 @@ func _draw_boss_pointer(hud: Control) -> void:
 	draw_colored_polygon(_chamfer(pill, 10.0, 0.0), Color(UiStyle.color("panel"), 0.95))
 	_outline(_chamfer(pill, 10.0, 0.0), Color(accent, 0.8), 2.0)
 	UiStyle.text(self, label, Vector2(pill.get_center().x, pill.get_center().y + 8), LABEL, accent.lightened(0.3) if vulnerable else UiStyle.color("text"), true, 4)
+
+
+# Direction from the screen centre to an edge marker; never zero (a zero
+# direction collapses the arrow polygon: "Invalid polygon data").
+func _pointer_direction(at: Vector2) -> Vector2:
+	var d := at - size * 0.5
+	return d.normalized() if d.length_squared() > 1.0 else Vector2.UP
+
+
+# ---------------------------------------------------------------- brawl: popups, loss, pointer
+
+const POP_SIZE := 54        # glyph size of collect numbers (scaled down smoothly)
+const POP_REST := 0.8       # resting scale of a collect number (~ 44 px)
+const LOSS_SIZE := 64
+const LOSS_REST := 0.84
+
+
+# Outlined kit number scaled smoothly below its glyph size (one glyph cache):
+# drawn at `size_px` and fitted into width * k.
+func _k_number(at: Vector2, value: String, size_px: int, k: float, color: Color) -> void:
+	var font := UiStyle.number_font()
+	var width := font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+	Kit.text_outlined(self, at, value, size_px, color, -1, -1, font, Kit.LEFT | Kit.MIDDLE, maxf(1.0, width * minf(k, 1.0)))
+
+
+func _k_width(value: String, size_px: int, k: float) -> float:
+	return UiStyle.number_font().get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x * minf(k, 1.0)
+
+
+# Kit shapes carry no alpha: popups pop out (shrink) instead of fading.
+func _pop_out(t: float, start: float) -> float:
+	var u := clampf((t - start) / (1.0 - start), 0.0, 1.0)
+	return 1.0 - u * u
+
+
+# S5 collect counter: one growing "+N" per burst above the swarm. A small icon
+# plate (biomass gold, DNA blue) and an outlined number in the tone's light
+# colour; every increment restarts a short hop (HuntWorld resets the age).
+func _draw_popups_brawl(hud: Control) -> void:
+	var popups: Array = hud.get_meta("kill_popups", [])
+	var placed: Array = []
+	var loss_zone := Rect2()
+	if _loss_visible():
+		loss_zone = _loss_zone()
+		placed.append(loss_zone)
+	for popup in popups:
+		var t: float = popup.get("t", 1.0)
+		if t >= 1.0:
+			continue
+		var parts: Array = []
+		if int(popup.get("biomass", 0)) > 0:
+			parts.append(["loot", "biomass", "+%d" % int(popup.biomass)])
+		if int(popup.get("dna", 0)) > 0:
+			parts.append(["info", "dna", "+%d" % int(popup.dna)])
+		if parts.is_empty():
+			continue
+		var out := _pop_out(t, 0.72)
+		if out <= 0.3:
+			continue
+		# Hop: the first 16 % of the life pops the number up and settles it back.
+		var hop := sin(PI * clampf(t / 0.16, 0.0, 1.0))
+		var k := POP_REST * (1.0 + 0.24 * hop) * out
+		var c: Vector2 = popup.get("screen", Vector2.ZERO) - Vector2(0, 56.0 * _ease_out(clampf((t - 0.4) / 0.6, 0.0, 1.0)) + 10.0 * hop)
+		var plate := 46.0 * k
+		var gap := 18.0 * k
+		var widths: Array = []
+		var total := 0.0
+		for part in parts:
+			var w: float = plate + 6.0 * k + _k_width(part[2], POP_SIZE, k)
+			widths.append(w)
+			total += w
+		total += gap * (parts.size() - 1)
+		var box := Rect2(c.x - total * 0.5 - 8.0, c.y - plate * 0.6, total + 16.0, plate * 1.2)
+		var moved := _avoid(box, placed, loss_zone)
+		placed.append(moved)
+		c += moved.get_center() - box.get_center()
+		var x := c.x - total * 0.5
+		for index in parts.size():
+			var part: Array = parts[index]
+			var pc := Vector2(x + plate * 0.5, c.y)
+			Kit.icon_plate(self, pc, plate, part[0])
+			_icon(part[1], Rect2(Kit.plate_center(pc, plate) - Vector2.ONE * plate * 0.36, Vector2.ONE * plate * 0.72), Color.WHITE)
+			var tone: Dictionary = UiStyle.brawl_tone(part[0])
+			_k_number(Vector2(x + plate + 6.0 * k, c.y), part[2], POP_SIZE, k, tone["light"].lerp(Color.WHITE, 0.25))
+			x += float(widths[index]) + gap
+
+
+# Lost Mawlings: "-N" in danger colours next to a small Mawling plate, a hop
+# on every new hit, "MAWLINGS" below. Sits fixed above the swarm.
+func _draw_loss_brawl(hud: Control) -> void:
+	var strength := clampf(float(hud.hit_feedback) / 1.2, 0.0, 1.0)
+	var danger: Dictionary = UiStyle.brawl_tone("danger")
+	if strength > 0.0:
+		var pulse := 0.75 + 0.25 * sin(_clock * 14.0)
+		_vignette(Color(danger["face"], 0.26 * strength * pulse), 110.0 + 50.0 * strength)
+	if not _loss_visible():
+		return
+	var out := _pop_out(_loss_age / 1.35, 0.75)
+	if out <= 0.3:
+		return
+	var hop := sin(PI * clampf(_loss_age / 0.18, 0.0, 1.0))
+	var k := LOSS_REST * (1.0 + 0.22 * hop) * out
+	var c := _loss_center() + Vector2(0, -8.0 * hop)
+	var number := "−%d" % _loss_total
+	var plate := 58.0 * k
+	var total := plate + 8.0 * k + _k_width(number, LOSS_SIZE, k)
+	var x0 := c.x - total * 0.5
+	var pc := Vector2(x0 + plate * 0.5, c.y)
+	Kit.icon_plate(self, pc, plate, "danger")
+	_icon("mawling", Rect2(Kit.plate_center(pc, plate) - Vector2.ONE * plate * 0.36, Vector2.ONE * plate * 0.72), Color.WHITE)
+	_k_number(Vector2(x0 + plate + 8.0 * k, c.y), number, LOSS_SIZE, k, danger["light"].lerp(Color.WHITE, 0.35))
+	if out > 0.6:
+		Kit.text_outlined(self, Vector2(c.x, c.y + 46.0 * k), "MAWLINGS", UiStyle.T_LABEL, danger["light"].lerp(Color.WHITE, 0.5), -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+
+
+# Only one Mawling left: heartbeat vignette plus a danger ribbon with outlined text.
+func _draw_last_one_brawl(_hud: Control) -> void:
+	var phase := fmod(_clock, 0.92)
+	var beat := exp(-phase * 14.0) + 0.7 * exp(-maxf(0.0, phase - 0.29) * 14.0) * (1.0 if phase >= 0.29 else 0.0)
+	beat = clampf(beat, 0.0, 1.0)
+	var danger: Dictionary = UiStyle.brawl_tone("danger")
+	_vignette(Color(danger["face"], 0.26 + 0.22 * beat), 170.0 + 50.0 * beat)
+	_vignette(Color(danger["dark"].darkened(0.6), 0.3), 80.0)
+	var c := Vector2(size.x * 0.5, size.y * 0.5 + 210.0)
+	var font := UiStyle.display_font()
+	var label := "LETZTER MAWLING"
+	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_TITLE).x
+	var k := 0.8 * (1.0 + 0.05 * beat)
+	var band := Rect2(c.x - w * k * 0.5 - 70.0, c.y - 42.0 * k, w * k + 140.0, 84.0 * k)
+	Kit.ribbon(self, band, "danger")
+	Kit.text_outlined(self, c + Vector2(0, -3.0 * k), label, UiStyle.T_TITLE, Color.WHITE, -1, -1, font, Kit.CENTER | Kit.MIDDLE, w * k)
+
+
+# Off-screen boss: kit plate with the crown, a chevron towards the boss, a soft
+# halo that beats faster while it is vulnerable, and an outlined label.
+func _draw_boss_pointer_brawl(hud: Control) -> void:
+	var at: Vector2 = hud.boss_pointer
+	var vulnerable: bool = hud.boss_vulnerable
+	var tone := "loot" if vulnerable else "danger"
+	var direction := _pointer_direction(at)
+	var plate := 80.0
+	var r := plate * 0.5
+	# Keep plate plus chevron on screen.
+	var reach := at + direction * (r + 44.0)
+	var over := Vector2(maxf(0.0, maxf(12.0 - reach.x, reach.x - size.x + 12.0)), maxf(0.0, maxf(12.0 - reach.y, reach.y - size.y + 12.0)))
+	at -= Vector2(signf(direction.x) * over.x, signf(direction.y) * over.y)
+	var pulse := 0.5 + 0.5 * sin(_clock * (8.0 if vulnerable else 4.5))
+	Kit.glow(self, at, r + 30.0 + 8.0 * pulse, tone, 0.35 + 0.3 * pulse)
+	Kit.chevron(self, at + direction * (r + 22.0 + 4.0 * pulse), direction, 34.0, tone)
+	Kit.icon_plate(self, at, plate, tone)
+	_icon("crown", Rect2(Kit.plate_center(at, plate) - Vector2(28, 28), Vector2(56, 56)), Color.WHITE)
+	var label := "VERWUNDBAR!" if vulnerable else "BOG KING"
+	var label_y := at.y + (-r - 30.0 if direction.y > 0.6 else r + 30.0)
+	var font := UiStyle.display_font()
+	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_BODY).x
+	var lx := clampf(at.x, w * 0.5 + 14.0, size.x - w * 0.5 - 14.0)
+	Kit.text_outlined(self, Vector2(lx, label_y), label, UiStyle.T_BODY, UiStyle.brawl_tone("loot")["light"] if vulnerable else Color.WHITE, -1, -1, font, Kit.CENTER | Kit.MIDDLE)
 
 
 # ---------------------------------------------------------------- building blocks

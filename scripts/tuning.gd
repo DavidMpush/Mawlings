@@ -371,6 +371,9 @@ const LOOT_HOP_SECONDS := [0.3, 0.5]
 const LOOT_HOP_HEIGHT := 1.1
 const LOOT_CELL_CROWD := 4
 const LOOT_SOFT_CAP := 500
+# Flood (handtest): bundle from 2 alike per cell, always from 150 lying crystals.
+const LOOT_FLOOD_CROWD := 2
+const LOOT_FLOOD_SOFT_CAP := 150
 # Magnet: Kristalle im Radius um die Schwarmmitte fliegen zu einem Tier (Start mit
 # LOOT_FLY_KICK m/s rückwärts, dann LOOT_FLY_ACCEL m/s² bis LOOT_FLY_MAX_SPEED).
 # Radius = (MAGNET_BASE + MAGNET_PER_ROOT × √Population) × Witterung (Meta) × Lockduft

@@ -87,7 +87,7 @@ func _run() -> void:
 	hud.hint = "RAUS AUS DEM ROTEN RING!"
 	_advance(tips, ONBOARDING.GAP_SECONDS + 0.2)
 	check(tips.current == "warning", "Warning tip on the first warning zone (got '%s')" % tips.current)
-	hud.hint = "Jage die türkisfarbene Beute"
+	hud.hint = "Jage Beute · Kristalle fliegen zu dir"
 	_advance(tips, ONBOARDING.MIN_SHOW_SECONDS + 0.2)
 	check(tips.current == "", "Warning tip disappears after the warning")
 	# Rally: a hunter close by, fulfilled by holding Rally.

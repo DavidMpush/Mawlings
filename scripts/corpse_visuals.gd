@@ -37,6 +37,8 @@ const DROP_SCENES := {
 	"drop_medium": preload("res://assets/gameplay/props/MediumDrop_game.glb"),
 	"drop_big": preload("res://assets/gameplay/props/BigDrop_game.glb"),
 }
+# Dead-insect leg curl of the lying remains (0 = legs as modelled, 1 = folded in).
+const LEG_CURL := 0.85
 # Model height (m) of each crystal mesh at instance scale 1 and its glow colour.
 const DROP_HEIGHT := {"drop_small": 0.9, "drop_medium": 1.0, "drop_big": 1.2}
 const DROP_GLOW := {"drop_small": Color("5ff2dc"), "drop_medium": Color("ffa53a"), "drop_big": Color("d9a8ff")}
@@ -44,6 +46,8 @@ const DROP_GLOW := {"drop_small": Color("5ff2dc"), "drop_medium": Color("ffa53a"
 const DROP_SLOTS := 4
 
 const BATCH_STEP := 32
+# Empty remains: how far (m at scale 1) they sit in the ground before sinking.
+const SUNK := 0.07
 const POOL_LAYER := "pool"
 const HALO_LAYER := "halo"
 
@@ -210,10 +214,15 @@ func _apply(id: int) -> void:
 	var fill: float = corpse.fill
 	var origin: Vector3 = corpse.position
 	var decay: float = corpse.get("decay", 0.0)
+	# The spent stain of empty remains stays on the ground while the body sinks.
+	var ground := origin
 	if decay > 0.0:
 		origin.y -= decay * decay * 0.9 * float(corpse.scale)
 	# Empty remains read as dead: darker and duller than any living animal.
-	var custom := Color((0.15 if empty else fill) * (1.0 - 0.6 * decay), float(design.glow) * (0.35 if empty else 1.0), float(corpse.phase), float(design.pulse))
+	var custom := Color((0.75 if empty else fill) * (1.0 - 0.7 * decay), float(design.glow) * (0.2 if empty else 1.0), float(corpse.phase), float(design.pulse))
+	# Empty remains sit a little into the ground from the start.
+	if empty:
+		origin.y -= SUNK * float(corpse.scale)
 	# Remains: the animal's own leftovers.
 	var remains_scale := lerpf(float(design.remains_min), 1.0, fill) * (1.0 - 0.35 * decay)
 	var basis := Basis(Vector3.UP, corpse.yaw).scaled(Vector3.ONE * remains_scale)
@@ -221,14 +230,14 @@ func _apply(id: int) -> void:
 	# Amber biomass pool (flat, slightly domed); flattens and dims while eaten.
 	# Empty remains: a small spent stain only.
 	if float(design.pool) > 0.0:
-		var pool_fill := 0.3 * (1.0 - decay) if empty else fill
+		var pool_fill := 0.45 * (1.0 - decay) if empty else fill
 		var radius := float(design.pool) * float(corpse.scale) * lerpf(0.28, 1.0, pool_fill)
 		var height := pow(radius, 0.72) * lerpf(0.45, 1.0, pool_fill)
 		var pool_basis := Basis(Vector3.UP, corpse.pool_yaw).scaled(Vector3(radius, height, radius))
 		var pool_custom := custom
 		if empty:
 			pool_custom.r = 0.0
-		_layer(POOL_LAYER).put(id, Transform3D(pool_basis, origin), pool_custom)
+		_layer(POOL_LAYER).put(id, Transform3D(pool_basis, ground if empty else origin), pool_custom)
 	# Soft light on the ground under mini-bosses, bosses and fallen Mawlings.
 	if float(design.halo) > 0.0 and not empty:
 		var halo_size := float(design.halo) * float(corpse.scale) * lerpf(0.45, 1.0, fill)
@@ -291,7 +300,7 @@ func _layer(layer_name: String) -> Layer:
 	var node := MultiMeshInstance3D.new()
 	node.name = "Corpses " + layer_name
 	node.multimesh = multimesh
-	node.material_override = _material(layer_name)
+	node.material_override = _material(layer_name, empty)
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.visible = false
 	add_child(node)
@@ -387,6 +396,11 @@ render_mode unshaded, cull_disabled;
 // Corpse remains: the creature look, darker and desaturated (uniforms of the
 // include); vertex alpha 0 marks glowing bits (amber, gems, sparks) that pulse.
 uniform float eaten_dark = 0.4;
+// Empty remains (Etappe 16): the body is remapped by brightness onto an ash ramp,
+// so a dead beetle never shares the dark violet of a living one.
+uniform float ash = 0.0;
+uniform vec3 ash_dark : source_color = vec3(0.27, 0.25, 0.24);
+uniform vec3 ash_light : source_color = vec3(0.74, 0.71, 0.66);
 varying vec4 corpse;
 void vertex() {
 	corpse = INSTANCE_CUSTOM;
@@ -394,8 +408,12 @@ void vertex() {
 void fragment() {
 	float pulse = 0.5 + 0.5 * sin(TIME * corpse.w + corpse.z * 6.2832);
 	vec3 body = creature_look(COLOR.rgb, NORMAL, VIEW, FRONT_FACING);
+	float luma = dot(body, vec3(0.299, 0.587, 0.114));
+	vec3 ashen = mix(ash_dark, ash_light, smoothstep(0.02, 0.42, luma));
+	body = mix(body, mix(ashen, body, 0.2), ash);
 	body *= mix(1.0 - eaten_dark, 1.0, corpse.x);
 	vec3 lit = COLOR.rgb * (1.0 + corpse.y * (0.2 + 0.6 * pulse));
+	lit = mix(lit, mix(vec3(dot(lit, vec3(0.3, 0.55, 0.15))), lit, 0.45) * 0.85, ash);
 	ALBEDO = mix(body, lit, 1.0 - COLOR.a);
 }
 """
@@ -404,6 +422,8 @@ const POOL_SHADER := """
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 // Amber biomass: vertex colour = amber ramp, vertex alpha = heat (core glows).
+// ash = 1: a spent, grey-brown stain (empty remains).
+uniform float ash = 0.0;
 varying vec4 corpse;
 void vertex() {
 	corpse = INSTANCE_CUSTOM;
@@ -415,6 +435,7 @@ void fragment() {
 	col *= 0.9 + corpse.y * (0.12 + 0.4 * pulse) * COLOR.a;
 	col += vec3(1.0, 0.95, 0.75) * pow(facing, 10.0) * 0.18 * COLOR.a;
 	col = mix(col * vec3(0.6, 0.48, 0.4), col, corpse.x);
+	col = mix(col, vec3(0.34, 0.31, 0.27) * (0.8 + 0.3 * facing), ash);
 	ALBEDO = col;
 }
 """
@@ -476,10 +497,13 @@ void fragment() {
 """
 
 
-static func _material(layer_name: String) -> ShaderMaterial:
+static func _material(layer_name: String, ashen := false) -> ShaderMaterial:
 	var key := "pool" if layer_name == POOL_LAYER else ("halo" if layer_name == HALO_LAYER else "remains")
 	if DROP_SCENES.has(layer_name):
 		key = layer_name
+	# Etappe 16 polish: empty remains get their own ash-grey variant.
+	if ashen and (key == "remains" or key == "pool"):
+		key += "_ash"
 	if _materials.has(key):
 		return _materials[key]
 	var shader := Shader.new()
@@ -487,6 +511,9 @@ static func _material(layer_name: String) -> ShaderMaterial:
 	match key:
 		"pool":
 			shader.code = POOL_SHADER
+		"pool_ash":
+			shader.code = POOL_SHADER
+			material.set_shader_parameter("ash", 1.0)
 		"halo":
 			shader.code = HALO_SHADER
 		"drop_small", "drop_medium", "drop_big":
@@ -507,6 +534,16 @@ static func _material(layer_name: String) -> ShaderMaterial:
 			material.set_shader_parameter("rim_power", 2.4)
 			material.set_shader_parameter("outline_strength", 0.6)
 			material.set_shader_parameter("outline_color", Color(0.07, 0.04, 0.03))
+			if key == "remains_ash":
+				# Dead, not dangerous: ash-grey body, no warm rim, soft contour.
+				material.set_shader_parameter("ash", 1.0)
+				material.set_shader_parameter("brightness", 1.0)
+				material.set_shader_parameter("saturation", 0.2)
+				material.set_shader_parameter("shape_light", 0.5)
+				material.set_shader_parameter("rim_color", Color("d8d2c8"))
+				material.set_shader_parameter("rim_strength", 0.22)
+				material.set_shader_parameter("outline_strength", 0.7)
+				material.set_shader_parameter("outline_color", Color(0.12, 0.1, 0.1))
 	material.shader = shader
 	_materials[key] = material
 	return material
@@ -578,10 +615,10 @@ static func _build_prey(b: Builder) -> void:
 	b.bone_splinter(Vector3(0.55, 0.0, -0.4), Vector3(0.75, 0.35, -0.55), 0.05, BONE)
 
 
-# Hunter beetle on its back, legs in the air, tipped a little onto one flank.
+# Hunter beetle on its back, legs folded up in the air, tipped a little onto one flank.
 static func _build_hunter(b: Builder, crown := false) -> void:
 	var lying := Basis(Vector3(0, 0, 1), PI - 0.35)
-	b.glb(HUNTER_SCENE, 1.9, lying, Vector3(0.0, -0.04, 0.0), Color(1.25, 1.2, 1.3), true, 0.0, false, int(MODEL_TRIS.hunter))
+	b.glb(HUNTER_SCENE, 1.6, lying, Vector3(0.0, -0.04, 0.0), Color(1.25, 1.2, 1.3), true, 0.0, false, int(MODEL_TRIS.hunter), 0.0, LEG_CURL)
 	if not crown:
 		return
 	# Golden crown fallen off beside the head (glowing bit: stays gold, pulses).
@@ -601,18 +638,18 @@ static func _build_elite(b: Builder) -> void:
 # Skitter on its back, blade legs splayed up.
 static func _build_skitter(b: Builder) -> void:
 	var lying := Basis(Vector3(0, 0, 1), PI + 0.3)
-	b.glb(SKITTER_SCENE, 1.75, lying, Vector3(0.0, -0.04, 0.0), Color(1.2, 1.2, 1.25), true, 0.0, false, int(MODEL_TRIS.skitter))
+	b.glb(SKITTER_SCENE, 1.5, lying, Vector3(0.0, -0.04, 0.0), Color(1.2, 1.2, 1.25), true, 0.0, false, int(MODEL_TRIS.skitter), 0.0, LEG_CURL)
 
 
-# Horde (Moorbrut): a small body on its side, low-poly LOD (they come in hordes).
+# Horde (Moorbrut): a small body on its back, legs folded, low-poly LOD (they come in hordes).
 static func _build_horde(b: Builder) -> void:
-	var lying := Basis(Vector3(0, 0, 1), PI * 0.5)
-	b.glb(MOORBRUT_SCENE, 0.72, lying, Vector3(0.0, -0.03, 0.0), Color(1.5, 1.45, 1.4), true, 0.0, false, int(MODEL_TRIS.horde))
+	var lying := Basis(Vector3(0, 0, 1), PI - 0.4)
+	b.glb(MOORBRUT_SCENE, 0.66, lying, Vector3(0.0, -0.03, 0.0), Color(1.5, 1.45, 1.4), true, 0.0, false, int(MODEL_TRIS.horde), 0.0, LEG_CURL * 0.8)
 
 
-# Mire Reaper on its side, bone splinters around it.
+# Mire Reaper on its back, legs folded up, bone splinters around it.
 static func _build_leaper(b: Builder) -> void:
-	b.glb(REAPER_SCENE, 2.05, Basis(Vector3(0, 0, 1), PI * 0.5), Vector3(0.0, -0.08, 0.0), Color(1.9, 1.75, 1.9))
+	b.glb(REAPER_SCENE, 1.85, Basis(Vector3(0, 0, 1), PI - 0.35), Vector3(0.0, -0.08, 0.0), Color(1.9, 1.75, 1.9), true, 0.0, false, 0, 0.0, LEG_CURL * 0.8)
 	b.bone_splinter(Vector3(1.1, 0.0, 0.3), Vector3(1.45, 0.7, 0.45), 0.09, BONE)
 	b.bone_splinter(Vector3(-1.05, 0.0, -0.4), Vector3(-1.4, 0.6, -0.65), 0.08, BONE)
 	b.bone_splinter(Vector3(0.3, 0.0, -1.2), Vector3(0.45, 0.65, -1.6), 0.08, BONE)
@@ -758,9 +795,15 @@ class Builder:
 		indices.append(b)
 		indices.append(c)
 
-	func add_mesh(mesh: Mesh, xform: Transform3D, color: Color, keep_colors := false, glow := false, alpha := -1.0, lod_indices := PackedInt32Array()) -> void:
+	# curl > 0 (with `bent` = the model's base transform): legs are pulled in
+	# towards the body and bent to the back side, like a dead insect (see _curl).
+	func add_mesh(mesh: Mesh, xform: Transform3D, color: Color, keep_colors := false, glow := false, alpha := -1.0, lod_indices := PackedInt32Array(), curl := 0.0, bent := Transform3D.IDENTITY) -> void:
 		var arrays := mesh.surface_get_arrays(0)
 		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		if curl > 0.0:
+			points = _curl(points, bent, curl)
+			# The curled points are already in base space.
+			xform = xform * bent.affine_inverse()
 		var mesh_normals = arrays[Mesh.ARRAY_NORMAL]
 		var mesh_colors = arrays[Mesh.ARRAY_COLOR]
 		var mesh_indices = lod_indices if not lod_indices.is_empty() else arrays[Mesh.ARRAY_INDEX]
@@ -783,6 +826,41 @@ class Builder:
 		else:
 			for index in points.size():
 				indices.append(base + index)
+
+	# Dead-insect pose in the model's base space (y up, legs reaching out and
+	# down to the ground): everything outside the body core is pulled towards the
+	# centre and lifted towards the back, so once the model lies on its back the
+	# legs stick up and fold inwards instead of spreading like a living animal.
+	static func _curl(points: PackedVector3Array, base: Transform3D, amount: float) -> PackedVector3Array:
+		var placed := PackedVector3Array()
+		placed.resize(points.size())
+		var low := Vector3.INF
+		var high := -Vector3.INF
+		for index in points.size():
+			var point: Vector3 = base * points[index]
+			placed[index] = point
+			low = low.min(point)
+			high = high.max(point)
+		var centre := (low + high) * 0.5
+		var half := maxf(high.x - low.x, high.z - low.z) * 0.5
+		var height := high.y - low.y
+		for index in placed.size():
+			var point: Vector3 = placed[index]
+			var flat := Vector2(point.x - centre.x, point.z - centre.z)
+			var reach := flat.length() / maxf(half, 0.001)
+			var core := 0.38
+			if reach <= core:
+				continue
+			var t := clampf((reach - core) / (1.0 - core), 0.0, 1.0)
+			var pulled := core + (reach - core) * (1.0 - 0.62 * amount * t)
+			flat = flat.normalized() * pulled * half
+			# Low points (feet) bend up past the belly - after the flip: up into the air.
+			var low_share := 1.0 - clampf((point.y - low.y) / maxf(height, 0.001), 0.0, 1.0)
+			point.x = centre.x + flat.x
+			point.z = centre.z + flat.y
+			point.y -= amount * t * t * height * (0.35 + 0.55 * low_share)
+			placed[index] = point
+		return placed
 
 	# Low-poly ellipsoid: `size` = full extents.
 	func blob(center: Vector3, size: Vector3, color: Color, rotation := Basis.IDENTITY, glow := false, pool := false) -> void:
@@ -862,25 +940,36 @@ class Builder:
 	# glow: the whole model counts as glowing bit; max_tris > 0 bakes the
 	# import LOD closest below that triangle count instead of the full mesh.
 	# max_height > 0 squashes a taller result flat (collapsed boss carcasses).
-	func glb(scene: PackedScene, length: float, rotation: Basis, offset: Vector3, tint: Color, rest_on_ground := true, height := 0.0, glow := false, max_tris := 0, max_height := 0.0) -> void:
+	func glb(scene: PackedScene, length: float, rotation: Basis, offset: Vector3, tint: Color, rest_on_ground := true, height := 0.0, glow := false, max_tris := 0, max_height := 0.0, curl := 0.0) -> void:
 		var source: Array = CorpseVisualsMeshes.extract(scene)
 		var mesh: Mesh = source[0]
 		var base: Transform3D = source[1]
+		# curl: the bounds are those of the curled shape (legs folded in, feet raised).
+		var bent := _curl(mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX], base, curl) if curl > 0.0 else PackedVector3Array()
 		var shaped := Transform3D(rotation, Vector3.ZERO) * base
-		var bounds: AABB = shaped * mesh.get_aabb()
+		var bounds := _bounds(mesh, shaped, base, bent)
 		var scale := length / maxf(maxf(bounds.size.x, bounds.size.z), 0.01)
 		if height > 0.0:
 			scale = height / maxf(bounds.size.y, 0.01)
 		shaped = Transform3D(Basis.from_scale(Vector3.ONE * scale), Vector3.ZERO) * shaped
-		bounds = shaped * mesh.get_aabb()
+		bounds = _bounds(mesh, shaped, base, bent)
 		if max_height > 0.0 and bounds.size.y > max_height:
 			shaped = Transform3D(Basis.from_scale(Vector3(1.0, max_height / bounds.size.y, 1.0)), Vector3.ZERO) * shaped
-			bounds = shaped * mesh.get_aabb()
+			bounds = _bounds(mesh, shaped, base, bent)
 		var center := bounds.get_center()
 		var lift := -bounds.position.y if rest_on_ground else -center.y
 		shaped.origin += Vector3(-center.x, lift, -center.z) + offset
 		var lod := CorpseVisualsMeshes.lod_indices(mesh, max_tris) if max_tris > 0 else PackedInt32Array()
-		add_mesh(mesh, shaped, tint, true, glow, -1.0, lod)
+		add_mesh(mesh, shaped, tint, true, glow, -1.0, lod, curl, base)
+
+	static func _bounds(mesh: Mesh, shaped: Transform3D, base: Transform3D, bent: PackedVector3Array) -> AABB:
+		if bent.is_empty():
+			return shaped * mesh.get_aabb()
+		var place := shaped * base.affine_inverse()
+		var box := AABB(place * bent[0], Vector3.ZERO)
+		for point in bent:
+			box = box.expand(place * point)
+		return box
 
 	func commit() -> ArrayMesh:
 		var arrays := []

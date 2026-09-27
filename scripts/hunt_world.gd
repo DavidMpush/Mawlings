@@ -128,6 +128,8 @@ var unit_points_valid := false
 # "sum": float, "last": float}. Etappe 16: one growing number at the swarm per
 # collection burst (see _add_collect_popup).
 var kill_popups: Array[Dictionary] = []
+# Flood DNA waiting for a whole crystal (flush_flood_bundles).
+var flood_dna_pending := 0
 # Counts Bog King kills this run; HUD and Main react to changes (Königsmoment).
 var king_moments := 0
 var last_hit_share := 1.0
@@ -322,6 +324,7 @@ func reset_run() -> void:
 	hunters_unlocked_at = 0.0
 	snap_gap = 0.0
 	kill_popups.clear()
+	flood_dna_pending = 0
 	unit_points_valid = false
 	result_stored = false
 	evolve_flash = 0.0
@@ -605,8 +608,15 @@ func flush_flood_bundles() -> bool:
 		var amount: float = float(bundle.biomass) * evolution.biomass_multiplier() * reward_multiplier()
 		_add_remains(location, "horde")
 		# The horde draws its own death effect; the crystals show the reward.
+		# One crystal per bundle: its DNA is saved up and drops as one DNA
+		# crystal once a whole LOOT_DNA_CHUNK has come together (value kept).
+		flood_dna_pending += _reward_dna(int(bundle.dna))
+		var dna := 0
+		if flood_dna_pending >= int(TUNING.LOOT_DNA_CHUNK):
+			dna = flood_dna_pending
+			flood_dna_pending = 0
 		if loot != null:
-			loot.burst(location, amount, _reward_dna(int(bundle.dna)), "normal")
+			loot.burst(location, amount, dna, "horde")
 	flood_bundles.clear()
 	_sfx("kill", 10)
 	return choosing()
@@ -676,7 +686,7 @@ func step(delta: float) -> void:
 	_music_step()
 	if swarm.rally_pressed:
 		model.used_rally = true
-	var message := "Jage die türkisfarbene Beute"
+	var message := "Jage Beute · Kristalle fliegen zu dir"
 	var pressure: float = model.pressure()
 	var attack_range := 1.15 if swarm.rally_pressed else 1.5
 	# Stage 09: a small swarm's bigger animals bite harder (bonus fades out at 25).
@@ -1192,7 +1202,7 @@ func _drop_alpha_core(location: Vector3) -> Node3D:
 	ground.scale = Vector3(1.0, 0.2, 1.0)
 	_piece(pickup, parts.beam, shell, Vector3(0.0, 2.0, 0.0))
 	alpha_pickups.append(pickup)
-	FX.ring(self, pickup.position, Color(ALPHA_VIOLET, 0.8), 0.3, 2.4, 0.6)
+	FX.ring(self, pickup.position, Color(ALPHA_VIOLET, 0.45), 0.3, 1.6, 0.45)
 	return pickup
 
 
@@ -1664,6 +1674,10 @@ func _tint_living_enemies() -> void:
 # Resets every objective and seeds placement from the run seed (0 without config).
 func _seed_objectives() -> void:
 	objective_rng.seed = hash("mawlings-objectives:%d" % int(config.get("seed", 0)))
+	# Swarm divisions draw from their own RNG, seeded per run (deterministic bot runs).
+	var herd: Variant = get_node_or_null("../Swarm")
+	if herd != null and herd.get("rng") is RandomNumberGenerator:
+		(herd.rng as RandomNumberGenerator).seed = hash("mawlings-swarm:%d" % int(config.get("seed", 0)))
 	nest = null
 	totem = null
 	nest_clock = TUNING.NEST_FIRST_SECONDS
@@ -1933,11 +1947,8 @@ func _update_hud(message: String) -> void:
 	hud.set_meta("objectives", objectives)
 	if "objectives" in hud:
 		hud.set("objectives", objectives)
-	# Etappe 16: no corpse chip any more (crystals fly in by themselves).
-	hud.nearest_corpse = ""
 	hud.set_meta("lure_flash", lure_flash)
 	hud.set_meta("magnet_radius", magnet_radius())
-	hud.queue_redraw()
 
 
 # Edge-of-screen position pointing at an off-screen Bog King, or INF when visible.
@@ -2132,6 +2143,7 @@ func magnet_radius() -> float:
 func _step_loot(delta: float, message: String) -> String:
 	if loot == null:
 		return message
+	loot.flood = flood_state == 2
 	var room: bool = model.biomass_capacity() > 0.0
 	var got: Dictionary = loot.step(delta, swarm.position, magnet_radius(), _unit_points(), room)
 	if loot.lures_taken > 0:
@@ -2551,7 +2563,12 @@ func _audio_step(delta: float, population_before: int) -> void:
 
 
 func _kill_burst(location: Vector3, tint: Color, size: float, shake_amount: float) -> void:
-	FX.ring(self, location, tint, 0.4, size, 0.5)
+	# Polish (Etappe 16): the loot crystals show the reward, so the death ring of
+	# normal and mini kills is only a short, faint puff; bosses keep their shockwave.
+	if size < 5.0:
+		FX.ring(self, location, Color(tint, 0.32), 0.3, size * 0.55, 0.3)
+	else:
+		FX.ring(self, location, Color(tint, 0.75), 0.4, size, 0.5)
 	_shake(shake_amount)
 	_sfx("kill", 15)
 

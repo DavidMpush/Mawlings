@@ -783,8 +783,7 @@ func _draw_rally_brawl(c: Vector2, pressed: bool) -> void:
 		"rally_glow":
 			if pressed:
 				# Glow ring: soft halo plus a bright band with an ink contour.
-				for i in 8:
-					Kit.circle_ring(_cv, c, r + 34.0 - i * 3.0, 4.0, Color(light, 0.05 + 0.035 * i))
+				Kit.glow(_cv, c, r + 40.0, light, 0.55)
 				Kit.circle_ring(_cv, c, r + 14.0, 3.0, UiStyle.BRAWL_INK)
 				Kit.circle_ring(_cv, c, r + 11.0, 7.0, light)
 				Kit.circle_ring(_cv, c, r + 4.0, 3.0, UiStyle.BRAWL_INK)
@@ -876,23 +875,8 @@ func _draw_hint_brawl(text: String, top: float) -> void:
 	var x := rect.get_center().x - (shown_w + glyph_w) * 0.5
 	var mid := rect.position.y + (h - 4.0) * 0.5
 	if warn:
-		_warn_glyph(Vector2(x + 24.0, mid), 25.0)
+		Kit.warn_glyph(_cv, Vector2(x + 24.0, mid), 25.0)
 	Kit.text_outlined(_cv, Vector2(x + glyph_w, mid), text, size_px, Color.WHITE, -1, -1, font, Kit.LEFT | Kit.MIDDLE, text_room)
-
-
-# Warning glyph: white rounded triangle with an ink contour and a danger "!".
-func _warn_glyph(center: Vector2, radius: float) -> void:
-	var pts := PackedVector2Array([center + Vector2(0, -radius), center + Vector2(radius * 1.1, radius * 0.82), center + Vector2(-radius * 1.1, radius * 0.82)])
-	var closed := pts.duplicate()
-	closed.append(pts[0])
-	_cv.draw_polyline(closed, UiStyle.BRAWL_INK, 11.0, true)
-	for p in pts:
-		Kit.disc(_cv, p, 5.5, UiStyle.BRAWL_INK)
-	_cv.draw_colored_polygon(pts, Color.WHITE)
-	_cv.draw_polyline(closed, Color.WHITE, 4.0, true)
-	var ink: Color = UiStyle.brawl_tone("danger")["dark"]
-	_cv.draw_line(center + Vector2(0, -radius * 0.42), center + Vector2(0, radius * 0.28), ink, 6.0, true)
-	Kit.disc(_cv, center + Vector2(0, radius * 0.56), 3.8, ink)
 
 
 # ---------------------------------------------------------------- brawl tip

@@ -1,8 +1,9 @@
 extends Control
 
-# Stage 04 Â· HUD_TOP. Replaces legacy "top" and "badges" of touch_controls.gd:
+# Stage 04 · HUD_TOP. Replaces legacy "top" and "badges" of touch_controls.gd:
 # top bar (swarm, run time + danger, DNA/level, pause), context chips, boss bar,
-# corpse/biomass hints, Alpha-Kern chip and attack-form medallions.
+# Alpha-Kern chip and attack-form medallions (Etappe 16: no corpse/biomass hints,
+# the loot crystals fly in by themselves).
 # Reads every value from the parent (touch_controls.gd); input stays there.
 # Shared icon/frame kits are used as soon as they exist; until then (or for ids
 # they do not provide) the local fallbacks below draw the same shapes.
@@ -50,8 +51,6 @@ var _row_y := 0.0
 var _pressure_rect := Rect2()
 var _right_y := 0.0
 var _boss_y := -1.0
-var _corpse_y := 0.0
-var _biomass_y := 0.0
 var _skull_c := Vector2.ZERO
 var _gem_c := Vector2.INF
 var _bar_rects: Array = [Rect2(), Rect2(), Rect2(), Rect2()]   # swarm, time, dna, pause
@@ -95,7 +94,6 @@ func _build_layers() -> void:
 		["alpha_glow", false, Rect2()],
 		["alpha_top", true, Rect2()],
 		["boss", true, Rect2()],
-		["hints", true, Rect2()],
 		["medals", true, Rect2()],
 	]
 	# Order = drawing order.
@@ -132,9 +130,6 @@ func _paint_part(part: String) -> void:
 		"boss":
 			if _boss_y >= 0.0:
 				_draw_boss_bar_legacy(_boss_y)
-		"hints":
-			_draw_corpse_hint(_corpse_y)
-			_draw_biomass(_biomass_y)
 		"medals":
 			if not bool(_hud_value("extinct", false)):
 				_draw_medallions(_right_y + 16.0)
@@ -167,9 +162,7 @@ func _layout() -> void:
 	_boss_y = -1.0
 	if float(_hud_value("boss_health", 0.0)) > 0.0:
 		_boss_y = y
-		y = _draw_boss_bar_legacy(y) + 12.0
-	_corpse_y = y
-	_biomass_y = _draw_corpse_hint(y)
+		_draw_boss_bar_legacy(y)
 
 
 func _refresh_layers() -> void:
@@ -188,7 +181,6 @@ func _refresh_layers() -> void:
 	_region("chips", Rect2(0, _row_y - 16, size.x, _chips_bottom - _row_y + 32))
 	_region("alpha_top", Rect2(size.x * 0.5, _row_y - 16, size.x * 0.5, _chips_bottom - _row_y + 32))
 	_region("boss", Rect2(0, _boss_y - 36, size.x, 84 + 72))
-	_region("hints", Rect2(0, _corpse_y - 16, size.x, 130))
 	_region("medals", Rect2(size.x - 110, _right_y, 110, maxf(1.0, size.y - _right_y)))
 	_layers.backdrop.refresh(size)
 	_refresh_leader()
@@ -226,8 +218,6 @@ func _refresh_layers() -> void:
 		var vulnerable: bool = _hud_value("boss_vulnerable", false)
 		# Vulnerable: the gold glow and tag blink, repainted at 30 Hz.
 		boss.refresh([int(round(health * 2000.0)), vulnerable, int(_time * 30.0) if vulnerable else 0, _boss_y, size])
-	var bank: float = _hud_value("biomass_bank", 0.0)
-	_layers.hints.refresh([_hud_value("nearest_corpse", ""), int(round(bank * 200.0)), _corpse_y, _biomass_y])
 	var medals: Control = _layers.medals
 	medals.visible = not bool(_hud_value("extinct", false))
 	if medals.visible:
@@ -345,7 +335,7 @@ func _danger_fraction() -> float:
 
 func _pressure_text() -> String:
 	var pressure: float = _hud_value("pressure", 1.0)
-	return ("DRUCK Ã—%.1f" % pressure) if pressure < 10.0 else ("DRUCK Ã—%d" % int(pressure))
+	return ("DRUCK ×%.1f" % pressure) if pressure < 10.0 else ("DRUCK ×%d" % int(pressure))
 
 
 func _danger_color() -> Color:
@@ -412,12 +402,12 @@ func _draw_swarm(rect: Rect2) -> void:
 		at.x += sin(_time * 70.0) * 7.0 * hurt
 	var w := UiStyle.text_px(_cv, "%d" % pop, at, num_size, num_color, false, 9)
 	UiStyle.text(_cv, "/ %d" % MAX_POPULATION, Vector2(x + w + 6, rect.position.y + 82), LABEL, UiStyle.color("text_dim"), false, 5, UiStyle.body_font())
-	# Floating delta ("+7" / "âˆ’12") rises out of the number.
+	# Floating delta ("+7" / "−12") rises out of the number.
 	if _pop_pulse > 0.0 and _pop_delta != 0:
 		var rise := (1.0 - _pop_pulse) * 12.0
 		if gain:
 			rise += 10.0 * sin(PI * clampf((1.0 - _pop_pulse) * 4.0, 0.0, 1.0))
-		var sign_text := "+" if gain else "âˆ’"
+		var sign_text := "+" if gain else "−"
 		UiStyle.text(_cv, "%s%d" % [sign_text, absi(_pop_delta)], Vector2(rect.end.x - 30, rect.position.y + 44 - rise), UiStyle.SIZE_BODY, Color(pulse_color.lightened(0.2), minf(1.0, _pop_pulse * 1.6)), true, 6)
 	# Population fill along the lower rim.
 	var fill := clampf(float(pop) / MAX_POPULATION, 0.0, 1.0)
@@ -513,7 +503,7 @@ func _threat_limit(pressure_rect: Rect2) -> float:
 	var limit := size.x - 120.0
 	var cores := int(_hud_value("alpha_cores", 0))
 	if cores > 0:
-		limit = minf(limit, size.x - 16.0 - (_text_width("ALPHA-KERN Ã—%d" % cores, LABEL) + 58.0) - GAP)
+		limit = minf(limit, size.x - 16.0 - (_text_width("ALPHA-KERN ×%d" % cores, LABEL) + 58.0) - GAP)
 	return limit
 
 
@@ -540,7 +530,7 @@ func _draw_threat_chips(y: float, right_limit: float, start_x: float = 16.0) -> 
 	var skitters := int(_hud_value("skitters", 0))
 	var leapers := int(_hud_value("leapers", 0))
 	if hunters > 0:
-		entries.append(["JÃ„GER %d" % hunters, HUNTER_COLOR])
+		entries.append(["JÄGER %d" % hunters, HUNTER_COLOR])
 	if skitters > 0:
 		entries.append(["SKITTER %d" % skitters, SKITTER_COLOR])
 	if leapers > 0:
@@ -570,7 +560,7 @@ func _draw_alpha_chip(y: float, left_limit: float) -> float:
 	if cores <= 0:
 		_gem_c = Vector2.INF
 		return y
-	var text := "ALPHA-KERN Ã—%d" % cores
+	var text := "ALPHA-KERN ×%d" % cores
 	var w := _text_width(text, LABEL) + 58
 	if size.x - 16 - w < left_limit:
 		y += ROW_H + 4
@@ -630,41 +620,6 @@ func _draw_boss_bar_legacy(y: float) -> float:
 	var bar := Rect2(x, rect.position.y + 50, rect.end.x - x - 20, 20)
 	_segments(bar, clampf(health / max_health, 0.0, 1.0), UiStyle.color("gold") if vulnerable else UiStyle.color("danger"), 14)
 	return rect.end.y
-
-
-func _draw_corpse_hint(y: float) -> float:
-	var hint: String = _hud_value("nearest_corpse", "")
-	if hint == "":
-		return y
-	var parts := hint.split("Â·")
-	var text := parts[0].strip_edges()
-	var direction := parts[1].strip_edges() if parts.size() > 1 else ""
-	var w := _text_width(text, LABEL) + 104
-	var rect := Rect2(_left_x(), y, w, 44)
-	if _paint != "hints":
-		return rect.end.y + 8
-	_pill(rect, UiStyle.color("amber"))
-	var drop_c := rect.position + Vector2(24, 24)
-	if not (UiStyle.is_calm() and _icon(["v2_biomass"], Rect2(drop_c - Vector2(15, 15), Vector2(30, 30)), Color.WHITE)):
-		_fb_drop(drop_c + Vector2(0, 2), 11, UiStyle.color("amber"))
-	UiStyle.text(_cv, text, rect.position + Vector2(44, 30), LABEL, UiStyle.color("bone"), false, 5, UiStyle.body_font())
-	_direction_mark(rect.position + Vector2(rect.size.x - 30, 22), direction, UiStyle.color("amber"))
-	return rect.end.y + 8
-
-
-func _draw_biomass(y: float) -> void:
-	var bank: float = _hud_value("biomass_bank", 0.0)
-	if bank <= 0.01:
-		return
-	var text := "BIOMASSE %.1f / 2" % bank
-	var w := _text_width(text, LABEL) + 60
-	var rect := Rect2(_left_x(), y, w, 44)
-	_pill(rect, UiStyle.color("amber"))
-	var drop_c := rect.position + Vector2(24, 22)
-	if not (UiStyle.is_calm() and _icon(["v2_biomass"], Rect2(drop_c - Vector2(14, 14), Vector2(28, 28)), Color.WHITE)):
-		_fb_drop(drop_c + Vector2(0, 2), 10, UiStyle.color("amber"))
-	UiStyle.text(_cv, text, rect.position + Vector2(44, 26), LABEL, UiStyle.color("amber").lightened(0.3), false, 5, UiStyle.body_font())
-	_bar(Rect2(rect.position.x + 44, rect.end.y - 11, w - 64, 5), clampf(bank / 2.0, 0.0, 1.0), UiStyle.color("amber"))
 
 
 # Owned attack forms as medallions down the right edge.
@@ -890,7 +845,7 @@ func _brawl_context(delta: float) -> void:
 	_ctx_tier = tier
 	var hunters := int(_hud_value("hunters", 0))
 	if _ctx_hunters == 0 and hunters > 0:
-		_ctx_push(["JÃ„GER Ã—%d" % hunters, "danger", "skull"])
+		_ctx_push(["JÄGER ×%d" % hunters, "danger", "skull"])
 	_ctx_hunters = hunters
 	# Entries that waited too long are stale (the situation moved on).
 	while not _ctx_queue.is_empty() and _time - float(_ctx_queue[0][3]) > CONTEXT_STALE:
@@ -919,8 +874,8 @@ func context_text() -> String:
 
 func _b_pressure(pressure: float) -> String:
 	if pressure < 10.0:
-		return ("Ã—%.1f" % pressure).replace(".", ",")
-	return "Ã—%s" % Kit.format_int(int(pressure))
+		return ("×%.1f" % pressure).replace(".", ",")
+	return "×%s" % Kit.format_int(int(pressure))
 
 
 func _b_text_width(value: String, font_size: int) -> float:
@@ -969,8 +924,8 @@ func _b_draw_swarm() -> void:
 	var w := Kit.number(_cv, at, pop, UiStyle.T_HEAD, Color.WHITE.lerp(pulse_color, _pop_pulse * 0.7), Kit.LEFT | Kit.MIDDLE, room * 0.62)
 	var tail := Vector2(x + w + 6.0, cy + 4.0)
 	if _pop_pulse > 0.0 and _pop_delta != 0:
-		# Change pulse ("+7" / "âˆ’12") takes the place of "/250", then settles back.
-		var text := "%s%d" % ["+" if gain else "âˆ’", absi(_pop_delta)]
+		# Change pulse ("+7" / "−12") takes the place of "/250", then settles back.
+		var text := "%s%d" % ["+" if gain else "−", absi(_pop_delta)]
 		var rise := (1.0 - _pop_pulse) * 8.0
 		Kit.number(_cv, tail - Vector2(0, 4.0 + rise), text, UiStyle.T_BODY, Color(pulse_color, minf(1.0, _pop_pulse * 1.8)), Kit.LEFT | Kit.MIDDLE, rect.end.x - 16.0 - tail.x)
 	else:
@@ -1020,7 +975,7 @@ func _b_draw_alpha() -> void:
 	Kit.icon_plate(_cv, plate_c, plate_size, "special")
 	_icon(["alpha_core"], Rect2(Kit.plate_center(plate_c, plate_size) - Vector2(17, 17), Vector2(34, 34)), Color.WHITE)
 	var x := plate_c.x + plate_size * 0.5 + 8.0
-	var text := "ALPHA-KERN" if cores == 1 else "ALPHA-KERN Ã—%d" % cores
+	var text := "ALPHA-KERN" if cores == 1 else "ALPHA-KERN ×%d" % cores
 	Kit.text_outlined(_cv, Vector2(x, rect.get_center().y), text, UiStyle.T_LABEL, (UiStyle.brawl_tone("special")["light"] as Color).lerp(Color.WHITE, 0.5), -1, -1, null, Kit.LEFT | Kit.MIDDLE, rect.end.x - 18.0 - x)
 
 
@@ -1028,7 +983,8 @@ func _b_draw_context() -> void:
 	if _ctx_current.is_empty():
 		return
 	var rect := _b_context
-	Kit.pill(_cv, rect, "dark", UiStyle.STROKE_S)
+	# See-through (handtest): the line must not hide the arena behind it.
+	Kit.veil_pill(_cv, rect, "dark", 0.6)
 	var plate_size := rect.size.y + 6.0
 	var plate_c := Vector2(rect.position.x + plate_size * 0.5 - 4.0, rect.get_center().y)
 	Kit.icon_plate(_cv, plate_c, plate_size, _ctx_current[1])
@@ -1066,7 +1022,7 @@ func _b_draw_medals() -> void:
 # the place of the numbers; a rising apex shows ERWACHT and a filling bar. A
 # new bar slides in from the right and pulses briefly. Two bosses at once
 # stack as two compact bars. Bog King values come from the HUD, the apex
-# (Moosschlund / AschenkrÃ¶te) from the HUD meta "objectives"; hud_objectives.gd
+# (Moosschlund / Aschenkröte) from the HUD meta "objectives"; hud_objectives.gd
 # draws no apex bar of its own in the skin brawl. Below the stack a row is
 # reserved for the flood pill of hud_flood.gd (flood_slot()).
 
@@ -1610,29 +1566,6 @@ func _diamond(c: Vector2, r: float, color: Color, outline: bool = true) -> void:
 	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.9, 0), c + Vector2(0, 0)]), Color(1, 1, 1, 0.3))
 
 
-func _direction_mark(c: Vector2, direction: String, color: Color) -> void:
-	if direction == "" or direction == "hier":
-		_cv.draw_arc(c, 9, 0, TAU, 20, color, 3.0, true)
-		_cv.draw_circle(c, 3.5, color)
-		return
-	var dir := Vector2.RIGHT
-	match direction:
-		"oben":
-			dir = Vector2.UP
-		"unten":
-			dir = Vector2.DOWN
-		"links":
-			dir = Vector2.LEFT
-	var side := Vector2(-dir.y, dir.x)
-	var tip := c + dir * 12
-	var arrow := PackedVector2Array([tip, c - dir * 6 + side * 11, c - dir * 1 , c - dir * 6 - side * 11])
-	var shadow := PackedVector2Array()
-	for p in arrow:
-		shadow.append(p + Vector2(0, 2))
-	_cv.draw_colored_polygon(shadow, UiStyle.color("outline"))
-	_cv.draw_colored_polygon(arrow, color)
-
-
 func _icon(ids: Array, rect: Rect2, tint: Color) -> bool:
 	if not _lib_has(_icons, "has") or not _lib_has(_icons, "draw"):
 		return false
@@ -1720,16 +1653,6 @@ func _fb_gem(c: Vector2, r: float) -> void:
 	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.8, 0), c + Vector2(0, r), c + Vector2(-r * 0.8, 0)]), UiStyle.color("violet"))
 	_cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r * 0.55), c + Vector2(r * 0.42, 0), c + Vector2(0, r * 0.55), c + Vector2(-r * 0.42, 0)]), UiStyle.color("amber"))
 	_cv.draw_circle(c + Vector2(-r * 0.12, -r * 0.2), r * 0.12, Color(1, 1, 1, 0.7))
-
-
-func _fb_drop(c: Vector2, r: float, color: Color) -> void:
-	var points := PackedVector2Array()
-	for i in 17:
-		var angle := -PI * 0.2 + (PI * 1.4) * i / 16.0
-		points.append(c + Vector2(cos(angle), sin(angle)) * r + Vector2(0, r * 0.25))
-	points.append(c + Vector2(0, -r * 1.35))
-	_gradient(points, color.lightened(0.3), color.darkened(0.2), c.y - r, c.y + r)
-	_cv.draw_circle(c + Vector2(-r * 0.3, 0), r * 0.2, Color(1, 1, 1, 0.45))
 
 
 var _lib_methods: Dictionary = {}

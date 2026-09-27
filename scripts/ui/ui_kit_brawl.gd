@@ -239,6 +239,21 @@ static func pill(canvas: CanvasItem, rect: Rect2, tone: Variant = "dark", stroke
 	panel(canvas, rect, tone, rect.size.y * 0.5, stroke, true)
 
 
+## See-through capsule for short in-run messages (flood moment, context line):
+## tinted body at `alpha`, ink outline, no hard shadow, so the arena stays
+## readable behind it. tone "dark" = panel colour.
+static func veil_pill(canvas: CanvasItem, rect: Rect2, tone: Variant = "dark", alpha: float = 0.6) -> void:
+	var face: Color
+	if tone is String and tone == "dark":
+		face = UiStyle.BRAWL_PANEL_BOTTOM
+	else:
+		face = UiStyle.brawl_tone(tone)["dark"]
+	var r := rect.size.y * 0.5
+	rrect(canvas, rect.grow(-1.0), r - 1.0, Color(face, alpha))
+	fade_rrect(canvas, rect.grow(-3.0), r - 3.0, Color(Color.WHITE, 0.08 * alpha), 0.0, 0.5)
+	ring(canvas, rect, r, UiStyle.STROKE_S, Color(UiStyle.BRAWL_INK, minf(1.0, alpha + 0.25)))
+
+
 ## Small rounded tag (filters, "NEU" labels on cards, rank chips).
 static func chip(canvas: CanvasItem, rect: Rect2, tone: Variant = "neutral") -> void:
 	panel(canvas, rect, tone, UiStyle.R_S, UiStyle.STROKE_S, false)
@@ -263,6 +278,8 @@ static func badge(canvas: CanvasItem, center: Vector2, value: String, tone: Vari
 ## Round or rounded-square plate as the common icon background.
 ## shape: "round" or "square". The icon goes on plate_center().
 static func icon_plate(canvas: CanvasItem, center: Vector2, size: float, tone: Variant = "dark", shape: String = "round") -> void:
+	if size < 12.0:
+		return
 	var t: Dictionary
 	if tone is String and tone == "dark":
 		t = {"light": UiStyle.BRAWL_PANEL_RIM, "face": UiStyle.BRAWL_PANEL_TOP, "dark": UiStyle.BRAWL_PANEL_BOTTOM.darkened(0.3)}
@@ -355,6 +372,109 @@ static func ribbon(canvas: CanvasItem, rect: Rect2, tone: Variant = "ember") -> 
 ## Dims the world behind overlays.
 static func dim(canvas: CanvasItem, rect: Rect2, alpha: float = 0.72) -> void:
 	canvas.draw_rect(rect, Color(UiStyle.BRAWL_PANEL_BOTTOM.darkened(0.55), alpha))
+
+
+## Soft halo (Polier-Runde, Kit wish of packages C/D/E): radial falloff from
+## `alpha` at the core to transparent at the rim. `at` is a centre (Vector2,
+## `radius` = halo radius) or a Rect2 (a rounded halo `radius` px around it).
+## tone: BRAWL_TONES name (uses its light shade) or a Color. Additive-looking
+## but plain alpha blend, so it works on any layer.
+static func glow(canvas: CanvasItem, at: Variant, radius: float, tone: Variant = "loot", alpha: float = 0.5) -> void:
+	if radius <= 0.0 or alpha <= 0.0:
+		return
+	var color: Color = tone if tone is Color else UiStyle.brawl_tone(tone)["light"]
+	var core := Color(color, color.a * alpha)
+	var clear := Color(color, 0.0)
+	if at is Rect2:
+		var rect: Rect2 = at
+		var r0 := minf(rect.size.x, rect.size.y) * 0.5
+		var inner := _glow_ring(rect, r0)
+		var outer := _glow_ring(rect.grow(radius), r0 + radius)
+		var n := inner.size()
+		for i in n:
+			var j := (i + 1) % n
+			canvas.draw_polygon(PackedVector2Array([inner[i], outer[i], outer[j], inner[j]]), PackedColorArray([core, clear, clear, core]))
+		return
+	var c: Vector2 = at
+	var steps := clampi(int(radius * 0.5), 16, 48)
+	var half := Color(color, core.a * 0.45)
+	# Fan plus one ring: the inner ring at 45 % alpha gives a soft, eased falloff.
+	for i in steps:
+		var a0 := TAU * float(i) / float(steps)
+		var a1 := TAU * float(i + 1) / float(steps)
+		var p0 := c + Vector2(cos(a0), sin(a0)) * radius * 0.45
+		var p1 := c + Vector2(cos(a1), sin(a1)) * radius * 0.45
+		var q0 := c + Vector2(cos(a0), sin(a0)) * radius
+		var q1 := c + Vector2(cos(a1), sin(a1)) * radius
+		canvas.draw_polygon(PackedVector2Array([c, p0, p1]), PackedColorArray([core, half, half]))
+		canvas.draw_polygon(PackedVector2Array([p0, q0, q1, p1]), PackedColorArray([half, clear, clear, half]))
+
+
+# Rounded outline with a fixed point count (8 per corner), so an inner and an
+# outer ring of glow() line up point by point.
+static func _glow_ring(rect: Rect2, radius: float) -> PackedVector2Array:
+	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.5)
+	var pts := PackedVector2Array()
+	var centres := [Vector2(rect.position.x + r, rect.position.y + r), Vector2(rect.end.x - r, rect.position.y + r), Vector2(rect.end.x - r, rect.end.y - r), Vector2(rect.position.x + r, rect.end.y - r)]
+	for corner in 4:
+		for i in 8:
+			var a := PI + PI * 0.5 * (float(corner) + float(i) / 7.0)
+			pts.append(centres[corner] + Vector2(cos(a), sin(a)) * r)
+	return pts
+
+
+## Warning glyph: white rounded triangle with an ink contour and a "!" in the
+## tone's dark shade (default danger). `radius` = centre to top corner.
+static func warn_glyph(canvas: CanvasItem, center: Vector2, radius: float, tone: Variant = "danger") -> void:
+	var pts := PackedVector2Array([center + Vector2(0, -radius), center + Vector2(radius * 1.1, radius * 0.82), center + Vector2(-radius * 1.1, radius * 0.82)])
+	var closed := pts.duplicate()
+	closed.append(pts[0])
+	var ink_w := maxf(4.0, radius * 0.42)
+	var dark: Color = tone if tone is Color else UiStyle.brawl_tone(tone)["dark"]
+	for p in pts:
+		disc(canvas, p + Vector2(0, maxf(2.0, radius * 0.1)), ink_w * 0.5, UiStyle.BRAWL_INK_SOFT)
+	canvas.draw_polyline(closed, UiStyle.BRAWL_INK, ink_w, true)
+	for p in pts:
+		disc(canvas, p, ink_w * 0.5, UiStyle.BRAWL_INK)
+	canvas.draw_colored_polygon(pts, Color.WHITE)
+	canvas.draw_polyline(closed, Color.WHITE, maxf(2.0, ink_w * 0.36), true)
+	canvas.draw_line(center + Vector2(0, -radius * 0.42), center + Vector2(0, radius * 0.28), dark, maxf(3.0, radius * 0.23), true)
+	disc(canvas, center + Vector2(0, radius * 0.56), maxf(2.0, radius * 0.145), dark)
+
+
+## Chevron (">" arrow) pointing along `direction`: a thick rounded stroke with
+## ink contour and drop shadow, face in the tone's face colour with a light
+## core line. `size` = length from the wing ends to the tip.
+static func chevron(canvas: CanvasItem, center: Vector2, direction: Vector2, size: float, tone: Variant = "loot") -> void:
+	if direction.length_squared() < 0.0001 or size <= 0.0:
+		return
+	var d := direction.normalized()
+	var side := Vector2(-d.y, d.x)
+	var t: Dictionary = UiStyle.brawl_tone(tone) if not (tone is Color) else {"face": tone, "light": (tone as Color).lightened(0.35), "dark": (tone as Color).darkened(0.35)}
+	var tip := center + d * size * 0.3
+	var wing := center - d * size * 0.45
+	var pts := PackedVector2Array([wing + side * size * 0.55, tip, wing - side * size * 0.55])
+	var face_w := maxf(4.0, size * 0.3)
+	var ink_w := face_w + maxf(4.0, size * 0.16)
+	var drop := Vector2(0, maxf(2.0, size * 0.1))
+	_stroke(canvas, _moved(pts, drop), ink_w, UiStyle.BRAWL_INK_SOFT)
+	_stroke(canvas, pts, ink_w, UiStyle.BRAWL_INK)
+	_stroke(canvas, pts, face_w, t["face"])
+	_stroke(canvas, _moved(pts, Vector2(0, -face_w * 0.18)), face_w * 0.3, t["light"])
+
+
+# Polyline with round caps and joints (discs at every point).
+static func _stroke(canvas: CanvasItem, pts: PackedVector2Array, width: float, color: Color) -> void:
+	canvas.draw_polyline(pts, color, width, true)
+	for p in pts:
+		disc(canvas, p, width * 0.5, color)
+
+
+static func _moved(pts: PackedVector2Array, by: Vector2) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for p in pts:
+		out.append(p + by)
+	return out
 
 
 # ------------------------------------------------------------------ text
@@ -579,6 +699,9 @@ static func circle_ring(canvas: CanvasItem, center: Vector2, radius: float, widt
 
 ## Vertical fade overlay in a disc (same rules as fade_rrect).
 static func fade_disc(canvas: CanvasItem, center: Vector2, radius: float, color: Color, from: float, to: float) -> void:
+	# Tiny discs (shrinking popups) would collapse the polygon.
+	if radius < 2.0:
+		return
 	var n := clampi(int(radius * 0.6), 16, 64)
 	var pts := PackedVector2Array()
 	var cols := PackedColorArray()

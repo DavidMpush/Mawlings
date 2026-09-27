@@ -40,7 +40,6 @@ func _capture() -> void:
 	hud.boss_max_health = 1000.0
 	hud.boss_vulnerable = false
 	hud.boss_pointer = Vector2(hud.size.x - 56, 520)
-	hud.nearest_corpse = "Kadaver: 12m · links oben"
 	hud.biomass_bank = 1.4
 	hud.hit_feedback = 1.0
 	hud.last_loss = 7

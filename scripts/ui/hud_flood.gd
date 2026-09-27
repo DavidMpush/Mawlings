@@ -28,8 +28,14 @@ const BURST_SECONDS := 2.6               # "bricht los" banner after the start
 # bars (hud_top.flood_slot()): skull plate, "DIE FLUT KOMMT" + countdown while
 # announced, "FLUT · STUFE n" + mm:ss while running. The flood start and every
 # new stage pop the pill and flash its ring (layer scale, no repaint).
+# Handtest (Polier-Runde): the pill is only a MOMENT (MOMENT_SECONDS) at the
+# announcement, the start and every new stage, on a see-through body; in
+# between only a small stage badge stays (the danger bar shows the pressure).
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const POP_SECONDS := 1.2
+const MOMENT_SECONDS := 2.8
+const MOMENT_OUT := 0.35                 # shrink-out at the end of a moment
+const PILL_ALPHA := 0.6
 ## Hand-over flag read by hud_overlays.gd: the short flood-start band
 ## ("DIE FLUT BRICHT LOS") is drawn there in the skin brawl, not here.
 var banners_in_overlays := true
@@ -42,6 +48,7 @@ var _pill_compact := false
 var _last_mode := 0
 var _last_stage := 0
 var _pop_t := -1.0                       # seconds since the flood start / last new stage
+var _moment_t := -1.0                    # seconds into the current flood moment (-1 = none)
 
 
 func _ready() -> void:
@@ -233,6 +240,15 @@ func _process_pill(state: Dictionary, hidden: bool, mode: int, slot: Rect2, delt
 	# Flood start and every new stage: the pill pops.
 	if mode == 2 and (_last_mode != 2 or stage > _last_stage):
 		_pop_t = 0.0
+	# Announcement, start and every new stage open a short moment.
+	if (mode == 1 and _last_mode != 1) or (mode == 2 and (_last_mode != 2 or stage > _last_stage)):
+		_moment_t = 0.0
+	if mode != 1 and mode != 2:
+		_moment_t = -1.0
+	if _moment_t >= 0.0:
+		_moment_t += delta
+		if _moment_t > MOMENT_SECONDS:
+			_moment_t = -1.0
 	_last_mode = mode
 	_last_stage = stage if mode == 2 else 0
 	if _pop_t >= 0.0:
@@ -246,14 +262,27 @@ func _process_pill(state: Dictionary, hidden: bool, mode: int, slot: Rect2, delt
 		return
 	var countdown := ceili(float(state.get("countdown", 0.0)))
 	var urgent := mode == 1 or _pop_t >= 0.0
-	_chip.refresh([_pill_rect, mode, stage, countdown, int(float(state.get("seconds", 0.0))), int(_time * (30.0 if urgent else 15.0))])
+	var moment := _moment_t >= 0.0
+	_chip.refresh([_pill_rect, mode, stage, countdown, int(float(state.get("seconds", 0.0))) if moment else 0, int(_time * (30.0 if urgent else 15.0)) if moment else 0, moment])
 	var s := 1.0
 	if _pop_t >= 0.0:
 		# Quick swell to 1.25, elastic settle.
 		var k := clampf(_pop_t / 0.45, 0.0, 1.0)
 		s = 1.0 + 0.25 * (1.0 - k) * cos(k * PI * 1.5)
+	if _moment_t >= 0.0:
+		# Enter and leave: grow in, shrink out at the end of the moment.
+		s *= _ease_out(clampf(_moment_t / 0.2, 0.0, 1.0)) * clampf((MOMENT_SECONDS - _moment_t) / MOMENT_OUT, 0.0, 1.0)
 	_chip.pivot_offset = _pill_rect.get_center()
-	_chip.scale = Vector2(s, s)
+	_chip.scale = Vector2(maxf(s, 0.001), maxf(s, 0.001))
+
+
+## True while the flood pill shows its full message (tests read it).
+func moment_active() -> bool:
+	return _moment_t >= 0.0
+
+
+static func _ease_out(x: float) -> float:
+	return 1.0 - pow(1.0 - x, 3.0)
 
 
 func _pill_title(state: Dictionary, mode: int) -> String:
@@ -269,6 +298,11 @@ func _pill_value(state: Dictionary, mode: int) -> String:
 func _pill_layout(slot: Rect2, state: Dictionary, mode: int) -> Rect2:
 	if mode != 1 and mode != 2:
 		return Rect2()
+	if _moment_t < 0.0:
+		# Between moments: a small stage badge only.
+		var label := _badge_text(state, mode)
+		var bw := UiStyle.number_font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x + 58.0
+		return Rect2(roundf(slot.get_center().x - bw * 0.5), slot.position.y, roundf(bw), 36.0)
 	_pill_compact = slot.size.y < 52.0
 	var h := slot.size.y
 	var plate := h + 8.0
@@ -288,10 +322,28 @@ func _well_width(state: Dictionary, mode: int) -> float:
 	return value_w + 28.0
 
 
+func _badge_text(state: Dictionary, mode: int) -> String:
+	if mode == 1:
+		return str(maxi(1, ceili(float(state.get("countdown", 0.0)))))
+	return "%d" % maxi(1, int(state.get("stage", 1)))
+
+
+# Quiet reminder between moments: skull + stage (or countdown) on a see-through capsule.
+func _draw_badge(canvas: CanvasItem, state: Dictionary, mode: int) -> void:
+	var rect := _pill_rect
+	Kit.veil_pill(canvas, rect, "danger", 0.5)
+	var icon := rect.size.y - 8.0
+	UiIcons.draw(canvas, "skull", Rect2(rect.position + Vector2(8.0, 4.0), Vector2(icon, icon)), Color.WHITE)
+	Kit.number(canvas, Vector2(rect.position.x + icon + 14.0, rect.get_center().y), _badge_text(state, mode), UiStyle.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+
+
 func _draw_pill(canvas: CanvasItem) -> void:
 	var state := _state()
 	var mode := int(state.get("state", 0))
 	if mode != 1 and mode != 2:
+		return
+	if _moment_t < 0.0:
+		_draw_badge(canvas, state, mode)
 		return
 	var rect := _pill_rect
 	var h := rect.size.y
@@ -302,8 +354,8 @@ func _draw_pill(canvas: CanvasItem) -> void:
 	var glow := (0.3 + 0.45 * pulse) if mode == 1 else (0.12 + 0.28 * pulse)
 	if _pop_t >= 0.0:
 		glow = maxf(glow, 1.0 - _pop_t / POP_SECONDS)
-	Kit.ring(canvas, rect.grow(5.0 + 3.0 * pulse), h * 0.5 + 5.0 + 3.0 * pulse, 5.0, Color(danger["light"], glow))
-	Kit.pill(canvas, rect, "danger")
+	Kit.ring(canvas, rect.grow(5.0 + 3.0 * pulse), h * 0.5 + 5.0 + 3.0 * pulse, 5.0, Color(danger["light"], glow * 0.7))
+	Kit.veil_pill(canvas, rect, "danger", PILL_ALPHA)
 	var plate := h + 8.0
 	var plate_c := Vector2(rect.position.x + plate * 0.5 - 6.0, rect.get_center().y)
 	Kit.icon_plate(canvas, plate_c, plate, "dark")

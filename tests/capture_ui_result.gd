@@ -41,15 +41,15 @@ func _capture() -> void:
 	evo.level = 12
 	# Banners, one at a time (settled after the pop).
 	var banners := [
-		["flood", func(): overlays.push_flood()],
-		["boss", func(): overlays.push_boss()],
+		["flood", func(): overlays.push_banner("flood", "DIE FLUT BRICHT LOS", "danger", "skull", "GEFAHR", "In Bewegung bleiben, Brut zerbeißen")],
+		["boss", func(): overlays.push_banner("boss", "BOG KING NAHT", "danger", "bog_king", "BOSS", "Weich dem Stampfer aus, dann zubeißen")],
 		["king", func(): overlays._push_king()],
-		["victory", func(): overlays.push_victory("MOOSSCHLUND")],
-		["migration", func(): overlays.push_arrival("glutsumpf", "Glutsumpf")],
+		["victory", func(): overlays.push_banner("victory", "MOOSSCHLUND BEZWUNGEN", "loot", "crown", "SIEG!", "Der Migrationsschlund öffnet sich", 2.6, true)],
+		["migration", func(): overlays.push_banner("arrival", "GLUTSUMPF", "info", "biome_glutsumpf", "MIGRATION", "", 2.2)],
 		["milestone", func(): overlays._push_milestone(50)],
 		["milestone250", func(): overlays._push_milestone(250)],
-		["leader", func(): overlays.push_leader(2)],
-		["evolution", func(): overlays.push_evolution("Ätzflut", "aetzflut")],
+		["leader", func(): overlays.push_banner("leader", "NEUER ANFÜHRER", "ember", "mawling_head_color", "ANFÜHRER GEFALLEN", "Er führt mit 2 LP")],
+		["evolution", func(): overlays.push_banner("evolution", "ÄTZFLUT", "special", "aetzflut", "EVOLUTION!", "", 2.2)],
 	]
 	for entry in banners:
 		overlays._queue.clear()

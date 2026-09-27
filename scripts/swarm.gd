@@ -133,6 +133,9 @@ var _fx_shape := {}     # Node3D -> Vector4(scale xz, scale y, glow, hidden)
 var _fx_offset := {}    # Node3D -> Vector3 render offset of a dividing parent (swarm-local)
 var _fx_place := {}     # Node3D -> Vector3 position of a child inside/leaving its parent
 var split_count := 0    # divisions shown so far (tests, HUD)
+# Own seeded RNG for split parents/timing: the global RNG is randomised at start-up
+# and also used by sounds, so it made seeded runs drift (balance_regress).
+var rng := RandomNumberGenerator.new()
 
 # Growth moments.
 var peak_population := 0
@@ -163,6 +166,7 @@ var leader_mark_material: StandardMaterial3D
 
 func _ready() -> void:
 	add_to_group("swarm")
+	rng.seed = 90101
 	game_material = _creature_material(0.0)
 	ghost_material = _creature_material(0.45)
 	# Fallen Mawlings darken towards a bruised red instead of washing out pale.
@@ -808,7 +812,7 @@ func _queue_split(child: Node3D, parent_limit: int) -> bool:
 	var parent: Node3D = null
 	var best := INF
 	for attempt in 5:
-		var candidate := units[randi() % parent_limit]
+		var candidate := units[rng.randi() % parent_limit]
 		if busy.has(candidate) and attempt < 4:
 			continue
 		if child == null:
@@ -822,7 +826,7 @@ func _queue_split(child: Node3D, parent_limit: int) -> bool:
 		return false
 	if child != null:
 		child.position = parent.position
-	splits.append({"child": child, "parent": parent, "t": -randf_range(0.0, 0.06), "side": Vector3.ZERO, "popped": false})
+	splits.append({"child": child, "parent": parent, "t": -rng.randf_range(0.0, 0.06), "side": Vector3.ZERO, "popped": false})
 	return true
 
 
@@ -900,7 +904,7 @@ func _split_pose(entry: Dictionary, t: float) -> void:
 				side = _formation_goal(slot, units.size(), _flow_radius()) - parent.position
 		side.y = 0.0
 		if side.length_squared() < 0.01:
-			var angle := randf() * TAU
+			var angle := rng.randf() * TAU
 			side = Vector3(cos(angle), 0.0, sin(angle))
 		entry.side = side.normalized()
 		# One plop per division, unless the growth cue already played it just now.

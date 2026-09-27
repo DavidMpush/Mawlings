@@ -69,7 +69,9 @@ const MAX_RANK = 3
 const LURE_SCENT_STEP = 0.25
 const BROOD_STEP = 0.10
 # Etappe 16: Anlagen ohne eigenes Symbol in ui_icons.gd nutzen vorerst ein vorhandenes.
-const ICON_IDS = {"lockduft": "biomass"}
+# Lockduft: the crystal cluster (same as Witterung in the Brutkammer: both widen the
+# collect radius); its card/plate tone is info via the growth branch.
+const ICON_IDS = {"lockduft": "branch_growth"}
 const DEFAULT_SLOTS = {"attack": 2, "trait": 3}
 
 var ranks: Dictionary = {}

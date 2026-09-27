@@ -32,9 +32,11 @@ const TIER_LAYERS := ["small", "medium", "big"]
 # the drawn height (m) per sort and tier; within a tier the value adds up to +30 %.
 const TIER_MESH := ["drop_medium", "drop_medium", "drop_big"]
 const MESH_HEIGHT := [1.0, 1.0, 1.2]
-const DRAW_HEIGHT := [[0.62, 0.86, 1.2], [0.56, 0.78, 1.08]]
+# Handtest (Polier-Runde): 55 % (small) .. 72 % (big) of the first sizes, so
+# the flood does not look like confetti; big ones stay recognisable.
+const DRAW_HEIGHT := [[0.34, 0.53, 0.86], [0.31, 0.48, 0.78]]
 # Soft billboard glow behind every crystal (one more MultiMesh): radius x height.
-const GLOW_SIZE := 1.5
+const GLOW_SIZE := 1.1
 # Value thresholds per sort: below [0] small, below [1] medium, else big.
 const TIER_VALUE := [[3.0, 9.0], [12.0, 36.0]]
 const BIO_COLOR := Color("ffb13b")
@@ -74,6 +76,9 @@ var moving: Array[int] = []
 var lying := 0
 # Above this many lying crystals every landing joins a neighbour (tests/bench raise it).
 var soft_cap: int = TUNING.LOOT_SOFT_CAP
+# During the flood (HuntWorld sets it) crystals bundle earlier: from
+# LOOT_FLOOD_CROWD alike per cell, always above LOOT_FLOOD_SOFT_CAP lying.
+var flood := false
 # Lockruf drops: {"node": Node3D, "at": Vector3, "age": float, "fly": float, "speed": float}.
 var lures: Array[Dictionary] = []
 var rng := RandomNumberGenerator.new()
@@ -129,14 +134,15 @@ func clear() -> void:
 ## normal 3, mini 4, boss 4), DNA into 1 (normal) or 2 (mini/boss); never more
 ## than LOOT_MAX_PER_KILL. They hop out in a ring around `at`.
 func burst(at: Vector3, biomass: float, dna: int, rank := "normal") -> void:
-	var bio_cap: int = {"normal": 3, "mini": 4, "boss": 4}.get(rank, 3)
-	var dna_cap: int = 1 if rank == "normal" else 2
+	# "horde" (Moorbrut bundles of the flood): one biomass crystal at most.
+	var bio_cap: int = {"normal": 3, "mini": 4, "boss": 4, "horde": 1}.get(rank, 3)
+	var dna_cap: int = 1 if rank == "normal" or rank == "horde" else 2
 	var bio_count := clampi(ceili(biomass / TUNING.LOOT_BIO_CHUNK - 0.001), 1, bio_cap) if biomass > 0.0 else 0
 	var dna_count := clampi(ceili(float(dna) / TUNING.LOOT_DNA_CHUNK - 0.001), 1, dna_cap) if dna > 0 else 0
 	while bio_count + dna_count > TUNING.LOOT_MAX_PER_KILL:
 		bio_count -= 1
 	var total := bio_count + dna_count
-	var reach: float = {"normal": 1.3, "mini": 1.9, "boss": 3.2}.get(rank, 1.3)
+	var reach: float = {"normal": 1.3, "mini": 1.9, "boss": 3.2, "horde": 0.9}.get(rank, 1.3)
 	var turn := rng.randf() * TAU
 	var slot := 0
 	for index in bio_count:
@@ -222,9 +228,10 @@ static func cell_key(at: Vector3) -> Vector2i:
 # the count low), otherwise it lies in its own grid cell.
 func _land(id: int) -> void:
 	var key := cell_key(goal[id])
-	var crowd: int = TUNING.LOOT_CELL_CROWD if lying < soft_cap else 1
+	var cap: int = mini(soft_cap, TUNING.LOOT_FLOOD_SOFT_CAP) if flood else soft_cap
+	var crowd: int = (TUNING.LOOT_FLOOD_CROWD if flood else TUNING.LOOT_CELL_CROWD) if lying < cap else 1
 	var host := _host_in(key, kind[id], crowd)
-	if host < 0 and lying >= soft_cap:
+	if host < 0 and lying >= cap:
 		for x in range(key.x - 1, key.x + 2):
 			for z in range(key.y - 1, key.y + 2):
 				if host < 0:
@@ -539,7 +546,8 @@ func nearest_lying(at: Vector3, reach := 40.0, sort := -1) -> Vector3:
 
 
 ## Lying crystals bundled into coarse map cells: (x, z, size) triples, size 0/1/2
-## by total value (minimap "corpses" layer), plus the Lockruf drops as size 2.
+## by total value (minimap "corpses" layer), plus the Lockruf drops as size 3
+## (hud_minimap draws them as their own pulsing plate).
 func map_marks(cell := 8.0) -> PackedFloat32Array:
 	var cells := {}
 	for key in grid:
@@ -559,7 +567,7 @@ func map_marks(cell := 8.0) -> PackedFloat32Array:
 	for lure in lures:
 		result.append(lure.at.x)
 		result.append(lure.at.z)
-		result.append(2.0)
+		result.append(3.0)
 	return result
 
 
@@ -834,8 +842,8 @@ void fragment() {
 	float facing = clamp(dot(normalize(NORMAL), VIEW), 0.0, 1.0);
 	float pulse = 0.5 + 0.5 * sin(TIME * 3.0 + loot.y * 6.2832);
 	vec3 col = tint * (0.55 + 0.75 * grey) * (0.8 + 0.35 * facing);
-	col += glow * pow(1.0 - facing, 2.0) * (0.55 + 0.35 * pulse);
-	col += glow * 0.18 * pulse;
+	col += glow * pow(1.0 - facing, 2.0) * (0.35 + 0.22 * pulse);
+	col += glow * 0.07 * pulse;
 	col = mix(col, glow * 1.15, 0.35 * loot.w);
 	ALBEDO = col;
 }
@@ -858,7 +866,7 @@ void fragment() {
 	float fall = pow(clamp(1.0 - d, 0.0, 1.0), 2.2);
 	float pulse = 0.8 + 0.2 * sin(TIME * 3.0 + loot.y * 6.2832);
 	ALBEDO = mix(bio_glow, dna_glow, step(0.5, loot.x));
-	ALPHA = clamp(fall * pulse * (0.4 + 0.4 * loot.w), 0.0, 1.0);
+	ALPHA = clamp(fall * pulse * (0.2 + 0.4 * loot.w), 0.0, 1.0);
 }
 """
 

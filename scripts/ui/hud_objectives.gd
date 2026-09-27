@@ -18,7 +18,7 @@ const VICTORY_SECONDS := 3.2
 const ARRIVAL_SECONDS := 2.8
 const CURSE := Color("ff4a8a")
 const MINIMAP_PLATE := 46.0             # region name plate below the minimap disc
-const CHIP_Y := 392.0          # left column, below corpse and biomass hints
+const CHIP_Y := 392.0          # curse chip, left column below the minimap (brawl: below hud_top's stack)
 const POINTER_GAP := 128.0     # minimum distance between two edge markers
 # Skin brawl (stage 15, package H): the apex bar moved into hud_top's boss
 # stack; edge pointers are round kit plates with a chevron and the distance
@@ -577,24 +577,13 @@ func _b_pointer(at: Vector2, raw: Vector2, tone: String, icons: Array, distance:
 	at = _keep_on_screen(at, r + 40.0)
 	var t: Dictionary = UiStyle.brawl_tone(tone)
 	var pulse := 0.5 + 0.5 * sin(_time * (7.0 if tone == "loot" else 3.5))
-	Kit.circle_ring(self, at, r + 9.0, 5.0, Color(t["light"], 0.2 + 0.4 * pulse))
+	Kit.glow(self, at, r + 24.0 + 6.0 * pulse, tone, 0.3 + 0.3 * pulse)
 	if progress >= 0.0:
 		Kit.circle_ring(self, at, r + 8.0, 10.0, UiStyle.BRAWL_INK)
 		if progress > 0.0:
 			draw_arc(at, r + 8.0, -PI * 0.5, -PI * 0.5 + TAU * clampf(progress, 0.0, 1.0), 48, t["light"], 6.0, true)
 	if direction.length_squared() > 0.01:
-		var side := Vector2(-direction.y, direction.x)
-		var tip := at + direction * (r + 34.0)
-		var base := at + direction * (r + 6.0)
-		var tri := PackedVector2Array([tip, base + side * 19.0, base - side * 19.0])
-		var drop := PackedVector2Array()
-		for p in tri:
-			drop.append(p + Vector2(0, 4))
-		draw_colored_polygon(drop, UiStyle.BRAWL_INK_SOFT)
-		draw_colored_polygon(tri, t["face"])
-		var edge := tri.duplicate()
-		edge.append(tri[0])
-		draw_polyline(edge, UiStyle.BRAWL_INK, UiStyle.STROKE_S, true)
+		Kit.chevron(self, at + direction * (r + 20.0), direction, 30.0, tone)
 	Kit.icon_plate(self, at, B_POINTER, tone)
 	var face := Kit.plate_center(at, B_POINTER)
 	var drawn := false

@@ -1,15 +1,15 @@
 extends SceneTree
 
-# Review frames for the corpse designs (scripts/corpse_visuals.gd). Run WITHOUT
-# --headless, e.g.
+# Review frames for the corpse designs (scripts/corpse_visuals.gd) in the game's
+# "empty" mode (Etappe 16: remains are decoration, the loot lies in crystals).
+# Run WITHOUT --headless, e.g.
 #   Godot_console.exe --screen 1 --audio-driver Dummy --path . --script res://tests/capture_corpses.gd
-# preview_corpses_kinds.png   all kinds side by side, full biomass
-# preview_corpses_fill.png    normal + mini-boss kinds at 100 / 50 / 10 %
-# preview_corpses_boss.png    Bog King carcass at 100 / 50 / 10 %
-# preview_corpses_apex.png    Moosschlund carcass at 100 / 50 / 10 %
-# (every corpse carries its biomass crystal: small shards, medium, big)
+# preview_corpses_kinds.png    every kind side by side as it lies in the game
+# preview_corpses_compare.png  living hunter / elite / skitter / leaper (top row)
+#                              next to their remains (bottom row): dead must read dead
+# preview_corpses_sink.png     remains at decay 0 / 0.5 / 0.85 (rows far -> near)
+# preview_corpses_boss.png     Bog King, Moosschlund and Aschenkröte remains
 # plus the draw-call cost of 60 mixed corpses (printed)
-# preview_corpses_swarm.png   the swarm feeding on a Bog King carcass
 
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
 
@@ -34,18 +34,27 @@ func _capture() -> void:
 	# Background capture windows lose focus; the auto-pause must not end up in the frames.
 	controls.pause_requested.disconnect(world.toggle_pause)
 	await create_timer(1.0).timeout
-	# Freeze the hunt (no spawns, no harvest); camera and swarm animation keep running.
 	for target in world.prey:
 		target.queue_free()
 	world.prey.clear()
-	world.set_process(false)
+	world.hunter_clock = 1.0e9
+	world.skitter_clock = 1.0e9
+	world.leaper_clock = 1.0e9
+	world.boss_clock = 1.0e9
+	world.elite_clock = 1.0e9
+	world.nest_clock = 1.0e9
+	world.spawn_clock = -1.0e9
+	world.flood_start = 1.0e9
+	world.apex_state = 4
 	visuals = CORPSE_VISUALS.new()
 	visuals.name = "Corpse visuals"
+	visuals.empty = true
 	world.add_child(visuals)
 	var center: Vector3 = swarm.position
 	swarm.visible = false
+	world.set_process(false)
 
-	# 1: every kind at full biomass, by rank (bosses far, normal ones near).
+	# 1: every kind as it lies in the game.
 	_put("boss", center + Vector3(-3.4, 0, -9.5), 0.35)
 	_put("apex", center + Vector3(3.6, 0, -9.0), -0.35)
 	_put("elite", center + Vector3(-4.3, 0, -2.2))
@@ -59,26 +68,48 @@ func _capture() -> void:
 	await _settle(center)
 	await _save("preview_corpses_kinds.png")
 
-	# 2: fill levels 100 / 50 / 10 % (rows far -> near).
+	# 2: living enemies (top) next to their remains (bottom).
 	visuals.clear()
-	var fills := [1.0, 0.5, 0.1]
+	var living: Array = []
+	living.append(world._spawn_hunter(center + Vector3(-4.2, 0, -4.5)))
+	living.append(world.spawn_elite(center + Vector3(-1.2, 0, -4.5)))
+	living.append(world._spawn_skitter(center + Vector3(1.6, 0, -4.5)))
+	living.append(world._spawn_leaper(center + Vector3(4.4, 0, -4.5)))
+	_put("hunter", center + Vector3(-4.2, 0, 1.5))
+	_put("elite", center + Vector3(-1.2, 0, 1.5))
+	_put("skitter", center + Vector3(1.6, 0, 1.5))
+	_put("leaper", center + Vector3(4.4, 0, 1.5))
+	_put("horde", center + Vector3(-3.0, 0, 5.0))
+	_put("prey", center + Vector3(0.0, 0, 5.0))
+	_put("horde", center + Vector3(3.0, 0, 5.0))
+	await _settle(center)
+	await _save("preview_corpses_compare.png")
+	for enemy in living:
+		if enemy != null and is_instance_valid(enemy):
+			enemy.queue_free()
+	world.hunters.clear()
+	world.skitters.clear()
+	world.leapers.clear()
+
+	# 3: sinking (rows far -> near: decay 0 / 0.5 / 0.85).
+	visuals.clear()
+	var decays := [0.0, 0.5, 0.85]
 	var columns := ["prey", "hunter", "skitter", "horde", "elite", "leaper", "nest"]
-	for row in fills.size():
+	for row in decays.size():
 		for column in columns.size():
 			var x := -5.4 + 1.8 * float(column)
 			var id := _put(columns[column], center + Vector3(x, 0, -6.0 + 5.2 * float(row)), 0.0)
-			visuals.set_fill(id, fills[row])
+			visuals.set_decay(id, decays[row])
 	await _settle(center)
-	await _save("preview_corpses_fill.png")
+	await _save("preview_corpses_sink.png")
 
-	# 3/4: boss carcasses at 100 / 50 / 10 % (rows far -> near), one image each.
-	for kind in ["boss", "apex"]:
-		visuals.clear()
-		for row in fills.size():
-			var boss_id := _put(kind, center + Vector3(-0.6 + 0.8 * float(row), 0, -6.5 + 6.0 * float(row)), PI * 0.5 + 0.15)
-			visuals.set_fill(boss_id, fills[row])
-		await _settle(center)
-		await _save("preview_corpses_%s.png" % kind)
+	# 4: the three boss carcasses.
+	visuals.clear()
+	_put("boss", center + Vector3(-2.5, 0, -7.0), 0.5)
+	_put("apex", center + Vector3(2.0, 0, 0.0), -0.4)
+	_put("apex_toad", center + Vector3(-2.0, 0, 7.0), 0.2)
+	await _settle(center)
+	await _save("preview_corpses_boss.png")
 
 	# Draw-call cost of 60 mixed corpses (visible vs hidden), all in view.
 	visuals.clear()
@@ -91,23 +122,6 @@ func _capture() -> void:
 	var without := await _draw_calls()
 	visuals.visible = true
 	print("60 mixed corpses: %d draw calls (%d with, %d without), %d batches" % [with_corpses - without, with_corpses, without, visuals.active_batches()])
-
-	# 4: the swarm feeding on a Bog King carcass, a few small corpses around.
-	visuals.clear()
-	swarm.visible = true
-	world.model.population = 60
-	swarm.set_population(60, false)
-	var carcass: Vector3 = center + Vector3(0, 0, -1.0)
-	var carcass_id := _put("boss", carcass, 0.6)
-	visuals.set_fill(carcass_id, 0.7)
-	_put("hunter", center + Vector3(-4.5, 0, 3.5), 0.4)
-	_put("prey", center + Vector3(4.2, 0, 4.2), 1.0)
-	_put("mawling", center + Vector3(2.8, 0, -6.5))
-	_put("horde", center + Vector3(-3.6, 0, -6.0))
-	swarm.set_focus(carcass, 1)
-	await _settle(center)
-	await create_timer(0.8).timeout
-	await _save("preview_corpses_swarm.png")
 	print("Saved corpse review frames")
 	quit()
 

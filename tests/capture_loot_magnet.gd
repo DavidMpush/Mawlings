@@ -7,6 +7,7 @@ extends SceneTree
 #   preview_loot_counter.png  arrivals add up into one growing "+N" at the swarm
 #   preview_loot_lure.png     a Lockruf beside the swarm, crystals lying all over the map
 #   preview_loot_vacuum.png   Lockruf taken: every crystal of the map streams in
+#   preview_loot_midgame.png  ~60 Mawlings mid-run: live hunters, kill bursts, counter, loss number
 #   preview_loot_flood.png    late flood: many kills, crystals and the magnet at work
 
 const LOOT = preload("res://scripts/loot.gd")
@@ -80,7 +81,37 @@ func _capture() -> void:
 	await _wait(0.45, 45)
 	await _save("preview_loot_vacuum.png")
 	await _wait(3.0, 45)
-	# 5: late flood - a horde ring right at the swarm, kills burst into crystals.
+	# 5: a normal mid-run moment: ~60 Mawlings, living hunters around, fresh kills
+	# bursting, crystals flying in, the growing counter and a loss number.
+	world.loot.clear()
+	world.kill_popups.clear()
+	world.model.population = 60
+	swarm.set_population(60, false)
+	await _wait(0.5, 60)
+	here = swarm.position
+	var living: Array = []
+	for spot in [Vector3(-6.5, 0, -3.0), Vector3(6.0, 0, 2.5), Vector3(-2.0, 0, 7.5)]:
+		living.append(world._spawn_hunter(here + spot))
+	for spot in [Vector3(3.2, 0, -4.0), Vector3(-3.8, 0, -5.5), Vector3(4.5, 0, 5.0)]:
+		var victim: Variant = world._spawn_hunter(here + spot)
+		victim.health = 0.0
+		world._resolve_death(victim, "hunter")
+	for lure in world.loot.lures:
+		lure.node.queue_free()
+	world.loot.lures.clear()
+	for index in 10:
+		var angle := TAU * float(index) / 10.0
+		world.drop_loot(here + Vector3(cos(angle), 0, sin(angle)) * rng.randf_range(9.0, 14.0), 3.0, 5 if index % 4 == 0 else 0, "normal")
+	await _wait(0.9, 60)
+	world.hit_feedback = 1.0
+	world.last_loss = 4
+	await _wait(0.2, 60)
+	await _save("preview_loot_midgame.png")
+	for enemy in living:
+		if is_instance_valid(enemy) and world.hunters.has(enemy):
+			world.hunters.erase(enemy)
+			enemy.queue_free()
+	# 6: late flood - a horde ring right at the swarm, kills burst into crystals.
 	world.loot.clear()
 	world.kill_popups.clear()
 	world.model.population = 160

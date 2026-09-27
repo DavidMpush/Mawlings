@@ -460,7 +460,7 @@ func _upgrade_effect(id: String, rank: int) -> String:
 		"sprinter":
 			return "+%d %% Tempo" % (3 * rank)
 		"digestion":
-			return "+%d %% Ernte" % (6 * rank)
+			return "+%d %% Biomasse" % (6 * rank)
 		"geneflow":
 			return "+%d %% DNA" % (6 * rank)
 		"witterung":
@@ -830,10 +830,10 @@ func _draw_instinct() -> void:
 	_card(nxt, S.color("ember"), "normal", 18, false)
 	_body("AKTUELL", cur.position + Vector2(32, 48), 22, Color(S.color("cyan"), 0.9))
 	_txt("+%d %% Schaden" % roundi(bonus * level), cur.position + Vector2(32, 86), 28, S.color("text"), 0, 5)
-	_txt("+%d %% Ernte" % roundi(bonus * level), cur.position + Vector2(32, 118), 28, S.color("text"), 0, 5)
+	_txt("+%d %% Biomasse" % roundi(bonus * level), cur.position + Vector2(32, 118), 28, S.color("text"), 0, 5)
 	_body("STUFE %d" % (level + 1), nxt.position + Vector2(32, 48), 22, Color(S.color("ember_glow"), 0.95))
 	_txt("+%d %% Schaden" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 86), 28, S.color("ember_glow").lightened(0.3), 0, 5)
-	_txt("+%d %% Ernte" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 118), 28, S.color("ember_glow").lightened(0.3), 0, 5)
+	_txt("+%d %% Biomasse" % roundi(bonus * (level + 1)), nxt.position + Vector2(32, 118), 28, S.color("ember_glow").lightened(0.3), 0, 5)
 	_arrow(Vector2(cur.end.x + 10, tiles_y + 68), 16, 1.0, S.color("ember_glow"))
 	# STÄRKEN button on the menu rectangle.
 	var cost := int(menu._instinct_cost())
@@ -1311,9 +1311,9 @@ const B_TAB_TONE := {"upgrades": "info", "trophies": "loot", "instinct": "ember"
 const B_TAB_ICON := {"upgrades": "brood", "trophies": "trophy", "instinct": "instinct", "chronicle": "clock"}
 ## Plate tone per Brutkammer upgrade (own swarm ember, growth/DNA info, loot, evolution special).
 const B_UPGRADE_TONE := {"brood_size": "ember", "rending": "ember", "chitin": "action", "sprinter": "info",
-	"digestion": "loot", "witterung": "loot", "geneflow": "info", "attack_slot": "special", "trait_slot": "special"}
+	"digestion": "loot", "witterung": "info", "geneflow": "info", "attack_slot": "special", "trait_slot": "special"}
 const B_UPGRADE_ICON := {"brood_size": "brood", "rending": "jaws", "chitin": "armor", "sprinter": "scatter",
-	"digestion": "glutton", "witterung": "biomass", "geneflow": "dna", "attack_slot": "rudelbiss", "trait_slot": "pack"}
+	"digestion": "glutton", "witterung": "branch_growth", "geneflow": "dna", "attack_slot": "rudelbiss", "trait_slot": "pack"}
 const B_CATEGORY_TONE := {"time": "info", "swarm": "ember", "boss": "danger", "evolution": "special", "biomass": "loot", "runs": "action", "hunt": "ember"}
 const B_CATEGORY_ICON := {"time": "clock", "swarm": "mawling_head_color", "boss": "crown", "evolution": "branch_special", "biomass": "biomass", "runs": "trophy", "hunt": "skull"}
 const B_SETTING_TONE := {"sound": "info", "vibration": "ember", "colorblind": "special", "music_v1": "loot"}
@@ -1643,7 +1643,7 @@ func _b_instinct() -> void:
 		_b_label(Vector2(r.get_center().x, r.position.y + 30), String(pair[1]), S.BRAWL_TEXT_DIM, Kit.CENTER | Kit.MIDDLE)
 		var v := roundi(bonus * int(pair[2]))
 		_b_text(Vector2(r.get_center().x, r.position.y + 76), "+%d %% Schaden" % v, 34, pair[3], Kit.CENTER | Kit.MIDDLE, r.size.x - 24)
-		_b_text(Vector2(r.get_center().x, r.position.y + 118), "+%d %% Ernte" % v, 34, pair[3], Kit.CENTER | Kit.MIDDLE, r.size.x - 24)
+		_b_text(Vector2(r.get_center().x, r.position.y + 118), "+%d %% Biomasse" % v, 34, pair[3], Kit.CENTER | Kit.MIDDLE, r.size.x - 24)
 	var ac := Vector2(cur.end.x + 36, ty + 75)
 	Kit.icon_plate(self, ac, 56, "action")
 	_b_arrow(Kit.plate_center(ac, 56) + Vector2(2, 0), 22.0)
