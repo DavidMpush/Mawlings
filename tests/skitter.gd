@@ -52,7 +52,10 @@ func _run() -> void:
 			break
 	check(skitter.position.distance_to(behind) < 3, "Skitter routes around stone toward swarm")
 	world.reset_run()
-	world.model.elapsed = 46
+	# Stage 09: skitters start later and join once the swarm has grown.
+	world.model.population = TUNING.SKITTER_POPULATION_STEP * 2
+	swarm.set_population(world.model.population, false)
+	world.model.elapsed = TUNING.FIRST_SKITTER_SECONDS + 1.0
 	world.skitter_clock = 0
 	world.step(0.05)
 	check(world.skitters.size() == 1 and hud.skitters == 1, "Director and HUD spawn Skitter")
@@ -67,6 +70,9 @@ func _run() -> void:
 	check(world.model.corpses.size() == 1 and is_equal_approx(world.model.corpses[0].remaining, TUNING.SKITTER_BIOMASS), "Skitter leaves persistent biomass at cap")
 	check(not is_instance_valid(skitter.warning) or skitter.warning.is_queued_for_deletion(), "Warning removed on kill")
 	world.reset_run()
+	# Stage 09 lone start: the hit check uses a 25-strong swarm.
+	world.model.population = 25
+	swarm.set_population(25, false)
 	skitter = world._spawn_skitter(Vector3(-4, 0, 0))
 	skitter.state = SKITTER.State.DASH
 	skitter.remaining = 0.01

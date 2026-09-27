@@ -2,6 +2,8 @@ extends SceneTree
 ## Renders the Brutstätte states for visual review. Run WITHOUT --headless.
 
 const TEST_PROFILE := "user://capture_menu_profile.json"
+## The menu derives a separate chronicle next to a test profile (stage 10).
+const TEST_CHRONICLE := "user://capture_menu_profile_chronicle.json"
 
 
 func _initialize() -> void:
@@ -11,8 +13,9 @@ func _initialize() -> void:
 func _capture() -> void:
 	root.size = Vector2i(540, 960)
 	var session: Variant = load("res://scripts/meta/session.gd")
-	if FileAccess.file_exists(TEST_PROFILE):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROFILE))
+	for p in [TEST_PROFILE, TEST_CHRONICLE]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
 	# A mid-progress profile so the screens show mixed states.
 	var profile: Variant = load("res://scripts/meta/profile.gd").load_or_create(TEST_PROFILE)
 	profile.essence = 1240
@@ -94,7 +97,9 @@ func _capture() -> void:
 	menu.close_reward()
 	await _shot("res://preview_menu_after_daily.png")
 	menu.queue_free()
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROFILE))
+	for p in [TEST_PROFILE, TEST_CHRONICLE]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
 	print("Saved menu review frames")
 	quit()
 

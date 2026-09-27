@@ -132,7 +132,9 @@ func _run() -> void:
 	main._restart()
 	_check(Engine.time_scale == 1.0 and main.king_zoom_left == 0.0, "Restart restores normal time and camera")
 	main.king_moment(Vector3.ZERO)
-	world._apply_hit(100000, swarm.position, 0.0)
+	# Stage 09: only the leader's last LP ends the run.
+	world.model.leader_hp = 1
+	world._apply_hit(100000, swarm.position, 0.0, null, true)
 	main.update_king_moment(0.01)
 	_check(world.model.extinct and Engine.time_scale == 1.0, "Extinction restores normal time")
 	main.king_moment(Vector3.ZERO)

@@ -24,6 +24,16 @@ extends RefCounted
 # the glow channels are a narrow amber core on dark crust, and the pools are
 # pale yellow-orange with a dark crust rim – brighter and yellower than any
 # strain. Flowers are recoloured to cold teal so no deco competes with the swarm.
+#
+# Glutsumpf look (stage 09 prep, `ember` block below; Verdant has none, so its
+# chunks are built exactly as before): a shader ground (peat tones, ash flecks,
+# thin glowing cracks), trails become glow channels (dark crust with a narrow,
+# broken ember core, one mesh with a vertex-colour profile), pools are pulsing
+# lava, stones become basalt column clusters, root arches burn out to charcoal,
+# fallen logs become three extinct stumps on the same collision knots, the
+# meadow grows cold-glowing "Glutpilze" (flower mesh, cyan like gas flames, so
+# nothing reads as an ember-red Mawling). Eruptions (scripts/eruptions.gd) rise
+# from lava pools and glow channels with their own ring telegraph.
 
 const DEFAULT := "verdant_maw"
 const ORDER := ["verdant_maw", "glutsumpf"]
@@ -77,9 +87,9 @@ const DATA := {
 		"path_edge": Color("b8622c"),
 		"path_emission": Color(0, 0, 0),
 		"path_edge_emission": Color("5a2408"),
-		"moss": [Color("75686c"), Color("4e4146"), Color("806a5e")],
-		"sand": Color("7a6658"),
-		"earth": Color("463a3c"),
+		"moss": [Color("6a5e62"), Color("4a3f45"), Color("76665f")],
+		"sand": Color("5a4c4c"),
+		"earth": Color("3e3337"),
 		"plinth": Color("3e3438"),
 		"pool": Color("ffc24a"),
 		"pool_roughness": 0.6,
@@ -89,7 +99,7 @@ const DATA := {
 		"flower_light": Color("9fe6e0"),
 		"prop_rim": Color("ffc07a"),
 		"rock_tint": Color(0.42, 0.38, 0.42, 0.85),
-		"leaf_tint": Color(0.46, 0.44, 0.3, 0.8),
+		"leaf_tint": Color(0.34, 0.28, 0.24, 0.9),
 		"wood_tint": Color(0.3, 0.24, 0.24, 0.85),
 		"reed_tint": Color(0.5, 0.42, 0.34, 0.75),
 		"moss_patches": 5,
@@ -100,6 +110,26 @@ const DATA := {
 		"flower_one_in": 4,
 		"eruptions": true,
 		"light": {"color": Color(1.0, 0.86, 0.74), "energy": 1.2},
+		# Shader look of arena.gd (only biomes with this block use it).
+		"ember": {
+			"ground_dark": Color("463a42"),
+			"ground_light": Color("6c5a5c"),
+			"ash": Color("8a8184"),
+			"vein": Color("ff8a2c"),
+			"vein_amount": 0.55,
+			"crust": Color("33272a"),
+			"crust_rim": Color("54433f"),
+			"core": Color("ffb03c"),
+			"core_hot": Color("fff0a0"),
+			"lava_core": Color("ffe27a"),
+			"lava_mid": Color("ff9a2e"),
+			"lava_crust": Color("5a2014"),
+			"basalt_tint": Color(0.24, 0.2, 0.22, 0.95),
+			"char_rim": Color("ff9a4a"),
+			"mushroom_dark": Color("0f4a58"),
+			"mushroom_light": Color("8ff4ff"),
+			"mushroom_rim": Color("b8fbff"),
+		},
 		# body_tint (alpha = amount) for creature_anim.gdshader, applied in stage 08.
 		"enemy_tints": {
 			"hunter": Color(0.36, 0.3, 0.34, 0.55),

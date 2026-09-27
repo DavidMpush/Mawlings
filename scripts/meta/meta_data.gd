@@ -9,6 +9,10 @@ extends RefCounted
 ##   "reroll" / "banish" / "skip"   +1 pro Run
 ## unlock_label(token) liefert die deutsche Anzeige.
 ##
+## Einzelstart (Etappe 09): jeder Stamm beginnt mit einem Mawling (dem Anführer);
+## "Brutgröße" gibt +1 je Rang (max. 4 Ränge -> 5 Tiere). Da jedes Starttier jetzt
+## ein großer Vorsprung ist, kostet ein Rang 150/300/600/1200 Essenz.
+##
 ## Rüstung: Stamm-Rüstung darf negativ sein (Flinkzahn −0.1) und verrechnet sich mit Chitin;
 ## das Endergebnis in RunConfig.mods.armor wird auf 0.0..0.6 gekappt (keine Zusatzverluste).
 ## Glutmaws Rally-Bonus steht zusätzlich als mods.rally_damage (Multiplikator, sonst 1.0).
@@ -27,32 +31,32 @@ const ARMOR_CAP := 0.6
 const STRAINS := {
 	"glutmaw": {
 		"name": "Glutmaw", "description": "Ausgewogener Rudeljäger. Rally-Angriffe beißen 15 % härter.",
-		"unlock_quest": "", "price": 0, "tint": "#d9401f", "start_population": 25,
+		"unlock_quest": "", "price": 0, "tint": "#d9401f", "start_population": 1,
 		"signature": "rudelbiss", "rally_damage": 1.15,
 		"mods": {"damage": 1.0, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"sporling": {
 		"name": "Sporling", "description": "Wächst rasant und vernebelt Gegner, beißt aber schwächer.",
-		"unlock_quest": "", "price": 0, "tint": "#f06aa8", "start_population": 18,
+		"unlock_quest": "", "price": 0, "tint": "#f06aa8", "start_population": 1,
 		"signature": "sporenwolke",
 		"mods": {"damage": 0.85, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.3}},
 	"knochenkiefer": {
 		"name": "Knochenkiefer", "description": "Gepanzert und stachelig, dafür schwerfällig.",
-		"unlock_quest": "boss_1", "price": 3, "tint": "#e9f0f8", "start_population": 20,
+		"unlock_quest": "boss_1", "price": 3, "tint": "#e9f0f8", "start_population": 1,
 		"signature": "stachelruecken",
 		"mods": {"damage": 1.0, "armor": 0.2, "speed": 0.85, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"flinkzahn": {
 		"name": "Flinkzahn", "description": "Blitzschnelles Rudel mit dünner Haut.",
-		"unlock_quest": "leaper_10", "price": 3, "tint": "#3f5cf0", "start_population": 22,
+		"unlock_quest": "leaper_10", "price": 3, "tint": "#3f5cf0", "start_population": 1,
 		"signature": "rudelbiss",
 		"mods": {"damage": 1.0, "armor": -0.1, "speed": 1.25, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"aetzmaul": {
 		"name": "Ätzmaul", "description": "Spuckt Säure aus der Distanz, im Nahkampf etwas schwächer.",
-		"unlock_quest": "evo_aetzflut", "price": 5, "tint": "#f2e02a", "start_population": 20,
+		"unlock_quest": "evo_aetzflut", "price": 5, "tint": "#f2e02a", "start_population": 1,
 		"signature": "saeurespucker",
 		"mods": {"damage": 0.9, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"nachtmaul": {
 		"name": "Nachtmaul", "description": "Expertenstamm: klein und zerbrechlich, mutiert aber schneller.",
-		"unlock_quest": "apex_3", "price": 8, "tint": "#2c2848", "start_population": 15,
+		"unlock_quest": "apex_3", "price": 8, "tint": "#2c2848", "start_population": 1,
 		"signature": "sporenwolke",
 		"mods": {"damage": 1.0, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.25, "growth": 1.0}},
 }
@@ -68,7 +72,7 @@ const BIOME_ORDER := ["verdant_maw", "glutsumpf"]
 const DIFFICULTIES := [
 	{"name": "Wild", "description": "Der normale Kreislauf der Jagd.", "enemy_hp": 1.0, "enemy_damage": 1.0,
 		"pressure_doubling": 80.0, "flood_start": 300.0, "reward": 1.0, "crowns": 1, "unlock_quest": ""},
-	{"name": "Brutal", "description": "Zähere, härter zuschlagende Gegner.", "enemy_hp": 1.4, "enemy_damage": 1.2,
+	{"name": "Brutal", "description": "Zähere, härter zuschlagende Gegner.", "enemy_hp": 1.3, "enemy_damage": 1.1,
 		"pressure_doubling": 80.0, "flood_start": 240.0, "reward": 2.0, "crowns": 2, "unlock_quest": "survive_5"},
 	{"name": "Apex", "description": "Nur für die stärksten Schwärme.", "enemy_hp": 1.3, "enemy_damage": 1.15,
 		"pressure_doubling": 60.0, "flood_start": 180.0, "reward": 3.5, "crowns": 3, "unlock_quest": "brutal_3"},
@@ -76,7 +80,7 @@ const DIFFICULTIES := [
 
 ## Kosten eines Rangs r (0-basiert, also der nächste Kauf) = round(base * growth^r).
 const UPGRADES := {
-	"brood_size": {"name": "Brutgröße", "description": "+2 Mawlings zum Start", "max": 10, "base": 40, "growth": 1.5, "requires": ""},
+	"brood_size": {"name": "Brutgröße", "description": "+1 Mawling zum Start", "max": 4, "base": 150, "growth": 2.0, "requires": ""},
 	"rending": {"name": "Reißkraft", "description": "+5 % Schaden", "max": 10, "base": 40, "growth": 1.5, "requires": ""},
 	"chitin": {"name": "Chitin", "description": "+3 % Panzer (max. 30 %)", "max": 10, "base": 45, "growth": 1.5, "requires": ""},
 	"sprinter": {"name": "Sprinter", "description": "+3 % Tempo", "max": 8, "base": 35, "growth": 1.5, "requires": ""},

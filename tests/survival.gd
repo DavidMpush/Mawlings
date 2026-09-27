@@ -65,7 +65,14 @@ func _run() -> void:
 
 	world.reset_run()
 	world._create_corpse(Vector3(30, 0, 0), 12.0)
-	world._spawn_hunter(Vector3(2.5, 0, 0))
+	# Stage 09: the lone leader bites hard enough to kill a normal hunter before
+	# its three LP are gone; this one must survive to strike repeatedly.
+	var striker: Variant = world._spawn_hunter(Vector3(2.5, 0, 0))
+	striker.health = 1.0e9
+	striker.max_health = 1.0e9
+	for target in world.prey:
+		target.queue_free()
+	world.prey.clear()
 	# Hits count per animal and swarm processing is off, so the formation never
 	# closes ranks by itself: gather it inside the ring.
 	for unit in swarm.units:
@@ -79,7 +86,7 @@ func _run() -> void:
 	world.step(30.0)
 	_check(world.model.elapsed == stopped and world.model.corpses.size() == 1, "Extinction freezes spawns and preserves run resources")
 	hud._press(-2, hud._action_rect().get_center())
-	_check(world.model.population == 25 and not world.model.extinct, "Result button starts another run")
+	_check(world.model.population == TUNING.START_POPULATION and not world.model.extinct, "Result button starts another run")
 	_check(world.model.corpses.is_empty() and world.prey.size() == 3 and world.hunters.is_empty(), "Restart clears previous world")
 	_check(world.model.elapsed == 0.0 and world.model.kills == 0 and hud.movement_pointer == -1, "Restart resets statistics and input")
 

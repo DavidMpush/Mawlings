@@ -366,7 +366,7 @@ func build_run_config(strain_id: String, biome_id: String, difficulty: int, run_
 		pool.append(signature)
 	return {
 		"strain_id": strain_id, "biome_id": biome_id, "difficulty": difficulty,
-		"start_population": mini(DATA.MAX_POPULATION, int(strain.start_population) + 2 * upgrade_rank("brood_size")),
+		"start_population": mini(DATA.MAX_POPULATION, int(strain.start_population) + mini(upgrade_rank("brood_size"), int(DATA.UPGRADES.brood_size.max))),
 		"tint": Color(String(strain.tint)),
 		"signature_attack": signature,
 		"mods": mods,

@@ -1,7 +1,7 @@
 extends Node3D
 
 const MAX_HEALTH := 8.0
-const FLEE_SPEED := 1.8
+const FLEE_SPEED := 1.8            # reference speed of the running animation (no fleeing since stage 09)
 const NIBBLER_SCENE = preload("res://assets/gameplay/characters/Nibbler_game.glb")
 const TUNING = preload("res://scripts/tuning.gd")
 const TG = preload("res://scripts/telegraph_style.gd")
@@ -55,9 +55,12 @@ var slow_factor := 1.0
 # Stage 08 · Nibbler wehren sich: bitten or surrounded, a Nibbler stops, announces
 # a small locked circle (NIBBLER_SNAP_WARNING s) and snaps. HuntWorld resolves the
 # hit per animal via resolved_power/contains() like every other area attack.
-var snap_state := 0                 # 0 = free (flee/wander), 1 = announcing a snap
+var snap_state := 0                 # 0 = free (approaching/holding), 1 = announcing a snap
 var snap_remaining := 0.0
-var snap_cooldown := 0.6
+var snap_cooldown: float = TUNING.NIBBLER_SNAP_FIRST
+# Set by HuntWorld before step(): true while another Nibbler announces or the
+# shared gap after the last snap runs (no new snap may be locked then).
+var snap_blocked := false
 var snap_center := Vector3.ZERO
 var snap_power := 0
 var resolved_power := 0
@@ -133,10 +136,18 @@ func step(delta: float, swarm_position: Vector3, pressure: float = 1.0) -> void:
 	if _step_snap(delta, swarm_position, away.length(), pressure):
 		_animate(delta)
 		return
-	if away.length() < 4.0 and away.length() > 0.01:
-		position = get_parent().get_parent().get_node("Arena").resolve_motion(position, away.normalized() * FLEE_SPEED * slow_factor * delta, 0.55)
+	# Etappe 09 – alle greifen an: the Nibbler walks up to the swarm (slower than
+	# it, so it can always be outrun) and holds at snapping distance.
+	var arena: Node3D = get_parent().get_parent().get_node("Arena")
+	var distance := away.length()
+	if distance > TUNING.NIBBLER_HOLD_DISTANCE:
+		var speed := minf(TUNING.NIBBLER_APPROACH_SPEED_MAX, TUNING.NIBBLER_APPROACH_SPEED + 0.25 * log(maxf(1.0, pressure)) / log(2.0))
+		var direction: Vector3 = arena.steer_direction(position, swarm_position, 0.55) if arena.has_method("steer_direction") else -away.normalized()
+		position = arena.resolve_motion(position, direction * minf(speed * delta, distance - TUNING.NIBBLER_HOLD_DISTANCE) * slow_factor, 0.55)
 	else:
-		position = get_parent().get_parent().get_node("Arena").resolve_motion(position, Vector3(sin(wander_phase * 1.3), 0.0, cos(wander_phase * 0.8)) * 0.25 * delta, 0.55)
+		# Small sidestep while holding, so it does not stand frozen.
+		var side := Vector3(-away.z, 0.0, away.x).normalized() if distance > 0.01 else Vector3.RIGHT
+		position = arena.resolve_motion(position, side * sin(wander_phase * 1.3) * 0.35 * delta, 0.55)
 	_animate(delta)
 
 
@@ -157,13 +168,13 @@ func _step_snap(delta: float, swarm_position: Vector3, distance: float, pressure
 		flash = maxf(flash, 0.55 + 0.35 * sin(clock * 30.0))
 		if snap_remaining <= 0.0:
 			snap_state = 0
-			snap_cooldown = TUNING.NIBBLER_SNAP_COOLDOWN
+			snap_cooldown = TUNING.recovery(TUNING.NIBBLER_SNAP_COOLDOWN, pressure, TUNING.NIBBLER_SNAP_COOLDOWN_MIN)
 			snap_zone.visible = false
 			resolved_power = snap_power
 			flash = 1.0
 		return true
 	var cornered := distance < TUNING.NIBBLER_SNAP_RANGE
-	if snap_cooldown > 0.0 or distance > TUNING.NIBBLER_SNAP_RANGE + 1.2 or not (cornered or provoked > 0.0):
+	if snap_blocked or snap_cooldown > 0.0 or distance > TUNING.NIBBLER_SNAP_RANGE + 1.2 or not (cornered or provoked > 0.0):
 		return false
 	_lock_snap(swarm_position, pressure)
 	return true

@@ -331,6 +331,130 @@ def s_ambience(rng, v):
     return out * (PEAK / np.max(np.abs(out)))  # no fades: must loop seamlessly
 
 
+# --------------------------------------------------------------------------- Etappe 09
+
+def s_split(rng, v):
+    # soft organic cell division: a wet stretch (rising, wobbling squelch) that
+    # snaps into a round "plopp", then a tiny bubble as the new cell settles
+    dur = 0.34
+    out = silence(dur)
+    base = [170, 195, 150, 215][v]
+    t = t_axis(0.15)
+    wob = 1 + 0.08 * np.sin(2 * np.pi * (26 + 4 * v) * t)
+    freq = base * (1 + 0.9 * (t / 0.15) ** 1.6) * wob
+    stretch = 2 / np.pi * np.arcsin(np.sin(2 * np.pi * np.cumsum(freq) / SR))
+    stretch *= np.minimum(1.0, t / 0.1) ** 1.5 * (1 - np.clip((t - 0.13) / 0.02, 0, 1))
+    place(out, stretch, 0.0, 0.35)
+    squelch = band_noise(rng, 0.15, 350, 1400) * np.minimum(1.0, t_axis(0.15) / 0.12) ** 2
+    squelch *= 1 - np.clip((t_axis(0.15) - 0.13) / 0.02, 0, 1)
+    place(out, squelch, 0.0, 0.22)
+    p0 = [260, 300, 240, 330][v]
+    plop = sweep(p0, p0 * 3.0, 0.06, 0.55) * env_ad(int(0.06 * SR), 0.003, 1.8)
+    place(out, plop, 0.14, 1.0)
+    body = sweep(p0 * 0.5, p0 * 0.8, 0.09, 1.0) * env_exp(int(0.09 * SR), 0.002, 0.03)
+    place(out, body, 0.14, 0.45)
+    bub = sweep(p0 * 2.1, p0 * 4.2, 0.035, 0.7) * env_ad(int(0.035 * SR), 0.002, 2.0)
+    place(out, bub, 0.22 + 0.01 * v, 0.35)
+    return finish(out, 0.004, 0.03)
+
+
+def s_milestone(rng, v):
+    # short triumphant rise: quick major arpeggio in a warm horn-ish voice,
+    # topped by a bell chord and a little sparkle
+    dur = 1.0
+    out = silence(dur)
+    root = [392.0, 440.0][v]
+    steps = [0, 4, 7, 12]
+    for i, st in enumerate(steps):
+        f = root * 2 ** (st / 12)
+        ln = 0.16 if i < 3 else 0.6
+        t = t_axis(ln)
+        ph = 2 * np.pi * f * t
+        horn = np.sin(ph) + 0.5 * np.sin(2 * ph) + 0.28 * np.sin(3 * ph) + 0.12 * np.sin(4 * ph)
+        horn *= env_ad(len(t), 0.012, 1.3 if i < 3 else 1.8)
+        place(out, horn, 0.075 * i, 0.55 + 0.1 * i)
+    for st in (12, 16, 19):
+        place(out, bell(root * 2 ** (st / 12), 0.55, 0.18), 0.23, 0.22)
+    sparkle = band_noise(rng, 0.4, 6000, 12000) * env_ad(int(0.4 * SR), 0.05, 2.5)
+    place(out, sparkle, 0.22, 0.08)
+    return finish(out, 0.003, 0.15)
+
+
+def s_death(rng, v):
+    # small squeaky scream: pitch jumps up, wobbles, then collapses downwards
+    dur = 0.3
+    out = silence(dur)
+    f0 = [1250, 1080, 1420][v]
+    ln = 0.24
+    t = t_axis(ln)
+    x = t / ln
+    contour = f0 * (1 + 0.45 * np.sin(np.pi * np.minimum(1, x * 1.8)) - 0.55 * x ** 2)
+    vib = 1 + 0.05 * np.sin(2 * np.pi * (31 + 5 * v) * t)
+    ph = 2 * np.pi * np.cumsum(contour * vib) / SR
+    voice = np.sin(ph) + 0.45 * np.sin(2 * ph + 0.4) + 0.2 * np.sin(3 * ph)
+    voice *= env_ad(len(t), 0.01, 1.4)
+    place(out, voice, 0.0, 0.8)
+    breath = band_noise(rng, ln, 1800, 5000) * env_ad(int(ln * SR), 0.01, 2.0)
+    place(out, breath, 0.0, 0.12)
+    return finish(out, 0.003, 0.03)
+
+
+def s_heartbeat(rng, v):
+    # loopable dull "lub-dub": two low thumps per beat, silence in between;
+    # both edges are silent, so the loop is seamless
+    period = [0.92, 0.78][v]
+    out = silence(period)
+    for at, f, gain in ((0.015, 58.0, 1.0), (0.29, 50.0, 0.7)):
+        ln = 0.26
+        thump = sweep(f * 1.6, f, ln, 0.4) * env_exp(int(ln * SR), 0.012, 0.06)
+        place(out, thump, at, gain)
+        muff = band_noise(rng, 0.08, 40, 260) * env_exp(int(0.08 * SR), 0.006, 0.02)
+        place(out, muff, at, 0.35 * gain)
+    return finish(out, 0.004, 0.02)
+
+
+def s_leader_hit(rng, v):
+    # bone crack (sharp splintering grains) over a heavy thud, then a short cry
+    dur = 0.5
+    out = silence(dur)
+    crack = band_noise(rng, 0.008, 2000, 9000) * env_ad(int(0.008 * SR), 0.0003, 3)
+    place(out, crack, 0.0, 1.0)
+    for g in range(5 + v):
+        gl = rng.uniform(0.004, 0.01)
+        grain = band_noise(rng, gl, 1500, 7000) * env_ad(int(gl * SR), 0.0004, 2.5)
+        place(out, grain, 0.006 + g * rng.uniform(0.005, 0.012), rng.uniform(0.35, 0.8))
+    f0 = [95, 82][v]
+    thud = sweep(f0 * 1.5, f0 * 0.5, 0.2, 0.6) * env_exp(int(0.2 * SR), 0.002, 0.06)
+    place(out, thud, 0.0, 0.9)
+    c0 = [760, 680][v]
+    ln = 0.26
+    t = t_axis(ln)
+    x = t / ln
+    contour = c0 * (1 + 0.5 * np.sin(np.pi * np.minimum(1, x * 1.5)) - 0.4 * x)
+    ph = 2 * np.pi * np.cumsum(contour * (1 + 0.04 * np.sin(2 * np.pi * 24 * t))) / SR
+    cry = (np.sin(ph) + 0.5 * np.sin(2 * ph) + 0.25 * np.sin(3 * ph)) * env_ad(len(t), 0.015, 1.5)
+    place(out, cry, 0.07, 0.5)
+    return finish(out, 0.002, 0.05)
+
+
+def s_leader_swap(rng, v):
+    # small fanfare: two short pick-ups into a held note, horn plus bell
+    dur = 0.85
+    out = silence(dur)
+    root = [523.25, 466.16][v]
+    notes = [(-5, 0.0, 0.09), (-5, 0.1, 0.09), (0, 0.2, 0.5)]
+    for st, at, ln in notes:
+        f = root * 2 ** (st / 12)
+        t = t_axis(ln)
+        ph = 2 * np.pi * f * t
+        horn = np.sin(ph) + 0.6 * np.sin(2 * ph) + 0.3 * np.sin(3 * ph) + 0.15 * np.sin(5 * ph)
+        horn *= env_ad(len(t), 0.01, 1.2 if ln < 0.2 else 1.7)
+        place(out, horn, at, 0.7)
+    place(out, bell(root * 2, 0.5, 0.15), 0.2, 0.3)
+    place(out, bell(root * 2 ** (19 / 12), 0.45, 0.12), 0.24, 0.18)
+    return finish(out, 0.003, 0.12)
+
+
 SOUNDS = {
     "bite": (s_bite, 4),
     "kill": (s_kill, 4),
@@ -344,7 +468,14 @@ SOUNDS = {
     "pickup": (s_pickup, 3),
     "ui": (s_ui, 3),
     "ambience_jungle": (s_ambience, 1),
+    "split": (s_split, 4),
+    "milestone": (s_milestone, 2),
+    "death": (s_death, 3),
+    "heartbeat": (s_heartbeat, 2),
+    "leader_hit": (s_leader_hit, 2),
+    "leader_swap": (s_leader_swap, 2),
 }
+LOOPS = ("ambience", "heartbeat")
 
 
 def analyse(name: str, x: np.ndarray, loop: bool) -> str:
@@ -366,7 +497,7 @@ def main() -> int:
             x = fn(rng, v)
             name = f"{sid}_{v + 1}"
             total += write_wav(name, x)
-            line = analyse(name, x, sid.startswith("ambience"))
+            line = analyse(name, x, sid.startswith(LOOPS))
             bad += line.endswith("CHECK")
             print(line)
     print(f"total bytes: {total} ({total / 1024:.1f} KiB)")

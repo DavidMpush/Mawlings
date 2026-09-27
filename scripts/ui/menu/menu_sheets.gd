@@ -17,8 +17,8 @@ const S := preload("res://scripts/ui/ui_style.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 
-const TAB_TITLE := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT"}
-const TAB_ACCENT := {"upgrades": S.GOLD, "trophies": S.VIOLET, "instinct": S.CYAN}
+const TAB_TITLE := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK"}
+const TAB_ACCENT := {"upgrades": S.GOLD, "trophies": S.VIOLET, "instinct": S.CYAN, "chronicle": S.VIOLET}
 ## Kategorie-Farbe je Brutkammer-Upgrade (Angriff Ember, Wachstum Cyan, Spezial Violett, Schutz Toxic).
 const UPGRADE_ACCENT := {"brood_size": S.CYAN, "rending": S.EMBER, "chitin": S.TOXIC, "sprinter": S.CYAN,
 	"digestion": S.AMBER, "geneflow": S.CYAN, "attack_slot": S.EMBER, "trait_slot": S.VIOLET}
@@ -369,6 +369,8 @@ func _draw_sheet() -> void:
 		sub = "Dauerhafte Stärken für jede Brut"
 	elif tab == "trophies":
 		sub = "Ziele für die Brut – Belohnungen gibt es sofort"
+	elif tab == "chronicle":
+		sub = "Deine letzten Jagden, Tagesliste und Bestwerte"
 	else:
 		sub = "Endlose Stufen für Schaden und Ernte"
 	_body(sub, Vector2(s.position.x + 42, top + 124), 22, Color(accent, 0.95).lerp(S.TEXT, 0.35))
@@ -982,7 +984,35 @@ func _draw_reward() -> void:
 	var down: bool = menu.is_pressed(button)
 	_button(button, "ember", 0.6 + 0.4 * pulse, down)
 	_txt("WEITER", button.get_center() + Vector2(0, 17) + _press_offset(down), 50, Color.WHITE, 1, 8)
+	_draw_share_button()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## KARTE TEILEN (stage 10): secondary button left of WEITER; renders the share card.
+func _draw_share_button() -> void:
+	var rect: Rect2 = menu.share_button_rect()
+	var busy: bool = menu.is_sharing()
+	var down: bool = menu.is_pressed(rect) or busy
+	_button(rect, "cyan", 0.0, down)
+	var po := _press_offset(down)
+	var ic := Vector2(rect.position.x + 58, rect.get_center().y) + po
+	_share_glyph(ic, 22, S.CYAN.lightened(0.35))
+	var x := rect.position.x + 96
+	_txt("KARTE", Vector2(x, rect.position.y + 54) + po, 34, S.TEXT, 0, 6)
+	_txt("TEILEN" if not busy else "WIRD GEMALT", Vector2(x, rect.position.y + 92) + po, 30 if not busy else 22, S.CYAN.lightened(0.4), 0, 5)
+
+
+## Share glyph: three linked nodes.
+func _share_glyph(c: Vector2, r: float, color: Color) -> void:
+	var a := c + Vector2(r * 0.7, -r * 0.8)
+	var b := c + Vector2(-r * 0.75, 0)
+	var d := c + Vector2(r * 0.7, r * 0.8)
+	for seg in [[a, b], [b, d]]:
+		draw_line(seg[0], seg[1], S.OUTLINE, 9.0, true)
+		draw_line(seg[0], seg[1], color, 5.0, true)
+	for p in [a, b, d]:
+		draw_circle(p, r * 0.42, S.OUTLINE)
+		draw_circle(p, r * 0.32, color)
 
 
 func _stagger(index: int) -> float:

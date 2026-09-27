@@ -19,6 +19,8 @@ const KING_SLOW_SCALE := 0.3
 const KING_SLOW_SECONDS := 0.6      # real time, not game time
 const KING_ZOOM_SECONDS := 1.3      # real time
 const KING_ZOOM := 0.74
+const HITSTOP_MAX := 0.12           # real seconds
+const HITSTOP_SCALE := 0.04
 
 var shake := 0.0
 var zoom := 1.0
@@ -30,6 +32,7 @@ var slow_motion_enabled := DisplayServer.get_name() != "headless"
 var king_slow_left := 0.0
 var king_zoom_left := 0.0
 var king_focus := Vector3.ZERO
+var hitstop_left := 0.0
 # Etappe 07: quality tier (quality.gd Tier) and its display switches.
 var quality_tier := -1
 var quality: Dictionary = {}
@@ -70,9 +73,27 @@ func king_moment(location: Vector3) -> void:
 		Engine.time_scale = KING_SLOW_SCALE
 
 
+# Etappe 09: a loss freezes the frame for a moment, proportional to the share of
+# the swarm that fell (0..1): 1 of 3 is clearly felt, 1 of 200 barely. At most
+# HITSTOP_MAX real seconds; off headless (tests, bot) and never while paused.
+func hitstop(strength: float) -> void:
+	if not slow_motion_enabled or world.paused or world.model.extinct:
+		return
+	var seconds := HITSTOP_MAX * sqrt(clampf(strength, 0.0, 1.0))
+	if seconds < 0.012:
+		return
+	hitstop_left = maxf(hitstop_left, seconds)
+	Engine.time_scale = HITSTOP_SCALE
+
+
 # Counts the moment down in real seconds and always restores normal time.
 func update_king_moment(real_delta: float) -> void:
 	king_zoom_left = maxf(0.0, king_zoom_left - real_delta)
+	if hitstop_left > 0.0:
+		hitstop_left -= real_delta
+		if hitstop_left <= 0.0 or world.paused or world.model.extinct:
+			hitstop_left = 0.0
+			Engine.time_scale = KING_SLOW_SCALE if king_slow_left > 0.0 else 1.0
 	if king_slow_left <= 0.0:
 		return
 	king_slow_left -= real_delta
@@ -82,6 +103,7 @@ func update_king_moment(real_delta: float) -> void:
 
 func end_king_moment() -> void:
 	king_slow_left = 0.0
+	hitstop_left = 0.0
 	if Engine.time_scale != 1.0:
 		Engine.time_scale = 1.0
 
@@ -101,6 +123,8 @@ func _process(delta: float) -> void:
 	arena.sync(swarm.position)
 	# Pull back for a large swarm and a nearby boss so both fit the portrait frame.
 	var wanted := 1.0 + clampf(float(swarm.population - 25) / 225.0, 0.0, 1.0) * 0.12
+	# Etappe 09: a handful of animals gets a slightly closer camera.
+	wanted *= lerpf(0.8, 1.0, sqrt(clampf(float(swarm.population - 1) / 24.0, 0.0, 1.0)))
 	if world.boss != null and world.boss.position.distance_to(swarm.position) < 16.0:
 		wanted += 0.14
 	var look_at_point: Vector3 = swarm.position
@@ -172,6 +196,9 @@ func _apply_settings(settings: Variant) -> void:
 	if sfx != null and settings is Dictionary:
 		sfx.set("vibration_enabled", bool(settings.get("vibration", true)))
 		sfx.set("sfx_enabled", bool(settings.get("sound", true)))
+	var music := get_node_or_null("Music")
+	if music != null and settings is Dictionary:
+		music.set_enabled(bool(settings.get("sound", true)))
 
 
 func _create_sfx() -> void:
@@ -185,6 +212,20 @@ func _create_sfx() -> void:
 	add_child(sfx)
 	if sfx.has_method("play_ambience"):
 		sfx.play_ambience()
+	_create_music()
+
+
+const MUSIC_PATH := "res://scripts/music.gd"
+
+
+# Adaptive run music; HuntWorld drives intensity and stingers.
+func _create_music() -> void:
+	if has_node("Music") or not ResourceLoader.exists(MUSIC_PATH):
+		return
+	var music: Node = load(MUSIC_PATH).new()
+	music.name = "Music"
+	add_child(music)
+	music.play_run()
 
 
 # "NEUER RUN" skips the menu, so a menu-started run books its result into the
@@ -222,6 +263,9 @@ func _restart() -> void:
 	end_king_moment()
 	king_zoom_left = 0.0
 	world.reset_run()
+	var music := get_node_or_null("Music")
+	if music != null:
+		music.play_run()
 	shake = 0.0
 	_snap_camera()
 

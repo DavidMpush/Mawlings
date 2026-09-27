@@ -1230,14 +1230,27 @@ func _draw_play() -> void:
 	# All-time record line under the seed / daily row (the next trophy lives in TROPHÄEN).
 	var best := float(menu.profile.records.get("best_seconds", 0.0))
 	var peak := int(menu.profile.records.get("best_peak", 0))
-	# Centred between the seed row and the tab dock line (dock starts 8 px above the tabs).
-	var ry: float = (menu.seed_card_rect().end.y + menu.tab_rect(0).position.y - 8.0) * 0.5 + 8.0
+	# Stage 10: the line is a quiet pill that opens the CHRONIK (hit area menu.records_rect()).
+	var rec: Rect2 = menu.records_rect()
+	var rec_down: bool = menu.is_pressed(rec)
+	var pill := rec.grow_individual(0, -3, 0, -3)
+	if pill.size.x < 8.0 or pill.size.y < 8.0:
+		return
+	if rec_down:
+		pill.position.y += 2
+	_cv.draw_colored_polygon(_rounded_points(pill, pill.size.y * 0.5, 5), Color(S.VIOLET, 0.16) if rec_down else Color(S.OUTLINE, 0.45))
+	var pill_edge := _rounded_points(pill, pill.size.y * 0.5, 5)
+	pill_edge.append(pill_edge[0])
+	_cv.draw_polyline(pill_edge, Color(S.VIOLET, 0.45), 1.5, true)
+	var more := "CHRONIK"
+	var wm := _tw(more, LABEL)
+	_txt(more, Vector2(pill.end.x - 44 - wm, pill.get_center().y + 8), LABEL, S.VIOLET.lerp(S.TEXT, 0.35), false, 4)
+	_arrow(Vector2(pill.end.x - 26, pill.get_center().y), 11, 1.0, S.VIOLET.lerp(S.TEXT, 0.35))
+	var ry: float = pill.get_center().y + 8.0
 	var part_a := "REKORD %02d:%02d" % [int(best) / 60, int(best) % 60]
 	var part_b := "MAX. SCHWARM %d" % peak
 	var wa := _tw(part_a, LABEL)
-	var wb := _tw(part_b, LABEL)
-	var total := 26 + wa + 46 + 26 + wb
-	var x := size.x * 0.5 - total * 0.5
+	var x := pill.position.x + 24.0
 	_cv.draw_arc(Vector2(x + 10, ry - 8), 10, 0, TAU, 20, S.TEXT_DIM, 2.5, true)
 	_cv.draw_line(Vector2(x + 10, ry - 8), Vector2(x + 10, ry - 14), S.TEXT_DIM, 2.0)
 	_cv.draw_line(Vector2(x + 10, ry - 8), Vector2(x + 15, ry - 6), S.TEXT_DIM, 2.0)
@@ -1400,7 +1413,7 @@ func _draw_tabs() -> void:
 		_fill_gradient(PackedVector2Array([dock.position, Vector2(dock.end.x, dock.position.y), dock.end, Vector2(dock.position.x, dock.end.y)]), Color(S.OUTLINE, 0.55), Color(S.OUTLINE, 0.95))
 		_cv.draw_line(dock.position, Vector2(dock.end.x, dock.position.y), Color(S.PANEL_EDGE, 0.9), 2.0)
 	var names: Dictionary = menu.TAB_NAMES
-	var accents := [S.CYAN, S.GOLD, S.EMBER]
+	var accents := [S.CYAN, S.GOLD, S.EMBER, S.VIOLET]
 	for i in menu.TABS.size():
 		var id: String = menu.TABS[i]
 		var rect: Rect2 = menu.tab_rect(i)
@@ -1413,7 +1426,7 @@ func _draw_tabs() -> void:
 			if active:
 				_glow(ic, Vector2(56, 40), Color(accent, 0.4))
 		if _on("top"):
-			if not _icon([["brood"], ["trophy"], ["mawling_head_color"]][i], Rect2(ic - Vector2(32, 32), Vector2(64, 64))):
+			if not _icon([["brood"], ["trophy"], ["mawling_head_color"], ["clock"]][i], Rect2(ic - Vector2(32, 32), Vector2(64, 64))):
 				_tab_icon(id, ic, accent)
 			_txt(String(names[id]), Vector2(rect.get_center().x, rect.position.y + 96), LABEL + 1, S.TEXT if active else S.TEXT.darkened(0.15), true, 5)
 		var badge := ""

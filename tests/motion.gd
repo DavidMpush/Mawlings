@@ -29,6 +29,9 @@ func _run() -> void:
 	swarm.clear_focus()
 
 	world.reset_run()
+	# Stage 09 lone start: use a 25-strong swarm for the hit checks.
+	world.model.population = 25
+	swarm.set_population(25, false)
 	_check(not world._apply_hit(3, swarm.position, 0.2), "Survivable hit does not end the run")
 	_check(world.model.population == 22 and swarm.units.size() == 22 and world.hit_feedback > 0.0, "Resolved hit updates population, visuals and HUD feedback once")
 
@@ -58,7 +61,7 @@ func _run() -> void:
 	world.paused = false
 
 	world.reset_run()
-	_check(world.boss == null and swarm.units.size() == 25 and swarm.population == 25, "Restart resets swarm visuals and boss")
+	_check(world.boss == null and swarm.units.size() == 1 and swarm.population == 1, "Restart resets swarm visuals and boss (lone start)")
 
 	FX.ring(world, Vector3.ZERO, Color.WHITE, 0.2, 2.0, 0.2)
 	await create_timer(0.5).timeout

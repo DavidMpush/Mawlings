@@ -11,8 +11,8 @@ const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
 const QUALITY = preload("res://scripts/quality.gd")
-const CORPSE_COLOR := Color("efb642")
-const CORPSE_BATCH_STEP := 64
+const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
+const ERUPTIONS = preload("res://scripts/eruptions.gd")
 const BROOD_NEST = preload("res://scripts/objectives/brood_nest.gd")
 const CURSE_TOTEM = preload("res://scripts/objectives/curse_totem.gd")
 const HUD_OBJECTIVES_PATH := "res://scripts/ui/hud_objectives.gd"
@@ -68,13 +68,11 @@ var hunters: Array[Node3D] = []
 var skitters: Array[Node3D] = []
 var leapers: Array[Node3D] = []
 var boss: Node3D
-# Corpse display (Etappe 07): id -> instance index in corpse_batch; index -> id.
-var corpse_visuals: Dictionary = {}
-var corpse_slots: Array[int] = []
-var corpse_transforms: Array[Transform3D] = []
-var corpse_batch: MultiMeshInstance3D
-# Merged corpse meshes per segment count, shared by every run.
-static var _corpse_meshes := {}
+# Corpse display (Etappe 09): one design per animal and rank, batched per design
+# (scripts/corpse_visuals.gd). Display only; the corpses live in RunModel.
+var corpse_view: Node3D
+# Glutsumpf lava eruptions (scripts/eruptions.gd); quiet in other biomes.
+var eruptions: Node3D
 # Shared look of the Alpha-Kern and the curse aura (built once).
 static var _alpha_parts := {}
 var spawn_clock := 0.0
@@ -130,6 +128,20 @@ var flood_bundle_clock := 0.0
 const HORDE_FLASH := 0.5
 const HORDE_FLASH_SECONDS := 0.6
 var horde_flash_at := 0.0
+# Etappe 09 - Anfuehrer: HUD/feel state (rules live in RunModel.apply_hit()).
+const MILESTONE_SHOW_SECONDS := 2.5
+var last_loss_fraction := 0.0
+var milestone_value := 0
+var milestone_timer := 0.0
+var leader_state_key := Vector3i(-1, -1, -1)
+# The first hunter waits for FIRST_HUNTER_POPULATION or FIRST_HUNTER_LATEST.
+var hunters_unlocked := false
+var hunters_unlocked_at := 0.0
+# Shared gap after a Nibbler snap (only one snap circle at a time).
+var snap_gap := 0.0
+# Corpse kind per corpse id (prey, hunter, elite, skitter, leaper, boss, horde,
+# mawling, nest) for scripts/corpse_visuals.gd; entries leave with the corpse.
+var corpse_kinds: Dictionary = {}
 
 
 func _ready() -> void:
@@ -139,6 +151,7 @@ func _ready() -> void:
 	_ensure_flood_hud()
 	_create_attack_forms()
 	_create_horde()
+	_create_world_views()
 	_reset_flood()
 	_starting_prey()
 	_update_hud("")
@@ -174,10 +187,9 @@ func reset_run() -> void:
 	alpha_pickups.clear()
 	enemy_states.clear()
 	boss = null
-	corpse_visuals.clear()
-	corpse_slots.clear()
-	corpse_transforms.clear()
-	corpse_batch = null
+	corpse_view = null
+	eruptions = null
+	corpse_kinds.clear()
 	evolution = EVOLUTION.new()
 	model = RUN_MODEL.new()
 	_configure_run()
@@ -191,6 +203,13 @@ func reset_run() -> void:
 	paused = false
 	hit_feedback = 0.0
 	last_loss = 0
+	last_loss_fraction = 0.0
+	milestone_value = 0
+	milestone_timer = 0.0
+	leader_state_key = Vector3i(-1, -1, -1)
+	hunters_unlocked = false
+	hunters_unlocked_at = 0.0
+	snap_gap = 0.0
 	kill_popups.clear()
 	unit_points_valid = false
 	result_stored = false
@@ -198,11 +217,13 @@ func reset_run() -> void:
 	evolve_name = ""
 	swarm.position = Vector3.ZERO
 	swarm.set_population(model.population, false)
+	_sync_leader()
 	swarm.clear_focus()
 	swarm.set_controls(Vector2.ZERO, false)
 	hud.clear_pointers()
 	_create_attack_forms()
 	_create_horde()
+	_create_world_views()
 	_reset_flood()
 	_starting_prey()
 	_update_hud("")
@@ -214,7 +235,7 @@ func _configure_run() -> void:
 	flood_start = _difficulty_flood_start()
 	if config.is_empty():
 		return
-	model.configure(int(config.get("start_population", model.population)), float(config.get("pressure_doubling", TUNING.PRESSURE_DOUBLING_SECONDS)))
+	model.configure(int(config.get("start_population", model.population)), float(config.get("pressure_doubling", TUNING.PRESSURE_DOUBLING_SECONDS)), int(config.get("leader_hp", TUNING.LEADER_HP)))
 	evolution.configure(config)
 	enemy_hp = maxf(0.1, float(config.get("enemy_hp", 1.0)))
 	enemy_damage = maxf(0.1, float(config.get("enemy_damage", 1.0)))
@@ -344,6 +365,7 @@ func _step_flood(delta: float, damage: float) -> bool:
 			flood_reached = true
 			flood_wave_clock = 0.0
 			_sfx("stomp", 220)
+			_music_cue("flood")
 			_shake(0.45)
 	if flood_state != 2:
 		return false
@@ -378,33 +400,40 @@ func _flood_bites(result: Dictionary, points: PackedVector3Array) -> bool:
 	var bitten: PackedInt32Array = result.get("bitten_indices", PackedInt32Array())
 	var loss := 0
 	var impact: Vector3 = swarm.position
+	var leader_struck := false
 	if points.is_empty():
 		loss = int(result.get("losses", 0))
 	elif not bitten.is_empty():
 		var sum := Vector3.ZERO
 		var valid := PackedInt32Array()
+		var followers := PackedInt32Array()
 		for index in bitten:
 			if index >= 0 and index < points.size():
 				valid.append(index)
 				sum += points[index]
+				if index == 0:
+					leader_struck = true
+				else:
+					followers.append(index)
 		if valid.is_empty():
 			return false
 		impact = sum / float(valid.size())
 		# "losses" = summed bite strength of this step in visible animals (the
 		# horde carries fractions); each visible animal stands for P / visible.
-		var units := float(result.get("losses", valid.size()))
-		loss = ceili(units * float(model.population) / float(points.size()) - 0.0001)
+		# Stage 09: the leader's share becomes 1 LP instead of a death.
+		var units := float(result.get("losses", valid.size())) * float(followers.size()) / float(valid.size())
+		loss = ceili(units * float(model.population) / float(points.size()) - 0.0001) if not followers.is_empty() else 0
 		last_hit_share = float(valid.size()) / float(points.size())
-		if swarm.has_method("prefer_removal"):
-			swarm.prefer_removal(valid)
-	if loss <= 0:
+		if swarm.has_method("prefer_removal") and not followers.is_empty():
+			swarm.prefer_removal(followers)
+	if loss <= 0 and not leader_struck:
 		return false
 	# Etappe 08 Teil 2: bites come in series; a full hit flash on every bite kept the
 	# whole swarm washed out in pale pink. Horde bites flash softly and at most every
 	# HORDE_FLASH_SECONDS (the loss, shove and ghosts stay unchanged).
 	var flash_before: float = float(swarm.get("flash")) if "flash" in swarm else 0.0
 	# No attacker: Stachelrücken answers the Moorbrut through the horde hook.
-	var ended := _apply_hit(loss, impact, 0.08, null)
+	var ended := _apply_hit(maxi(0, loss), impact, 0.08, null, leader_struck)
 	if not ended and "flash" in swarm:
 		var soft := flash_before
 		if model.elapsed >= horde_flash_at:
@@ -460,7 +489,7 @@ func flush_flood_bundles() -> bool:
 			model.kills += int(bundle.n)
 			location = _corpse_position(id)
 		else:
-			id = _create_corpse(location, float(bundle.biomass) * evolution.biomass_multiplier())
+			id = _create_corpse(location, float(bundle.biomass) * evolution.biomass_multiplier(), "horde")
 			if id >= 0:
 				# add_corpse counted one kill; the bundle holds bundle.n of them.
 				model.kills += int(bundle.n) - 1
@@ -476,10 +505,10 @@ func flush_flood_bundles() -> bool:
 
 
 # Adds biomass to the corpse within FLOOD_BUNDLE_CELL of `location`; -1 when none.
-func _grow_nearby_corpse(location: Vector3, amount: float) -> int:
+func _grow_nearby_corpse(location: Vector3, amount: float, distance: float = TUNING.FLOOD_BUNDLE_CELL) -> int:
 	if amount <= 0.0 or model.extinct:
 		return -1
-	var reach := TUNING.FLOOD_BUNDLE_CELL * TUNING.FLOOD_BUNDLE_CELL
+	var reach := distance * distance
 	for index in model.corpses.size():
 		var corpse: Dictionary = model.corpses[index]
 		var offset: Vector3 = corpse.position - location
@@ -542,12 +571,20 @@ func step(delta: float) -> void:
 	_age_popups(delta)
 	hit_feedback = maxf(0.0, hit_feedback - delta)
 	evolve_flash = maxf(0.0, evolve_flash - delta)
+	milestone_timer = maxf(0.0, milestone_timer - delta)
+	if milestone_timer <= 0.0:
+		milestone_value = 0
+	snap_gap = maxf(0.0, snap_gap - delta)
+	_sync_leader()
+	_music_step()
 	if swarm.rally_pressed:
 		model.used_rally = true
 	var message := "Jage die türkisfarbene Beute"
 	var pressure: float = model.pressure()
 	var attack_range := 1.15 if swarm.rally_pressed else 1.5
-	var damage := minf(32.0, 1.0 + float(model.population) * 0.12) * (1.55 if swarm.rally_pressed else 1.0)
+	# Stage 09: a small swarm's bigger animals bite harder (bonus fades out at 25).
+	var small_bonus := TUNING.SMALL_SWARM_BITE * clampf(1.0 - float(model.population - 1) / 24.0, 0.0, 1.0)
+	var damage := minf(32.0, 1.0 + float(model.population) * 0.12 + small_bonus) * (1.55 if swarm.rally_pressed else 1.0)
 	damage *= evolution.damage_multiplier(swarm.rally_pressed)
 	focus_mode = 0
 	focus_distance = INF
@@ -556,7 +593,7 @@ func step(delta: float) -> void:
 	# Attack forms only reduce health; every death below is resolved exactly once,
 	# whatever dealt the damage.
 	if attack_forms != null and attack_forms.has_method("step"):
-		attack_forms.step(delta, _living_targets(), swarm.rally_pressed, sqrt(pressure) * evolution.damage_multiplier(false))
+		attack_forms.step(delta, _living_targets(), swarm.rally_pressed, sqrt(pressure) * evolution.damage_multiplier(false) * form_population_scale())
 	for target in prey.duplicate():
 		if target.get("health") <= 0.0:
 			_kill_prey(target)
@@ -568,7 +605,13 @@ func step(delta: float) -> void:
 			prey.erase(target)
 			target.queue_free()
 			continue
+		# Stage 09: one snap circle at a time, then a shared gap (fair lone start).
+		var was_snapping := int(target.get("snap_state")) == 1
+		if "snap_blocked" in target:
+			target.set("snap_blocked", snap_gap > 0.0 or _nibbler_snapping(target))
 		target.call("step", delta, swarm.position, pressure)
+		if was_snapping and int(target.get("snap_state")) == 0:
+			snap_gap = TUNING.recovery(TUNING.NIBBLER_SNAP_GLOBAL_GAP, pressure, 0.6)
 		# Nibbler snap (stage 08): announced small circle, per-animal hit.
 		if _resolve_area_hit(target, target.get("snap_center"), 0.12):
 			return
@@ -674,6 +717,16 @@ func step(delta: float) -> void:
 				message = "BOG KING ERSCHÖPFT · JETZT ANGREIFEN!"
 			elif boss.state == BOG_KING.State.ARRIVING:
 				message = "DER BOG KING TAUCHT AUF!"
+	# Glutsumpf lava eruptions: announced ground rings, then one area hit each
+	# (same per-animal path and leader-LP rule as the enemy areas).
+	if eruptions != null:
+		var impacts: Array[Dictionary] = eruptions.step(delta, swarm.position, pressure)
+		if not impacts.is_empty():
+			_sfx("stomp", 60)
+			if _resolve_area_hit(eruptions, impacts[0].center, 0.3):
+				return
+		if not eruptions.pending.is_empty() and not message.begins_with("RAUS") and not message.begins_with("BOG KING STAMPFT"):
+			message = "LAVA BRICHT AUS!"
 	if _step_flood(delta, damage):
 		return
 	for corpse in model.corpses.duplicate():
@@ -681,9 +734,12 @@ func step(delta: float) -> void:
 		if corpse.position.distance_to(swarm.position) > TUNING.HARVEST_RADIUS:
 			continue
 		var rate := TUNING.HARVEST_RATE * (1.35 if swarm.rally_pressed else 1.0)
+		var grown_from: int = model.population
 		var consumed: float = model.harvest(id, rate * evolution.harvest_multiplier() * delta)
 		if consumed > 0.0:
 			swarm.set_population(model.population)
+			if model.population > grown_from:
+				_on_growth(model.population - grown_from)
 			if focus_mode == 0:
 				focus_mode = 2
 				focus_point = corpse.position
@@ -702,28 +758,50 @@ func step(delta: float) -> void:
 	if spawn_clock >= TUNING.PREY_RESPAWN_SECONDS and prey.size() < TUNING.MAX_PREY:
 		spawn_clock = 0.0
 		_spawn_prey(_spawn_position(7.0))
+	if not hunters_unlocked and model.elapsed >= TUNING.FIRST_HUNTER_SECONDS and (model.population >= TUNING.FIRST_HUNTER_POPULATION or model.elapsed >= TUNING.FIRST_HUNTER_LATEST):
+		hunters_unlocked = true
+		hunters_unlocked_at = model.elapsed
+		hunter_clock = maxf(hunter_clock, TUNING.FIRST_HUNTER_GRACE)
 	hunter_clock -= delta
-	var hunter_budget := mini(TUNING.MAX_HUNTERS, TUNING.HUNTER_BUDGET_BASE + int(model.elapsed / TUNING.HUNTER_BUDGET_SECONDS))
-	if hunter_clock <= 0.0 and hunters.size() < hunter_budget:
+	# Stage 09: the budget grows from the moment hunters unlocked (lone start).
+	var hunter_budget := mini(TUNING.MAX_HUNTERS, TUNING.HUNTER_BUDGET_BASE + int(maxf(0.0, model.elapsed - hunters_unlocked_at) / TUNING.HUNTER_BUDGET_SECONDS))
+	# ... and never more hunters than the swarm can take (1 + P / HUNTER_POPULATION_STEP).
+	hunter_budget = mini(hunter_budget, 1 + model.population / TUNING.HUNTER_POPULATION_STEP)
+	# The early gate holds for new hunters as long as it applies (a wiped swarm
+	# regrows to FIRST_HUNTER_POPULATION before the next one comes).
+	var gate_open: bool = model.population >= TUNING.FIRST_HUNTER_POPULATION or model.elapsed >= TUNING.FIRST_HUNTER_LATEST
+	if hunters_unlocked and gate_open and hunter_clock <= 0.0 and hunters.size() < hunter_budget:
 		_spawn_hunter(_spawn_position(8.0))
-		hunter_clock = maxf(TUNING.HUNTER_SPAWN_MIN, TUNING.HUNTER_SPAWN_SECONDS / sqrt(pressure))
+		# Stage 09: a small swarm gets more breathing room between hunters.
+		var small := clampf(1.0 - float(model.population) / 25.0, 0.0, 1.0)
+		hunter_clock = maxf(TUNING.HUNTER_SPAWN_MIN, TUNING.HUNTER_SPAWN_SECONDS / sqrt(pressure)) * (1.0 + TUNING.HUNTER_SMALL_SWARM_DELAY * small)
 	skitter_clock -= delta
 	var skitter_budget := mini(TUNING.MAX_SKITTERS, 1 + int(model.elapsed / TUNING.SKITTER_BUDGET_SECONDS))
+	# Stage 09: side threats join as the swarm grows (none below one step).
+	skitter_budget = mini(skitter_budget, model.population / TUNING.SKITTER_POPULATION_STEP)
 	if model.elapsed >= TUNING.FIRST_SKITTER_SECONDS and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
 		_spawn_skitter(_spawn_position(9.0))
 		skitter_clock = maxf(TUNING.SKITTER_SPAWN_MIN, TUNING.SKITTER_SPAWN_SECONDS / sqrt(pressure))
 	leaper_clock -= delta
 	var leaper_budget := mini(TUNING.MAX_LEAPERS, 1 + int(maxf(0.0, model.elapsed - TUNING.FIRST_LEAPER_SECONDS) / TUNING.LEAPER_BUDGET_SECONDS))
+	leaper_budget = mini(leaper_budget, model.population / TUNING.LEAPER_POPULATION_STEP)
 	if model.elapsed >= TUNING.FIRST_LEAPER_SECONDS and leaper_clock <= 0.0 and leapers.size() < leaper_budget:
 		_spawn_leaper(_spawn_position(10.0))
 		leaper_clock = maxf(TUNING.LEAPER_SPAWN_MIN, TUNING.LEAPER_SPAWN_SECONDS / sqrt(pressure))
 	if boss == null:
 		boss_clock -= delta
-		if boss_clock <= 0.0:
+		# Stage 09: the first Bog King waits for a real swarm (or BOSS_LATEST).
+		var boss_ready: bool = boss_cycles > 0 or model.population >= TUNING.BOSS_MIN_POPULATION or model.elapsed >= TUNING.BOSS_LATEST_SECONDS
+		if boss_clock <= 0.0 and boss_ready:
 			_spawn_boss(_spawn_position(11.0))
 	message = _step_objectives(delta, message)
 	message = _flood_message(message)
 	_update_hud(message)
+
+
+# Stage 09: attack forms grow with the swarm (a lone Mawling is no pack).
+func form_population_scale() -> float:
+	return clampf(float(model.population) / TUNING.FORM_FULL_POPULATION, TUNING.FORM_MIN_SHARE, 1.0)
 
 
 # Living, hittable creatures for the attack forms (same rules as melee).
@@ -760,11 +838,11 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			hunters.erase(enemy)
 			if enemy.elite:
 				_kill_burst(location, Color("f5c86a"), 4.0, 0.35)
-				_create_corpse(location, TUNING.ELITE_BIOMASS * evolution.biomass_multiplier())
+				_create_corpse(location, TUNING.ELITE_BIOMASS * evolution.biomass_multiplier(), "elite")
 				_drop_alpha_core(location)
 			else:
 				_kill_burst(location, Color("c58be0"), 2.6, 0.25)
-				_create_corpse(location, TUNING.HUNTER_BIOMASS * evolution.biomass_multiplier())
+				_create_corpse(location, TUNING.HUNTER_BIOMASS * evolution.biomass_multiplier(), "hunter")
 				if model.pressure() >= 2.0 and drop_rng.randf() < 0.10:
 					_drop_alpha_core(location)
 		"skitter":
@@ -772,14 +850,14 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 				return false
 			skitters.erase(enemy)
 			_kill_burst(location, Color("7fb4ff"), 2.4, 0.2)
-			_create_corpse(location, TUNING.SKITTER_BIOMASS * evolution.biomass_multiplier())
+			_create_corpse(location, TUNING.SKITTER_BIOMASS * evolution.biomass_multiplier(), "skitter")
 			enemy.cleanup()
 		"leaper":
 			if not leapers.has(enemy):
 				return false
 			leapers.erase(enemy)
 			_kill_burst(location, Color("5fe0c8"), 2.4, 0.2)
-			_create_corpse(location, TUNING.LEAPER_BIOMASS * evolution.biomass_multiplier())
+			_create_corpse(location, TUNING.LEAPER_BIOMASS * evolution.biomass_multiplier(), "leaper")
 			if drop_rng.randf() < 0.25:
 				_drop_alpha_core(location)
 			enemy.cleanup()
@@ -789,7 +867,7 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			boss = null
 			_kill_burst(location, Color("ffe07a"), 7.5, 0.7)
 			_kill_burst(location, Color("d8b8ff"), 5.0, 0.0)
-			_create_corpse(location, TUNING.BOSS_BIOMASS * evolution.biomass_multiplier())
+			_create_corpse(location, TUNING.BOSS_BIOMASS * evolution.biomass_multiplier(), "boss")
 			boss_clock = TUNING.BOSS_RESPAWN_SECONDS
 			_drop_alpha_core(location)
 		_:
@@ -867,6 +945,7 @@ func _spawn_boss(location: Vector3) -> Node3D:
 	add_child(target)
 	boss = target
 	_on_boss_spawned(target)
+	_music_cue("boss")
 	return target
 
 
@@ -876,7 +955,7 @@ func _kill_prey(target: Node3D) -> void:
 	prey.erase(target)
 	_kill_burst(target.position, Color("7de6d2"), 1.8, 0.0)
 	var corpses_before: int = model.corpses.size()
-	_create_corpse(target.position, CORPSE_BIOMASS * evolution.biomass_multiplier())
+	_create_corpse(target.position, CORPSE_BIOMASS * evolution.biomass_multiplier(), "prey")
 	model.record_kill("prey")
 	target.queue_free()
 	var dna := _reward_dna(10)
@@ -884,98 +963,39 @@ func _kill_prey(target: Node3D) -> void:
 	_award_dna(dna)
 
 
-func _create_corpse(location: Vector3, biomass: float) -> int:
+# `kind` names the corpse design (corpse_kinds); `rewarded` applies the curse bonus.
+func _create_corpse(location: Vector3, biomass: float, kind: String = "prey", rewarded: bool = true) -> int:
 	# Fluch-Totem: doubled biomass until the cursed boss dies.
-	var id: int = model.add_corpse(location, biomass * reward_multiplier())
+	var id: int = model.add_corpse(location, biomass * (reward_multiplier() if rewarded else 1.0))
 	if id < 0:
 		return id
-	_ensure_corpse_batch()
-	var index := corpse_slots.size()
-	corpse_slots.append(id)
-	corpse_transforms.append(Transform3D(Basis.IDENTITY, location))
-	corpse_visuals[id] = index
-	if index >= corpse_batch.multimesh.instance_count:
-		_grow_corpse_batch()
-	else:
-		corpse_batch.multimesh.set_instance_transform(index, corpse_transforms[index])
-	corpse_batch.multimesh.visible_instance_count = corpse_slots.size()
+	corpse_kinds[id] = kind
+	if corpse_view != null:
+		corpse_view.add(id, kind, location, float(model.corpses[-1].initial))
 	return id
 
 
 func _update_corpse(id: int, initial: float) -> void:
-	if not corpse_visuals.has(id) or corpse_batch == null:
+	if corpse_view == null:
 		return
-	var index: int = corpse_visuals[id]
 	var remaining: float = model.remaining_biomass(id)
 	if remaining <= 0.0:
-		# Swap-remove: the last instance takes the freed slot (O(1)).
-		var last := corpse_slots.size() - 1
-		if index != last:
-			var moved_id: int = corpse_slots[last]
-			corpse_slots[index] = moved_id
-			corpse_transforms[index] = corpse_transforms[last]
-			corpse_visuals[moved_id] = index
-			corpse_batch.multimesh.set_instance_transform(index, corpse_transforms[index])
-		corpse_slots.remove_at(last)
-		corpse_transforms.remove_at(last)
-		corpse_visuals.erase(id)
-		corpse_batch.multimesh.visible_instance_count = corpse_slots.size()
+		corpse_view.remove(id)
+		corpse_kinds.erase(id)
 	else:
-		var size := 0.45 + 0.55 * remaining / initial
-		corpse_transforms[index] = Transform3D(Basis.from_scale(Vector3.ONE * size), corpse_transforms[index].origin)
-		corpse_batch.multimesh.set_instance_transform(index, corpse_transforms[index])
+		corpse_view.set_fill(id, remaining / maxf(initial, 0.001))
 
 
-# Every persistent corpse is one instance of a single MultiMesh (disc + core
-# merged, one shared material): one draw call however long the run lasts. The
-# corpses themselves live in RunModel; this is display only.
-func _ensure_corpse_batch() -> void:
-	if corpse_batch != null and is_instance_valid(corpse_batch) and not corpse_batch.is_queued_for_deletion():
-		return
-	corpse_slots.clear()
-	corpse_transforms.clear()
-	corpse_visuals.clear()
-	var multimesh := MultiMesh.new()
-	multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	multimesh.mesh = _corpse_mesh()
-	multimesh.instance_count = CORPSE_BATCH_STEP
-	multimesh.visible_instance_count = 0
-	corpse_batch = MultiMeshInstance3D.new()
-	corpse_batch.name = "Persistent corpses"
-	corpse_batch.multimesh = multimesh
-	corpse_batch.material_override = FX_BATCH.shared_material(CORPSE_COLOR, false, false, 0.8)
-	corpse_batch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(corpse_batch)
-	corpse_batch.top_level = true
-	corpse_batch.transform = Transform3D.IDENTITY
-
-
-# Changing instance_count clears the buffer, so all live corpses are rewritten.
-func _grow_corpse_batch() -> void:
-	var multimesh := corpse_batch.multimesh
-	multimesh.instance_count = (corpse_slots.size() / CORPSE_BATCH_STEP + 1) * CORPSE_BATCH_STEP
-	for index in corpse_slots.size():
-		multimesh.set_instance_transform(index, corpse_transforms[index])
-
-
-static func _corpse_mesh() -> ArrayMesh:
-	var segments := maxi(8, int(QUALITY.value("corpse_segments", 16)))
-	if _corpse_meshes.has(segments):
-		return _corpse_meshes[segments]
-	var ring := CylinderMesh.new()
-	ring.top_radius = 0.7
-	ring.bottom_radius = 0.7
-	ring.height = 0.06
-	ring.radial_segments = segments * 2
-	ring.rings = 1
-	var core := SphereMesh.new()
-	core.radius = 0.25
-	core.height = 0.4
-	core.radial_segments = segments
-	core.rings = maxi(4, segments / 2)
-	var merged := FX_BATCH.merge([[ring, Transform3D(Basis.IDENTITY, Vector3(0.0, 0.05, 0.0))], [core, Transform3D(Basis.IDENTITY, Vector3(0.0, 0.25, 0.0))]])
-	_corpse_meshes[segments] = merged
-	return merged
+# Corpse designs and lava eruptions live under HuntWorld, so reset_run() frees
+# them with the other children and they come back empty.
+func _create_world_views() -> void:
+	corpse_view = CORPSE_VISUALS.new()
+	corpse_view.name = "CorpseView"
+	add_child(corpse_view)
+	eruptions = ERUPTIONS.new()
+	eruptions.name = "Eruptions"
+	eruptions.arena = get_parent().get_node_or_null("Arena") as Node3D
+	add_child(eruptions)
 
 
 func _piece(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -> MeshInstance3D:
@@ -1205,7 +1225,7 @@ func _complete_nest() -> void:
 	var created := 0.0
 	for index in TUNING.NEST_CLUTCH:
 		var angle := TAU * float(index) / float(TUNING.NEST_CLUTCH) + 0.4
-		var id := _create_corpse(location + Vector3(cos(angle), 0.0, sin(angle)) * 0.55, total / float(TUNING.NEST_CLUTCH))
+		var id := _create_corpse(location + Vector3(cos(angle), 0.0, sin(angle)) * 0.55, total / float(TUNING.NEST_CLUTCH), "nest")
 		if id >= 0:
 			# A hatched nest is not a kill.
 			model.kills -= 1
@@ -1332,6 +1352,12 @@ func _update_hud(message: String) -> void:
 	hud.consumed_biomass = model.consumed_biomass
 	hud.hit_feedback = hit_feedback
 	hud.last_loss = last_loss
+	# Stage 09 leader HUD (drawn by hud_top/hud_overlays).
+	_set_hud_value("leader_hp", model.leader_hp)
+	_set_hud_value("leader_max_hp", model.leader_max_hp)
+	_set_hud_value("leader_invulnerable", model.leader_invulnerable > 0.0)
+	_set_hud_value("milestone", milestone_value)
+	_set_hud_value("last_loss_fraction", last_loss_fraction)
 	hud.hint = message
 	hud.set_meta("kill_popups", _popup_screen())
 	hud.set_meta("king_moments", king_moments)
@@ -1440,23 +1466,35 @@ func _resolve_area_hit(enemy: Node3D, fallback_impact: Vector3, shake_amount: fl
 	var inside := PackedInt32Array()
 	var impact := Vector3.ZERO
 	var share := 0.0
+	# Stage 09: the leader (index 0) inside loses 1 LP instead of dying; the loss of
+	# the others is scaled by the followers inside only.
+	var leader_struck := false
+	var follower_share := 0.0
 	if points.is_empty():
 		share = 1.0 if enemy.contains(swarm.position) else 0.0
+		leader_struck = share > 0.0
+		follower_share = share * float(model.population - 1) / float(maxi(1, model.population))
 		impact = fallback_impact
 	else:
 		for index in points.size():
 			if enemy.contains(points[index]):
-				inside.append(index)
 				impact += points[index]
-		share = float(inside.size()) / float(points.size())
-		impact = impact / float(inside.size()) if not inside.is_empty() else fallback_impact
+				if index == 0:
+					leader_struck = true
+				else:
+					inside.append(index)
+		var total_inside := inside.size() + (1 if leader_struck else 0)
+		share = float(total_inside) / float(points.size())
+		follower_share = float(inside.size()) / float(points.size())
+		impact = impact / float(total_inside) if total_inside > 0 else fallback_impact
 	last_hit_share = share
-	var loss := ceili(float(power) * share - 0.0001)
-	if loss <= 0:
+	var loss := ceili(float(power) * follower_share - 0.0001)
+	if loss <= 0 and not leader_struck:
 		return false
-	if swarm.has_method("prefer_removal"):
+	if swarm.has_method("prefer_removal") and not inside.is_empty():
 		swarm.prefer_removal(inside)
-	return _apply_hit(loss, impact, shake_amount, enemy)
+	# A Nibbler snap never takes the leader's last LP (fair lone start).
+	return _apply_hit(maxi(0, loss), impact, shake_amount, enemy, leader_struck, enemy is PREY)
 
 
 # ---------------------------------------------------------------- kill popups
@@ -1502,21 +1540,50 @@ func _popup_screen() -> Array:
 func _king_moment(location: Vector3) -> void:
 	king_moments += 1
 	_sfx("evolve", 120)
+	_music_cue("king")
 	var main := get_parent()
 	if main != null and main.has_method("king_moment"):
 		main.king_moment(location)
 
 
 # Resolves one announced hit. Returns true when the run ended by extinction.
-func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3D = null) -> bool:
+# `loss` counts followers only (never the leader); `leader_struck` costs the
+# leader 1 LP under the rules in RunModel.apply_hit() (stage 09); a `nonlethal`
+# source never takes its last LP.
+func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3D = null, leader_struck: bool = false, nonlethal: bool = false) -> bool:
 	var damage_scale := difficulty_scale(enemy_damage)
-	if damage_scale != 1.0:
+	if loss > 0 and damage_scale != 1.0:
 		loss = maxi(1, ceili(float(loss) * damage_scale))
-	unit_points_valid = false
 	var before: int = model.population
-	last_loss = model.apply_loss(evolution.loss_after_armor(loss, swarm.rally_pressed))
+	var outcome: Dictionary = model.apply_hit(evolution.loss_after_armor(loss, swarm.rally_pressed), leader_struck, nonlethal)
+	var leader_state: String = outcome.leader
+	var leader_lost_hp: bool = leader_state in ["hit", "swap", "extinct"]
+	if int(outcome.lost) <= 0 and not leader_lost_hp:
+		# Invulnerable leader and nobody else inside: nothing happens.
+		return false
+	unit_points_valid = false
+	last_loss = int(outcome.lost)
+	last_loss_fraction = float(last_loss) / float(maxi(1, before))
+	if leader_state == "swap" and swarm.has_method("promote_leader"):
+		swarm.promote_leader()
 	swarm.set_population(model.population)
-	swarm.react_to_hit(before - model.population, impact)
+	swarm.react_to_hit(last_loss, impact)
+	_sync_leader()
+	if leader_lost_hp:
+		if swarm.has_method("leader_hit"):
+			swarm.leader_hit(impact)
+		_sfx("leader_hit", 45)
+	if leader_state == "swap":
+		_sfx("leader_swap", 80)
+	if last_loss > 0:
+		# Death squeal, louder when the loss is a big share of the swarm.
+		_sfx("death", 0, lerpf(-6.0, 0.0, clampf(last_loss_fraction * 3.0, 0.0, 1.0)))
+		# Rückeroberung: the fallen leave a little biomass where they fell.
+		_drop_fallen_biomass(impact, last_loss)
+	# The heartbeat loop for the last animal is started/stopped by swarm.gd.
+	var main := get_parent()
+	if main != null and main.has_method("hitstop"):
+		main.hitstop(clampf(maxf(last_loss_fraction, 0.35 if leader_lost_hp else 0.0), 0.0, 1.0))
 	hit_feedback = 1.2
 	_shake(shake_amount)
 	_sfx("hit", 30)
@@ -1533,9 +1600,71 @@ func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3
 		var player := _sfx_node()
 		if player != null and player.has_method("stop_ambience"):
 			player.stop_ambience()
+		var music := _music_node()
+		if music != null:
+			music.stinger("extinct")
+			music.stop()
 		_update_hud("Ausgestorben")
 		return true
 	return false
+
+
+# ---------------------------------------------------------------- leader (stage 09)
+
+# Pushes leader LP / max / invulnerability to the swarm when it changed.
+func _sync_leader() -> void:
+	var key := Vector3i(model.leader_hp, model.leader_max_hp, 1 if model.leader_invulnerable > 0.0 else 0)
+	if key == leader_state_key:
+		return
+	leader_state_key = key
+	if swarm.has_method("set_leader_state"):
+		swarm.set_leader_state(key.x, key.y, key.z == 1)
+
+
+# New Mawlings grew from biomass: cell division, milestones (+1 LP per 25).
+func _on_growth(count: int) -> void:
+	if swarm.has_method("split_new_units"):
+		# The plop plays in swarm.gd at the moment each cell pinches off (throttled).
+		swarm.split_new_units(count)
+	var reached := model.take_milestone()
+	if reached > 0:
+		milestone_value = reached
+		milestone_timer = MILESTONE_SHOW_SECONDS
+		_sfx("milestone", 60)
+	_sync_leader()
+
+
+# Rückeroberung: fallen Mawlings leave FALLEN_BIOMASS each, bundled into a corpse
+# close by (like horde kills) so the list stays short; a new one otherwise.
+func _drop_fallen_biomass(location: Vector3, count: int) -> void:
+	if count <= 0 or model.extinct:
+		return
+	var amount := TUNING.FALLEN_BIOMASS * float(count)
+	var arena: Node3D = get_parent().get_node_or_null("Arena")
+	var spot := location
+	if arena != null and arena.has_method("safe_spawn"):
+		spot = arena.safe_spawn(location, 0.4)
+	spot.y = 0.0
+	if _grow_nearby_corpse(spot, amount, TUNING.FALLEN_BUNDLE_REACH) >= 0:
+		return
+	if _create_corpse(spot, amount, "mawling", false) >= 0:
+		# Fallen Mawlings are no kills.
+		model.kills -= 1
+
+
+# True when a Nibbler other than `except` is announcing a snap.
+func _nibbler_snapping(except: Node3D) -> bool:
+	for other in prey:
+		if other != except and int(other.get("snap_state")) == 1:
+			return true
+	return false
+
+
+func _set_hud_value(key: String, value: Variant) -> void:
+	if key in hud:
+		hud.set(key, value)
+	else:
+		hud.set_meta(key, value)
 
 
 # RunStats for the meta layer (contract in stages/03_progression.md).
@@ -1564,6 +1693,7 @@ func run_stats() -> Dictionary:
 		"flood_reached": flood_reached,
 		"flood_seconds": flood_seconds(),
 		"horde_kills": horde_kills,
+		"leader_swaps": model.leader_swaps,
 		"seed": int(config.get("seed", 0)),
 		"daily": bool(config.get("daily", false)),
 		"daily_date": str(config.get("daily_date", "")),
@@ -1591,22 +1721,40 @@ func _consider_focus(location: Vector3, reach: float) -> void:
 		focus_mode = 1
 
 
+# Adaptive music (scripts/music.gd, node "Music" under Main; absent in tests).
+func _music_node() -> Node:
+	return get_parent().get_node_or_null("Music") if get_parent() != null else null
+
+
+func _music_step() -> void:
+	var music := _music_node()
+	if music != null:
+		music.set_intensity(model.pressure(), flood_state == 2, boss != null)
+
+
+func _music_cue(id: String) -> void:
+	var music := _music_node()
+	if music != null:
+		music.stinger(id)
+
+
 func _sfx_node() -> Node:
 	return get_parent().get_node_or_null("Sfx") if get_parent() != null else null
 
 
-func _sfx(id: String, vibrate_ms: int = 0) -> void:
+func _sfx(id: String, vibrate_ms: int = 0, volume_db: float = 0.0) -> void:
 	var player := _sfx_node()
 	if player == null:
 		return
-	player.play(id)
+	player.play(id, volume_db)
 	if vibrate_ms > 0:
 		player.vibrate(vibrate_ms)
 
 
 # Sound cues from state changes, so enemy scripts stay free of audio code.
 func _audio_step(delta: float, population_before: int) -> void:
-	if model.population > population_before:
+	# Stage 09: with cell division _on_growth() plays "split" instead.
+	if model.population > population_before and not swarm.has_method("split_new_units"):
 		_sfx("grow")
 	bite_clock = maxf(0.0, bite_clock - delta)
 	if melee_contact and bite_clock <= 0.0:

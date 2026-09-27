@@ -4,6 +4,8 @@ extends SceneTree
 ## seed code + reroll, TAGES-BRUT config and daily record, settings, pressed state.
 
 const TEST_PROFILE := "user://test_menu_profile.json"
+const TEST_CHRONICLE := "user://test_menu_chronicle.json"
+const TEST_SHARES := "user://test_menu_shares/"
 const CONFIG_KEYS := ["strain_id", "biome_id", "difficulty", "start_population", "tint", "signature_attack", "mods", "enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool"]
 const MOD_KEYS := ["damage", "armor", "speed", "harvest", "dna", "growth"]
 
@@ -223,6 +225,8 @@ func _run() -> void:
 	if not menu.reward.new_quests.has("survive_1") or not menu.reward.new_quests.has("boss_1"):
 		_fail("Expected new trophies survive_1 and boss_1, got %s" % [menu.reward.new_quests])
 		return
+	if not await _check_share(menu):
+		return
 	# Taps elsewhere must not leak through the overlay.
 	menu.tap(menu.play_rect().get_center())
 	if not session.pending_config.is_empty():
@@ -239,9 +243,11 @@ func _run() -> void:
 	if menu.reward.has("daily") or int(saved.daily_record(today).get("runs", 0)) != 1:
 		_fail("A normal run must not count as a daily run")
 		return
+	if not _check_chronicle(menu, today):
+		return
 	menu.queue_free()
 	_delete_test_profile()
-	print("PASS: menu loads, strain switch/swipe/buy, difficulty/biome locks, upgrades, instinct, trophies, SPIELEN config, reward overlay, seed code/reroll, TAGES-BRUT + daily record, settings, pressed state, layout")
+	print("PASS: menu loads, strain switch/swipe/buy, difficulty/biome locks, upgrades, instinct, trophies, SPIELEN config, reward overlay, seed code/reroll, TAGES-BRUT + daily record, settings, pressed state, layout, chronicle booking/sheet, share card")
 	quit(0)
 
 
@@ -250,7 +256,8 @@ func _check_layout(menu: Control) -> bool:
 	var rects := {"prev": menu.strain_prev_rect(), "next": menu.strain_next_rect(), "play": menu.play_rect(),
 		"seed_card": menu.seed_card_rect(), "daily": menu.daily_rect(), "gear": menu.settings_button_rect(),
 		"biome0": menu.biome_rect(0), "biome1": menu.biome_rect(1), "diff0": menu.difficulty_rect(0),
-		"diff1": menu.difficulty_rect(1), "diff2": menu.difficulty_rect(2), "tab0": menu.tab_rect(0)}
+		"diff1": menu.difficulty_rect(1), "diff2": menu.difficulty_rect(2), "tab0": menu.tab_rect(0),
+		"tab3": menu.tab_rect(3), "records": menu.records_rect()}
 	var screen := Rect2(Vector2.ZERO, menu.size)
 	var names := rects.keys()
 	for i in names.size():
@@ -266,6 +273,45 @@ func _check_layout(menu: Control) -> bool:
 		return false
 	if menu.strain_prev_rect().size.x > 90.0 or not screen.encloses(menu.reward_button_rect()):
 		_fail("Arrow or reward button rect out of spec")
+		return false
+	# Stage 10: share button beside WEITER, four tabs, chronicle segments are big enough to hit.
+	if menu.share_button_rect().intersects(menu.reward_button_rect()) or not screen.encloses(menu.share_button_rect()) or menu.share_button_rect().size.y < 96.0:
+		_fail("Share button overlaps WEITER or is too small")
+		return false
+	if not screen.encloses(menu.tab_rect(menu.TABS.size() - 1)) or menu.tab_rect(0).size.x < 96.0:
+		_fail("Four tabs must fit the dock")
+		return false
+	for i in menu.CHRONICLE_VIEWS.size():
+		if menu.chronicle_segment_rect(i).size.y < 96.0 or menu.chronicle_segment_rect(i).size.x < 96.0:
+			_fail("Chronicle segment %d is smaller than 96 px" % i)
+			return false
+	if menu.records_rect().size.y < 48.0:
+		_fail("Record line hit area too small: %s" % menu.records_rect())
+		return false
+	return true
+
+
+## KARTE TEILEN in the reward overlay renders the card into the test folder.
+func _check_share(menu: Control) -> bool:
+	if menu.reward_entry.is_empty() or not menu.reward.has("chronicle"):
+		_fail("Reward run was not booked into the chronicle")
+		return false
+	menu.last_share_path = ""
+	menu.tap(menu.share_button_rect().get_center())
+	for i in 120:
+		await process_frame
+		if not menu.is_sharing():
+			break
+	var path: String = menu.last_share_path
+	if path == "" or not path.begins_with(TEST_SHARES) or not FileAccess.file_exists(path):
+		_fail("Share card file missing: '%s'" % path)
+		return false
+	var image := Image.load_from_file(ProjectSettings.globalize_path(path))
+	if image == null or image.get_size() != Vector2i(1080, 1920):
+		_fail("Share card must be 1080 x 1920")
+		return false
+	if menu.reward.is_empty() or not menu.toast.begins_with("Gespeichert"):
+		_fail("Sharing must keep the overlay open and toast the file: %s" % menu.toast)
 		return false
 	return true
 
@@ -359,9 +405,55 @@ func _check_pressed(menu: Control) -> bool:
 	return true
 
 
+## CHRONIK: both runs of this test were booked from Session.last_result; record
+## line and fourth tab open the sheet, segments switch, a run row renders its card.
+func _check_chronicle(menu: Control, today: String) -> bool:
+	var chron: Variant = load("res://scripts/meta/chronicle.gd").load_or_create(TEST_CHRONICLE)
+	if chron.runs.size() != 2 or chron.runs[1].get("daily") != true or chron.runs[0].get("daily") != false:
+		_fail("Chronicle must hold the daily and the normal run: %s" % [chron.runs.size()])
+		return false
+	if chron.daily_board(today).size() != 1 or int(chron.runs[1].daily_rank) != 1 or chron.best(menu.current_strain(), 0).is_empty():
+		_fail("Daily board / best not booked from last_result")
+		return false
+	menu.tap(menu.records_rect().get_center())
+	if menu.tab != "chronicle" or menu.chronicle_view != "best":
+		_fail("Tapping the record line must open CHRONIK / BESTWERTE")
+		return false
+	if menu.chronicle_rows().size() < 2 or menu.chronicle_rows()[0].kind != "total":
+		_fail("Best view must show the total row and one strain")
+		return false
+	menu.tap(menu.chronicle_segment_rect(1).get_center())
+	var rows: Array = menu.chronicle_rows()
+	if menu.chronicle_view != "daily" or rows.size() < 2 or rows[1].kind != "rank":
+		_fail("Daily segment must list today's rank")
+		return false
+	menu.tap(menu.sheet_close_rect().get_center())
+	menu.tap(menu.tab_rect(3).get_center())
+	if menu.tab != "chronicle":
+		_fail("CHRONIK tab did not open")
+		return false
+	menu.tap(menu.chronicle_segment_rect(0).get_center())
+	rows = menu.chronicle_rows()
+	if menu.chronicle_view != "runs" or rows.size() != 2 or rows[0].kind != "run" or float(rows[0].h) < 96.0:
+		_fail("Runs segment must list both runs in rows >= 96 px")
+		return false
+	if menu._trophy_scroll_max() != 0.0:
+		_fail("Two runs must not scroll")
+		return false
+	menu.last_share_path = ""
+	menu.tap(menu.chronicle_row_rect(0).get_center())
+	if menu.last_share_path == "" and not menu.is_sharing():
+		_fail("Tapping a run row must render its share card")
+		return false
+	return true
+
+
 func _spawn() -> Control:
 	var menu: Control = load("res://scenes/menu.tscn").instantiate()
 	menu.profile_path = TEST_PROFILE
+	menu.chronicle_path = TEST_CHRONICLE
+	menu.share_dir = TEST_SHARES
+	menu.open_shares = false
 	root.add_child(menu)
 	return menu
 
@@ -384,8 +476,14 @@ func _drag(menu: Control, from: Vector2, delta: Vector2) -> void:
 
 
 func _delete_test_profile() -> void:
-	if FileAccess.file_exists(TEST_PROFILE):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROFILE))
+	for p in [TEST_PROFILE, TEST_CHRONICLE]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
+	var dir := DirAccess.open(TEST_SHARES)
+	if dir != null:
+		for f in dir.get_files():
+			dir.remove(f)
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SHARES))
 
 
 func _fail(message: String) -> void:

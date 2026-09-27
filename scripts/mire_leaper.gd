@@ -1,8 +1,9 @@
 extends Node3D
 
-# Mire Leaper: lurks crouched at range, locks a landing zone, then jumps there in
-# a visible arc. The zone never moves after it is announced. After landing it is
-# exhausted (vulnerable) and finally hops back to keep its distance.
+# Mire Leaper: stalks straight at the swarm, locks a landing zone, then jumps
+# there in a visible arc. The zone never moves after it is announced. After
+# landing it is exhausted (vulnerable), then chases on at once and prepares the
+# next jump (Etappe 09: every enemy runs at the player, no retreat any more).
 
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
@@ -28,7 +29,7 @@ const RIM_WARNING := Color("ff5ad9")
 const RIM_EXHAUSTED := Color("ffe07a")
 const ARC_COLOR := Color("ff8ae6")
 
-enum State { ARRIVING, STALK, WARNING, LEAP, EXHAUSTED, RETREAT }
+enum State { ARRIVING, STALK, WARNING, LEAP, EXHAUSTED }
 
 var state := State.ARRIVING
 var remaining := ARRIVE_SECONDS
@@ -54,8 +55,6 @@ var health_fill: MeshInstance3D
 # Patterned landing zone (telegraph_style.gd "leaper") inside `warning`.
 var zone: MeshInstance3D
 var arrow: MeshInstance3D
-var hop_start := Vector3.ZERO
-var hop_end := Vector3.ZERO
 var _time := 0.0
 var _land := 0.0
 var _rim := RIM_STALK
@@ -127,7 +126,8 @@ func _logic(delta: float, swarm_position: Vector3, pressure: float) -> int:
 			if lurk <= 0.0:
 				_lock_zone(swarm_position, pressure)
 				return 0
-		if distance > TUNING.LEAPER_RANGE * 0.8:
+		# Presses in all the way (stops only at the swarm's edge), also while lurking.
+		if distance > TUNING.LEAPER_CONTACT_DISTANCE:
 			var arena: Node3D = _arena()
 			var direction: Vector3 = arena.steer_direction(position, swarm_position, BODY_RADIUS)
 			position = arena.resolve_motion(position, direction * minf(6.0, TUNING.LEAPER_SPEED + 0.6 * log(pressure)) * delta, BODY_RADIUS)
@@ -136,9 +136,6 @@ func _logic(delta: float, swarm_position: Vector3, pressure: float) -> int:
 	if state == State.LEAP:
 		var fraction := clampf(1.0 - remaining / TUNING.LEAPER_FLIGHT_SECONDS, 0.0, 1.0)
 		position = jump_start.lerp(landing_center, fraction)
-	elif state == State.RETREAT:
-		var fraction := clampf(1.0 - remaining / TUNING.LEAPER_RETREAT_SECONDS, 0.0, 1.0)
-		position = hop_start.lerp(hop_end, fraction)
 	if remaining > 0.0:
 		return 0
 	match state:
@@ -158,11 +155,9 @@ func _logic(delta: float, swarm_position: Vector3, pressure: float) -> int:
 			if _flat_distance(swarm_position, landing_center) <= TUNING.LEAPER_ZONE_RADIUS:
 				return damage
 		State.EXHAUSTED:
-			_start_retreat(swarm_position)
-		State.RETREAT:
-			position = hop_end
+			# No retreat: chase on and prepare the next jump after a short breath.
 			state = State.STALK
-			lurk = TUNING.recovery(TUNING.LEAPER_LURK_SECONDS, pressure, 0.8)
+			lurk = TUNING.recovery(TUNING.LEAPER_CHASE_LURK_SECONDS, pressure, 0.8)
 	return 0
 
 
@@ -185,22 +180,6 @@ func _lock_zone(swarm_position: Vector3, pressure: float) -> void:
 	warning.global_position = landing_center
 	warning.visible = true
 	arc.visible = true
-
-
-func _start_retreat(swarm_position: Vector3) -> void:
-	var away := position - swarm_position
-	away.y = 0.0
-	if away.length_squared() < 0.01:
-		away = -Vector3(sin(rotation.y), 0.0, cos(rotation.y))
-	hop_start = position
-	hop_end = _arena().clear_line(position, position + away.normalized() * TUNING.LEAPER_RETREAT_DISTANCE, BODY_RADIUS)
-	hop_end.y = 0.0
-	if hop_end.distance_to(hop_start) < 0.3:
-		state = State.STALK
-		lurk = TUNING.LEAPER_LURK_SECONDS
-		return
-	state = State.RETREAT
-	remaining = TUNING.LEAPER_RETREAT_SECONDS
 
 
 # Distance from the locked landing zone edge; negative means inside the zone.
@@ -375,12 +354,6 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 			fold = 0.2
 			rim_target = RIM_EXHAUSTED
 			rim_strength = 0.75 + 0.35 * (0.5 + 0.5 * sin(_time * 6.0))
-		State.RETREAT:
-			var fraction := clampf(1.0 - remaining / TUNING.LEAPER_RETREAT_SECONDS, 0.0, 1.0)
-			height = 4.0 * 0.9 * fraction * (1.0 - fraction)
-			stretch = 0.1
-			pitch = lerpf(0.25, -0.25, fraction)
-			fold = -0.2
 	if _land > 0.0:
 		var squash := _land / LAND_SQUASH_SECONDS
 		crouch += 0.35 * squash

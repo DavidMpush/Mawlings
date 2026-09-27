@@ -43,6 +43,13 @@ var _clock := 0.0
 var _king_seen := 0
 var _king_time := -1.0
 var _last_key: Variant = null
+# Etappe 09: milestone banner (HUD "milestone", else the swarm's own count) and
+# the last-animal vignette.
+const MILESTONE_TIME := 1.9   # real seconds
+var _milestone_seen := 0
+var _milestone := 0
+var _milestone_time := -1.0
+var _swarm_node: Node
 
 
 func _ready() -> void:
@@ -88,6 +95,7 @@ func _process(delta: float) -> void:
 		_king_time += delta / maxf(0.01, Engine.time_scale)
 		if _king_time > KING_TIME or hud.extinct:
 			_king_time = -1.0
+	_step_milestone(hud, delta / maxf(0.01, Engine.time_scale))
 	var key: Variant = _redraw_key(hud)
 	if key == null or typeof(key) != typeof(_last_key) or key != _last_key:
 		queue_redraw()
@@ -110,6 +118,8 @@ func _redraw_key(hud: Control) -> Variant:
 			return null
 	if _loss_visible() or float(hud.hit_feedback) > 0.0 or _king_time >= 0.0:
 		return null
+	if _milestone_time >= 0.0 or _last_one(hud):
+		return null
 	if hud.boss_pointer.is_finite() or float(hud.evolve_flash) > 0.0:
 		return null
 	return ["idle", size]
@@ -125,8 +135,12 @@ func _draw() -> void:
 	if hud.paused:
 		_draw_pause(hud)
 		return
+	if _last_one(hud):
+		_draw_last_one(hud)
 	_draw_popups(hud)
 	_draw_loss(hud)
+	if _milestone_time >= 0.0 and not _choosing(hud) and _king_time < 0.0:
+		_draw_milestone()
 	if _king_time >= 0.0 and not _choosing(hud):
 		_draw_king(hud)
 	if hud.boss_pointer.is_finite():
@@ -292,6 +306,90 @@ func _ribbon(rect: Rect2, alpha: float) -> void:
 	_outline(shape, Color(UiStyle.GOLD, alpha), 4.0)
 	var inner := _inset(shape, rect, 9.0)
 	_outline(inner, Color(UiStyle.VIOLET, 0.55 * alpha), 2.0)
+
+
+# ---------------------------------------------------------------- milestones
+
+func _swarm() -> Node:
+	if _swarm_node == null or not is_instance_valid(_swarm_node):
+		_swarm_node = get_tree().get_first_node_in_group("swarm") if is_inside_tree() else null
+	return _swarm_node
+
+
+# KERN sets the HUD variable "milestone" (0 = none); without it the swarm's own
+# milestone count stands in. A new non-zero value starts the banner.
+func _step_milestone(hud: Control, real_delta: float) -> void:
+	var value: Variant = hud.get("milestone")
+	if value == null and hud.has_meta("milestone"):
+		value = hud.get_meta("milestone")
+	if value == null:
+		var swarm := _swarm()
+		value = swarm.get("last_milestone") if swarm != null else 0
+	var mark := int(value) if value != null else 0
+	if mark <= 0:
+		_milestone_seen = 0
+	elif mark != _milestone_seen:
+		_milestone_seen = mark
+		_milestone = mark
+		_milestone_time = 0.0
+	if _milestone_time >= 0.0:
+		_milestone_time += real_delta
+		if _milestone_time > MILESTONE_TIME or hud.extinct:
+			_milestone_time = -1.0
+
+
+func _milestone_text(mark: int) -> String:
+	if mark >= 250:
+		return "SCHWARM VOLL: 250"
+	if mark >= 100:
+		return "HORDE: %d!" % mark
+	return "%d MAWLINGS!" % mark
+
+
+# Warm ember ribbon in the upper third: pops in, holds, drifts up and fades.
+func _draw_milestone() -> void:
+	var t := _milestone_time
+	var burst := _ease_out(clampf(t / 0.2, 0.0, 1.0))
+	var fade := burst * (1.0 - clampf((t - (MILESTONE_TIME - 0.45)) / 0.45, 0.0, 1.0))
+	if fade <= 0.0:
+		return
+	var big := _milestone >= 100
+	var scale := lerpf(1.5, 1.0, burst) * (1.12 if big else 1.0)
+	var c := Vector2(size.x * 0.5, size.y * 0.5 - 380 - 30.0 * clampf((t - 1.2) / 0.7, 0.0, 1.0))
+	_rays(c, 260.0 * scale, 14, _clock * 0.7, Color(UiStyle.GOLD, 0.26 * fade), Color(UiStyle.EMBER_GLOW, 0.16 * fade))
+	var text := _milestone_text(_milestone)
+	var font_size := floorf((58.0 if text.length() < 14 else 48.0) * scale)
+	var w := UiStyle.width_px(text, font_size, UiStyle.display_font()) + 120.0 * scale
+	var rect := Rect2(c - Vector2(w * 0.5, 52 * scale), Vector2(w, 104 * scale))
+	var shape := _chamfer(rect, 22.0 * scale, 0.0)
+	_glow(shape, UiStyle.EMBER, fade)
+	_gradient(shape, rect, Color(Color("5a2412"), 0.95 * fade), Color(Color("1c0b06"), 0.95 * fade))
+	_outline(shape, Color(UiStyle.GOLD, fade), 4.0)
+	_outline(_inset(shape, rect, 8.0), Color(UiStyle.EMBER_GLOW, 0.45 * fade), 2.0)
+	var badge := c + Vector2(0, -74) * scale
+	_medallion(badge, 38.0 * scale, UiStyle.GOLD, fade)
+	_icon("mawling", Rect2(badge - Vector2(26, 26) * scale, Vector2(52, 52) * scale), Color(1, 1, 1, fade))
+	_title(text, c + Vector2(0, 20) * scale, font_size, Color(1, 1, 1, fade), UiStyle.EMBER)
+
+
+# ---------------------------------------------------------------- last animal
+
+# Only one Mawling left after the swarm was bigger (swarm plays the heartbeat).
+func _last_one(hud: Control) -> bool:
+	if hud.extinct or hud.paused or int(hud.population) != 1:
+		return false
+	return int(hud.peak_population) > 1
+
+
+# Red vignette beating with the heartbeat loop (lub-dub every 0.92 s).
+func _draw_last_one(hud: Control) -> void:
+	var phase := fmod(_clock, 0.92)
+	var beat := exp(-phase * 14.0) + 0.7 * exp(-maxf(0.0, phase - 0.29) * 14.0) * (1.0 if phase >= 0.29 else 0.0)
+	beat = clampf(beat, 0.0, 1.0)
+	_vignette(Color(UiStyle.DANGER, 0.3 + 0.25 * beat), 170.0 + 50.0 * beat)
+	_vignette(Color(Color("3a0606"), 0.3), 80.0)
+	var a := 0.8 + 0.2 * beat
+	UiStyle.text_px(self, "LETZTER MAWLING", Vector2(size.x * 0.5, size.y * 0.5 + 200), UiStyle.SIZE_HEAD * (1.0 + 0.06 * beat), Color(UiStyle.DANGER.lightened(0.35), a), true, 8)
 
 
 # ---------------------------------------------------------------- loss feedback

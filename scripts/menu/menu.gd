@@ -11,10 +11,15 @@ signal play_requested(config: Dictionary)
 const PROFILE_PATH := "res://scripts/meta/profile.gd"
 const SESSION_PATH := "res://scripts/meta/session.gd"
 const META_DATA_PATH := "res://scripts/meta/meta_data.gd"
+const CHRONICLE_PATH := "res://scripts/meta/chronicle.gd"
+const SHARE_CARD_PATH := "res://scripts/ui/share_card.gd"
+## Chronik-Ansichten (Segmente oben im CHRONIK-Blatt).
+const CHRONICLE_VIEWS := ["runs", "daily", "best"]
+const CHRONICLE_VIEW_NAMES := {"runs": "LETZTE RUNS", "daily": "TAGES-BRUT", "best": "BESTWERTE"}
 const GAME_SCENE := "res://scenes/main.tscn"
 
-const TABS := ["upgrades", "trophies", "instinct"]
-const TAB_NAMES := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT"}
+const TABS := ["upgrades", "trophies", "instinct", "chronicle"]
+const TAB_NAMES := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK"}
 const DIFFICULTY_COLORS := [Color("8fd46a"), Color("f2a04a"), Color("ff5a44")]
 const UPGRADE_COLORS := {"brood_size": Color("68d8c7"), "rending": Color("f58a4d"), "chitin": Color("b8d879"), "sprinter": Color("7cc3f0"), "digestion": Color("f6cc70"), "geneflow": Color("6ee4d4"), "attack_slot": Color("ff8a3d"), "trait_slot": Color("b798ec")}
 const UI_STYLE_PATH := "res://scripts/ui/ui_style.gd"
@@ -38,6 +43,14 @@ static var daily_pending: Dictionary = {}
 
 ## Tests may point this at a scratch file before the node enters the tree.
 var profile_path := "user://mawlings_profile.json"
+## Chronik-Datei (Tests setzen eine eigene) und Zielordner der Teilen-Karten.
+const DEFAULT_PROFILE := "user://mawlings_profile.json"
+const DEFAULT_CHRONICLE := "user://mawlings_chronicle.json"
+var chronicle_path := DEFAULT_CHRONICLE
+var share_dir := "user://shares/"
+## Öffnet eine gespeicherte Karte auf dem Desktop im Bildbetrachter (nie headless,
+## nie mobil, nie wenn change_scene_on_play aus ist wie in Tests).
+var open_shares := true
 ## Tests set this to false so SPIELEN does not leave the menu scene.
 var change_scene_on_play := true
 ## Erststart (Profil ohne Runs und ohne gesehene Tipps) überspringt das Menü.
@@ -59,6 +72,12 @@ var trophy_scroll := 0.0
 var toast := ""
 var toast_time := 0.0
 var settings_open := false
+var chronicle: Variant = null
+var chronicle_view := "runs"
+## Chronik-Eintrag des gerade gezeigten Belohnungs-Runs (Grundlage der Teilen-Karte).
+var reward_entry: Dictionary = {}
+var last_share_path := ""
+var _sharing := false
 
 var _press_pos := Vector2.INF
 var _drag_mode := ""
@@ -75,6 +94,7 @@ func _ready() -> void:
 	_load_meta()
 	_consume_last_result()
 	_add_components()
+	_start_music()
 	queue_redraw()
 	if skip_menu_on_first_start and change_scene_on_play:
 		try_first_start()
@@ -84,6 +104,7 @@ func _ready() -> void:
 const COMPONENTS := [
 	["res://scripts/ui/menu/menu_main.gd", ["background", "logo", "resources", "strain", "biomes", "difficulties", "play", "tabs"]],
 	["res://scripts/ui/menu/menu_sheets.gd", ["sheet", "reward", "toast", "settings"]],
+	["res://scripts/ui/menu/menu_chronicle.gd", []],
 ]
 
 
@@ -139,6 +160,12 @@ func _load_meta() -> void:
 	difficulty = int(last_choice.get("difficulty", 0))
 	if not _difficulty_unlocked(difficulty):
 		difficulty = 0
+	if ResourceLoader.exists(CHRONICLE_PATH):
+		# A test/capture profile gets its own chronicle next to it, so automated
+		# runs never write into the player's real chronicle.
+		if chronicle_path == DEFAULT_CHRONICLE and profile_path != DEFAULT_PROFILE:
+			chronicle_path = profile_path.get_basename() + "_chronicle.json"
+		chronicle = load(CHRONICLE_PATH).load_or_create(chronicle_path)
 	_apply_settings()
 
 
@@ -154,6 +181,7 @@ func _consume_last_result() -> void:
 	reward = profile.record_run(reward_stats)
 	if reward == null:
 		reward = {}
+	_book_chronicle(daily)
 	if daily:
 		# The daily map is fixed; the player's own next map stays as it was.
 		profile.next_seed = keep_seed
@@ -166,6 +194,23 @@ func _consume_last_result() -> void:
 	reward["_shown"] = true
 	session.last_result = {}
 	profile.save()
+
+
+## Bucht reward_stats zusätzlich in die Chronik (eigene Datei) und merkt sich den
+## Eintrag für die Teilen-Karte.
+func _book_chronicle(daily: bool) -> void:
+	reward_entry = {}
+	if chronicle == null:
+		return
+	var context := {"daily": daily, "date": load(PROFILE_PATH).today_key()}
+	if daily:
+		context["daily_date"] = String(daily_pending.get("date", reward_stats.get("daily_date", context.date)))
+		if int(reward_stats.get("seed", 0)) <= 0 and int(daily_pending.get("seed", 0)) > 0:
+			context["seed"] = int(daily_pending.seed)
+	var booked: Dictionary = chronicle.record(reward_stats, context)
+	chronicle.save()
+	reward_entry = booked.entry
+	reward["chronicle"] = {"new_best": booked.new_best, "daily_rank": booked.daily_rank}
 
 
 ## A result belongs to the daily brood when it says so, or when it matches the
@@ -444,6 +489,9 @@ func toggle_setting(key: String) -> void:
 func _apply_settings() -> void:
 	if profile == null:
 		return
+	var music := get_node_or_null("Music")
+	if music != null:
+		music.set_enabled(profile.get_setting("sound"))
 	var bus := AudioServer.get_bus_index("Master")
 	if bus >= 0:
 		AudioServer.set_bus_mute(bus, not profile.get_setting("sound"))
@@ -473,7 +521,59 @@ func open_tab(id: String) -> void:
 func close_reward() -> void:
 	reward = {}
 	reward_stats = {}
+	reward_entry = {}
 	queue_redraw()
+
+
+func open_chronicle(view: String = "runs") -> void:
+	tab = "chronicle"
+	chronicle_view = view if view in CHRONICLE_VIEWS else "runs"
+	trophy_scroll = 0.0
+	queue_redraw()
+
+
+func select_chronicle_view(view: String) -> void:
+	if view in CHRONICLE_VIEWS and view != chronicle_view:
+		chronicle_view = view
+		trophy_scroll = 0.0
+		queue_redraw()
+
+# ---------------------------------------------------------------- share card
+
+## Rendert die Teilen-Karte des Belohnungs-Runs; Pfad oder "".
+func share_reward() -> String:
+	if reward_stats.is_empty() and reward_entry.is_empty():
+		return ""
+	var source: Dictionary = reward_entry if not reward_entry.is_empty() else reward_stats
+	return await share_run(source)
+
+
+## Rendert die Teilen-Karte eines Runs (RunStats oder Chronik-Eintrag).
+func share_run(stats: Dictionary) -> String:
+	if _sharing or stats.is_empty() or not ResourceLoader.exists(SHARE_CARD_PATH):
+		return ""
+	_sharing = true
+	_toast("Karte wird gezeichnet …")
+	var card: Node = load(SHARE_CARD_PATH).new()
+	card.name = "ShareCard"
+	add_child(card)
+	var path: String = await card.render(stats, share_dir)
+	card.queue_free()
+	_sharing = false
+	if path == "":
+		_toast("Karte konnte nicht gespeichert werden")
+		return ""
+	last_share_path = path
+	# Echtes System-Teilen kommt mit dem Android-Export (Share-Intent-Plugin);
+	# bis dahin: Datei speichern und auf dem Desktop im Bildbetrachter öffnen.
+	_toast("Gespeichert: %s" % path.get_file())
+	if open_shares and change_scene_on_play and DisplayServer.get_name() != "headless" and not OS.has_feature("mobile"):
+		OS.shell_open(ProjectSettings.globalize_path(path))
+	return path
+
+
+func is_sharing() -> bool:
+	return _sharing
 
 
 func _remember() -> void:
@@ -500,13 +600,13 @@ func _gui_input(event: InputEvent) -> void:
 				_press_pos = Vector2.INF
 				_drag_mode = ""
 			accept_event()
-		elif event.pressed and tab == "trophies" and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		elif event.pressed and tab in ["trophies", "chronicle"] and not settings_open and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 			_scroll_trophies(90.0 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -90.0)
 			accept_event()
 	elif event is InputEventMouseMotion and _press_pos.is_finite():
 		var moved: Vector2 = event.position - _press_pos
 		if _drag_mode == "" and moved.length() > TAP_SLOP:
-			if tab == "trophies" and reward.is_empty() and absf(moved.y) > absf(moved.x):
+			if tab in ["trophies", "chronicle"] and reward.is_empty() and not settings_open and absf(moved.y) > absf(moved.x):
 				_drag_mode = "scroll"
 			elif tab == "" and reward.is_empty() and not settings_open and strain_card_rect().has_point(_press_pos) and absf(moved.x) > absf(moved.y):
 				_drag_mode = "swipe"
@@ -554,6 +654,8 @@ func tap(location: Vector2) -> void:
 	if not reward.is_empty():
 		if reward_button_rect().has_point(location):
 			close_reward()
+		elif share_button_rect().has_point(location):
+			share_reward()
 		return
 	if settings_open:
 		_tap_settings(location)
@@ -578,6 +680,8 @@ func tap(location: Vector2) -> void:
 		play_daily()
 	elif seed_reroll_rect().has_point(location):
 		reroll_seed()
+	elif records_rect().has_point(location):
+		open_chronicle("best")
 	else:
 		for i in meta.BIOME_ORDER.size():
 			if biome_rect(i).has_point(location):
@@ -617,7 +721,7 @@ func pressed_rect() -> Rect2:
 
 func _button_rects() -> Array:
 	if not reward.is_empty():
-		return [reward_button_rect()]
+		return [reward_button_rect(), share_button_rect()]
 	var rects: Array = []
 	if settings_open:
 		rects.append(settings_close_rect())
@@ -632,10 +736,13 @@ func _button_rects() -> Array:
 			rects.append(upgrade_buy_rect(i))
 	elif tab == "instinct":
 		rects.append(instinct_buy_rect())
+	elif tab == "chronicle":
+		for i in CHRONICLE_VIEWS.size():
+			rects.append(chronicle_segment_rect(i))
 	if tab != "":
 		rects.append(sheet_close_rect())
 	else:
-		rects.append_array([strain_prev_rect(), strain_next_rect(), play_rect(), daily_rect(), seed_reroll_rect()])
+		rects.append_array([strain_prev_rect(), strain_next_rect(), play_rect(), daily_rect(), seed_reroll_rect(), records_rect()])
 	return rects
 
 
@@ -651,6 +758,18 @@ func _tap_sheet(location: Vector2) -> void:
 	elif tab == "instinct":
 		if instinct_buy_rect().has_point(location):
 			buy_instinct()
+	elif tab == "chronicle":
+		for i in CHRONICLE_VIEWS.size():
+			if chronicle_segment_rect(i).has_point(location):
+				select_chronicle_view(CHRONICLE_VIEWS[i])
+				return
+		# A run row renders that run's share card.
+		if chronicle_view == "runs" and chronicle_list_rect().has_point(location):
+			var rows := chronicle_rows()
+			for i in rows.size():
+				if rows[i].kind == "run" and chronicle_row_rect(i).has_point(location):
+					share_run(rows[i].data)
+					return
 
 # ---------------------------------------------------------------- layout
 
@@ -725,8 +844,16 @@ func settings_row_rect(i: int) -> Rect2:
 
 
 func tab_rect(i: int) -> Rect2:
-	var w := (size.x - 40 - 24) / 3.0
+	var n := TABS.size()
+	var w := (size.x - 40 - 12 * (n - 1)) / float(n)
 	return Rect2(20 + i * (w + 12), size.y - 128, w, 112)
+
+
+## Rekordzeile zwischen Karten-Code und Tab-Leiste: antippen öffnet die Chronik.
+func records_rect() -> Rect2:
+	var top := seed_card_rect().end.y + 4.0
+	var bottom := tab_rect(0).position.y - 10.0
+	return Rect2(28, top, size.x - 56, bottom - top)
 
 
 func sheet_rect() -> Rect2:
@@ -758,7 +885,90 @@ func instinct_buy_rect() -> Rect2:
 
 
 func reward_button_rect() -> Rect2:
-	return Rect2(_cx() - 250, size.y * 0.5 + 540, 500, 120)
+	var share := share_button_rect()
+	return Rect2(share.end.x + 20, share.position.y, size.x - 64 - share.end.x - 20, 120)
+
+
+## KARTE TEILEN links neben WEITER im Belohnungs-Overlay.
+func share_button_rect() -> Rect2:
+	return Rect2(64, size.y * 0.5 + 540, 340, 120)
+
+# ---------------------------------------------------------------- chronicle layout
+
+func chronicle_segment_rect(i: int) -> Rect2:
+	var s := sheet_rect()
+	var n := CHRONICLE_VIEWS.size()
+	var w := (s.size.x - 48 - 12 * (n - 1)) / float(n)
+	return Rect2(s.position.x + 24 + i * (w + 12), _sheet_body_top() + 4, w, 96)
+
+
+## Scrollbarer Listenbereich unter den Segmenten.
+func chronicle_list_rect() -> Rect2:
+	var s := sheet_rect()
+	var top := chronicle_segment_rect(0).end.y + 16
+	return Rect2(s.position.x + 18, top, s.size.x - 36, s.end.y - 24 - top)
+
+
+## Zeilen der aktuellen Chronik-Ansicht: [{kind, h, data, …}] mit kind run,
+## header, rank, day, total, best oder empty. Antippbare Zeilen sind ≥ 96 hoch.
+func chronicle_rows() -> Array:
+	var rows: Array = []
+	if chronicle == null or meta == null:
+		return [{"kind": "empty", "h": 150.0, "data": {"text": "Chronik nicht verfügbar", "hint": ""}}]
+	match chronicle_view:
+		"runs":
+			for run in chronicle.runs:
+				rows.append({"kind": "run", "h": 112.0, "data": run})
+			if rows.is_empty():
+				rows.append({"kind": "empty", "h": 150.0, "data": {"text": "Noch keine Jagd verzeichnet.", "hint": "Jeder Run landet hier – auch der kürzeste."}})
+		"daily":
+			var today: String = load(PROFILE_PATH).today_key()
+			rows.append({"kind": "header", "h": 56.0, "data": {"text": "HEUTE", "date": today}})
+			var board: Array = chronicle.daily_board(today)
+			for i in board.size():
+				rows.append({"kind": "rank", "h": 100.0, "data": board[i], "rank": i + 1})
+			if board.is_empty():
+				rows.append({"kind": "empty", "h": 150.0, "data": {"text": "Heute noch keine TAGES-BRUT.", "hint": "Gleiche Karte für alle – deine besten 10 Versuche stehen hier."}})
+			var earlier: Array = []
+			for date in chronicle.daily_dates():
+				if date != today and not chronicle.daily_board(date).is_empty():
+					earlier.append(date)
+			if not earlier.is_empty():
+				rows.append({"kind": "header", "h": 56.0, "data": {"text": "FRÜHERE TAGE", "date": ""}})
+				for date in earlier:
+					var list: Array = chronicle.daily_board(date)
+					rows.append({"kind": "day", "h": 100.0, "data": list[0], "date": date, "count": list.size()})
+		"best":
+			rows.append({"kind": "total", "h": 150.0, "data": chronicle.overall_best()})
+			for id in strain_ids:
+				for d in meta.DIFFICULTIES.size():
+					if not chronicle.best(id, d).is_empty():
+						rows.append({"kind": "best", "h": 150.0, "data": {"strain_id": id}})
+						break
+			if rows.size() == 1:
+				rows.append({"kind": "empty", "h": 150.0, "data": {"text": "Noch keine Bestwerte.", "hint": "Bestwerte je Stamm und Schwierigkeit erscheinen nach dem ersten Run."}})
+	return rows
+
+
+## Zeile i in Menü-Koordinaten (berücksichtigt den Scroll).
+func chronicle_row_rect(i: int) -> Rect2:
+	var rows := chronicle_rows()
+	var area := chronicle_list_rect()
+	var y := area.position.y - trophy_scroll
+	for k in mini(i, rows.size()):
+		y += float(rows[k].h) + CHRONICLE_ROW_GAP
+	var h: float = float(rows[i].h) if i < rows.size() else 0.0
+	return Rect2(area.position.x, y, area.size.x, h)
+
+
+const CHRONICLE_ROW_GAP := 10.0
+
+
+func _chronicle_content_height() -> float:
+	var total := 0.0
+	for row in chronicle_rows():
+		total += float(row.h) + CHRONICLE_ROW_GAP
+	return total
 
 
 func _trophy_row_height() -> float:
@@ -768,6 +978,8 @@ func _trophy_row_height() -> float:
 func _trophy_scroll_max() -> float:
 	if meta == null:
 		return 0.0
+	if tab == "chronicle":
+		return maxf(0.0, _chronicle_content_height() - chronicle_list_rect().size.y)
 	var view := sheet_rect().end.y - 20 - _sheet_body_top()
 	return maxf(0.0, meta.QUESTS.size() * _trophy_row_height() - view)
 
@@ -1147,7 +1359,7 @@ func _draw_tabs() -> void:
 		var id: String = TABS[i]
 		var rect := tab_rect(i)
 		var active := tab == id
-		var accent: Color = [GOLD, Color("b798ec"), CYAN][i]
+		var accent: Color = [GOLD, Color("b798ec"), CYAN, Color("b798ec")][i]
 		_frame(rect, Color("1a3a2c") if active else Color("0c1c17f0"), accent if active else Color(accent, 0.55), 1 | 2 if active else 0, 4.0 if active else 2.0)
 		var ic := Vector2(rect.get_center().x, rect.position.y + 40)
 		if id == "upgrades":
@@ -1447,3 +1659,18 @@ func _draw_toast() -> void:
 	var rect := Rect2(_cx() - w * 0.5, size.y - 230, w, 64)
 	_frame(rect, Color(Color("1b120c"), 0.94 * alpha), Color(WARM, alpha), 0, 3.0)
 	_text(toast, Vector2(_cx(), rect.position.y + 41), 24, Color(Color("ffe2c5"), alpha), true)
+
+
+const MUSIC_PATH := "res://scripts/music.gd"
+
+
+# Menu theme; the run scene starts its own music.
+func _start_music() -> void:
+	if has_node("Music") or not ResourceLoader.exists(MUSIC_PATH):
+		return
+	var music: Node = load(MUSIC_PATH).new()
+	music.name = "Music"
+	add_child(music)
+	if profile != null:
+		music.set_enabled(profile.get_setting("sound"))
+	music.play_menu()

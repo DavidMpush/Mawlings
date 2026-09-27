@@ -13,6 +13,18 @@ const ROOT_ARCH_SCENE = preload("res://assets/gameplay/props/RootArch_game.glb")
 const FALLEN_LOG_SCENE = preload("res://assets/gameplay/props/FallenLog_game.glb")
 const POND_SEEDS_SCENE = preload("res://assets/gameplay/props/PondSeeds_game.glb")
 const FLOWER_SCENE = preload("res://assets/gameplay/props/Flower_game.glb")
+const QUALITY = preload("res://scripts/quality.gd")
+# Glutsumpf look (biomes with an "ember" block); Verdant never touches these.
+const EMBER_GROUND_SHADER = preload("res://shaders/ember_ground.gdshader")
+const EMBER_CHANNEL_SHADER = preload("res://shaders/ember_channel.gdshader")
+const LAVA_SHADER = preload("res://shaders/lava.gdshader")
+# Half width of the glowing core of a glow channel (metres).
+const CHANNEL_CORE := 1.0
+# Extinct stumps standing on the three collision knots of a fallen-log landmark.
+const STUMP_HEIGHTS := [1.3, 2.2, 0.9]
+# Biome/density switches rebuild at most this many chunks per sync() (one frame),
+# nearest first, so a migration never builds nine chunks in one frame.
+const REBUILDS_PER_SYNC := 1
 const TRAIL_HALF_WIDTH := 3.6
 const TRAIL_EDGE_WIDTH := 4.5
 # Landmarks (concept V3, made endless): at most one per region of 2 x 2 chunks,
@@ -55,6 +67,12 @@ var world_seed := 0
 # layout (trails, stones, landmarks, collisions) never depends on it.
 var biome_id: String = BIOMES.DEFAULT
 var biome: Dictionary = BIOMES.get_data(BIOMES.DEFAULT)
+# Share of purely decorative chunk parts (quality.gd "decor_density"): moss,
+# sand/ash patches, pebbles, leaf clumps, flowers, leaves at stones. Stones,
+# trails, pools and landmarks always stay. 1.0 = full classic decoration.
+var decor_density := 1.0
+# Chunks still showing the previous biome/density (rebuilt gradually in sync()).
+var _stale: Dictionary = {}
 var ground_color := GROUND_COLOR
 var _seed_mix := 0
 var view_radius := VISIBLE_RADIUS
@@ -84,6 +102,15 @@ var arch_material: ShaderMaterial
 var log_material: ShaderMaterial
 var reed_material: ShaderMaterial
 var flower_material: ShaderMaterial
+# Glutsumpf-only materials (created on the first switch to an ember biome).
+var ember_ground_material: ShaderMaterial
+var ember_ground_tint_material: ShaderMaterial
+var channel_material: ShaderMaterial
+var lava_material: ShaderMaterial
+var basalt_material: ShaderMaterial
+var char_material: ShaderMaterial
+var stump_material: ShaderMaterial
+var mushroom_material: ShaderMaterial
 # Shared geometry: every chunk only adds instances of these.
 var rock_mesh: Mesh
 var rock_base: Transform3D
@@ -105,6 +132,7 @@ var pool_mesh: CylinderMesh
 var shore_mesh: CylinderMesh
 
 func _ready() -> void:
+	decor_density = clampf(float(QUALITY.value("decor_density", 1.0)), 0.0, 1.0)
 	ground_material = _material(GROUND_COLOR)
 	ground_tint_material = _material(Color.WHITE)
 	ground_tint_material.vertex_color_use_as_albedo = true
@@ -174,6 +202,32 @@ func sync(position: Vector3) -> void:
 		if not wanted.has(key):
 			chunks[key].queue_free()
 			chunks.erase(key)
+			_stale.erase(key)
+	if not _stale.is_empty():
+		_rebuild_stale(REBUILDS_PER_SYNC)
+
+## Chunks still waiting for a staggered rebuild (biome or density switch).
+func rebuild_pending() -> int:
+	return _stale.size()
+
+## Rebuilds every stale chunk now (tests, captures, loading screens).
+func finish_rebuild() -> void:
+	_rebuild_stale(_stale.size())
+
+# Rebuilds up to `limit` stale chunks, nearest to the last synced position first.
+func _rebuild_stale(limit: int) -> void:
+	var center := _cell(_last_sync)
+	var keys: Array = _stale.keys()
+	keys.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return (a - center).length_squared() < (b - center).length_squared())
+	for index in mini(limit, keys.size()):
+		var key: Vector2i = keys[index]
+		_stale.erase(key)
+		if not chunks.has(key):
+			continue
+		var old: Node = chunks[key]
+		remove_child(old)
+		old.queue_free()
+		chunks[key] = _make_chunk(key)
 
 func _cell(position: Vector3) -> Vector2i:
 	return Vector2i(floori(position.x / CELL), floori(position.z / CELL))
@@ -190,18 +244,39 @@ func set_seed(value: int) -> void:
 		remove_child(chunk)
 		chunk.queue_free()
 	chunks.clear()
+	_stale.clear()
 	if ground_mesh != null:
 		sync(_last_sync)
 
 ## Switches the biome at runtime (colours and decoration counts): the shared
 ## materials are restyled and the visible chunks rebuilt around the last synced
 ## position. Unknown ids fall back to verdant_maw. Layout and collisions stay.
-func set_biome(id: String) -> void:
+## staggered = true (migration in a running game): shared colours switch at
+## once, the chunk decoration is rebuilt one chunk per sync() call, nearest
+## first, so the frame time never spikes; finish_rebuild() completes it at once.
+func set_biome(id: String, staggered := false) -> void:
 	biome_id = id if BIOMES.has(id) else BIOMES.DEFAULT
 	biome = BIOMES.get_data(biome_id)
 	if ground_material == null:
 		return
 	_apply_biome_colors()
+	_restage(staggered)
+
+## Quality "decor_density" (0..1). Rebuilds the visible chunks (staggered by default).
+func set_decor_density(value: float, staggered := true) -> void:
+	var clamped := clampf(value, 0.0, 1.0)
+	if is_equal_approx(clamped, decor_density):
+		return
+	decor_density = clamped
+	if ground_mesh != null:
+		_restage(staggered)
+
+func _restage(staggered: bool) -> void:
+	if staggered:
+		for key in chunks.keys():
+			_stale[key] = true
+		return
+	_stale.clear()
 	for key in chunks.keys():
 		var chunk: Node = chunks[key]
 		remove_child(chunk)
@@ -233,6 +308,54 @@ func _apply_biome_colors() -> void:
 		target.set_shader_parameter("rim_color", biome.prop_rim)
 		# Flowers keep their own petal ramp; a tint would also grey their green leaves.
 		target.set_shader_parameter("body_tint", biome[pair[1]] if pair[1] != "" else Color(1, 1, 1, 0))
+	if biome.has("ember"):
+		_apply_ember(biome.ember)
+
+func _ember_look() -> bool:
+	return biome.has("ember")
+
+# Creates (once) and restyles the Glutsumpf-only materials.
+func _apply_ember(look: Dictionary) -> void:
+	if ember_ground_material == null:
+		ember_ground_material = _shader_material(EMBER_GROUND_SHADER)
+		ember_ground_tint_material = _shader_material(EMBER_GROUND_SHADER)
+		ember_ground_tint_material.set_shader_parameter("use_vertex_tint", true)
+		channel_material = _shader_material(EMBER_CHANNEL_SHADER)
+		lava_material = _shader_material(LAVA_SHADER)
+		basalt_material = _prop_material(1.3, 0.9, 0.6, 0.4)
+		char_material = _prop_material(1.2, 1.0, 0.5, 0.34)
+		stump_material = _prop_material(1.2, 1.0, 0.5, 0.3)
+		mushroom_material = _prop_material(1.35, 1.2, 0.3, 0.45)
+		mushroom_material.set_shader_parameter("recolor_amount", 0.95)
+	for target in [ember_ground_material, ember_ground_tint_material]:
+		target.set_shader_parameter("dark_color", look.ground_dark)
+		target.set_shader_parameter("light_color", look.ground_light)
+		target.set_shader_parameter("ash_color", look.ash)
+		target.set_shader_parameter("vein_color", look.vein)
+		target.set_shader_parameter("vein_amount", look.vein_amount)
+		target.set_shader_parameter("reference_color", ground_color)
+	channel_material.set_shader_parameter("crust_color", look.crust)
+	channel_material.set_shader_parameter("rim_color", look.crust_rim)
+	channel_material.set_shader_parameter("core_color", look.core)
+	channel_material.set_shader_parameter("hot_color", look.core_hot)
+	lava_material.set_shader_parameter("core_color", look.lava_core)
+	lava_material.set_shader_parameter("mid_color", look.lava_mid)
+	lava_material.set_shader_parameter("crust_color", look.lava_crust)
+	lava_material.set_shader_parameter("radius", 1.1)
+	basalt_material.set_shader_parameter("body_tint", look.basalt_tint)
+	basalt_material.set_shader_parameter("rim_color", look.char_rim)
+	char_material.set_shader_parameter("body_tint", biome.wood_tint)
+	char_material.set_shader_parameter("rim_color", look.char_rim)
+	stump_material.set_shader_parameter("body_tint", biome.wood_tint)
+	stump_material.set_shader_parameter("rim_color", look.char_rim)
+	mushroom_material.set_shader_parameter("recolor_dark", look.mushroom_dark)
+	mushroom_material.set_shader_parameter("recolor_light", look.mushroom_light)
+	mushroom_material.set_shader_parameter("rim_color", look.mushroom_rim)
+
+static func _shader_material(shader: Shader) -> ShaderMaterial:
+	var result := ShaderMaterial.new()
+	result.shader = shader
+	return result
 
 static func _set_glow(target: StandardMaterial3D, glow: Color) -> void:
 	target.emission_enabled = glow.r + glow.g + glow.b > 0.0
@@ -745,7 +868,15 @@ func _make_chunk(key: Vector2i) -> Node3D:
 	chunk.position = Vector3(key.x * CELL, 0, key.y * CELL)
 	add_child(chunk)
 	var seeded := world_seed != 0
-	if seeded:
+	var ember := _ember_look()
+	if ember:
+		# Glutsumpf: shader ground and one glow-channel mesh instead of edge + trail.
+		if seeded:
+			_part(chunk, "Open ground", _ground_mesh(key), ember_ground_tint_material, Vector3(0, -0.02, 0))
+		else:
+			_part(chunk, "Open ground", ground_mesh, ember_ground_material, Vector3(CELL * 0.5, -0.02, CELL * 0.5))
+		_part(chunk, "Glow channel", _channel_mesh(key), channel_material, Vector3.ZERO)
+	elif seeded:
 		_part(chunk, "Open ground", _ground_mesh(key), ground_tint_material, Vector3(0, -0.02, 0))
 		_part(chunk, "Trail edge", _network_mesh(key, TRAIL_EDGE_WIDTH - TRAIL_HALF_WIDTH, 0.003), path_edge_material, Vector3.ZERO)
 		_part(chunk, "Broad trail", _network_mesh(key, 0.0, 0.007), path_material, Vector3.ZERO)
@@ -753,8 +884,9 @@ func _make_chunk(key: Vector2i) -> Node3D:
 		_part(chunk, "Open ground", ground_mesh, ground_material, Vector3(CELL * 0.5, -0.02, CELL * 0.5))
 		_part(chunk, "Trail edge", _trail_mesh(key, TRAIL_EDGE_WIDTH, 0.003), path_edge_material, Vector3.ZERO)
 		_part(chunk, "Broad trail", _trail_mesh(key, TRAIL_HALF_WIDTH, 0.007), path_material, Vector3.ZERO)
-	# Calm ground variation: soft moss tints, a few sand/earth spots, small pebbles.
-	for index in int(biome.moss_patches):
+	# Calm ground variation: soft moss tints, a few sand/earth spots, small pebbles
+	# (Glutsumpf: ash, slag and slag lumps). Thinned by the quality decor density.
+	for index in QUALITY.scaled_count(int(biome.moss_patches), decor_density):
 		var spot := Vector3(2.0 + float(_hash(key.x, key.y, index + 30) % 24), 0.001, 2.0 + float(_hash(key.x, key.y, index + 60) % 24))
 		if _near_trail(chunk.position + spot, 1.0):
 			continue
@@ -763,7 +895,7 @@ func _make_chunk(key: Vector2i) -> Node3D:
 		var size := 1.3 + float(_hash(key.x, key.y, index + 120) % 5) * 0.3
 		moss.scale = Vector3(size * 1.5, 1, size)
 		moss.rotation.y = float(_hash(key.x, key.y, index + 150) % 628) * 0.01
-	for index in int(biome.sand_patches):
+	for index in QUALITY.scaled_count(int(biome.sand_patches), decor_density):
 		var spot := Vector3(2.0 + float(_hash(key.x, key.y, index + 180) % 24), 0.002, 2.0 + float(_hash(key.x, key.y, index + 210) % 24))
 		if _near_trail(chunk.position + spot, 1.5):
 			continue
@@ -771,20 +903,26 @@ func _make_chunk(key: Vector2i) -> Node3D:
 		var size := 1.2 + float(_hash(key.x, key.y, index + 240) % 4) * 0.3
 		dirt.scale = Vector3(size * 1.4, 1, size)
 		dirt.rotation.y = float(_hash(key.x, key.y, index + 270) % 628) * 0.01
-	for index in int(biome.pebbles):
+	for index in QUALITY.scaled_count(int(biome.pebbles), decor_density):
 		var spot := Vector3(1.0 + float(_hash(key.x, key.y, index + 300) % 26), 0, 1.0 + float(_hash(key.x, key.y, index + 330) % 26))
 		var size := 0.32 + float(_hash(key.x, key.y, index + 360) % 4) * 0.07
 		_prop(chunk, "Pebble", rock_mesh, rock_base, rock_material, spot, Vector3(size, size * 0.8, size), float(_hash(key.x, key.y, index + 390) % 628) * 0.01)
 	if seeded:
 		for stone in _stones(key):
-			_boulder(chunk, Vector3(stone.x, 0.0, stone.z), stone.w)
+			if ember:
+				_basalt(chunk, Vector3(stone.x, 0.0, stone.z), stone.w)
+			else:
+				_boulder(chunk, Vector3(stone.x, 0.0, stone.z), stone.w)
 	else:
 		for center in obstacle_centers(key):
-			_boulder(chunk, center, OBSTACLE_RADIUS)
+			if ember:
+				_basalt(chunk, center, OBSTACLE_RADIUS)
+			else:
+				_boulder(chunk, center, OBSTACLE_RADIUS)
 	# Scattered leaf clumps at the edges of the open ground: never on the trail,
 	# never in the middle of the chunk, never inside a stone footprint.
 	var placed := 0
-	var wanted := int(biome.leaf_clumps_min) + _hash(key.x, key.y, 400) % 3
+	var wanted := QUALITY.scaled_count(int(biome.leaf_clumps_min) + _hash(key.x, key.y, 400) % 3, decor_density)
 	for index in 14:
 		if placed >= wanted:
 			break
@@ -800,14 +938,17 @@ func _make_chunk(key: Vector2i) -> Node3D:
 	# A rare water landmark is flat and traversable; the route stays open.
 	elif _hash(key.x, key.y, 13) % int(biome.pond_one_in) == 0 and not near_landmark(chunk.position + Vector3(4, 0, 22), 3.0):
 		_pool(chunk, Vector3(4, 0, 22), Vector3(1.8, 1, 1.1))
-		# A single reed clump on the far shore.
-		_prop(chunk, "Pond reeds", reed_mesh, reed_base, reed_material, Vector3(6.3, 0, 21.1), Vector3.ONE * 1.5, float(_hash(key.x, key.y, 14) % 628) * 0.01)
+		# A single reed clump on the far shore (Glutsumpf: a cold-glowing Glutpilz).
+		if ember:
+			_prop(chunk, "Glutpilz", flower_mesh, flower_base, mushroom_material, Vector3(6.4, 0, 21.0), Vector3.ONE * 1.6, float(_hash(key.x, key.y, 14) % 628) * 0.01)
+		else:
+			_prop(chunk, "Pond reeds", reed_mesh, reed_base, reed_material, Vector3(6.3, 0, 21.1), Vector3.ONE * 1.5, float(_hash(key.x, key.y, 14) % 628) * 0.01)
 	# Rare single flowers as colour accents on the open ground.
-	if not seeded and _hash(key.x, key.y, 800) % int(biome.flower_one_in) == 0:
+	if not seeded and _hash(key.x, key.y, 800) % int(biome.flower_one_in) == 0 and _decor_kept(key, 845):
 		var local := Vector3(2.0 + float(_hash(key.x, key.y, 810) % 24), 0, 2.0 + float(_hash(key.x, key.y, 820) % 24))
 		var world := chunk.position + local
 		if not _near_trail(world, 1.2) and is_open(world, 1.0) and not near_landmark(world, 1.0):
-			_prop(chunk, "Wild flower", flower_mesh, flower_base, flower_material, local, Vector3.ONE * 2.1, float(_hash(key.x, key.y, 830) % 628) * 0.01)
+			_prop(chunk, "Wild flower", flower_mesh, flower_base, mushroom_material if ember else flower_material, local, Vector3.ONE * 2.1, float(_hash(key.x, key.y, 830) % 628) * 0.01)
 	var mark := landmark(key)
 	if not mark.is_empty():
 		_landmark(chunk, key, mark)
@@ -816,12 +957,19 @@ func _make_chunk(key: Vector2i) -> Node3D:
 func _pool(chunk: Node3D, location: Vector3, size: Vector3) -> void:
 	var shore := _part(chunk, "Pool shore", shore_mesh, shore_material, location + Vector3(0, 0.01, 0))
 	shore.scale = size
-	var water := _part(chunk, "Shallow pool", pool_mesh, water_material, location + Vector3(0, 0.02, 0))
+	var water := _part(chunk, "Shallow pool", pool_mesh, lava_material if _ember_look() else water_material, location + Vector3(0, 0.02, 0))
 	water.scale = size
+
+# Decorative extras beyond fixed counts survive the quality density by a stable roll.
+func _decor_kept(key: Vector2i, salt: int) -> bool:
+	return decor_density >= 1.0 or _unit(key.x, key.y, salt) < decor_density
 
 func _landmark(chunk: Node3D, key: Vector2i, mark: Dictionary) -> void:
 	var local: Vector3 = mark.center - chunk.position
 	var yaw: float = mark.yaw
+	if _ember_look():
+		_ember_landmark(chunk, key, mark, local, yaw)
+		return
 	match int(mark.type):
 		Landmark.ROOT_ARCH:
 			# A gate over open ground: only the two feet block, the passage stays free.
@@ -858,6 +1006,78 @@ func _landmark(chunk: Node3D, key: Vector2i, mark: Dictionary) -> void:
 				var flower_size := 1.7 + float(_hash(key.x, key.y, 760 + index) % 5) * 0.15
 				_prop(chunk, "Meadow flower", flower_mesh, flower_base, flower_material, spot, Vector3.ONE * flower_size, float(_hash(key.x, key.y, 780 + index) % 628) * 0.01)
 
+# Glutsumpf landmarks: same footprint and collision circles as Verdant, other look.
+func _ember_landmark(chunk: Node3D, key: Vector2i, mark: Dictionary, local: Vector3, yaw: float) -> void:
+	match int(mark.type):
+		Landmark.ROOT_ARCH:
+			# Charred root arch: charcoal body with an ember rim, slag at the feet.
+			for foot in ARCH_FEET:
+				var spot: Vector3 = local + Basis(Vector3.UP, yaw) * Vector3(foot.x * ARCH_SIZE.x, 0.0, foot.y * ARCH_SIZE.z)
+				var slag := _part(chunk, "Arch foot slag", patch_mesh, plinth_material, spot + Vector3(0, 0.01, 0))
+				slag.scale = Vector3(4.4, 1, 4.4)
+			_prop(chunk, "Charred root arch", arch_mesh, arch_base, char_material, local, ARCH_SIZE, yaw)
+		Landmark.FALLEN_LOG:
+			# Three extinct stumps standing exactly on the log's collision knots.
+			var ash := _part(chunk, "Stump ash", patch_mesh, moss_materials[0], local + Vector3(0, 0.004, 0))
+			ash.scale = Vector3(3.2, 1, 7.6)
+			ash.rotation.y = yaw
+			var length := _model_length(log_mesh, log_base) * LOG_SIZE.z
+			for index in LOG_KNOTS.size():
+				var spot: Vector3 = local + Basis(Vector3.UP, yaw) * Vector3(0.0, 0.0, LOG_KNOTS[index] * length)
+				var turn := yaw + float(_hash(key.x, key.y, 732 + index) % 628) * 0.01
+				_stump(chunk, spot, LOG_RADIUS * (2.3 if index == 1 else 2.0), STUMP_HEIGHTS[index], turn)
+		Landmark.POND:
+			# Lava pool ringed by low slag lumps and cold Glutpilze; no collision.
+			var size := Vector3(3.2, 1, 2.3)
+			_pool(chunk, local, size)
+			var count := 3 + _hash(key.x, key.y, 740) % 2
+			for index in count:
+				var angle := yaw + float(index) * TAU / float(count) + float(_hash(key.x, key.y, 750 + index) % 5) * 0.1
+				var spot := local + Vector3(cos(angle) * 1.3 * size.x, 0, sin(angle) * 1.3 * size.z)
+				if index % 2 == 0:
+					var lump := 0.55 + float(_hash(key.x, key.y, 760 + index) % 4) * 0.08
+					_prop(chunk, "Slag lump", rock_mesh, rock_base, basalt_material, spot, Vector3(lump * 1.3, lump, lump * 1.2), angle)
+				else:
+					_prop(chunk, "Glutpilz", flower_mesh, flower_base, mushroom_material, spot, Vector3.ONE * 1.7, angle)
+		Landmark.MEADOW:
+			# A clearing of pale ash dotted with 5-9 Glutpilze.
+			var ground := _part(chunk, "Ash clearing", meadow_mesh, moss_materials[2], local + Vector3(0, 0.003, 0))
+			ground.scale = Vector3(4.6, 1, 3.8)
+			ground.rotation.y = yaw
+			var count := 5 + _hash(key.x, key.y, 740) % 5
+			for index in count:
+				var angle := float(index) * 2.39996 + yaw
+				var distance := 1.0 + 3.8 * sqrt((float(index) + 0.5) / float(count))
+				var spot := local + Vector3(cos(angle) * distance, 0, sin(angle) * distance * 0.85)
+				var cap := 1.7 + float(_hash(key.x, key.y, 760 + index) % 5) * 0.15
+				_prop(chunk, "Glutpilz", flower_mesh, flower_base, mushroom_material, spot, Vector3.ONE * cap, float(_hash(key.x, key.y, 780 + index) % 628) * 0.01)
+
+# An upright piece of the fallen-log model: the extinct stump of a burnt tree.
+func _stump(chunk: Node3D, location: Vector3, diameter: float, height: float, yaw: float) -> void:
+	var box: AABB = Transform3D(log_base.basis, Vector3.ZERO) * log_mesh.get_aabb()
+	var fit := Basis.from_scale(Vector3(diameter / maxf(box.size.x, 0.01), diameter / maxf(box.size.y, 0.01), height / maxf(box.size.z, 0.01)))
+	var shape := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, PI * 0.5) * fit * log_base.basis
+	_prop_shape(chunk, "Extinct stump", log_mesh, stump_material, location, shape)
+
+# Basalt column cluster on a stone's collision circle: three stretched rocks.
+func _basalt(chunk: Node3D, center: Vector3, radius: float) -> void:
+	var location := center - chunk.position
+	var roll := _hash(roundi(center.x * 10.0), roundi(center.z * 10.0), 7)
+	var stone_scale := radius / OBSTACLE_RADIUS
+	var plinth := _part(chunk, "Basalt footprint", plinth_mesh, plinth_material, location + Vector3(0, 0.02, 0))
+	plinth.scale = Vector3(stone_scale, 1.0, stone_scale)
+	var yaw := float((roll >> 4) % 628) * 0.01
+	var heights := [3.8, 2.8, 2.0]
+	var widths := [1.25, 1.05, 0.95]
+	for index in 3:
+		var angle := yaw + float(index) * TAU / 3.0
+		var offset := Vector3(cos(angle), 0, sin(angle)) * radius * (0.0 if index == 0 else 0.5)
+		if index == 0:
+			offset = Vector3(cos(yaw + PI), 0, sin(yaw + PI)) * radius * 0.18
+		var width: float = widths[index] * stone_scale * (0.94 + float((roll >> (8 + index * 3)) % 5) * 0.03)
+		var height: float = heights[index] * stone_scale * (0.9 + float((roll >> (12 + index * 2)) % 5) * 0.05)
+		_prop(chunk, "Basalt column", rock_mesh, rock_base, basalt_material, location + offset, Vector3(width, height, width), angle * 1.7)
+
 func _trail_center(key: Vector2i, local_z: float) -> float:
 	return 14.0 + 3.2 * sin((key.y * CELL + local_z) * 0.09 + key.x * 0.7)
 
@@ -885,29 +1105,156 @@ func _trail_mesh(key: Vector2i, half_width: float, height: float) -> ArrayMesh:
 			surface.add_vertex(point)
 	return surface.commit()
 
+# Glow channel (Glutsumpf trail): one strip across the full edge width with a
+# vertex-colour profile. COLOR.r = rim share, COLOR.a = glow (1 on the centre).
+const CHANNEL_PROFILE := [
+	[-1.0, 1.0, 0.0], [-0.8, 0.35, 0.0], [-0.5, 0.0, 0.1], [0.0, 0.0, 1.0],
+	[0.5, 0.0, 0.1], [0.8, 0.35, 0.0], [1.0, 1.0, 0.0],
+]
+
+func _channel_offset(entry: Array, half: float) -> float:
+	# Profile entries: +-1 = outer edge, +-0.8 = trail half width, +-0.5 = core.
+	var t: float = absf(entry[0])
+	var sign_value := signf(entry[0])
+	if t >= 1.0:
+		return sign_value * (half + TRAIL_EDGE_WIDTH - TRAIL_HALF_WIDTH)
+	if t >= 0.8:
+		return sign_value * half
+	if t >= 0.5:
+		return sign_value * CHANNEL_CORE
+	return 0.0
+
+func _channel_strip(surface: SurfaceTool, a: Vector3, b: Vector3, side0: Vector3, side1: Vector3, half: float) -> void:
+	for band in CHANNEL_PROFILE.size() - 1:
+		var inner: Array = CHANNEL_PROFILE[band]
+		var outer: Array = CHANNEL_PROFILE[band + 1]
+		var o0 := _channel_offset(inner, half)
+		var o1 := _channel_offset(outer, half)
+		var c0 := Color(inner[1], 0.0, 0.0, inner[2])
+		var c1 := Color(outer[1], 0.0, 0.0, outer[2])
+		var quad := [[a + side0 * o0, c0], [a + side0 * o1, c1], [b + side1 * o0, c0], [a + side0 * o1, c1], [b + side1 * o1, c1], [b + side1 * o0, c0]]
+		for vertex in quad:
+			surface.set_color(vertex[1])
+			surface.set_normal(Vector3.UP)
+			surface.add_vertex(vertex[0])
+
+func _channel_mesh(key: Vector2i) -> Mesh:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var lift := Vector3(0.0, 0.005, 0.0)
+	var count := 0
+	if world_seed == 0:
+		for step_index in 8:
+			var z0 := float(step_index) * CELL / 8.0
+			var z1 := float(step_index + 1) * CELL / 8.0
+			var a := Vector3(_trail_center(key, z0), 0.0, z0) + lift
+			var b := Vector3(_trail_center(key, z1), 0.0, z1) + lift
+			_channel_strip(surface, a, b, Vector3.RIGHT, Vector3.RIGHT, TRAIL_HALF_WIDTH)
+			count += 1
+		return surface.commit()
+	var origin := Vector3(key.x * CELL, 0.0, key.y * CELL)
+	var area := Rect2(origin.x, origin.z, CELL, CELL)
+	for edge in _edges_near(key):
+		var points: PackedVector3Array = edge.points
+		var half: float = edge.half
+		for index in points.size() - 1:
+			var middle := (points[index] + points[index + 1]) * 0.5
+			if not area.has_point(Vector2(middle.x, middle.z)):
+				continue
+			_channel_strip(surface, points[index] - origin + lift, points[index + 1] - origin + lift, _side(points, index), _side(points, index + 1), half)
+			count += 1
+	var junction := 0.0
+	for offset in NEIGHBOURS:
+		if _has_edge(key, key + offset):
+			var owner: Vector2i = key if EDGE_OFFSETS.has(offset) else key + offset
+			junction = maxf(junction, float(_chunk_params(owner).half_width))
+	if junction > 0.0:
+		# Round junction: glowing centre, crust ring, rim; slightly higher than the strips.
+		var node := _node(key) - origin + lift + Vector3(0.0, 0.002, 0.0)
+		var rings := [[0.0, 0.0, 1.0], [CHANNEL_CORE, 0.0, 0.1], [junction, 0.35, 0.0], [junction + TRAIL_EDGE_WIDTH - TRAIL_HALF_WIDTH, 1.0, 0.0]]
+		for index in 16:
+			var d0 := Vector3(cos(TAU * float(index) / 16.0), 0.0, sin(TAU * float(index) / 16.0))
+			var d1 := Vector3(cos(TAU * float(index + 1) / 16.0), 0.0, sin(TAU * float(index + 1) / 16.0))
+			for ring in rings.size() - 1:
+				var r0: Array = rings[ring]
+				var r1: Array = rings[ring + 1]
+				var c0 := Color(r0[1], 0.0, 0.0, r0[2])
+				var c1 := Color(r1[1], 0.0, 0.0, r1[2])
+				var quad := [[node + d0 * r0[0], c0], [node + d0 * r1[0], c1], [node + d1 * r1[0], c1], [node + d0 * r0[0], c0], [node + d1 * r1[0], c1], [node + d1 * r0[0], c0]]
+				for vertex in quad:
+					surface.set_color(vertex[1])
+					surface.set_normal(Vector3.UP)
+					surface.add_vertex(vertex[0])
+		count += 1
+	if count == 0:
+		return null
+	return surface.commit()
+
+# Small walkable pool of a seeded chunk: {"local": Vector3, "size": Vector3} or {}.
+func _seeded_pool(key: Vector2i) -> Dictionary:
+	var params := _chunk_params(key)
+	if _unit(key.x, key.y, 13) >= float(params.pond_chance):
+		return {}
+	var chunk_origin := Vector3(key.x * CELL, 0, key.y * CELL)
+	for attempt in 4:
+		var local := Vector3(5.0 + _unit(key.x, key.y, 15 + attempt * 2) * 18.0, 0, 5.0 + _unit(key.x, key.y, 16 + attempt * 2) * 18.0)
+		var world := chunk_origin + local
+		if _near_trail(world, 3.2) or not is_open(world, 3.2) or near_landmark(world, 3.0):
+			continue
+		return {"local": local, "size": Vector3(1.5 + _unit(key.x, key.y, 24) * 0.6, 1, 1.0 + _unit(key.x, key.y, 25) * 0.3)}
+	return {}
+
+## Eruption sources of a chunk (scripts/eruptions.gd) as Vector4(x, 0, z, kind):
+## kind 0 = lava pool centre, 1 = point on a glow channel. Deterministic from the
+## layout; only meaningful in biomes with "eruptions": true.
+func eruption_sites(key: Vector2i) -> Array[Vector4]:
+	var result: Array[Vector4] = []
+	var origin := Vector3(key.x * CELL, 0, key.y * CELL)
+	if world_seed == 0:
+		if _hash(key.x, key.y, 13) % int(biome.pond_one_in) == 0 and not near_landmark(origin + Vector3(4, 0, 22), 3.0):
+			result.append(Vector4(origin.x + 4.0, 0.0, origin.z + 22.0, 0.0))
+	else:
+		var pool := _seeded_pool(key)
+		if not pool.is_empty():
+			var local: Vector3 = pool.local
+			result.append(Vector4(origin.x + local.x, 0.0, origin.z + local.z, 0.0))
+	var mark := landmark(key)
+	if not mark.is_empty() and int(mark.type) == Landmark.POND:
+		result.append(Vector4(mark.center.x, 0.0, mark.center.z, 0.0))
+	var samples := trail_samples(key)
+	for index in range(2, samples.size(), 4):
+		var point := Vector3(samples[index].x, 0.0, samples[index].z)
+		# Rare trail points under an arch foot or stone are skipped.
+		if is_open(point, 1.0):
+			result.append(Vector4(point.x, 0.0, point.z, 1.0))
+	return result
+
 func _seeded_decor(chunk: Node3D, key: Vector2i) -> void:
 	var params := _chunk_params(key)
+	var ember := _ember_look()
 	# Small flat pools: walkable, placed on open ground away from trail and stones.
-	if _unit(key.x, key.y, 13) < float(params.pond_chance):
-		for attempt in 4:
-			var local := Vector3(5.0 + _unit(key.x, key.y, 15 + attempt * 2) * 18.0, 0, 5.0 + _unit(key.x, key.y, 16 + attempt * 2) * 18.0)
-			var world := chunk.position + local
-			if _near_trail(world, 3.2) or not is_open(world, 3.2) or near_landmark(world, 3.0):
-				continue
-			var size := Vector3(1.5 + _unit(key.x, key.y, 24) * 0.6, 1, 1.0 + _unit(key.x, key.y, 25) * 0.3)
-			_pool(chunk, local, size)
-			var angle := float(_hash(key.x, key.y, 14) % 628) * 0.01
-			_prop(chunk, "Pond reeds", reed_mesh, reed_base, reed_material, local + Vector3(cos(angle) * 1.4 * size.x, 0, sin(angle) * 1.4 * size.z), Vector3.ONE * 1.5, angle)
-			break
+	var pool := _seeded_pool(key)
+	if not pool.is_empty():
+		var local: Vector3 = pool.local
+		var size: Vector3 = pool.size
+		_pool(chunk, local, size)
+		var angle := float(_hash(key.x, key.y, 14) % 628) * 0.01
+		var shore := local + Vector3(cos(angle) * 1.4 * size.x, 0, sin(angle) * 1.4 * size.z)
+		if ember:
+			_prop(chunk, "Glutpilz", flower_mesh, flower_base, mushroom_material, shore, Vector3.ONE * 1.6, angle)
+		else:
+			_prop(chunk, "Pond reeds", reed_mesh, reed_base, reed_material, shore, Vector3.ONE * 1.5, angle)
 	# Single wild flowers as colour accents; flowery regions get a second one.
 	var flowers := 0
 	if _unit(key.x, key.y, 800) < float(params.flower_chance):
 		flowers = 1 + (1 if float(params.flower_chance) > 0.4 else 0)
 	for index in flowers:
+		if not _decor_kept(key, 845 + index):
+			continue
 		var local := Vector3(2.0 + float(_hash(key.x, key.y, 810 + index * 3) % 24), 0, 2.0 + float(_hash(key.x, key.y, 820 + index * 3) % 24))
 		var world := chunk.position + local
 		if not _near_trail(world, 1.2) and is_open(world, 1.0) and not near_landmark(world, 1.0):
-			_prop(chunk, "Wild flower", flower_mesh, flower_base, flower_material, local, Vector3.ONE * 2.1, float(_hash(key.x, key.y, 830 + index) % 628) * 0.01)
+			_prop(chunk, "Wild flower", flower_mesh, flower_base, mushroom_material if ember else flower_material, local, Vector3.ONE * 2.1, float(_hash(key.x, key.y, 830 + index) % 628) * 0.01)
 
 func _boulder(chunk: Node3D, center: Vector3, radius: float) -> void:
 	var location := center - chunk.position
@@ -919,7 +1266,7 @@ func _boulder(chunk: Node3D, center: Vector3, radius: float) -> void:
 	var yaw := float((roll >> 4) % 628) * 0.01
 	_prop(chunk, "Low stone", rock_mesh, rock_base, rock_material, location, Vector3(3.9, 3.2, 3.6) * size, yaw)
 	var count := 2 + (roll >> 8) % 2
-	for index in count:
+	for index in QUALITY.scaled_count(count, decor_density):
 		var angle := yaw + float(index) * TAU / float(count) + float((roll >> (10 + index * 3)) % 7) * 0.12
 		var foot := location + Vector3(cos(angle), 0, sin(angle)) * (radius + 0.1)
 		if _near_trail(chunk.position + foot, 0.3):
@@ -928,8 +1275,10 @@ func _boulder(chunk: Node3D, center: Vector3, radius: float) -> void:
 		_prop(chunk, "Broad leaf", leaf_mesh, leaf_base, leaf_material, foot, Vector3.ONE * leaf_size, angle)
 
 func _prop(parent: Node3D, label: String, mesh: Mesh, base: Transform3D, material: Material, location: Vector3, size: Vector3, yaw: float) -> MeshInstance3D:
+	return _prop_shape(parent, label, mesh, material, location, Basis(Vector3.UP, yaw) * Basis.from_scale(size) * base.basis)
+
+func _prop_shape(parent: Node3D, label: String, mesh: Mesh, material: Material, location: Vector3, shape: Basis) -> MeshInstance3D:
 	var part := _part(parent, label, mesh, material, location)
-	var shape := Basis(Vector3.UP, yaw) * Basis.from_scale(size) * base.basis
 	# Rest the model on the ground and centre it over its footprint.
 	var bounds: AABB = Transform3D(shape, Vector3.ZERO) * mesh.get_aabb()
 	part.transform = Transform3D(shape, location + Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z))

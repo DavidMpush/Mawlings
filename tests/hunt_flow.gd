@@ -11,6 +11,10 @@ func _run() -> void:
 	await process_frame
 	var swarm: Variant = scene.get_node("Swarm")
 	var world: Variant = scene.get_node("HuntWorld")
+	# Stage 09 lone start: the flow check uses a 25-strong swarm (one Mawling
+	# needs far longer to bite a Nibbler down).
+	world.model.population = 25
+	swarm.set_population(25, false)
 	var target: Variant = world.prey[0]
 	for tick in 70:
 		if not is_instance_valid(target) or not world.prey.has(target):

@@ -47,9 +47,19 @@ func _run() -> void:
 	check(leaper.can_be_hit(), "Exhausted leaper is vulnerable")
 	check(leaper.step(0.1, zone, 1) == 0, "Exhaustion never repeats a hit")
 	leaper.step(TUNING.LEAPER_EXHAUST_SECONDS, open_spot, 1)
-	check(leaper.state == LEAPER.State.RETREAT, "Hops back after exhaustion")
-	leaper.step(TUNING.LEAPER_RETREAT_SECONDS + 0.01, open_spot, 1)
-	check(leaper.state == LEAPER.State.STALK and leaper.position.distance_to(zone) > 2.0, "Retreat restores distance")
+	# Etappe 09: no retreat; it chases on and prepares the next jump quickly.
+	check(leaper.state == LEAPER.State.STALK and leaper.position.distance_to(zone) < 0.01, "Chases on after exhaustion (no hop back)")
+	check(leaper.lurk <= TUNING.LEAPER_CHASE_LURK_SECONDS + 0.001, "Next jump is prepared after a short breath")
+	var far_swarm: Vector3 = zone + Vector3(0, 0, 4)
+	var before_gap: float = leaper.position.distance_to(far_swarm)
+	leaper.lurk = 100.0
+	for tick in 10:
+		leaper.step(0.05, far_swarm, 1)
+	check(leaper.position.distance_to(far_swarm) < before_gap - 0.3, "Walks straight at the swarm while lurking (%.2f -> %.2f m)" % [before_gap, leaper.position.distance_to(far_swarm)])
+	for tick in 200:
+		leaper.step(0.05, far_swarm, 1)
+	check(leaper.position.distance_to(far_swarm) >= TUNING.LEAPER_CONTACT_DISTANCE - 0.3, "Stops at the swarm's edge, never inside")
+	leaper.position = zone
 
 	# Standing in the zone takes exactly one hit per jump.
 	leaper.lurk = 0.0
@@ -61,7 +71,7 @@ func _run() -> void:
 		if loss > 0:
 			hits += 1
 			total += loss
-		if leaper.state == LEAPER.State.RETREAT:
+		if leaper.state == LEAPER.State.STALK:
 			break
 	check(hits == 1 and total == int(ceil(TUNING.LEAPER_DAMAGE)), "Standing in the zone takes exactly one hit")
 
@@ -76,6 +86,9 @@ func _run() -> void:
 
 	# Damage reaches world and HUD once.
 	world.reset_run()
+	# Stage 09 lone start: the hit check uses a 25-strong swarm.
+	world.model.population = 25
+	swarm.set_population(25, false)
 	swarm.position = open_spot
 	leaper = world._spawn_leaper(open_spot + Vector3(-6, 0, 0))
 	leaper.state = LEAPER.State.LEAP
@@ -91,6 +104,9 @@ func _run() -> void:
 
 	# Director: nothing before the start time, then a small budget.
 	world.reset_run()
+	# Stage 09: leapers join once the swarm has LEAPER_POPULATION_STEP x 4 animals.
+	world.model.population = TUNING.LEAPER_POPULATION_STEP * 4
+	swarm.set_population(world.model.population, false)
 	world.model.elapsed = TUNING.FIRST_LEAPER_SECONDS - 5.0
 	world.leaper_clock = 0.0
 	world.step(0.05)
@@ -165,7 +181,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 	else:
-		print("PASS leaper: warning, fixed zone, dodge, single hit, range, airborne, director, DNA, persistent biomass, pause, reset")
+		print("PASS leaper: warning, fixed zone, dodge, chase (no retreat), single hit, range, airborne, director, DNA, persistent biomass, pause, reset")
 		quit(0)
 
 

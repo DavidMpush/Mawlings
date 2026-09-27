@@ -20,7 +20,12 @@ func _run() -> void:
 	world.set_process(false)
 	swarm.set_process(false)
 	world.reset_run()
+	# Stage 09: the first Bog King waits for BOSS_MIN_POPULATION animals.
 	world.boss_clock = 0.0
+	world.step(0.01)
+	_check(world.boss == null, "No first Bog King for a lone leader")
+	world.model.population = TUNING.BOSS_MIN_POPULATION
+	swarm.set_population(TUNING.BOSS_MIN_POPULATION, false)
 	world.step(0.01)
 	_check(world.boss != null and hud.boss_health > 0.0, "Director spawns Bog King and displays boss HUD")
 	var boss: Variant = world.boss

@@ -19,6 +19,7 @@ const MIN_SHOW_SECONDS := 1.6
 const TIPS := {
 	"move": "Ziehe rechts, um den Schwarm zu führen",
 	"warning": "Raus aus der markierten Fläche – nur Tiere darin sterben",
+	"leader": "Dein Anführer hat nur wenige Leben – fällt er, führt das nächste Tier",
 	"boss": "Der Bog King! Weiche dem Stampfen aus und beiß zu, wenn er erschöpft ist",
 	"rally": "Halte links RALLY: dichter Schwarm, stärkerer Biss",
 	"prey": "Umzingle die Beute – der Schwarm beißt automatisch",
@@ -27,7 +28,7 @@ const TIPS := {
 	"mutation": "Mutation aktiv – mehr DNA aus Beute bringt die nächste Wahl",
 	"nest": "Brutnest! Bleib im Kreis, bis der Balken voll ist",
 }
-const ORDER := ["move", "warning", "boss", "rally", "prey", "corpse", "alpha", "mutation", "nest"]
+const ORDER := ["move", "warning", "leader", "boss", "rally", "prey", "corpse", "alpha", "mutation", "nest"]
 
 const PREY_RANGE := 7.0
 const CORPSE_RANGE := 8.0
@@ -152,6 +153,10 @@ func _wanted(id: String) -> bool:
 			return swarm.position.distance_to(_run_start) < 1.5
 		"warning":
 			return _warning_active()
+		"leader":
+			# Etappe 09: after the first hit on the leader.
+			var hits: Variant = _model.get("leader_hits")
+			return hits != null and int(hits) > 0
 		"boss":
 			return _alive(world.get("boss"))
 		"rally":

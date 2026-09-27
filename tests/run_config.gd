@@ -162,7 +162,10 @@ func _run() -> void:
 	swarm.rally_pressed = true
 	evo.offers.clear()
 	world.step(0.01)
-	world._apply_hit(100000, swarm.position, 0.0)
+	# Stage 09: only the leader's last LP ends the run.
+	world.model.leader_hp = 1
+	world.model.leader_invulnerable = 0.0
+	world._apply_hit(100000, swarm.position, 0.0, null, true)
 	var stats: Dictionary = SESSION.last_result
 	_check(world.model.extinct and not stats.is_empty(), "Extinction stores RunStats in Session")
 	for key in ["strain_id", "biome_id", "difficulty", "seconds", "peak_population", "final_population", "kills", "kills_by_type", "biomass", "lost", "bosses", "evolutions", "mutations", "used_rally"]:

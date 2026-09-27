@@ -54,14 +54,14 @@ func _run() -> void:
 		check(config.has(key), "Config key %s" % key)
 	for key in ["damage", "armor", "speed", "harvest", "dna", "growth"]:
 		check(config.mods.has(key), "Mods key %s" % key)
-	check(config.start_population == 25 and config.tint is Color and config.signature_attack == "rudelbiss", "Glutmaw base")
+	check(config.start_population == 1 and config.tint is Color and config.signature_attack == "rudelbiss", "Glutmaw base")
 	check(config.slots.attack == 2 and config.slots.trait == 3, "Base slots")
 	check(is_equal_approx(config.pressure_doubling, float(DATA.DIFFICULTIES[0].pressure_doubling)) and is_equal_approx(config.enemy_hp, float(DATA.DIFFICULTIES[0].enemy_hp)), "Wild difficulty")
 	for id in ["jaws", "brood", "glutton", "pack", "scatter", "armor", "rudelbiss", "sporenwolke"]:
 		check(config.pool.has(id), "Start pool has %s" % id)
 	check(not config.pool.has("saeurespucker") and not config.pool.has("stachelruecken"), "Locked forms not in pool")
 	var spore: Dictionary = p.build_run_config("sporling", "verdant_maw", 0)
-	check(spore.start_population == 18 and is_equal_approx(spore.mods.growth, 1.3) and is_equal_approx(spore.mods.damage, 0.85), "Sporling mods")
+	check(spore.start_population == 1 and is_equal_approx(spore.mods.growth, 1.3) and is_equal_approx(spore.mods.damage, 0.85), "Sporling mods")
 
 	# Gesperrte Auswahl fällt zurück
 	var locked: Dictionary = p.build_run_config("knochenkiefer", "glutsumpf", 2)
@@ -79,7 +79,10 @@ func _run() -> void:
 	p.upgrades["chitin"] = 10
 	check(p.upgrade_cost("chitin") == -1 and not p.buy_upgrade("chitin"), "Max rank")
 	config = p.build_run_config("glutmaw", "verdant_maw", 0)
-	check(config.start_population == 27, "Brood size applied")
+	check(config.start_population == 2, "Brood size applied (+1 per rank, stage 09)")
+	p.upgrades["brood_size"] = 10
+	check(p.build_run_config("glutmaw", "verdant_maw", 0).start_population == 5 and p.upgrade_cost("brood_size") == -1, "Brood size stops at 4 ranks (start 5)")
+	p.upgrades["brood_size"] = 1
 	check(is_equal_approx(config.mods.damage, 1.05 * 1.01), "Rending + instinct damage")
 	check(is_equal_approx(config.mods.armor, 0.3), "Meta armor capped at 0.3")
 

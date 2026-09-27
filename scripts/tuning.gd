@@ -25,10 +25,67 @@ extends RefCounted
 # - Wild-Verdopplung 90 -> 80 s; längere Läufe endet die Flut (ab 5:00), nicht der Druck.
 # - DIFFICULTY_RAMP_SECONDS: Brutal/Apex-Multiplikatoren wirken erst nach 75 s voll,
 #   sonst war der Start bimodal (Tod nach 35 s oder normaler Lauf).
+#
+# Etappe 09 (Einzelstart mit Anführer, alle Gegner inkl. Nibbler greifen an): Ziel-Kurve
+# Wachstum (Wild, Median) 1:00 -> 6-14, 2:00 -> 25-55, Flutbeginn -> 80-160; Tod wie
+# Etappe 08. Matrix 3 Stämme x 2 Strategien x 6 Seeds (Brutal 8): Wild 398 s (Pop 12 /
+# 32,5 / 145,5, 6 % unter 2:00), Brutal 320 s, Apex 226 s. Begründung der Hebel:
+# - Wachstum: 1 -> 62 Tiere in der ersten Minute ohne Eingriff. Biomasse je Mawling
+#   2,0 -> 3,5; Angriffsformen x P/25 (min. 0,1); Nest erst nach 60 s mit 12 (+3 je Nest);
+#   Beute 6 -> 5 alle 10 s (vorher 9 s); Jäger 8 -> 5, Skitter 9 -> 6, Leaper 10 -> 7,
+#   Boss 60 -> 40. Rückeroberung 1,0 je Gefallenem hält die Mitte (sonst Flut-Pop ~70).
+# - Fairer Start: jeder übersehene Ring löscht einen kleinen Schwarm fast ganz aus und
+#   kostet 1 LP. Jäger erst bei >= 4 Tieren oder ab 50 s (Tor gilt weiter, bis es offen
+#   bleibt), höchstens 1 + P/8 gleichzeitig, Spawnabstand bei kleinem Schwarm bis x3;
+#   Skitter ab 50 s und P >= 12, Leaper ab 65 s und P >= 15, erster Boss ab 120 s bei
+#   P >= 40 (spätestens 240 s); kleiner Schwarm beißt +1,5/s. Nibbler: erster Schnapp
+#   nach 4 s, Warnung 0,6 -> 0,8 s, nur ein Kreis gleichzeitig + 3 s Pause, nie das letzte LP.
+# - DIFFICULTY_RAMP 75 -> 120 s, Brutal-HP 1,4 -> 1,3, Brutal-Schaden 1,2 -> 1,1
+#   (meta_data): der Einzelstart wuchs auf Brutal/Apex sonst kaum über 20 Tiere.
 const PRESSURE_DOUBLING_SECONDS := 80.0
+# Etappe 09 (Einzelstart, Anführer): jeder Run beginnt mit START_POPULATION Tier(en);
+# units[0] ist der Anführer mit LEADER_HP Lebenspunkten (Config-Feld leader_hp
+# überschreibt). Flächen-/Biss-Treffer auf ihn kosten 1 LP statt Tod, danach
+# LEADER_INVULNERABLE_SECONDS Unverwundbarkeit. LP 0: er stirbt, das nächste Tier
+# übernimmt mit max(1, altes Max - 1) LP. +1 LP (bis Max) bei jedem erstmals
+# erreichten Vielfachen von LEADER_HEAL_STEP. Meilensteine (Banner/Sound) je Run einmal.
+const START_POPULATION := 1
+# Biomasse je neuem Mawling (vorher 2,0 in run_model.gd).
+const BIOMASS_PER_MAWLING := 3.5
+# Angriffsformen skalieren mit der Schwarmgröße: x clamp(P / FORM_FULL_POPULATION,
+# FORM_MIN_SHARE, 1) – ein einzelner Mawling spuckt/sport nicht wie ein Rudel.
+const FORM_FULL_POPULATION := 25.0
+const FORM_MIN_SHARE := 0.1
+const LEADER_HP := 3
+const LEADER_INVULNERABLE_SECONDS := 1.2
+const LEADER_HEAL_STEP := 25
+const MILESTONES := [5, 10, 25, 50, 100, 250]
+# Rückeroberung: jeder gefallene Mawling lässt so viel Biomasse liegen (gebündelt in
+# nahe Kadaver wie Horde-Kills, Ressourcenregel); 1,0 von 3,5 = ~30 % zurückholbar.
+const FALLEN_BIOMASS := 1.0
+const FALLEN_BUNDLE_REACH := 3.0
+# Erster Jäger frühestens ab FIRST_HUNTER_SECONDS UND (Population >= FIRST_HUNTER_POPULATION
+# ODER Zeit >= FIRST_HUNTER_LATEST): der einzelne Anführer bekommt eine faire Anlaufphase.
+const FIRST_HUNTER_POPULATION := 4
+const FIRST_HUNTER_LATEST := 50.0
+const FIRST_HUNTER_GRACE := 3.0
+# Gleichzeitige Jäger höchstens 1 + P / HUNTER_POPULATION_STEP (bindet nur früh; später
+# begrenzt das Zeitbudget). Ohne das jagen zwei Jäger einen auf 1-3 Tiere
+# geschrumpften Schwarm, der sie kaum noch töten kann (Todesspirale in 25 % der Läufe).
+const HUNTER_POPULATION_STEP := 8
+# Nahkampf-Bonus kleiner Schwärme (größere Einzeltiere): + SMALL_SWARM_BITE Schaden/s
+# bei 1 Tier, linear 0 bei 25 Tieren (Formel dort unverändert 1 + 0,12 x P).
+const SMALL_SWARM_BITE := 1.5
+# Abstand zwischen Jäger-Spawns x (1 + HUNTER_SMALL_SWARM_DELAY x (1 - P/25)): ein
+# kleiner Schwarm bekommt Luft, jeder übersehene Ring kostet ihn fast alles.
+const HUNTER_SMALL_SWARM_DELAY := 2.0
+# Skitter/Leaper gleichzeitig höchstens P / STEP (unter einem Schritt keiner): kleine
+# Schwärme sehen erst Jäger, Seitenbedrohungen kommen mit dem Wachstum dazu.
+const SKITTER_POPULATION_STEP := 12
+const LEAPER_POPULATION_STEP := 15
 # Gegner-HP/-Schaden der Schwierigkeit wachsen in den ersten so vielen Sekunden von x1 auf
 # den vollen Wert (Etappe 08: sonst löscht der erste Jäger auf Brutal/Apex den Startschwarm).
-const DIFFICULTY_RAMP_SECONDS := 75.0
+const DIFFICULTY_RAMP_SECONDS := 120.0
 const FIRST_HUNTER_SECONDS := 14.0
 const HUNTER_HEALTH := 26.0
 const HUNTER_DAMAGE := 8.0
@@ -37,7 +94,7 @@ const HUNTER_WARNING_SECONDS := 1.25
 const HUNTER_RECOVERY_SECONDS := 1.1      # Etappe 08: 1,7 -> 1,1 (alle greifen an)
 const HUNTER_ARRIVE_SECONDS := 0.5
 const HUNTER_ATTACK_RADIUS := 2.3
-const HUNTER_BIOMASS := 8.0
+const HUNTER_BIOMASS := 5.0
 const MAX_HUNTERS := 12
 # Spawn-Direktor (Etappe 08 als Konstanten): Budget = BASE + Zeit / BUDGET_SECONDS,
 # Abstand = max(MIN, SPAWN_SECONDS / sqrt(Druck)).
@@ -46,12 +103,12 @@ const HUNTER_BUDGET_SECONDS := 25.0
 const HUNTER_SPAWN_SECONDS := 9.0
 const HUNTER_SPAWN_MIN := 2.2
 const MAX_PREY := 5
-const PREY_RESPAWN_SECONDS := 9.0
-const CORPSE_BIOMASS := 6.0
+const PREY_RESPAWN_SECONDS := 10.0
+const CORPSE_BIOMASS := 5.0
 const HARVEST_RATE := 4.0
 const HARVEST_RADIUS := 1.55
 
-const FIRST_SKITTER_SECONDS := 35.0
+const FIRST_SKITTER_SECONDS := 50.0
 const SKITTER_HEALTH := 15.0
 const SKITTER_DAMAGE := 4.0
 const SKITTER_SPEED := 3.2
@@ -61,24 +118,28 @@ const SKITTER_RECOVERY_SECONDS := 1.3     # Etappe 08: 2,0 -> 1,3
 const SKITTER_ARRIVE_SECONDS := 0.4
 const SKITTER_RANGE := 7.0
 const SKITTER_WIDTH := 1.15
-const SKITTER_BIOMASS := 9.0
+const SKITTER_BIOMASS := 6.0
 const MAX_SKITTERS := 3
 const SKITTER_BUDGET_SECONDS := 90.0
 const SKITTER_SPAWN_SECONDS := 26.0
 const SKITTER_SPAWN_MIN := 6.0
 
-const FIRST_BOSS_SECONDS := 90.0
+const FIRST_BOSS_SECONDS := 120.0
 const BOSS_RESPAWN_SECONDS := 180.0
+# Etappe 09: der erste Bog King kommt ab FIRST_BOSS_SECONDS erst bei >= BOSS_MIN_POPULATION
+# Tieren, spätestens nach BOSS_LATEST_SECONDS (vorher löschte er kleine Schwärme aus).
+const BOSS_MIN_POPULATION := 40
+const BOSS_LATEST_SECONDS := 240.0
 const BOSS_HEALTH := 230.0
 const BOSS_SPEED := 1.6
 const BOSS_WARNING_SECONDS := 1.8
 const BOSS_RECOVERY_SECONDS := 2.5
 const BOSS_ATTACK_RADIUS := 3.6
 const BOSS_DAMAGE := 14.0
-const BOSS_BIOMASS := 60.0
+const BOSS_BIOMASS := 40.0
 
 # Mire Leaper: ambush jumper that lands on a locked, announced zone.
-const FIRST_LEAPER_SECONDS := 50.0
+const FIRST_LEAPER_SECONDS := 65.0
 const LEAPER_HEALTH := 18.0
 const LEAPER_DAMAGE := 4.0
 const LEAPER_SPEED := 2.2
@@ -89,9 +150,12 @@ const LEAPER_ARRIVE_SECONDS := 0.5
 const LEAPER_WARNING_SECONDS := 1.1
 const LEAPER_FLIGHT_SECONDS := 0.55
 const LEAPER_EXHAUST_SECONDS := 1.8
-const LEAPER_RETREAT_SECONDS := 0.7
-const LEAPER_RETREAT_DISTANCE := 5.0
-const LEAPER_BIOMASS := 10.0
+# Etappe 09 (Nutzerwunsch "alle Feinde laufen auf mich zu"): no retreat after
+# the landing any more; the leaper chases on and locks its next jump after this
+# short breath, and walks in until it touches the swarm's edge.
+const LEAPER_CHASE_LURK_SECONDS := 0.8
+const LEAPER_CONTACT_DISTANCE := 1.8
+const LEAPER_BIOMASS := 7.0
 const LEAPER_DNA := 15
 const MAX_LEAPERS := 3
 const LEAPER_BUDGET_SECONDS := 80.0
@@ -102,14 +166,14 @@ const LEAPER_SPAWN_MIN := 7.0
 # füllt; bei voll bleibt ein Gelege als normale Kadaver-Biomasse liegen.
 # Füllrate/s = Anteil der Tiere in der Zone / NEST_FILL_SECONDS x Populationsfaktor
 # (1,0 bei 25 Tieren, +1 je NEST_POPULATION_STEP weitere Tiere, max. NEST_MAX_SPEED).
-const NEST_FIRST_SECONDS := 20.0
+const NEST_FIRST_SECONDS := 60.0
 const NEST_RESPAWN_SECONDS := 30.0
 const NEST_RADIUS := 4.0
 const NEST_FILL_SECONDS := 8.0
 const NEST_POPULATION_STEP := 125.0
 const NEST_MAX_SPEED := 2.6
-const NEST_BIOMASS := 18.0          # erstes Nest; jedes weitere + NEST_BIOMASS_GROWTH
-const NEST_BIOMASS_GROWTH := 5.0
+const NEST_BIOMASS := 12.0          # erstes Nest; jedes weitere + NEST_BIOMASS_GROWTH
+const NEST_BIOMASS_GROWTH := 3.0
 const NEST_CLUTCH := 3              # Biomasse verteilt auf so viele Eier-Kadaver
 const NEST_DNA := 25
 const OBJECTIVE_MIN_DISTANCE := 14.0
@@ -163,8 +227,18 @@ const FLOOD_KILL_DNA := 1
 # Nibbler wehren sich (Etappe 08): gebissen oder umzingelt schnappen sie nach einer
 # Warnung in einen kleinen Kreis; nur Tiere darin fallen (Treffer pro Tier).
 const NIBBLER_SNAP_RADIUS := 1.2
-const NIBBLER_SNAP_WARNING := 0.6
-const NIBBLER_SNAP_COOLDOWN := 3.0
+const NIBBLER_SNAP_WARNING := 0.8
+const NIBBLER_SNAP_COOLDOWN := 4.0       # Etappe 09: 3,0 -> 4,0; schrumpft mit dem Druck (recovery)
+const NIBBLER_SNAP_COOLDOWN_MIN := 2.0
+const NIBBLER_SNAP_FIRST := 4.0          # nach dem Erscheinen erst so spät der erste Schnapp
+# Etappe 09 – alle greifen an: Nibbler laufen auf den Schwarm zu (langsamer als er) und
+# bleiben in Schnappweite; nach NIBBLER_SNAP_GLOBAL_GAP s darf erst der nächste Nibbler
+# ankündigen (nie zwei Schnapp-Kreise gleichzeitig), damit ein einzelner Anführer nicht
+# überrannt wird. Ein Nibbler-Schnapp nimmt dem Anführer nie das letzte LP.
+const NIBBLER_APPROACH_SPEED := 1.7
+const NIBBLER_APPROACH_SPEED_MAX := 3.4
+const NIBBLER_HOLD_DISTANCE := 1.3
+const NIBBLER_SNAP_GLOBAL_GAP := 3.0
 const NIBBLER_SNAP_RANGE := 2.2       # Schwarm so nah = umzingelt
 const NIBBLER_SNAP_REACH := 0.5       # Kreismitte so weit vor dem Nibbler (Richtung Schwarm)
 const NIBBLER_SNAP_DAMAGE := 1.5      # Basisverlust bei vollem Treffer; x Druck^0,6

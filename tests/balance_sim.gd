@@ -32,19 +32,27 @@ const MISS := 0.12
 # Stage 08 bot: Moorbrut closer than this is avoided; this many within 2.5 m = surrounded.
 const BROOD_ALERT := 5.0
 const BROOD_CROWD := 6
+# Stage 09: extra dodge margin (m) while the leader is on its last LP.
+const LOW_HP_MARGIN := 0.8
+# Stage 09: up to this many visible Mawlings the bot also waits for stragglers.
+const SMALL_SWARM := 16
+# Stage 09: reaction time and overlook chance x this while the leader has 1 LP.
+const LOW_HP_FOCUS := 0.5
+var low_hp := false
 
 # Quick regression (~40 s): three seeded runs with wide tolerances. They catch a
 # broken loop (no growth, instant death), toothless enemies (Apex must cost Mawlings),
-# a too easy start (Wild: clear losses and population below the cap at 2:00, stage 08)
-# and a missing flood (Apex must reach it and die in it; matrix median ~4:20).
+# the stage 09 lone-start curve (Wild: 1 -> 15-80 Mawlings at 2:00, real losses) and
+# a missing flood (Apex must reach it and die in it; matrix median ~3:50).
 # Runs are near-deterministic; tiny drift between processes stays inside the tolerances.
+const REGRESS_SEEDS := 3
 const REGRESS_RUNS := [
 	{"strain": "glutmaw", "diff": 0, "seed": 1, "strategy": "greedy", "limit": 150.0,
-		"min_seconds": 120.0, "min_peak": 30, "min_kills": 15, "min_lost": 20, "max_pop120": 200},
+		"min_seconds": 120.0, "min_peak": 20, "min_kills": 15, "min_lost": 10, "min_pop120": 15, "max_pop120": 80},
 	{"strain": "sporling", "diff": 2, "seed": 2, "strategy": "attack_first", "limit": 180.0,
-		"min_seconds": 60.0, "min_peak": 40, "min_kills": 25, "min_lost": 40},
+		"min_seconds": 150.0, "min_peak": 25, "min_kills": 25, "min_lost": 20},
 	{"strain": "glutmaw", "diff": 2, "seed": 1, "strategy": "attack_first", "limit": 420.0,
-		"min_seconds": 150.0, "max_seconds": 400.0, "min_peak": 60, "min_kills": 40, "min_flood": 1.0, "min_flood_lost": 10},
+		"min_seconds": 150.0, "max_seconds": 330.0, "min_peak": 30, "min_kills": 40, "min_flood": 1.0, "min_flood_lost": 10},
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -54,6 +62,8 @@ var miss := MISS
 # instance id + state -> [game time first seen, overlooked]
 var seen := {}
 var failures: Array[String] = []
+# "trace" argument: print every loss / leader hit (debugging the curve).
+var trace := false
 
 
 func _initialize() -> void:
@@ -78,24 +88,45 @@ func _run() -> void:
 	var args := _args()
 	var started := Time.get_ticks_msec()
 	react = float(args.react)
+	trace = args.has("trace")
 	miss = float(args.miss)
 	if args.has("regress"):
 		for spec in REGRESS_RUNS:
-			var stats := await _simulate(spec.strain, spec.diff, spec.seed, spec.strategy, spec.limit)
+			# Stage 09: the lone start makes single runs chaotic (tiny process drift
+			# decides an early dodge), so each spec checks the median of three seeds.
+			var runs: Array[Dictionary] = []
+			for offset in REGRESS_SEEDS:
+				runs.append(await _simulate(spec.strain, spec.diff, int(spec.seed) + offset, spec.strategy, spec.limit))
+			var stats := _median_stats(runs)
 			_check(stats.seconds >= spec.min_seconds, "%s/%d survives at least %.0f s (got %.1f)" % [spec.strain, spec.diff, spec.min_seconds, stats.seconds])
 			_check(stats.seconds <= spec.get("max_seconds", INF), "%s/%d dies before %.0f s (got %.1f)" % [spec.strain, spec.diff, spec.get("max_seconds", INF), stats.seconds])
 			_check(stats.peak >= spec.min_peak, "%s/%d grows to %d (peak %d)" % [spec.strain, spec.diff, spec.min_peak, stats.peak])
 			_check(stats.lost >= spec.get("min_lost", 0), "%s/%d loses at least %d Mawlings (got %d)" % [spec.strain, spec.diff, spec.get("min_lost", 0), stats.lost])
 			_check(stats.kills >= spec.min_kills, "%s/%d kills at least %d (got %d)" % [spec.strain, spec.diff, spec.min_kills, stats.kills])
 			_check(stats.pop120 <= spec.get("max_pop120", 1000), "%s/%d population at 2:00 at most %d (got %d)" % [spec.strain, spec.diff, spec.get("max_pop120", 1000), stats.pop120])
+			_check(stats.pop120 >= spec.get("min_pop120", -1), "%s/%d population at 2:00 at least %d (got %d)" % [spec.strain, spec.diff, spec.get("min_pop120", -1), stats.pop120])
 			_check(stats.flood >= spec.get("min_flood", 0.0), "%s/%d reaches the flood (%.0f s in it)" % [spec.strain, spec.diff, stats.flood])
 			_check(stats.flood_lost >= spec.get("min_flood_lost", 0), "%s/%d loses at least %d Mawlings to the Moorbrut (got %d)" % [spec.strain, spec.diff, spec.get("min_flood_lost", 0), stats.flood_lost])
-		_finish("PASS balance_sim regress: %d runs within tolerance in %.1f s" % [REGRESS_RUNS.size(), (Time.get_ticks_msec() - started) / 1000.0])
+		_finish("PASS balance_sim regress: %d specs x %d seeds (median) within tolerance in %.1f s" % [REGRESS_RUNS.size(), REGRESS_SEEDS, (Time.get_ticks_msec() - started) / 1000.0])
 		return
 	var first := int(args.seed)
 	for offset in maxi(1, int(args.runs)):
 		await _simulate(String(args.strain), int(args.diff), first + offset, String(args.strategy), float(args.limit))
 	_finish("")
+
+
+# Median of every numeric stat over several runs.
+func _median_stats(runs: Array[Dictionary]) -> Dictionary:
+	var result := {}
+	for key in runs[0]:
+		if not (runs[0][key] is int or runs[0][key] is float):
+			continue
+		var values: Array = []
+		for run in runs:
+			values.append(run[key])
+		values.sort()
+		result[key] = values[values.size() / 2]
+	return result
 
 
 func _finish(message: String) -> void:
@@ -148,8 +179,10 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 	var cause := "timeout"
 	var picks: Array[String] = []
 	var guard := int(limit / STEP * 1.6) + 600
-	# Population at 2:00 (stage 08: early pressure; -1 = died before).
+	# Population at 1:00 / 2:00 / flood start (stage 09 growth curve; -1 = died before).
+	var pop60 := -1
 	var pop120 := -1
+	var pop_flood := -1
 	var lost120 := 0
 	var bio120 := 0.0
 	while guard > 0 and not world.model.extinct and world.model.elapsed < limit:
@@ -165,19 +198,36 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		hud.movement_vector = control.move
 		hud.rally_pressed = control.rally
 		var before: int = world.model.population
+		var hp_before: int = int(world.model.get("leader_hp")) if world.model.get("leader_hp") != null else 0
 		var before_states := _enemy_states(world)
 		await process_frame
 		var lost: int = before - world.model.population
-		if lost > 0:
+		var hp_now: int = int(world.model.get("leader_hp")) if world.model.get("leader_hp") != null else 0
+		if lost > 0 or hp_now < hp_before:
 			var hitter := _hitter(world, before_states, states)
 			losses[hitter] += lost
 			if world.model.extinct:
 				cause = hitter
+			if trace:
+				var detail := ""
+				for hunter in world.hunters:
+					if int(hunter.get("resolved_power")) > 0:
+						var lead_point: Vector3 = swarm.unit_world_points()[0] if not swarm.units.is_empty() else swarm.position
+						detail += " ring: swarm %.2f leader %.2f seen=%s" % [Vector2(hunter.attack_center.x - swarm.position.x, hunter.attack_center.z - swarm.position.z).length(), Vector2(hunter.attack_center.x - lead_point.x, hunter.attack_center.z - lead_point.z).length(), str(seen.get(hunter.get_instance_id(), "-"))]
+				for prey in world.prey:
+					if int(prey.get("resolved_power")) > 0:
+						var lead: Vector3 = swarm.unit_world_points()[0] if not swarm.units.is_empty() else swarm.position
+						detail += " snap: centre->swarm %.2f leader %.2f seen=%s" % [Vector2(prey.snap_center.x - swarm.position.x, prey.snap_center.z - swarm.position.z).length(), Vector2(prey.snap_center.x - lead.x, prey.snap_center.z - lead.z).length(), str(seen.get(prey.get_instance_id(), "-"))]
+				print("TRACE t=%.1f by=%s lost=%d pop=%d leader=%d/%d%s" % [world.model.elapsed, hitter, lost, world.model.population, hp_now, int(world.model.get("leader_max_hp")), detail])
 		states = before_states
+		if pop60 < 0 and world.model.elapsed >= 60.0:
+			pop60 = world.model.population
 		if pop120 < 0 and world.model.elapsed >= 120.0:
 			pop120 = world.model.population
 			lost120 = world.model.lost_population
 			bio120 = world.model.consumed_biomass
+		if pop_flood < 0 and int(world.get("flood_state")) == 2:
+			pop_flood = world.model.population
 	if world.model.extinct and cause == "timeout":
 		cause = "other"
 	var forms: Array = world.attack_forms.damage_dealt.keys() if world.attack_forms != null else []
@@ -188,19 +238,30 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"seconds": world.model.elapsed, "peak": world.model.peak_population, "kills": world.model.kills,
 		"extinct": world.model.extinct, "cause": cause, "lost": world.model.lost_population,
 		"nests": int(world.get("nests_completed")) if world.get("nests_completed") != null else 0,
+		"pop60": pop60,
 		"pop120": pop120,
+		"pop_flood": pop_flood,
+		"swaps": int(world.model.get("leader_swaps")) if world.model.get("leader_swaps") != null else 0,
 		"flood": float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
 		"flood_lost": int(losses.flood),
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop120=%d lost120=%d bio120=%.0f flood=%.0f build=%s forms=%s wall=%.1f" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s wall=%.1f" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
-		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop120, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
-		_build(world.evolution), ",".join(dealt), (Time.get_ticks_msec() - wall) / 1000.0])
+		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop60, pop120, pop_flood, stats.swaps, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
+		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), (Time.get_ticks_msec() - wall) / 1000.0])
 	root.remove_child(scene)
 	scene.free()
 	await process_frame
 	return stats
+
+
+func _kinds(counts: Dictionary) -> String:
+	var parts := PackedStringArray()
+	for kind in counts:
+		if int(counts[kind]) > 0:
+			parts.append("%s%d" % [String(kind).left(2), int(counts[kind])])
+	return ",".join(parts)
 
 
 func _build(evolution: Variant) -> String:
@@ -243,7 +304,9 @@ func _pick(evolution: Variant, strategy: String) -> int:
 func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	var here: Vector3 = swarm.position
 	_forget(world)
-	var dodge := _dodge(world, here, world.model.elapsed)
+	# Stage 09: dodge with the leader (units[0]) - it trails the swarm centre a
+	# little, and only its LP decide the run.
+	var dodge := _dodge(world, _leader_point(swarm), world.model.elapsed)
 	if dodge != Vector3.ZERO:
 		return {"move": Vector2(dodge.x, dodge.z).normalized(), "rally": false}
 	# Stage 08: keep away from the Moorbrut; Rally (more bite) when surrounded.
@@ -296,6 +359,13 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	return {"move": Vector2(direction.x, direction.z).limit_length(1.0), "rally": rally}
 
 
+func _leader_point(swarm: Variant) -> Vector3:
+	if swarm.units.is_empty():
+		return swarm.position
+	var point: Vector3 = swarm.unit_world_points()[0]
+	return Vector3(point.x, 0.0, point.z)
+
+
 # Escape direction from the Moorbrut within BROOD_ALERT m (weighted by closeness)
 # and whether the swarm is surrounded (BROOD_CROWD brood within 2.5 m).
 func _brood_escape(world: Variant, here: Vector3) -> Dictionary:
@@ -323,22 +393,51 @@ func _brood_escape(world: Variant, here: Vector3) -> Dictionary:
 # Sum of escape directions out of every noticed announced zone, or ZERO when safe.
 func _dodge(world: Variant, here: Vector3, now: float) -> Vector3:
 	var escape := Vector3.ZERO
+	# Stage 09: protect the leader (units[0]) - with 1 LP left the bot keeps a
+	# wider berth around every warning zone. A careful player with only a handful
+	# of Mawlings also keeps running until the stragglers are out (SMALL_SWARM).
+	var hp: Variant = world.model.get("leader_hp")
+	low_hp = hp != null and int(hp) <= 1
+	var extra := LOW_HP_MARGIN if low_hp else 0.0
+	var swarm: Variant = world.swarm
+	var points: PackedVector3Array = swarm.unit_world_points() if swarm.units.size() <= SMALL_SWARM else PackedVector3Array()
 	for hunter in world.hunters:
 		if hunter.state == HUNTER.State.WARNING and _noticed(hunter, now):
-			escape += _away(here, hunter.attack_center, TUNING.HUNTER_ATTACK_RADIUS + 0.8)
+			escape += _away_all(here, points, hunter.attack_center, TUNING.HUNTER_ATTACK_RADIUS + 0.8 + extra, TUNING.HUNTER_ATTACK_RADIUS + 0.3)
 	if world.boss != null and world.boss.state == BOG_KING.State.WARNING and _noticed(world.boss, now):
-		escape += _away(here, world.boss.attack_center, TUNING.BOSS_ATTACK_RADIUS + 0.8)
+		escape += _away_all(here, points, world.boss.attack_center, TUNING.BOSS_ATTACK_RADIUS + 0.8 + extra, TUNING.BOSS_ATTACK_RADIUS + 0.3)
 	for leaper in world.leapers:
-		if leaper.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP] and _noticed(leaper, now) and leaper.zone_margin(here) < 0.6:
-			escape += leaper.dodge_direction(here).normalized()
+		if leaper.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP] and _noticed(leaper, now):
+			var threatened: bool = leaper.zone_margin(here) < 0.6 + extra
+			for point in points:
+				threatened = threatened or leaper.zone_margin(point) < 0.25
+			if threatened:
+				escape += leaper.dodge_direction(here).normalized()
 	for skitter in world.skitters:
-		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH] and _noticed(skitter, now) and skitter.warning_distance(here) < TUNING.SKITTER_WIDTH + 0.7:
-			escape += skitter.dodge_direction(here).normalized()
+		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH] and _noticed(skitter, now):
+			var threatened: bool = skitter.warning_distance(here) < TUNING.SKITTER_WIDTH + 0.7 + extra
+			for point in points:
+				threatened = threatened or skitter.warning_distance(point) < TUNING.SKITTER_WIDTH + 0.25
+			if threatened:
+				escape += skitter.dodge_direction(here).normalized()
 	# Stage 08: Nibbler snap (small circle, short warning).
 	for prey in world.prey:
 		if int(prey.get("snap_state")) == 1 and _noticed(prey, now):
-			escape += _away(here, prey.snap_center, TUNING.NIBBLER_SNAP_RADIUS + 0.6)
+			escape += _away_all(here, points, prey.snap_center, TUNING.NIBBLER_SNAP_RADIUS + 0.6 + extra, TUNING.NIBBLER_SNAP_RADIUS + 0.25)
 	return escape
+
+
+# Away from `center` while the leader is within `reach` or any straggler within `inner`.
+func _away_all(here: Vector3, points: PackedVector3Array, center: Vector3, reach: float, inner: float) -> Vector3:
+	var direction := _away(here, center, reach)
+	if direction != Vector3.ZERO:
+		return direction
+	for point in points:
+		if Vector2(point.x - center.x, point.z - center.z).length() < inner:
+			var away := here - center
+			away.y = 0.0
+			return away.normalized() if away.length() > 0.01 else Vector3.RIGHT
+	return Vector3.ZERO
 
 
 func _away(here: Vector3, center: Vector3, reach: float) -> Vector3:
@@ -351,12 +450,15 @@ func _away(here: Vector3, center: Vector3, reach: float) -> Vector3:
 
 # A telegraph counts once the reaction time has passed, unless the bot overlooks it.
 # WARNING and the following strike phase share one decision; _forget() resets it.
+# Stage 09: with the leader on its last LP the bot is more alert (LOW_HP_FOCUS:
+# shorter reaction, fewer overlooked telegraphs) - "protect the leader".
 func _noticed(enemy: Variant, now: float) -> bool:
 	var key: int = enemy.get_instance_id()
+	var alert := low_hp
 	if not seen.has(key):
-		seen[key] = [now, skill_rng.randf() < miss]
+		seen[key] = [now, skill_rng.randf() < miss * (LOW_HP_FOCUS if alert else 1.0)]
 	var entry: Array = seen[key]
-	return not entry[1] and now - float(entry[0]) >= react
+	return not entry[1] and now - float(entry[0]) >= react * (LOW_HP_FOCUS if alert else 1.0)
 
 
 func _forget(world: Variant) -> void:

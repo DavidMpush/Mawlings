@@ -70,8 +70,10 @@ func _capture() -> void:
 		await process_frame
 	king.health = -1.0
 	await process_frame
-	world.evolution.offers.clear()
+	# The kills above earn enough DNA for several offers; keep the moment unobstructed.
 	for i in 12:
+		world.evolution.offers.clear()
+		world.evolution.dna = 0
 		await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_combat_king.png")

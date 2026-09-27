@@ -300,8 +300,8 @@ func _apply_switches_to_tree(node: Node) -> void:
 		swarm.shadows.visible = false
 	if _is_off("fx") and world.attack_forms != null:
 		world.attack_forms.visible = false
-	if _is_off("corpses") and world.get("corpse_batch") != null:
-		world.corpse_batch.visible = false
+	if _is_off("corpses") and world.get("corpse_view") != null:
+		world.corpse_view.visible = false
 	if _is_off("forms") and world.attack_forms != null:
 		world.evolution.ranks = {"jaws": 3, "pack": 3, "glutton": 3}
 		world._sync_attack_forms()
@@ -427,16 +427,19 @@ func _print_node_breakdown(label: String) -> void:
 		enemies += _geometry(enemy)
 	for prey in world.prey:
 		enemies += _geometry(prey)
-	# Corpses are one MultiMesh (Etappe 07); count its geometry once.
+	# Corpses: one MultiMesh per design + pool + halo (Etappe 09 corpse_visuals.gd).
 	var corpses := 0
-	var batch: Variant = world.get("corpse_batch")
-	if batch is GeometryInstance3D and is_instance_valid(batch) and (batch as GeometryInstance3D).is_visible_in_tree():
-		corpses = 1
+	var view: Variant = world.get("corpse_view")
+	var corpse_count := 0
+	if view is Node3D and is_instance_valid(view):
+		corpse_count = view.count()
+		if (view as Node3D).is_visible_in_tree():
+			corpses = view.active_batches()
 	var forms := _geometry(world.attack_forms) if world.attack_forms != null else 0
 	var swarm_geo := _geometry(swarm)
 	print("PERF_NODES scene=%s swarm_geo=%d mawling_units=%d ghosts=%d arena_chunks=%d arena_geo=%d enemy_geo=%d corpse_geo=%d corpses=%d attack_fx_geo=%d world_geo_total=%d unique_materials_hint=corpses:%d" % [
 		label, swarm_geo, swarm.units.size(), swarm.ghosts.size(), arena.get_child_count(), chunk_props, enemies, corpses,
-		world.corpse_visuals.size(), forms, _geometry(world), world.corpse_visuals.size()])
+		corpse_count, forms, _geometry(world), corpses])
 
 
 # Visible GeometryInstance3D nodes below `node` (MultiMesh counts once).

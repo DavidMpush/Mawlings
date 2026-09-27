@@ -87,6 +87,9 @@ func _run() -> void:
 	world.step(0.01)
 	check(world.evolution.dna == 20 and world.choosing() and world.hunters.is_empty(), "Hunter kill awards DNA once")
 	world.reset_run()
+	# Stage 09 lone start: the modifier checks below use a 25-strong swarm.
+	world.model.population = 25
+	swarm.set_population(25, false)
 	world.evolution.ranks["jaws"] = 3
 	world.evolution.ranks["pack"] = 3
 	swarm.rally_pressed = true
@@ -100,6 +103,8 @@ func _run() -> void:
 	world.step(0.1)
 	check(is_equal_approx(health - hunter.health, 4.0 * 1.55 * 2.8 * 0.1), "Damage modifier wired into combat")
 	world.reset_run()
+	world.model.population = 25
+	swarm.set_population(25, false)
 	world.evolution.ranks["armor"] = 3
 	world.evolution.ranks["scatter"] = 3
 	hunter = world._spawn_hunter(Vector3(3, 0, 0))

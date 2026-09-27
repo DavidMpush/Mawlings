@@ -165,9 +165,10 @@ func _run() -> void:
 	world.model.population = 100
 	swarm.set_population(100, false)
 	world.unit_points_valid = false
-	var victims: Array = [swarm.units[0], swarm.units[5], swarm.units[9]]
+	# Index 0 is the leader (stage 09, tests/leader.gd): bite three followers.
+	var victims: Array = [swarm.units[4], swarm.units[5], swarm.units[9]]
 	var keeper: Variant = swarm.units[1]
-	fake.bite_next = PackedInt32Array([0, 5, 9])
+	fake.bite_next = PackedInt32Array([4, 5, 9])
 	fake.losses_next = 3
 	world.step(0.05)
 	_check(world.model.population == 97, "Three bites at 100 visible cost three Mawlings (population %d)" % world.model.population)
@@ -217,6 +218,9 @@ func _run() -> void:
 		all.append(index)
 	fake.bite_next = all
 	fake.losses_next = 40
+	# Stage 09: the leader on its last LP falls with the rest.
+	world.model.leader_hp = 1
+	world.model.leader_invulnerable = 0.0
 	world.step(0.05)
 	_check(world.model.extinct, "Flood bites can wipe out the swarm")
 	var stats: Dictionary = world.run_stats()
@@ -254,6 +258,9 @@ func _run() -> void:
 	# Dodging the locked circle avoids the loss.
 	nibbler.snap_cooldown = 0.0
 	nibbler.position = swarm.position + Vector3(1.4, 0, 0)
+	# Stage 09: the shared snap gap blocks every Nibbler for a moment first.
+	_check(world.snap_gap > 0.0, "A resolved snap starts the shared snap gap")
+	world.snap_gap = 0.0
 	world.step(0.05)
 	_check(nibbler.snap_state == 1, "Nibbler snaps again after its cooldown")
 	swarm.position += Vector3(-6.0, 0, 0)
@@ -267,8 +274,9 @@ func _run() -> void:
 	var angry: Variant = world.prey[-1]
 	await process_frame
 	angry.snap_cooldown = 0.0
+	var approach_from: float = angry.position.distance_to(swarm.position)
 	angry.step(0.05, swarm.position, 1.0)
-	_check(angry.snap_state == 0, "A calm Nibbler 3 m away flees instead of snapping")
+	_check(angry.snap_state == 0 and angry.position.distance_to(swarm.position) < approach_from, "A calm Nibbler 3 m away closes in instead of snapping (stage 09)")
 	angry.health -= 1.0
 	angry.step(0.05, swarm.position, 1.0)
 	_check(angry.snap_state == 1, "A bitten Nibbler snaps back")

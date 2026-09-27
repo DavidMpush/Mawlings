@@ -55,6 +55,13 @@ var _skull_c := Vector2.ZERO
 var _gem_c := Vector2.INF
 var _bar_rects: Array = [Rect2(), Rect2(), Rect2(), Rect2()]   # swarm, time, dna, pause
 var _chips_bottom := 0.0
+# Etappe 09: loss strength of the current counter pulse (share of the swarm lost)
+# and the leader marker (crown + hit point pips) above units[0].
+var _loss_strength := 0.0
+var _swarm_node: Node3D
+var _leader := {}
+var _leader_screen := Vector2.INF
+var _crown_from_screen := Vector2.INF
 
 
 func _ready() -> void:
@@ -64,6 +71,7 @@ func _ready() -> void:
 	# Order = drawing order of the original single pass.
 	for spec in [
 		["backdrop", false, Rect2(0, 0, 0, 200)],
+		["leader", false, Rect2()],
 		["swarm", true, Rect2()],
 		["time", true, Rect2()],
 		["time_glow", false, Rect2()],
@@ -95,6 +103,8 @@ func _paint_part(part: String) -> void:
 	match part:
 		"backdrop":
 			_draw_backdrop()
+		"leader":
+			_draw_leader()
 		"swarm", "time", "time_glow", "time_skull", "dna", "pause":
 			_draw_top_bar()
 		"chips", "alpha_glow", "alpha_top":
@@ -156,7 +166,8 @@ func _refresh_layers() -> void:
 	_region("hints", Rect2(0, _corpse_y - 16, size.x, 130))
 	_region("medals", Rect2(size.x - 110, _right_y, 110, maxf(1.0, size.y - _right_y)))
 	_layers.backdrop.refresh(size)
-	_layers.swarm.refresh([pop, _pop_delta, _pop_pulse, size])
+	_refresh_leader()
+	_layers.swarm.refresh([pop, _pop_delta, _pop_pulse, int(_time * 60.0) if _pop_pulse > 0.0 and _pop_delta < 0 else 0, size])
 	_layers.time.refresh([int(float(_hud_value("elapsed", 0.0))), danger_q, size])
 	# Danger skull glow: radius and alpha breathe through scale/modulate only.
 	var glow: Control = _layers.time_glow
@@ -237,6 +248,12 @@ func _advance(delta: float) -> void:
 			_pop_delta += change
 		else:
 			_pop_delta = change
+			_loss_strength = 0.0
+		if change < 0:
+			# Share of the swarm lost: 1 of 3 flashes hard, 1 of 200 barely.
+			var share := float(-change) / float(maxi(1, _last_pop))
+			share = maxf(share, float(_hud_value("last_loss_fraction", 0.0)))
+			_loss_strength = clampf(maxf(_loss_strength, 0.25 + sqrt(share) * 1.2), 0.0, 1.0)
 		_pop_pulse = 1.0
 		_last_pop = pop
 	_pop_pulse = maxf(0.0, _pop_pulse - delta * 1.1)
@@ -274,6 +291,9 @@ func _hud_value(key: String, fallback: Variant) -> Variant:
 	if hud == null:
 		return fallback
 	var value: Variant = hud.get(key)
+	# Stage 09 values may arrive as meta when the HUD has no such property.
+	if value == null and hud.has_meta(key):
+		value = hud.get_meta(key)
 	return fallback if value == null else value
 
 
@@ -343,10 +363,13 @@ func _draw_swarm(rect: Rect2) -> void:
 	var gain := _pop_delta >= 0
 	var pulse_color := UiStyle.TOXIC if gain else UiStyle.DANGER
 	var accent := UiStyle.EMBER.lerp(pulse_color, _pop_pulse * 0.8)
+	var hurt := 0.0 if gain else _loss_strength * _pop_pulse
+	if hurt > 0.0:
+		_panel_glow(rect, UiStyle.DANGER, 0.55 * hurt)
 	_panel(rect, accent, 16.0, false)
 	var head_c := rect.position + Vector2(52, 52)
 	if _pop_pulse > 0.0:
-		_cv.draw_circle(head_c, 40 + 8 * _pop_pulse, Color(pulse_color, 0.25 * _pop_pulse))
+		_cv.draw_circle(head_c, 40 + 8 * _pop_pulse + 10 * hurt, Color(pulse_color, 0.25 * _pop_pulse + 0.2 * hurt))
 	if not _icon(["mawling_head_color", "mawling_head"], Rect2(head_c - Vector2(40, 40), Vector2(80, 80)), Color.WHITE):
 		_fb_head(head_c, 36, UiStyle.EMBER)
 	var x := rect.position.x + 102
@@ -354,11 +377,19 @@ func _draw_swarm(rect: Rect2) -> void:
 	# Big number grows and tints on change, then settles back.
 	var num_size := roundf(54 + 8 * _ease(_pop_pulse))
 	var num_color := Color.WHITE.lerp(pulse_color.lightened(0.25), _pop_pulse)
-	var w := UiStyle.text_px(_cv, "%d" % pop, Vector2(x - 2, rect.position.y + 84), num_size, num_color, false, 9)
+	# Growth: the number hops once; loss: it shakes, harder for a bigger share.
+	var at := Vector2(x - 2, rect.position.y + 84)
+	if gain and _pop_pulse > 0.0:
+		at.y -= 12.0 * sin(PI * clampf((1.0 - _pop_pulse) * 3.0, 0.0, 1.0))
+	elif hurt > 0.0:
+		at.x += sin(_time * 70.0) * 7.0 * hurt
+	var w := UiStyle.text_px(_cv, "%d" % pop, at, num_size, num_color, false, 9)
 	UiStyle.text(_cv, "/ %d" % MAX_POPULATION, Vector2(x + w + 6, rect.position.y + 82), LABEL, UiStyle.TEXT_DIM, false, 5, UiStyle.body_font())
 	# Floating delta ("+7" / "−12") rises out of the number.
 	if _pop_pulse > 0.0 and _pop_delta != 0:
 		var rise := (1.0 - _pop_pulse) * 12.0
+		if gain:
+			rise += 10.0 * sin(PI * clampf((1.0 - _pop_pulse) * 4.0, 0.0, 1.0))
 		var sign_text := "+" if gain else "−"
 		UiStyle.text(_cv, "%s%d" % [sign_text, absi(_pop_delta)], Vector2(rect.end.x - 30, rect.position.y + 44 - rise), UiStyle.SIZE_BODY, Color(pulse_color.lightened(0.2), minf(1.0, _pop_pulse * 1.6)), true, 6)
 	# Population fill along the lower rim.
@@ -600,6 +631,161 @@ func _draw_medallions(y: float) -> void:
 			for i in 3:
 				_diamond(c + Vector2(-16 + i * 16, r + 10), 6.5, accent if i < rank else Color(UiStyle.PANEL_EDGE, 0.9), true)
 		c.y += r * 2 + 30
+
+
+# ---------------------------------------------------------------- leader marker
+
+const LEADER_PIP_R := 13.0
+const LEADER_PIP_GAP := 34.0
+const PIP_BREAK_SECONDS := 0.55
+
+
+func _find_swarm() -> Node3D:
+	if _swarm_node == null or not is_instance_valid(_swarm_node):
+		_swarm_node = get_tree().get_first_node_in_group("swarm") as Node3D if is_inside_tree() else null
+	return _swarm_node
+
+
+# Projects the leader anchor every frame and only moves the layer; it repaints
+# when hit points, the crown jump or a breaking pip change.
+func _refresh_leader() -> void:
+	var layer: Control = _layers.leader
+	var swarm := _find_swarm()
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	_leader = swarm.call("leader_display") if swarm != null and swarm.has_method("leader_display") else {}
+	var shown := camera != null and bool(_leader.get("visible", false)) and not bool(_hud_value("extinct", false)) and not bool(_hud_value("paused", false))
+	if shown:
+		var anchor: Vector3 = _leader.anchor
+		shown = not camera.is_position_behind(anchor)
+		if shown:
+			_leader_screen = camera.unproject_position(anchor)
+			var from: Vector3 = _leader.from
+			_crown_from_screen = camera.unproject_position(from) if not camera.is_position_behind(from) else _leader_screen
+	layer.visible = shown
+	if not shown:
+		return
+	layer.position = (_leader_screen - Vector2(0, 14)).round()
+	var hp := _leader_hp()
+	var max_hp := _leader_max_hp()
+	var jump := float(_leader.get("jump", 1.0))
+	var hit := float(_leader.get("hit_age", 99.0))
+	var broke := float(_leader.get("pip_break_age", 99.0))
+	var moving := jump < 1.0 or hit < 0.5 or broke < PIP_BREAK_SECONDS
+	layer.refresh([hp, max_hp, int(_time * 60.0) if moving else 0, jump < 1.0])
+	# Invulnerable: the whole marker blinks through modulate (no repaint).
+	var blink := bool(_hud_value("leader_invulnerable", _leader.get("invulnerable", false)))
+	layer.modulate = Color(1, 1, 1, 0.35 if blink and fmod(_time * 7.0, 1.0) < 0.5 else 1.0)
+
+
+func _leader_hp() -> int:
+	return int(_hud_value("leader_hp", _leader.get("hp", 0)))
+
+
+func _leader_max_hp() -> int:
+	return int(_hud_value("leader_max_hp", _leader.get("max_hp", 0)))
+
+
+# Crown above hit point pips, drawn around the layer origin (the leader's head).
+# Backing and pips are quads of ONE shared disc texture (batched into a single
+# draw call); the crown is the icon texture, so the marker costs ~2 draw calls.
+func _draw_leader() -> void:
+	if _leader.is_empty():
+		return
+	var hp := _leader_hp()
+	var max_hp := mini(_leader_max_hp(), 8)
+	var hit := float(_leader.get("hit_age", 99.0))
+	var shake := Vector2.ZERO
+	if hit < 0.4:
+		var k := 1.0 - hit / 0.4
+		shake = Vector2(sin(_time * 80.0) * 6.0 * k, cos(_time * 67.0) * 3.0 * k)
+	var row_w := LEADER_PIP_GAP * float(maxi(0, max_hp - 1))
+	var pip_y := 0.0
+	var disc := _disc_texture()
+	if max_hp > 0:
+		# Dark backing keeps the pips readable over grass and sand.
+		var half := Vector2(row_w * 0.5 + LEADER_PIP_R + 14, LEADER_PIP_R + 10)
+		_cv.draw_texture_rect(disc, Rect2(shake - half, half * 2.0), false, Color(UiStyle.OUTLINE, 0.7))
+		for i in max_hp:
+			var c := Vector2(-row_w * 0.5 + LEADER_PIP_GAP * i, pip_y) + shake
+			_pip(disc, c, i < hp, hit < 0.3 and i == hp - 1)
+		var broken := int(_leader.get("pip_broken", -1))
+		var broke := float(_leader.get("pip_break_age", 99.0))
+		if broken >= 0 and broken < max_hp and broke < PIP_BREAK_SECONDS:
+			_broken_pip(Vector2(-row_w * 0.5 + LEADER_PIP_GAP * broken, pip_y) + shake, broke / PIP_BREAK_SECONDS)
+	# Crown: jumps in an arc from the fallen leader to its successor.
+	var crown := Vector2(0, pip_y - (LEADER_PIP_R + 24 if max_hp > 0 else 6))
+	var jump := float(_leader.get("jump", 1.0))
+	var scale := 1.0
+	if jump < 1.0:
+		var from := _crown_from_screen - _leader_screen + crown
+		crown = from.lerp(crown, _ease(jump)) + Vector2(0, -70.0 * sin(PI * jump))
+		scale = 1.0 + 0.5 * sin(PI * jump)
+		var glow := Vector2(34, 34) * scale
+		_cv.draw_texture_rect(disc, Rect2(crown - glow, glow * 2.0), false, Color(UiStyle.GOLD, 0.3 * (1.0 - jump)))
+	var r := 28.0 * scale
+	if not _icon(["crown"], Rect2(crown - Vector2(r, r), Vector2(r, r) * 2.0), Color.WHITE):
+		_crown(crown, 20.0 * scale)
+
+
+# Soft-edged white disc shared by the leader pips and their backing.
+static var _disc: GradientTexture2D
+
+
+func _disc_texture() -> Texture2D:
+	if _disc == null:
+		var gradient := Gradient.new()
+		gradient.offsets = PackedFloat32Array([0.0, 0.8, 1.0])
+		gradient.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
+		_disc = GradientTexture2D.new()
+		_disc.gradient = gradient
+		_disc.fill = GradientTexture2D.FILL_RADIAL
+		_disc.fill_from = Vector2(0.5, 0.5)
+		_disc.fill_to = Vector2(1.0, 0.5)
+		_disc.width = 64
+		_disc.height = 64
+	return _disc
+
+
+# One hit point: dark rim, warm ember core and a gloss dot; empty = dark socket.
+func _pip(disc: Texture2D, c: Vector2, full: bool, flash: bool) -> void:
+	var r := LEADER_PIP_R
+	_cv.draw_texture_rect(disc, Rect2(c - Vector2(r + 3, r + 3), Vector2(r + 3, r + 3) * 2.0), false, UiStyle.OUTLINE)
+	if full:
+		var fill := UiStyle.EMBER_GLOW.lerp(Color.WHITE, 0.6) if flash else UiStyle.EMBER.lerp(UiStyle.EMBER_GLOW, 0.55)
+		_cv.draw_texture_rect(disc, Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0), false, fill)
+		var dot := r * 0.32
+		_cv.draw_texture_rect(disc, Rect2(c + Vector2(-r * 0.3, -r * 0.32) - Vector2(dot, dot), Vector2(dot, dot) * 2.0), false, Color(1, 1, 1, 0.6))
+	else:
+		_cv.draw_texture_rect(disc, Rect2(c - Vector2(r - 3, r - 3), Vector2(r - 3, r - 3) * 2.0), false, Color(UiStyle.DANGER.darkened(0.55), 0.9))
+
+
+# The pip that just broke: two halves fly apart, tumble and fade.
+func _broken_pip(c: Vector2, t: float) -> void:
+	var r := LEADER_PIP_R
+	var a := 1.0 - t
+	var drift := 22.0 * _ease(t)
+	var drop := 26.0 * t * t
+	for side: float in [-1.0, 1.0]:
+		var o := c + Vector2(side * drift, drop)
+		var turn := side * t * 1.6
+		var half := PackedVector2Array([Vector2(0, -r * 1.15), Vector2(side * r, -r * 0.2), Vector2(side * r * 0.7, r * 0.8), Vector2(0, r * 1.1), Vector2(side * r * 0.15, 0)])
+		var pts := PackedVector2Array()
+		for p in half:
+			pts.append(o + p.rotated(turn))
+		_cv.draw_colored_polygon(pts, Color(UiStyle.DANGER.lerp(UiStyle.EMBER_GLOW, 0.3), a))
+	if t < 0.35:
+		_cv.draw_circle(c, r * (1.0 + 2.0 * t), Color(1, 1, 1, 0.5 * (1.0 - t / 0.35)))
+
+
+func _crown(c: Vector2, r: float) -> void:
+	var k := r / 20.0
+	var pts := PackedVector2Array([c + Vector2(-20, 12) * k, c + Vector2(-23, -12) * k, c + Vector2(-10, 0) * k, c + Vector2(0, -18) * k, c + Vector2(10, 0) * k, c + Vector2(23, -12) * k, c + Vector2(20, 12) * k])
+	var outline := pts.duplicate()
+	outline.append(pts[0])
+	_cv.draw_polyline(outline, UiStyle.OUTLINE, 6.0 * maxf(1.0, k), true)
+	_gradient(pts, UiStyle.GOLD.lightened(0.35), UiStyle.AMBER.darkened(0.2), c.y - r, c.y + r * 0.6)
+	for tip: Vector2 in [Vector2(-23, -12), Vector2(0, -18), Vector2(23, -12)]:
+		_cv.draw_circle(c + tip * k, 3.2 * k, UiStyle.BONE)
 
 
 # ---------------------------------------------------------------- building blocks

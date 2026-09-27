@@ -21,11 +21,15 @@ $Strategies = & $split $Strategies
 $Difficulties = @(& $split $Difficulties | ForEach-Object { [int]$_ })
 $Seeds = @(& $split $Seeds | ForEach-Object { [int]$_ })
 # Targets from stages/08_flood_difficulty.md (median death in seconds): Wild 6:30-8:30
-# (every run >= 120 s and < 11 min, median population at 2:00 <= 160), Brutal 5:00-6:30,
-# Apex 3:30-4:30.
+# (every run < 11 min), Brutal 5:00-6:30, Apex 3:30-4:30. Stage 09: with the lone start one
+# overlooked ring can end a run early, so Wild allows at most 10 % of runs below 120 s
+# (before: every run >= 120 s).
+# Stage 09 (lone start) growth curve, Wild median: 1:00 -> 6-14, 2:00 -> 25-55,
+# flood start -> 80-160 Mawlings.
 $targets = @{ 0 = @(390, 510); 1 = @(300, 390); 2 = @(210, 270) }
 $wildMaxSeconds = 660
-$wildPop120 = 160
+$wildEarlyShare = 0.10
+$wildGrowth = @{ pop60 = @(6, 14); pop120 = @(25, 55); popflood = @(80, 160) }
 
 $jobs = New-Object System.Collections.Generic.List[object]
 foreach ($d in $Difficulties) { foreach ($s in $Strains) { foreach ($st in $Strategies) { foreach ($seed in $Seeds) {
@@ -41,7 +45,7 @@ while ($queue.Count -gt 0 -or $running.Count -gt 0) {
 		$job = $queue.Dequeue()
 		$info = New-Object System.Diagnostics.ProcessStartInfo
 		$info.FileName = $godotExe
-		$info.Arguments = "--headless --fixed-fps 60 --path `"$projectDir`" --script res://tests/balance_sim.gd -- strain=$($job.strain) diff=$($job.diff) seed=$($job.seed) strategy=$($job.strategy) limit=$Limit"
+		$info.Arguments = "--headless --audio-driver Dummy --fixed-fps 60 --path `"$projectDir`" --script res://tests/balance_sim.gd -- strain=$($job.strain) diff=$($job.diff) seed=$($job.seed) strategy=$($job.strategy) limit=$Limit"
 		$info.UseShellExecute = $false
 		$info.RedirectStandardOutput = $true
 		$info.RedirectStandardError = $true
@@ -70,6 +74,9 @@ function Parse($line) {
 	foreach ($m in [regex]::Matches($line, '(\w+)=(\S+)')) { $h[$m.Groups[1].Value] = $m.Groups[2].Value }
 	$h.survived = [double]$h.survived; $h.diff = [int]$h.diff; $h.peak = [int]$h.peak; $h.kills = [int]$h.kills
 	$h.pop120 = if ($h.ContainsKey('pop120')) { [int]$h.pop120 } else { -1 }
+	$h.pop60 = if ($h.ContainsKey('pop60')) { [int]$h.pop60 } else { -1 }
+	$h.popflood = if ($h.ContainsKey('popflood')) { [int]$h.popflood } else { -1 }
+	$h.swaps = if ($h.ContainsKey('swaps')) { [int]$h.swaps } else { 0 }
 	$h.flood = if ($h.ContainsKey('flood')) { [double]$h.flood } else { 0 }
 	return [pscustomobject]$h
 }
@@ -83,7 +90,7 @@ $rows = @($lines | ForEach-Object { Parse $_ })
 function Summary($group, $label) {
 	$t = @($group | ForEach-Object { $_.survived })
 	$causes = ($group | Group-Object cause | Sort-Object Count -Descending | ForEach-Object { "$($_.Name)$($_.Count)" }) -join ' '
-	'{0,-34} n={1,2}  median={2,6:N0}s  min={3,5:N0}s  max={4,5:N0}s  peak~{5,3}  pop2:00~{6,3}  flood~{7,4:N0}s  kills~{8,4}  {9}' -f $label, $t.Count, (Median $t), ($t | Measure-Object -Minimum).Minimum, ($t | Measure-Object -Maximum).Maximum, (Median @($group | ForEach-Object { $_.peak })), (Median @($group | ForEach-Object { $_.pop120 })), (Median @($group | ForEach-Object { $_.flood })), (Median @($group | ForEach-Object { $_.kills })), $causes
+	'{0,-34} n={1,2}  median={2,6:N0}s  min={3,5:N0}s  max={4,5:N0}s  peak~{5,3}  pop1:00~{6,3}  pop2:00~{7,3}  popFlut~{8,3}  swaps~{9,2}  flood~{10,4:N0}s  kills~{11,4}  {12}' -f $label, $t.Count, (Median $t), ($t | Measure-Object -Minimum).Minimum, ($t | Measure-Object -Maximum).Maximum, (Median @($group | ForEach-Object { $_.peak })), (Median @($group | ForEach-Object { $_.pop60 })), (Median @($group | ForEach-Object { $_.pop120 })), (Median @($group | ForEach-Object { $_.popflood })), (Median @($group | ForEach-Object { $_.swaps })), (Median @($group | ForEach-Object { $_.flood })), (Median @($group | ForEach-Object { $_.kills })), $causes
 }
 Write-Output ''
 Write-Output '--- per strain / difficulty / strategy'
@@ -100,10 +107,23 @@ foreach ($g in ($rows | Group-Object diff | Sort-Object Name)) {
 	$min = ($g.Group | Measure-Object survived -Minimum).Minimum
 	$range = $targets[$d]
 	$max = ($g.Group | Measure-Object survived -Maximum).Maximum
-	$pop = Median @($g.Group | ForEach-Object { $_.pop120 })
-	$hit = $med -ge $range[0] -and $med -le $range[1] -and ($d -ne 0 -or ($min -ge 120 -and $max -lt $wildMaxSeconds -and $pop -le $wildPop120))
+	$growthOk = $true
+	$growthText = ''
+	if ($d -eq 0) {
+		foreach ($key in @('pop60', 'pop120', 'popflood')) {
+			$value = Median @($g.Group | ForEach-Object { $_.$key })
+			$band = $wildGrowth[$key]
+			$inside = $value -ge $band[0] -and $value -le $band[1]
+			if (-not $inside) { $growthOk = $false }
+			$growthText += ('  {0}={1} ({2}-{3} {4})' -f $key, $value, $band[0], $band[1], $(if ($inside) { 'ok' } else { 'MISS' }))
+		}
+	}
+	$early = @($g.Group | Where-Object { $_.survived -lt 120 }).Count / [math]::Max(1, $g.Count)
+	if ($d -eq 0) { $growthText += ('  under2:00={0:P0} (max {1:P0})' -f $early, $wildEarlyShare) }
+	$hit = $med -ge $range[0] -and $med -le $range[1] -and ($d -ne 0 -or ($early -le $wildEarlyShare -and $max -lt $wildMaxSeconds -and $growthOk))
 	if (-not $hit) { $ok = $false }
 	Write-Output ((Summary $g.Group "diff=$d") + ("  target {0}-{1}s {2}" -f $range[0], $range[1], $(if ($hit) { 'OK' } else { 'MISS' })))
+	if ($growthText) { Write-Output ('    growth' + $growthText) }
 	$meds = @($g.Group | Group-Object strain | ForEach-Object { Median @($_.Group | ForEach-Object { $_.survived }) })
 	if ($meds.Count -gt 1) {
 		$spread = (($meds | Measure-Object -Maximum).Maximum / [math]::Max(1, ($meds | Measure-Object -Minimum).Minimum)) - 1

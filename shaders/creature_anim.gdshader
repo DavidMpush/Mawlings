@@ -48,9 +48,21 @@ instance uniform float instance_walk = 0.0;
 instance uniform float instance_phase = 0.0;
 instance uniform float instance_bite = 0.0;
 // MultiMesh drawing (Swarm): per-instance values come from INSTANCE_CUSTOM
-// (x = walk, y = phase, z = bite) instead of the instance uniforms above.
-// Off for single MeshInstance3D users (menu pack, Bog King).
+// (x = walk, y = phase, z = bite, w = glow + 4 * leader) instead of the
+// instance uniforms above. Off for single MeshInstance3D users (menu pack, Bog King).
 uniform bool use_instance_custom = false;
+
+group_uniforms glow;
+// Etappe 09: per-instance glow (w of INSTANCE_CUSTOM, -1..1): > 0 brightens
+// towards glow_color (cell division shimmer, leader blink), < 0 flushes towards
+// hurt_color (leader hit). w >= 2 marks the leader: a lighter rim inside the contour.
+uniform vec4 glow_color : source_color = vec4(1.0, 0.96, 0.82, 1.0);
+uniform vec4 hurt_color : source_color = vec4(1.0, 0.18, 0.12, 1.0);
+uniform vec4 leader_rim : source_color = vec4(1.0, 0.86, 0.45, 1.0);
+// Whole-swarm glow (milestones), 0..1.
+uniform float swarm_glow = 0.0;
+varying float v_glow;
+varying float v_leader;
 
 group_uniforms jaw;
 // Lower jaw: vertices in front of the hinge and between floor and hinge height.
@@ -97,6 +109,11 @@ void vertex() {
 		i_walk = INSTANCE_CUSTOM.x;
 		i_phase = INSTANCE_CUSTOM.y;
 		i_bite = INSTANCE_CUSTOM.z;
+		v_leader = step(2.0, INSTANCE_CUSTOM.w);
+		v_glow = INSTANCE_CUSTOM.w - 4.0 * v_leader;
+	} else {
+		v_leader = 0.0;
+		v_glow = 0.0;
 	}
 	float walk = clamp((walk_amount + i_walk) * walk_scale, 0.0, 1.0);
 	float phase = TIME * walk_speed + walk_phase + i_phase;
@@ -157,5 +174,17 @@ void vertex() {
 }
 
 void fragment() {
-	ALBEDO = creature_look(COLOR.rgb, NORMAL, VIEW, FRONT_FACING);
+	vec3 look = creature_look(COLOR.rgb, NORMAL, VIEW, FRONT_FACING);
+	vec3 n = normalize(NORMAL);
+	if (!FRONT_FACING) {
+		n = -n;
+	}
+	float facing = 1.0 - clamp(abs(dot(n, VIEW)), 0.0, 1.0);
+	// Leader: a light band just inside the dark contour (contour starts at 0.5).
+	float band = smoothstep(0.18, 0.42, facing) * (1.0 - smoothstep(0.5, 0.6, facing));
+	look = mix(look, leader_rim.rgb, v_leader * band * 0.8);
+	float glow = max(v_glow, 0.0) + swarm_glow * 0.55;
+	look = mix(look, glow_color.rgb, clamp(glow * (0.65 + 0.45 * facing), 0.0, 0.9));
+	look = mix(look, hurt_color.rgb, clamp(-v_glow, 0.0, 1.0) * 0.7);
+	ALBEDO = look;
 }

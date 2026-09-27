@@ -23,6 +23,16 @@ const RULES := {
 	"extinct": {"gap": 1000, "voices": 1, "db": -3.0},
 	"pickup": {"gap": 70, "voices": 2, "db": -8.0},
 	"ui": {"gap": 40, "voices": 2, "db": -11.0},
+	# Etappe 09: division, growth moments and losses.
+	"split": {"gap": 70, "voices": 3, "db": -8.0},
+	"milestone": {"gap": 600, "voices": 1, "db": -4.0},
+	"death": {"gap": 110, "voices": 2, "db": -9.0},
+	"leader_hit": {"gap": 250, "voices": 1, "db": -3.0},
+	"leader_swap": {"gap": 500, "voices": 1, "db": -4.0},
+}
+## Loops (start_loop/stop_loop), one voice each outside the pool.
+const LOOP_RULES := {
+	"heartbeat": {"db": -4.0},
 }
 
 ## Global offset in dB applied to every effect and the ambience.
@@ -44,6 +54,8 @@ var _player_started: Array[int] = []
 ## Bookkept end time per voice; independent of the audio driver (works headless).
 var _player_end: Array[int] = []
 var _ambience: AudioStreamPlayer
+var _loops := {}          # id -> AudioStreamPlayer
+var _loop_on := {}        # id -> bool (bookkept, also with the Dummy driver)
 var _last_vibrate_ms := -100000
 ## True with the Dummy audio driver (headless tests): voices are only bookkept, never
 ## started, because the dummy mixer never releases playbacks and Godot reports leaks.
@@ -56,6 +68,8 @@ func _ready() -> void:
 	for id: String in RULES:
 		_load_variants(id)
 	_load_variants(AMBIENCE_ID)
+	for id: String in LOOP_RULES:
+		_load_variants(id)
 	for i in POOL_SIZE:
 		var player := AudioStreamPlayer.new()
 		player.name = "Voice%d" % i
@@ -113,14 +127,7 @@ func play_ambience() -> void:
 		_ambience = AudioStreamPlayer.new()
 		_ambience.name = "Ambience"
 		add_child(_ambience)
-		var stream: AudioStream = variants[0]
-		if stream is AudioStreamWAV:
-			var wav := (stream as AudioStreamWAV).duplicate() as AudioStreamWAV
-			wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
-			wav.loop_begin = 0
-			wav.loop_end = int(wav.get_length() * float(wav.mix_rate))
-			stream = wav
-		_ambience.stream = stream
+		_ambience.stream = _looped(variants[0])
 	_ambience.volume_db = _ambience_db()
 	if not _ambience.playing and not _silent:
 		_ambience.play()
@@ -129,6 +136,42 @@ func play_ambience() -> void:
 func stop_ambience() -> void:
 	if _ambience != null:
 		_ambience.stop()
+
+
+## Starts a seamless loop (e.g. "heartbeat"); calling it again keeps it running.
+func start_loop(id: String) -> void:
+	if not LOOP_RULES.has(id) or not sfx_enabled:
+		return
+	var variants: Array = _streams.get(id, [])
+	if variants.is_empty():
+		return
+	_loop_on[id] = true
+	var player: AudioStreamPlayer = _loops.get(id)
+	if player == null:
+		player = AudioStreamPlayer.new()
+		player.name = "Loop_" + id
+		add_child(player)
+		player.stream = _looped(variants[0])
+		_loops[id] = player
+	player.volume_db = float(LOOP_RULES[id]["db"]) + master_volume_db
+	if not player.playing and not _silent:
+		player.play()
+
+
+func stop_loop(id: String) -> void:
+	_loop_on[id] = false
+	var player: AudioStreamPlayer = _loops.get(id)
+	if player != null:
+		player.stop()
+
+
+## True when `id` started less than `ms` milliseconds ago (callers avoid doubles).
+func recently_played(id: String, ms: int) -> bool:
+	return _last_start_ms.has(id) and Time.get_ticks_msec() - int(_last_start_ms[id]) < ms
+
+
+func is_looping(id: String) -> bool:
+	return bool(_loop_on.get(id, false))
 
 
 ## Number of pool voices currently playing the given id.
@@ -154,6 +197,8 @@ func stop_all() -> void:
 		_players[i].stop()
 		_player_end[i] = 0
 	stop_ambience()
+	for id: String in _loops:
+		stop_loop(id)
 
 
 func _exit_tree() -> void:
@@ -163,6 +208,18 @@ func _exit_tree() -> void:
 		player.stream = null
 	if _ambience != null:
 		_ambience.stream = null
+	for id: String in _loops:
+		(_loops[id] as AudioStreamPlayer).stream = null
+
+
+func _looped(stream: AudioStream) -> AudioStream:
+	if stream is AudioStreamWAV:
+		var wav := (stream as AudioStreamWAV).duplicate() as AudioStreamWAV
+		wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		wav.loop_begin = 0
+		wav.loop_end = int(wav.get_length() * float(wav.mix_rate))
+		return wav
+	return stream
 
 
 func _load_variants(id: String) -> void:

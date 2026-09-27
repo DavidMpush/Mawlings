@@ -49,11 +49,17 @@ func _run() -> void:
 		var direction: Vector3 = target - swarm.position
 		if harvesting and direction.length() < 1.0:
 			direction = Vector3.ZERO
+		# Stage 09: dodge with the leader (units[0]) and wait for stragglers.
+		var points: PackedVector3Array = swarm.unit_world_points()
+		var lead: Vector3 = points[0] if not points.is_empty() else swarm.position
+		lead.y = 0.0
 		var avoiding := false
 		for hunter in world.hunters:
 			if hunter.get("state") == HUNTER.State.WARNING:
-				var away: Vector3 = swarm.position - hunter.get("attack_center")
-				if away.length() < 3.1:
+				var center: Vector3 = hunter.get("attack_center")
+				var away: Vector3 = lead - center
+				away.y = 0.0
+				if away.length() < 3.1 or _any_within(points, center, 2.6):
 					direction = away.normalized() if away.length() > 0.01 else Vector3.RIGHT
 					avoiding = true
 					break
@@ -67,9 +73,9 @@ func _run() -> void:
 			# Stage 08: Nibblers snap back in a small announced circle.
 			for prey in world.prey:
 				if int(prey.get("snap_state")) == 1:
-					var away: Vector3 = swarm.position - prey.snap_center
+					var away: Vector3 = lead - prey.snap_center
 					away.y = 0.0
-					if away.length() < 1.9:
+					if away.length() < 1.9 or _any_within(points, prey.snap_center, 1.45):
 						direction = away.normalized() if away.length() > 0.01 else Vector3.RIGHT
 						avoiding = true
 						break
@@ -82,15 +88,25 @@ func _run() -> void:
 		hud.movement_vector = Vector2(direction.x, direction.z).limit_length(1.0)
 		hud.rally_pressed = best < 1.05 and not avoiding
 		await process_frame
-	print("PLAYTEST seconds=%.1f population=%d peak=%d kills=%d lost=%d corpses=%d hunters=%d skitters=%d nests=%d extinct=%s" % [world.model.elapsed, world.model.population, world.model.peak_population, world.model.kills, world.model.lost_population, world.model.corpses.size(), world.hunters.size(), world.skitters.size(), world.nests_completed, world.model.extinct])
+	print("PLAYTEST seconds=%.1f population=%d peak=%d kills=%d lost=%d corpses=%d hunters=%d skitters=%d nests=%d leader=%d/%d swaps=%d extinct=%s" % [world.model.elapsed, world.model.population, world.model.peak_population, world.model.kills, world.model.lost_population, world.model.corpses.size(), world.hunters.size(), world.skitters.size(), world.nests_completed, world.model.leader_hp, world.model.leader_max_hp, world.model.leader_swaps, world.model.extinct])
 	print("EVOLUTION level=%d build=%s" % [world.evolution.level, world.evolution.summary()])
-	if world.evolution.level < 1 or world.model.kills < 3 or world.model.peak_population <= 25 or world.model.elapsed < 60.0:
-		push_error("Automated food-and-dodge playtest could not establish the survival loop")
+	# Stage 09 lone start: from one Mawling the loop must grow to at least 15.
+	if world.evolution.level < 1 or world.model.kills < 3 or world.model.peak_population < 15 or world.model.elapsed < 60.0:
+		push_error("Automated food-and-dodge playtest could not establish the survival loop (peak %d)" % world.model.peak_population)
 		quit(1)
 		return
-	# Stage 08: the default 120 s run on Wild must survive, but with real losses.
-	if frame_budget == 7200 and (world.model.extinct or world.model.lost_population < 10):
-		push_error("Wild must survive 120 s with noticeable losses (extinct=%s lost=%d)" % [world.model.extinct, world.model.lost_population])
+	# The default 120 s run on Wild must survive, but with real losses.
+	if frame_budget == 7200 and (world.model.extinct or world.model.lost_population < 1):
+		push_error("Wild must survive 120 s with losses (extinct=%s lost=%d)" % [world.model.extinct, world.model.lost_population])
 		quit(1)
 		return
 	quit(0)
+
+
+func _any_within(points: PackedVector3Array, center: Vector3, reach: float) -> bool:
+	if points.size() > 16:
+		return false
+	for point in points:
+		if Vector2(point.x - center.x, point.z - center.z).length() < reach:
+			return true
+	return false

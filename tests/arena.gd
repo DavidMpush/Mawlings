@@ -43,12 +43,16 @@ func _run() -> void:
 	prey.call("step", 1.0, swarm.position)
 	check(prey.position.distance_to(rock) >= arena.OBSTACLE_RADIUS + 0.55 - 0.001, "Prey obeys stone footprint")
 	_check_seeds(arena)
+	_check_biome_transition(arena)
+	_check_decor_density(arena)
+	# Last: after the Glutsumpf round trips Verdant must still be built exactly as before.
+	_check_verdant_exact(arena)
 	if not failures.is_empty():
 		for failure in failures:
 			push_error(failure)
 		quit(1)
 	else:
-		print("PASS arena: bounded chunks, deterministic travel, slide, safe spawn, persistent corpses, prey collision, seeds (classic layout, determinism, start zone, passages, collision share, clear trails, runtime switch)")
+		print("PASS arena: bounded chunks, deterministic travel, slide, safe spawn, persistent corpses, prey collision, seeds (classic layout, determinism, start zone, passages, collision share, clear trails, runtime switch), staggered biome switch, glutsumpf part budget, decor density, verdant exact")
 		quit(0)
 
 # --- Seeds ---------------------------------------------------------------------
@@ -190,3 +194,161 @@ func _check_seeds(arena: Variant) -> void:
 			break
 	check(found, "Seeded map has stones near the start row")
 	arena.set_seed(0)
+
+# --- Biome transition and decoration density ----------------------------------
+
+func _parts(arena: Variant) -> int:
+	var total := 0
+	for key in arena.chunks:
+		total += arena.chunks[key].get_child_count()
+	return total
+
+
+func _check_biome_transition(arena: Variant) -> void:
+	for seed_value in [0, 4242]:
+		arena.set_seed(seed_value)
+		var verdant_parts := 0
+		var glut_parts := 0
+		for spot in FINGERPRINT_SPOTS:
+			arena.set_biome("verdant_maw")
+			arena.sync(spot)
+			verdant_parts += _parts(arena)
+			arena.set_biome("glutsumpf")
+			glut_parts += _parts(arena)
+		print("Parts (draw calls) in 3 x 9 chunks, seed %d: verdant %d, glutsumpf %d" % [seed_value, verdant_parts, glut_parts])
+		check(glut_parts <= verdant_parts, "Glutsumpf is not heavier than Verdant (%d > %d parts, seed %d)" % [glut_parts, verdant_parts, seed_value])
+		var sites := 0
+		for x in range(-3, 4):
+			for z in range(-3, 4):
+				for site in arena.eruption_sites(Vector2i(x, z)):
+					sites += 1
+					check(arena.is_open(Vector3(site.x, 0.0, site.z), 0.5), "Eruption source on open ground (seed %d)" % seed_value)
+		check(sites > 20, "Glutsumpf has eruption sources (seed %d: %d)" % [seed_value, sites])
+	arena.set_seed(0)
+	arena.set_biome("verdant_maw")
+	arena.sync(Vector3.ZERO)
+	var layout: Array = arena.obstacles(Vector2i(1, 2)).duplicate()
+	# Staggered switch: colours at once, one chunk rebuilt per sync, nearest first.
+	arena.set_biome("glutsumpf", true)
+	check(arena.chunks.size() == 9 and arena.rebuild_pending() == 9, "Staggered switch keeps all chunks and queues nine rebuilds")
+	var slowest := 0.0
+	var order: Array[Vector2i] = []
+	for frame in 12:
+		var before: Array = arena.chunks.values()
+		var started := Time.get_ticks_usec()
+		arena.sync(Vector3.ZERO)
+		slowest = maxf(slowest, float(Time.get_ticks_usec() - started) / 1000.0)
+		for key in arena.chunks:
+			if not before.has(arena.chunks[key]):
+				order.append(key)
+		check(arena.chunks.size() == 9, "Chunk budget during staggered switch")
+	print("Staggered biome switch: slowest sync %.2f ms (one chunk per frame)" % slowest)
+	check(arena.rebuild_pending() == 0 and order.size() == 9 and order[0] == Vector2i(0, 0), "Nine rebuilds, one per sync, nearest first (%s)" % [order])
+	var channels := 0
+	for key in arena.chunks:
+		if arena.chunks[key].get_node_or_null("Glow channel") != null:
+			channels += 1
+	check(channels == 9 and arena.obstacles(Vector2i(1, 2)) == layout, "Every chunk shows the Glutsumpf, layout unchanged")
+	arena.set_biome("verdant_maw", true)
+	arena.finish_rebuild()
+	check(arena.rebuild_pending() == 0 and arena.chunks[Vector2i(0, 0)].get_node_or_null("Glow channel") == null, "finish_rebuild completes a staggered switch")
+
+
+func _check_decor_density(arena: Variant) -> void:
+	arena.set_seed(0)
+	arena.sync(Vector3.ZERO)
+	var full := _parts(arena)
+	var layout: Array = arena.obstacles(Vector2i(1, 2)).duplicate()
+	arena.set_decor_density(0.5, false)
+	var half := _parts(arena)
+	check(half < full and arena.obstacles(Vector2i(1, 2)) == layout, "Lower decor density thins decoration only (%d -> %d)" % [full, half])
+	arena.set_decor_density(0.5, false)
+	check(_parts(arena) == half, "Same density, same decoration")
+	arena.set_decor_density(1.0)
+	check(arena.rebuild_pending() == 9, "Density change rebuilds staggered by default")
+	arena.finish_rebuild()
+	check(_parts(arena) == full, "Full density restores the classic decoration")
+
+
+# --- Verdant Maw pixel guard ----------------------------------------------------
+
+# Fingerprint of the Verdant Maw chunks as built before the Glutsumpf work (stage
+# 09 prep): every part's name, transform, mesh shape and material values for the
+# classic map and one seeded map. Any drift here would change the Verdant image.
+const VERDANT_FINGERPRINT := "d8a62474c7fdbf239e8a5a1de5f9b872"
+const FINGERPRINT_SPOTS := [Vector3.ZERO, Vector3(57, 0, -85), Vector3(-88, 0, 56)]
+
+
+func _check_verdant_exact(arena: Variant) -> void:
+	var print_only := OS.get_environment("MAWLINGS_PRINT_FINGERPRINT") == "1"
+	var text := _verdant_text(arena)
+	var digest := text.md5_text()
+	if print_only:
+		print("VERDANT_FINGERPRINT ", digest, " parts ", text.count("
+"))
+		var dump := FileAccess.open(OS.get_environment("MAWLINGS_FINGERPRINT_DUMP"), FileAccess.WRITE)
+		if dump != null:
+			dump.store_string(text)
+	check(digest == VERDANT_FINGERPRINT, "Verdant Maw chunks unchanged (fingerprint %s)" % digest)
+
+
+func _verdant_text(arena: Variant) -> String:
+	var lines := PackedStringArray()
+	for seed_value in [0, 4242]:
+		arena.set_seed(seed_value)
+		for spot in FINGERPRINT_SPOTS:
+			arena.sync(spot)
+			if arena.has_method("finish_rebuild"):
+				arena.finish_rebuild()
+			var keys: Array = arena.chunks.keys()
+			keys.sort()
+			for key in keys:
+				lines.append("chunk %s" % [key])
+				_describe(arena.chunks[key], lines)
+	arena.set_seed(0)
+	arena.sync(Vector3.ZERO)
+	return "
+".join(lines)
+
+
+func _describe(node: Node, lines: PackedStringArray) -> void:
+	for child in node.get_children():
+		if not child is MeshInstance3D:
+			lines.append("other %s" % child.name)
+			continue
+		var part := child as MeshInstance3D
+		var t := part.transform
+		var line := "%s|%s|%s" % [String(part.name).rstrip("0123456789@"), _round_basis(t), _mesh_text(part.mesh)]
+		line += "|" + _material_text(part.material_override)
+		lines.append(line)
+
+
+static func _round_basis(t: Transform3D) -> String:
+	var values := [t.basis.x, t.basis.y, t.basis.z, t.origin]
+	var out := PackedStringArray()
+	for v in values:
+		out.append("%.3f,%.3f,%.3f" % [v.x, v.y, v.z])
+	return ";".join(out)
+
+
+static func _mesh_text(mesh: Mesh) -> String:
+	if mesh == null:
+		return "none"
+	var box := mesh.get_aabb()
+	var verts := 0
+	for surface in mesh.get_surface_count():
+		verts += (mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	return "%s %.3f,%.3f,%.3f %.3f,%.3f,%.3f v%d" % [mesh.get_class(), box.position.x, box.position.y, box.position.z, box.size.x, box.size.y, box.size.z, verts]
+
+
+static func _material_text(material: Material) -> String:
+	if material is StandardMaterial3D:
+		var m := material as StandardMaterial3D
+		return "std %s r%.2f e%s %s vc%s cull%d" % [m.albedo_color.to_html(), m.roughness, m.emission_enabled, m.emission.to_html(), m.vertex_color_use_as_albedo, m.cull_mode]
+	if material is ShaderMaterial:
+		var m := material as ShaderMaterial
+		var out := PackedStringArray([m.shader.resource_path])
+		for key in ["brightness", "saturation", "shape_light", "rim_color", "rim_strength", "body_tint", "recolor_dark", "recolor_light", "recolor_amount"]:
+			out.append("%s=%s" % [key, m.get_shader_parameter(key)])
+		return " ".join(out)
+	return "none" if material == null else material.get_class()

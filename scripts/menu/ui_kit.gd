@@ -84,7 +84,13 @@ func _rounded_points(rect: Rect2, radius: float, steps: int = 6) -> PackedVector
 		var start := -PI * 0.5 + i * PI * 0.5
 		for s in steps + 1:
 			var angle := start + PI * 0.5 * float(s) / float(steps)
-			points.append(centers[i] + Vector2(cos(angle), sin(angle)) * r)
+			var point: Vector2 = centers[i] + Vector2(cos(angle), sin(angle)) * r
+			# A pill (r = half the height) has zero-length sides: adjacent arcs share
+			# an end point. Duplicates make draw_colored_polygon fail ("Invalid polygon data").
+			if points.is_empty() or points[points.size() - 1].distance_squared_to(point) > 0.0001:
+				points.append(point)
+	while points.size() > 1 and points[0].distance_squared_to(points[points.size() - 1]) <= 0.0001:
+		points.remove_at(points.size() - 1)
 	return points
 
 

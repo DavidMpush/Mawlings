@@ -44,6 +44,12 @@ func _run() -> void:
 	_quiet()
 	world.model.population = 25
 	swarm.set_population(25, false)
+	# Stage 09 lone start: the 24 new animals appear on the leader; spread them
+	# into the usual golden-angle formation (radius 2.65 m) as a real swarm does.
+	for index in swarm.units.size():
+		var angle := float(index) * 2.39996323
+		swarm.units[index].position = Vector3(cos(angle), 0.0, sin(angle)) * sqrt((float(index) + 0.5) / 25.0) * 2.65
+	world.unit_points_valid = false
 	var nest: Variant = world.spawn_nest(swarm.position)
 	_steps(2.0)
 	var full_rate: float = nest.progress / 2.0
