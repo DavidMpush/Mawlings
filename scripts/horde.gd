@@ -4,8 +4,9 @@ extends Node3D
 # Massen. Vertrag: stages/08_flood_difficulty.md (Horde-API). Kind von HuntWorld.
 #
 # - Reine Daten in gepackten Arrays (kein Knoten je Tier), gedeckelt auf MAX_BROOD.
-# - Gezeichnet mit EINER MultiMesh (Mawling-Mesh, creature_anim.gdshader,
-#   dunkel-schlammig umgefärbt, giftgelber Rand; Gang/Kiefer über INSTANCE_CUSTOM)
+# - Gezeichnet mit EINER MultiMesh (eigenes Moorbrut-Mesh, 1.200 Dreiecke,
+#   creature_anim.gdshader, dunkel-oliv mit giftgelbem Rand; Gang/Kiefer über
+#   INSTANCE_CUSTOM, Rahmen für Moorbrut_game.glb neu vermessen)
 #   plus einer Schatten-MultiMesh und zwei fx_batch-MultiMeshes (Biss, Tod).
 #   Alle Instanzdaten gehen pro Frame als ein Puffer an die MultiMesh.
 # - Räumliche Gitter (verkettete Listen in PackedInt32Array) um den Schwarm:
@@ -14,7 +15,7 @@ extends Node3D
 # - Tod: kleiner Effekt, take_kills() liefert räumlich gebündelte Beute.
 
 const CREATURE_SHADER = preload("res://shaders/creature_anim.gdshader")
-const MAWLING_SCENE = preload("res://assets/gameplay/characters/Mawling_game.glb")
+const MOORBRUT_SCENE = preload("res://assets/gameplay/characters/Moorbrut_game.glb")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
 
 const MAX_BROOD := 160
@@ -51,10 +52,12 @@ const OGRID := 40
 const OCELL := 2.0
 const OANCHOR_STEP := 8.0
 
-# Aussehen: kleiner als Mawlings, flach und lang („geduckt“).
-const MODEL_SCALE := 0.66
-const MODEL_STRETCH := Vector3(1.12, 0.74, 1.05)
-const BODY_TINT := Color(0.11, 0.12, 0.035, 0.97)
+# Aussehen: kleiner als Mawlings, gedrungen und leicht geduckt (x = Länge).
+const MODEL_SCALE := 0.62
+const MODEL_STRETCH := Vector3(1.06, 0.88, 1.0)
+# Teilweise Umfärbung: das Modell ist schon oliv/schwarz gefleckt mit gelben
+# Augen; der Farbton wird nur zu dunklem Sumpfoliv gezogen, die Flecken bleiben.
+const BODY_TINT := Color(0.24, 0.28, 0.07, 0.55)
 const RIM := Color("f4e23a")
 const SNAP_COLOR := Color(1.0, 0.95, 0.45, 0.95)
 const DEATH_COLOR := Color(0.86, 0.8, 0.26, 0.75)
@@ -858,7 +861,7 @@ func _build() -> void:
 	if _built:
 		return
 	_built = true
-	var sample: Node3D = MAWLING_SCENE.instantiate()
+	var sample: Node3D = MOORBRUT_SCENE.instantiate()
 	var piece: MeshInstance3D = sample.find_children("*", "MeshInstance3D", true, false)[0]
 	var mesh := piece.mesh
 	var mesh_local := Transform3D.IDENTITY
@@ -867,7 +870,10 @@ func _build() -> void:
 		mesh_local = (node as Node3D).transform * mesh_local
 		node = node.get_parent()
 	sample.free()
-	var base := Transform3D(Basis.from_scale(MODEL_STRETCH * MODEL_SCALE), Vector3.ZERO) * mesh_local
+	# Moorbrut_game.glb liegt Z-up (Kopf roh +Y, nach mesh_local Welt +Z, Sohlen auf 0).
+	# Die Drehung legt den Kopf auf lokal -X wie beim Mawling, damit Blickrichtung
+	# (yaw + PI/2) und Zuschnapp-Vorstoß unverändert gelten.
+	var base := Transform3D(Basis.from_scale(MODEL_STRETCH * MODEL_SCALE) * Basis(Vector3.UP, -PI * 0.5), Vector3.ZERO) * mesh_local
 	_k_x = base.basis.x
 	_k_y = base.basis.y
 	_k_z = base.basis.z
@@ -1108,40 +1114,44 @@ func _creature_material() -> ShaderMaterial:
 	material.shader = CREATURE_SHADER
 	material.set_shader_parameter("use_instance_custom", true)
 	material.set_shader_parameter("brightness", 1.0)
-	material.set_shader_parameter("saturation", 1.0)
+	material.set_shader_parameter("saturation", 1.25)
 	material.set_shader_parameter("shape_light", 0.4)
 	material.set_shader_parameter("body_tint", BODY_TINT)
 	material.set_shader_parameter("rim_color", RIM)
 	material.set_shader_parameter("rim_strength", 1.0)
-	material.set_shader_parameter("rim_power", 3.2)
+	material.set_shader_parameter("rim_power", 2.6)
 	material.set_shader_parameter("outline_strength", 0.95)
 	material.set_shader_parameter("flash_color", Color("fff3b0"))
 	material.set_shader_parameter("flash", 0.0)
-	# Gleicher Glieder-/Kiefer-Rahmen wie swarm.gd (Mawling_game.glb, Z-up-Rohdaten).
+	# Glieder-/Kiefer-Rahmen für Moorbrut_game.glb (Rohdaten Z-up, Kopf roh +Y,
+	# seitlich = roh X). Vermessen aus der Vertex-Verteilung: Sohlen (u < 0,06) bilden
+	# vier Inseln, vorn bei f 0,17..0,35 / l ±0,17..0,40, hinten bei f -0,07..-0,32 /
+	# l ±0,29..0,50. Kinn/Maul vorn bei f > 0,30, u 0,16..0,35 (Beine liegen tiefer).
+	# Kein Schwanz (nur Rückenzacken): Schwanzpendel aus.
 	material.set_shader_parameter("up_axis", Vector3(0.0, 0.0, -1.0))
-	material.set_shader_parameter("forward_axis", Vector3(-1.0, 0.0, 0.0))
-	material.set_shader_parameter("ground_offset", -0.0008)
-	material.set_shader_parameter("foot_a_front", Vector2(0.239, -0.287))
-	material.set_shader_parameter("foot_a_back", Vector2(-0.286, 0.205))
-	material.set_shader_parameter("foot_b_front", Vector2(0.063, 0.239))
-	material.set_shader_parameter("foot_b_back", Vector2(-0.052, -0.191))
-	material.set_shader_parameter("foot_radius", 0.15)
+	material.set_shader_parameter("forward_axis", Vector3(0.0, 1.0, 0.0))
+	material.set_shader_parameter("ground_offset", -0.0011)
+	material.set_shader_parameter("foot_a_front", Vector2(0.26, -0.3))
+	material.set_shader_parameter("foot_a_back", Vector2(-0.19, 0.39))
+	material.set_shader_parameter("foot_b_front", Vector2(0.26, 0.3))
+	material.set_shader_parameter("foot_b_back", Vector2(-0.19, -0.39))
+	material.set_shader_parameter("foot_radius", 0.16)
 	material.set_shader_parameter("leg_height", 0.22)
-	material.set_shader_parameter("stride", 0.1)
+	material.set_shader_parameter("stride", 0.09)
 	material.set_shader_parameter("lift", 0.08)
-	material.set_shader_parameter("stride_centering", 0.5)
+	material.set_shader_parameter("stride_centering", 0.0)
 	material.set_shader_parameter("walk_speed", 0.0)
 	material.set_shader_parameter("walk_amount", 0.0)
 	material.set_shader_parameter("walk_scale", 1.0)
-	material.set_shader_parameter("jaw_hinge_forward", 0.12)
-	material.set_shader_parameter("jaw_hinge_height", 0.47)
-	material.set_shader_parameter("jaw_floor", 0.22)
-	material.set_shader_parameter("jaw_angle", 0.75)
+	material.set_shader_parameter("jaw_hinge_forward", 0.3)
+	material.set_shader_parameter("jaw_hinge_height", 0.3)
+	material.set_shader_parameter("jaw_floor", 0.12)
+	material.set_shader_parameter("jaw_angle", 0.55)
 	material.set_shader_parameter("bite_amount", 0.0)
 	material.set_shader_parameter("tail_start", -0.34)
 	material.set_shader_parameter("tail_length", 0.26)
 	material.set_shader_parameter("tail_floor", 0.1)
-	material.set_shader_parameter("tail_swing", 0.09)
+	material.set_shader_parameter("tail_swing", 0.0)
 	material.set_shader_parameter("tail_rate", 7.0)
 	return material
 

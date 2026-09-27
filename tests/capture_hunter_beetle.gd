@@ -47,6 +47,19 @@ func _capture() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://preview_hunter_beetle_top.png")
+	# Elite: crown seat above the back (side view, then slightly from above).
+	hunter.make_elite(3.0)
+	hunter.step(0.5, Vector3(0, 0, 10), 1.0)
+	camera.look_at_from_position(Vector3(7, 3.2, 0), Vector3(0, 1.0, 0))
+	for i in 4:
+		await process_frame
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png("res://preview_elite_crown_side.png")
+	camera.look_at_from_position(Vector3(0, 8, 6), Vector3(0, 0.8, 0))
+	for i in 4:
+		await process_frame
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png("res://preview_elite_crown_top.png")
 	stage.free()
 
 	var scene: Node = load("res://scenes/main.tscn").instantiate()

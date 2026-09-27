@@ -3,7 +3,8 @@ extends Node3D
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
 const TG = preload("res://scripts/telegraph_style.gd")
-const MODEL = preload("res://assets/gameplay/characters/BogKing_game.glb")
+# Stage 11: the user's reworked Bog King (BogKing_game.glb stays for the Aschenkroete).
+const MODEL = preload("res://assets/gameplay/characters/BogKingNew_game.glb")
 const CREATURE_SHADER = preload("res://shaders/creature_anim.gdshader")
 
 const ARRIVE_SECONDS := 1.4
@@ -254,35 +255,38 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 	skin.set_shader_parameter("tail_phase", _time * 1.6)
 
 
-# Limb animation frame for BogKing_game.glb, measured in raw mesh space (Z-up
-# storage): soles at z = 0 (up = -Z), head towards +Y, low tail towards -Y,
-# lateral = +X. Feet centres (forward, lateral) from clustering the lowest 5 % of
-# vertices: hands close together in front, hind feet splayed wide at the sides.
+# Limb animation frame for BogKingNew_game.glb, measured in raw mesh space (Z-up
+# storage): soles at z = 0 (up = -Z), head towards +Y, long low tail towards -Y
+# (tip at -0.74), lateral = +X. Feet centres (forward, lateral) from clustering the
+# lowest 5 % of vertices: hands close together in front, hind feet splayed wide at
+# the sides (stomp foot nudged outwards, small radius: the two hands stand only
+# 0.2 apart and the lifted one must not stretch its neighbour; lower stomp height
+# keeps the raised hand below the jaw floor). Mouth: upper jaw ends at u ~0.31.
 func _setup_limbs() -> void:
 	skin.set_shader_parameter("up_axis", Vector3(0.0, 0.0, -1.0))
 	skin.set_shader_parameter("forward_axis", Vector3(0.0, 1.0, 0.0))
 	skin.set_shader_parameter("ground_offset", 0.0)
-	skin.set_shader_parameter("foot_a_front", Vector2(0.325, -0.113))
-	skin.set_shader_parameter("foot_a_back", Vector2(0.024, 0.234))
-	skin.set_shader_parameter("foot_b_front", Vector2(0.294, 0.063))
-	skin.set_shader_parameter("foot_b_back", Vector2(0.045, -0.252))
-	skin.set_shader_parameter("foot_radius", 0.13)
+	skin.set_shader_parameter("foot_a_front", Vector2(0.281, -0.13))
+	skin.set_shader_parameter("foot_a_back", Vector2(-0.02, 0.238))
+	skin.set_shader_parameter("foot_b_front", Vector2(0.277, 0.089))
+	skin.set_shader_parameter("foot_b_back", Vector2(-0.028, -0.23))
+	skin.set_shader_parameter("foot_radius", 0.11)
 	skin.set_shader_parameter("leg_height", 0.2)
 	skin.set_shader_parameter("stride", 0.05)
 	skin.set_shader_parameter("lift", 0.05)
 	skin.set_shader_parameter("stride_centering", 1.0)
 	skin.set_shader_parameter("walk_speed", 0.0)
 	skin.set_shader_parameter("walk_scale", 1.0)
-	skin.set_shader_parameter("jaw_hinge_forward", 0.16)
-	skin.set_shader_parameter("jaw_hinge_height", 0.33)
+	skin.set_shader_parameter("jaw_hinge_forward", 0.2)
+	skin.set_shader_parameter("jaw_hinge_height", 0.315)
 	skin.set_shader_parameter("jaw_floor", 0.2)
-	skin.set_shader_parameter("jaw_angle", 0.4)
-	skin.set_shader_parameter("tail_start", -0.3)
-	skin.set_shader_parameter("tail_length", 0.35)
+	skin.set_shader_parameter("jaw_angle", 0.6)
+	skin.set_shader_parameter("tail_start", -0.32)
+	skin.set_shader_parameter("tail_length", 0.42)
 	skin.set_shader_parameter("tail_floor", 0.03)
 	skin.set_shader_parameter("tail_swing", 0.04)
 	skin.set_shader_parameter("tail_rate", 0.0)
-	skin.set_shader_parameter("stomp_height", 0.14)
+	skin.set_shader_parameter("stomp_height", 0.11)
 
 
 func _stomp() -> void:

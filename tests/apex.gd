@@ -74,7 +74,7 @@ func _run_windup(boss: Variant, swarm: Vector3, pressure: float = 1.0) -> Array:
 func _check_boss_flow() -> void:
 	var boss: Variant = _spawn()
 	_check(boss.state == APEX.State.ARRIVING and boss.max_health >= 2.5 * TUNING.BOSS_HEALTH, "Apex arrives with far more (base) health than the Bog King")
-	_check(boss.model.scale.x > 7.0 and boss.crown != null and boss.sacs.size() >= 3, "Larger model with root crown and spore sacs")
+	_check(boss.model.scale.x > 7.0 and boss.sacs.size() >= 3, "Larger own model (root antlers) with spore sacs")
 	var before: float = boss.health
 	boss.take_damage(50.0)
 	_check(boss.health == before, "Immune while emerging")

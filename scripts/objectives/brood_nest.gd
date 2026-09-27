@@ -9,12 +9,28 @@ extends Node3D
 const TUNING = preload("res://scripts/tuning.gd")
 const UI_ICONS = preload("res://scripts/ui/ui_icons.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
+const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
 static var _claw_meshes := {}
+static var _clutch_mesh: ArrayMesh
+static var _model_mesh: Array = []
+static var _nest_material: ShaderMaterial
 const CYAN := Color("3fe6d8")
 const BONE := Color("efe2c0")
 const TWIG := Color("6b4a2f")
 const EGG := Color("bff5ec")
 const BAR_WIDTH := 2.8
+## Optimised user model (assets/nest.glb -> BroodNest_game.glb, 2,500
+## triangles, vertex colours): a twig bowl ~1.08 m wide, 0.49 m high raw.
+## MODEL_SCALE makes it ~2.8 m, the footprint of the old primitive mound.
+## A missing file falls back to the primitive mound.
+const MODEL_PATH := "res://assets/gameplay/props/BroodNest_game.glb"
+const MODEL_SCALE := 2.6
+## The texture eggs of the source model do not survive the vertex-colour bake
+## (they read as brown twigs), so a clutch of five glowing eggs (one merged
+## mesh, one draw call) sits in the bowl hollow; it glows and swells with the
+## fill and wobbles in the fill beat while the swarm stands in the zone.
+const CLUTCH_HEIGHT := 0.62
+const CLUTCH_HEIGHT_FALLBACK := 0.0
 
 var radius: float = TUNING.NEST_RADIUS
 var progress := 0.0
@@ -24,7 +40,7 @@ var _time := 0.0
 var _fill_disc: MeshInstance3D
 var _edge: MeshInstance3D
 var _bar_fill: MeshInstance3D
-var _eggs: Array[MeshInstance3D] = []
+var _clutch: MeshInstance3D
 var _egg_material: StandardMaterial3D
 var _edge_material: StandardMaterial3D
 var _fill_material: StandardMaterial3D
@@ -53,39 +69,24 @@ func _ready() -> void:
 	# Etappe 07: all twelve claws are one merged mesh (one draw call).
 	var bone: Material = FX_BATCH.shared_material(BONE, false, false, 0.7)
 	_part(self, _claw_ring(radius), bone, Vector3.ZERO)
-	# Twig mound with a glowing clutch of eggs.
-	var twig: Material = FX_BATCH.shared_material(TWIG)
-	var mound := TorusMesh.new()
-	mound.inner_radius = 0.55
-	mound.outer_radius = 1.35
-	mound.rings = 20
-	mound.ring_segments = 10
-	var mound_part := _part(self, mound, twig, Vector3(0, 0.16, 0))
-	mound_part.scale = Vector3(1.0, 0.55, 1.0)
-	var moss: Material = FX_BATCH.shared_material(Color("3d5a2c"))
-	var bed := CylinderMesh.new()
-	bed.top_radius = 0.75
-	bed.bottom_radius = 0.9
-	bed.height = 0.14
-	bed.radial_segments = 20
-	bed.rings = 1
-	_part(self, bed, moss, Vector3(0, 0.07, 0))
+	# Twig nest (user model; primitives as fallback) with a glowing clutch.
+	var clutch_height := CLUTCH_HEIGHT
+	var model_mesh := _nest_mesh()
+	if model_mesh.is_empty():
+		_build_primitive_nest()
+		clutch_height = CLUTCH_HEIGHT_FALLBACK
+	else:
+		var nest := _part(self, model_mesh[0], _shared_nest_material(), Vector3.ZERO)
+		nest.name = "Nest"
+		nest.transform = Transform3D(Basis.from_scale(Vector3.ONE * MODEL_SCALE), Vector3.ZERO) * model_mesh[1]
 	_egg_material = StandardMaterial3D.new()
 	_egg_material.albedo_color = EGG
 	_egg_material.roughness = 0.35
 	_egg_material.emission_enabled = true
 	_egg_material.emission = CYAN
 	_egg_material.emission_energy_multiplier = 0.2
-	var egg := SphereMesh.new()
-	egg.radius = 0.26
-	egg.height = 0.62
-	egg.radial_segments = 12
-	egg.rings = 6
-	var spots := [Vector3(0, 0.36, 0), Vector3(0.38, 0.3, 0.12), Vector3(-0.33, 0.3, 0.2), Vector3(0.1, 0.3, -0.38), Vector3(-0.2, 0.3, -0.3)]
-	for index in spots.size():
-		var part := _part(self, egg, _egg_material, spots[index])
-		part.rotation = Vector3(0.18 * sin(index * 1.7), 0.0, 0.2 * cos(index * 2.3))
-		_eggs.append(part)
+	_clutch = _part(self, _clutch_eggs(), _egg_material, Vector3(0, clutch_height, 0))
+	_clutch.name = "Clutch"
 	# World fill bar and brood icon above the clutch.
 	var track := BoxMesh.new()
 	track.size = Vector3(BAR_WIDTH + 0.14, 0.06, 0.34)
@@ -149,10 +150,81 @@ func animate(delta: float, occupied: bool) -> void:
 	_edge_material.albedo_color = Color(CYAN.lerp(Color.WHITE, 0.35 * pulse if occupied else 0.0), 0.7 + 0.25 * pulse)
 	_bar_fill.scale.x = maxf(0.001, progress)
 	_bar_fill.position.x = -BAR_WIDTH * 0.5 * (1.0 - progress)
-	_egg_material.emission_energy_multiplier = 0.2 + 1.6 * progress + (0.5 * pulse if occupied else 0.0)
-	for index in _eggs.size():
-		var wobble := (0.05 + 0.1 * progress) * sin(_time * (5.0 + index) + index) if occupied else 0.0
-		_eggs[index].scale = Vector3.ONE * (0.85 + 0.35 * progress) * (1.0 + wobble)
+	# Eggs glow brighter and grow with the fill; they throb in the fill beat.
+	_egg_material.emission_energy_multiplier = 0.35 + 1.6 * progress + (0.6 * pulse if occupied else 0.15 * pulse)
+	var throb := (0.04 + 0.08 * progress) * sin(_time * 6.0) if occupied else 0.0
+	var grow := 0.85 + 0.3 * progress
+	_clutch.scale = Vector3(grow * (1.0 + throb), grow * (1.0 - 0.6 * throb), grow * (1.0 + throb))
+
+
+# Five eggs (y = 0 at the bottom of the clutch) as one mesh, shared by all nests.
+static func _clutch_eggs() -> ArrayMesh:
+	if _clutch_mesh != null:
+		return _clutch_mesh
+	var egg := SphereMesh.new()
+	egg.radius = 0.26
+	egg.height = 0.62
+	egg.radial_segments = 12
+	egg.rings = 6
+	var spots := [Vector3(0, 0.36, 0), Vector3(0.38, 0.3, 0.12), Vector3(-0.33, 0.3, 0.2), Vector3(0.1, 0.3, -0.38), Vector3(-0.2, 0.3, -0.3)]
+	var parts: Array = []
+	for index in spots.size():
+		var tilt := Basis.from_euler(Vector3(0.18 * sin(index * 1.7), 0.0, 0.2 * cos(index * 2.3)))
+		parts.append([egg, Transform3D(tilt, spots[index])])
+	_clutch_mesh = FX_BATCH.merge(parts)
+	return _clutch_mesh
+
+
+# Primitive twig mound and moss bed (used only when the model is missing).
+func _build_primitive_nest() -> void:
+	var twig: Material = FX_BATCH.shared_material(TWIG)
+	var mound := TorusMesh.new()
+	mound.inner_radius = 0.55
+	mound.outer_radius = 1.35
+	mound.rings = 20
+	mound.ring_segments = 10
+	var mound_part := _part(self, mound, twig, Vector3(0, 0.16, 0))
+	mound_part.scale = Vector3(1.0, 0.55, 1.0)
+	var moss: Material = FX_BATCH.shared_material(Color("3d5a2c"))
+	var bed := CylinderMesh.new()
+	bed.top_radius = 0.75
+	bed.bottom_radius = 0.9
+	bed.height = 0.14
+	bed.radial_segments = 20
+	bed.rings = 1
+	_part(self, bed, moss, Vector3(0, 0.07, 0))
+
+
+## [mesh, node transform] of the optimised BroodNest model, loaded once
+## (empty when the file is missing).
+static func _nest_mesh() -> Array:
+	if _model_mesh.is_empty() and ResourceLoader.exists(MODEL_PATH):
+		var root: Node = (load(MODEL_PATH) as PackedScene).instantiate()
+		var found := root.find_children("*", "MeshInstance3D", true, false)
+		if not found.is_empty():
+			var model: MeshInstance3D = found[0]
+			var base := Transform3D.IDENTITY
+			var node: Node = model
+			while node != root and node is Node3D:
+				base = (node as Node3D).transform * base
+				node = node.get_parent()
+			_model_mesh = [model.mesh, base]
+		root.free()
+	return _model_mesh
+
+
+# Creature look (vertex colours, key light, contour) with a soft cyan rim, so
+# the brown twigs stand out on moss and ash; shared by every nest.
+static func _shared_nest_material() -> ShaderMaterial:
+	if _nest_material == null:
+		_nest_material = ShaderMaterial.new()
+		_nest_material.shader = CREATURE_SHADER
+		_nest_material.set_shader_parameter("brightness", 1.5)
+		_nest_material.set_shader_parameter("saturation", 1.15)
+		_nest_material.set_shader_parameter("shape_light", 0.45)
+		_nest_material.set_shader_parameter("rim_color", CYAN)
+		_nest_material.set_shader_parameter("rim_strength", 0.3)
+	return _nest_material
 
 
 # Twelve bone claws around the rim as one mesh (cached per radius).

@@ -3,6 +3,17 @@ extends Node3D
 const TUNING = preload("res://scripts/tuning.gd")
 const TG = preload("res://scripts/telegraph_style.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
+const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
+# The user's Skitter (Hunyuan, reduced by tools/optimize_characters.py). Loaded
+# at runtime so the primitive look remains as fallback without the file.
+const MODEL_PATH := "res://assets/gameplay/characters/Skitter_game.glb"
+# Longest ground extent of the model (its leg span), about the old blade span.
+const MODEL_LENGTH := 2.1
+# The exported model's head points along -X; this turn brings it to +Z.
+const MODEL_YAW := PI * 0.5
+static var _model_mesh: Mesh
+static var _model_base := Transform3D.IDENTITY
+static var _model_checked := false
 # Shared meshes of every skitter (built once, see _shared_parts()).
 static var _parts := {}
 enum State { ARRIVING, CHASE, WARNING, DASH, RECOVERY }
@@ -16,7 +27,8 @@ var damage := 0
 # Base loss of the dash resolved during the last step() (0 = none).
 var resolved_power := 0
 var hit_flash := 0.0
-var body: MeshInstance3D
+var body: Node3D
+var skin: ShaderMaterial
 var health_fill: MeshInstance3D
 var warning: MeshInstance3D
 # Movement multiplier set by attack forms (e.g. Sporenwolke); 1.0 = normal.
@@ -26,9 +38,12 @@ func _ready() -> void:
 	# Etappe 07: shared meshes/materials; both blades and both eyes are one
 	# merged mesh each (fewer draw calls, same look).
 	var parts := _shared_parts()
-	body = _part(self, parts.armor, _material(Color("3874ba")), Vector3(0, 0.36, 0))
-	_part(self, parts.blades, _material(Color("de5b99")), Vector3.ZERO)
-	_part(self, parts.eyes, _material(Color("ffe06b"), true), Vector3.ZERO)
+	if _load_model():
+		_build_model()
+	else:
+		body = _part(self, parts.armor, _material(Color("3874ba")), Vector3(0, 0.36, 0))
+		_part(self, parts.blades, _material(Color("de5b99")), Vector3.ZERO)
+		_part(self, parts.eyes, _material(Color("ffe06b"), true), Vector3.ZERO)
 	health_fill = _part(self, parts.bar, _material(Color("ffb36b"), true), Vector3(0, 1.14, 0))
 	# Patterned lane (telegraph_style.gd "skitter"): chevrons along local +Z.
 	warning = TG.build("skitter", TUNING.SKITTER_WIDTH * 2.0)
@@ -45,7 +60,20 @@ func step(delta: float, swarm_position: Vector3, pressure: float) -> int:
 	resolved_power = 0
 	hit_flash = maxf(0.0, hit_flash - delta)
 	body.scale = Vector3.ONE * (1.16 if hit_flash > 0.0 else 1.0)
+	if skin != null:
+		skin.set_shader_parameter("flash", 0.3 if hit_flash > 0.0 else 0.0)
 	health_fill.scale.x = clampf(health / max_health, 0, 1)
+	var before := position
+	var result := _advance(delta, swarm_position, pressure)
+	# Face the running direction (the locked lane while winding up / dashing);
+	# the health bar stays screen-aligned.
+	var heading := dash_end - dash_start if state == State.WARNING or state == State.DASH else position - before
+	if Vector2(heading.x, heading.z).length() > 0.001:
+		rotation.y = lerp_angle(rotation.y, atan2(heading.x, heading.z), minf(1.0, delta * 14.0))
+	health_fill.rotation.y = -rotation.y
+	return result
+
+func _advance(delta: float, swarm_position: Vector3, pressure: float) -> int:
 	if state == State.CHASE:
 		var offset := swarm_position - position
 		offset.y = 0
@@ -96,6 +124,8 @@ func _lock_dash(swarm_position: Vector3, pressure: float) -> void:
 		warning.visible = false
 		return
 	TG.set_progress(warning, 0.0)
+	# Snap to the lane at lock time so the wind-up clearly points along it.
+	rotation.y = atan2(line.x, line.z)
 	warning.global_position = (dash_start + dash_end) * 0.5 + Vector3(0, 0.09, 0)
 	warning.rotation.y = atan2(line.x, line.z)
 	warning.scale = Vector3(1, 1, line.length())
@@ -177,3 +207,46 @@ func _part(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) ->
 	result.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(result)
 	return result
+
+static func _load_model() -> bool:
+	if not _model_checked:
+		_model_checked = true
+		if ResourceLoader.exists(MODEL_PATH):
+			var root: Node = (load(MODEL_PATH) as PackedScene).instantiate()
+			var found := root.find_children("*", "MeshInstance3D", true, false)
+			if not found.is_empty():
+				var source: MeshInstance3D = found[0]
+				var base := Transform3D.IDENTITY
+				var node: Node = source
+				while node != root and node is Node3D:
+					base = (node as Node3D).transform * base
+					node = node.get_parent()
+				_model_mesh = source.mesh
+				_model_base = Transform3D(Basis(Vector3.UP, MODEL_YAW), Vector3.ZERO) * base
+			root.free()
+	return _model_mesh != null
+
+# Skitter model under a pivot `body` at the feet, head along +Z, scaled so its
+# longest ground extent is MODEL_LENGTH.
+func _build_model() -> void:
+	body = Node3D.new()
+	body.name = "Skitter"
+	add_child(body)
+	skin = ShaderMaterial.new()
+	skin.shader = CREATURE_SHADER
+	skin.set_shader_parameter("brightness", 1.4)
+	skin.set_shader_parameter("saturation", 1.3)
+	skin.set_shader_parameter("shape_light", 0.3)
+	skin.set_shader_parameter("rim_power", 3.0)
+	skin.set_shader_parameter("rim_color", Color("ffe06b"))
+	skin.set_shader_parameter("rim_strength", 0.55)
+	var model := MeshInstance3D.new()
+	model.mesh = _model_mesh
+	model.material_override = skin
+	model.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var raw: AABB = Transform3D(_model_base.basis, Vector3.ZERO) * _model_mesh.get_aabb()
+	var extent := maxf(raw.size.x, raw.size.z)
+	var shape := Basis.from_scale(Vector3.ONE * (MODEL_LENGTH / maxf(0.01, extent))) * _model_base.basis
+	var bounds: AABB = Transform3D(shape, Vector3.ZERO) * _model_mesh.get_aabb()
+	model.transform = Transform3D(shape, Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z))
+	body.add_child(model)

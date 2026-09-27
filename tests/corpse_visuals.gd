@@ -162,6 +162,17 @@ func _run() -> void:
 	# Every design mesh is a single surface (one draw call per batch).
 	for child in visuals.get_children():
 		_check((child as MultiMeshInstance3D).multimesh.mesh.get_surface_count() == 1, "%s has one surface" % child.name)
+	# Real models are baked from a reduced import LOD: Moorbrut corpses stay tiny
+	# (hundreds possible), the others stay within their triangle budget.
+	for design: String in CORPSE_VISUALS.MODEL_TRIS:
+		var design_mesh: Mesh = _layer(visuals, design).node.multimesh.mesh
+		var tris: int = design_mesh.surface_get_array_index_len(0) / 3
+		var budget: int = int(CORPSE_VISUALS.MODEL_TRIS[design])
+		# Crown, splinters and spore sacs come on top of the animal itself.
+		var extra := 800 if design == "elite" else 400
+		_check(tris <= budget + extra, "%s remains within %d triangles (%d)" % [design, budget + extra, tris])
+	var horde_mesh: Mesh = _layer(visuals, "horde").node.multimesh.mesh
+	_check(horde_mesh.surface_get_array_index_len(0) / 3 <= int(CORPSE_VISUALS.MODEL_TRIS.horde), "Moorbrut remains are a low-poly LOD")
 
 	holder.queue_free()
 	await process_frame

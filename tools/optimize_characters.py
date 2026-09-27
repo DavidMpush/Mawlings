@@ -36,11 +36,18 @@ CHARACTERS = {
     "migration_pit": ("MigrationPit", 3000, "props", "migration pit"),
     # Jäger (hunter.gd).
     "hunter_beetle": ("HunterBeetle", 3000, "characters", "Hunter Beetle"),
+    # Delivery 27.09.2026 (afternoon).
+    "skitter": ("Skitter", 2500, "characters", "Skitter"),
+    "moorbrut": ("Moorbrut", 1200, "characters", "moorbrut"),
+    "moosschlund": ("Moosschlund", 8000, "characters", "moosschlund"),
+    "bog_king_new": ("BogKingNew", 8000, "characters", "Bog King new"),
+    "elite_crown": ("EliteCrown", 800, "props", "Elite Crown"),
+    "nest": ("BroodNest", 2500, "props", "nest"),
 }
 # Hunyuan meshes split ~30 % of their vertices along UV seams. Unwelded, the
 # simplifier treats every seam as a border and leaves splinter-like shards, so
 # these models are welded by position first (colours averaged per point).
-WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower", "small_drop", "medium_drop", "big_drop", "totem", "alpha_core", "migration_pit", "hunter_beetle"}
+WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower", "small_drop", "medium_drop", "big_drop", "totem", "alpha_core", "migration_pit", "hunter_beetle", "skitter", "moorbrut", "moosschlund", "bog_king_new", "elite_crown", "nest"}
 
 
 def read_glb(path):

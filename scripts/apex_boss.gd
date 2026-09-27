@@ -35,10 +35,10 @@ signal phase_changed(phase: int)
 const FX = preload("res://scripts/fx.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const UI_STYLE = preload("res://scripts/ui/ui_style.gd")
-const MODEL = preload("res://assets/gameplay/characters/BogKing_game.glb")
-const CROWN_MODEL = preload("res://assets/gameplay/props/RootArch_game.glb")
+# Own model (stage 11): moss-covered quadruped with root antlers, Z-up storage
+# like the Bog King glb (head +Y, soles at z = 0); its node turns it head +Z, feet on 0.
+const MODEL = preload("res://assets/gameplay/characters/Moosschlund_game.glb")
 const CREATURE_ANIM_SHADER = preload("res://shaders/creature_anim.gdshader")
-const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
 
 enum State { ARRIVING, CHASE, WINDUP, STRIKE, EXHAUSTED, PHASE_SHIFT, DEAD }
 enum Pattern { ROOTS, SPORES, QUAKE }
@@ -89,8 +89,11 @@ const RIM_CHASE := Color("c8f08a")
 const RIM_WARNING := Color("ffd23f")
 const RIM_EXHAUSTED := Color("7fe7ff")
 const RIM_RAGE := Color("ff9a3c")
-const SKIN_TINT := Color(0.42, 0.66, 0.3, 0.72)
-const SKIN_TINT_RAGE := Color(0.5, 0.56, 0.24, 0.78)
+# Phase 1 shows the real vertex colours of the model; phase 2 (rage) tints towards
+# ember, exhaustion towards a pale cold blue (state cue besides pose and rim).
+const SKIN_TINT := Color(1.0, 1.0, 1.0, 0.0)
+const SKIN_TINT_RAGE := Color(0.95, 0.46, 0.18, 0.34)
+const SKIN_TINT_EXHAUSTED := Color(0.62, 0.86, 1.0, 0.36)
 const DUST := Color(0.4, 0.46, 0.26, 0.6)
 
 # Telegraph palettes: every pattern differs by shape AND pattern (crack + thorns,
@@ -137,10 +140,8 @@ var hit_flash := 0.0
 var colorblind := false
 # Presentation only.
 var model: Node3D
-var crown: MeshInstance3D
 var body: Node3D
 var skin: ShaderMaterial
-var crown_material: ShaderMaterial
 var sac_material: StandardMaterial3D
 var sacs: Array[MeshInstance3D] = []
 var shadow: MeshInstance3D
@@ -152,6 +153,7 @@ var _time := 0.0
 var _gait := 0.0
 var _slam := 0.0
 var _rim := RIM_CHASE
+var _tint := SKIN_TINT
 var _lift := 0.0
 var _lean := 0.0
 var _sway := 0.0
@@ -664,8 +666,8 @@ func _strike_fx() -> void:
 
 # ------------------------------------------------------------------ look
 
-## Builds the body. Replace this with a dedicated apex model later: everything
-## else only needs `model`, `body` and `skin` (creature_anim material).
+## Builds the body from Moosschlund_game.glb (antlers are part of the mesh).
+## Everything else only needs `model`, `body` and `skin` (creature_anim material).
 func _build_model() -> void:
 	body = Node3D.new()
 	body.name = "Moosschlund body"
@@ -689,33 +691,9 @@ func _build_model() -> void:
 	for mesh in model.find_children("*", "MeshInstance3D", true, false):
 		mesh.material_override = skin
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var bounds := _bounds(model, body)
-	# Root crown: the root arch stands across the back like antlers.
-	var crown_scene := CROWN_MODEL.instantiate()
-	var source: MeshInstance3D = crown_scene.find_children("*", "MeshInstance3D", true, false)[0]
-	crown = MeshInstance3D.new()
-	crown.name = "Moosschlund root crown"
-	crown.mesh = source.mesh
-	crown_scene.free()
-	crown_material = ShaderMaterial.new()
-	crown_material.shader = CREATURE_SHADER
-	crown_material.set_shader_parameter("brightness", 1.15)
-	crown_material.set_shader_parameter("saturation", 1.1)
-	crown_material.set_shader_parameter("shape_light", 0.45)
-	crown_material.set_shader_parameter("rim_color", Color("f2f0c8"))
-	crown_material.set_shader_parameter("rim_strength", 0.2)
-	crown.material_override = crown_material
-	crown.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	body.add_child(crown)
-	var crown_bounds := crown.mesh.get_aabb()
-	var crown_size := Vector3(bounds.size.z * 0.95, bounds.size.y * 0.75, bounds.size.z * 0.5)
-	var crown_scale := Vector3(crown_size.x / maxf(crown_bounds.size.x, 0.01), crown_size.y / maxf(crown_bounds.size.y, 0.01), crown_size.z / maxf(crown_bounds.size.z, 0.01))
-	# Arch spans sideways (local X of the arch -> boss Z), sits on the rear half of the back.
-	crown.basis = Basis(Vector3.UP, PI * 0.5) * Basis.from_scale(crown_scale)
-	var top := bounds.position.y + bounds.size.y
-	var scaled_crown: AABB = Transform3D(crown.basis, Vector3.ZERO) * crown_bounds
-	crown.position = Vector3(bounds.get_center().x + bounds.size.x * 0.12 - scaled_crown.get_center().x, top - bounds.size.y * 0.32 - scaled_crown.position.y, bounds.get_center().z - scaled_crown.get_center().z)
-	# Spore sacs: pale violet bulbs along the back, they swell during the spore wind-up.
+	# Spore sacs: pale violet bulbs on the mossy back behind the antlers, they
+	# swell during the spore wind-up. (forward, lateral, height) in raw mesh units,
+	# sampled from the back surface; body space = (-forward, height, lateral) * scale.
 	sac_material = StandardMaterial3D.new()
 	sac_material.albedo_color = Color("d9b8ff")
 	sac_material.emission_enabled = true
@@ -726,45 +704,48 @@ func _build_model() -> void:
 	sphere.height = 1.0
 	sphere.radial_segments = 12
 	sphere.rings = 6
-	# (rear share of length, height share, side share) in body bounds; +x = rear.
-	var spots := [Vector3(0.02, 0.62, 0.0), Vector3(-0.08, 0.6, 0.16), Vector3(-0.08, 0.6, -0.16), Vector3(-0.2, 0.62, 0.08), Vector3(-0.2, 0.62, -0.08)]
+	var spots := [Vector3(-0.12, 0.0, 0.52), Vector3(-0.2, 0.12, 0.46), Vector3(-0.2, -0.12, 0.46), Vector3(-0.3, 0.07, 0.41), Vector3(-0.3, -0.07, 0.41)]
 	for spot in spots:
 		var sac := MeshInstance3D.new()
 		sac.name = "Spore sac"
 		sac.mesh = sphere
 		sac.material_override = sac_material
 		sac.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		sac.position = bounds.get_center() + Vector3(spot.x * bounds.size.x, (spot.y - 0.5) * bounds.size.y, spot.z * bounds.size.z)
-		sac.scale = Vector3.ONE * bounds.size.y * 0.12
+		sac.position = Vector3(-spot.x, spot.z, spot.y) * MODEL_SCALE
+		sac.scale = Vector3.ONE * MODEL_SCALE * 0.07
 		sac.set_meta("base", sac.scale.x)
 		body.add_child(sac)
 		sacs.append(sac)
 
 
-# Same mesh as the Bog King, so the limb frame is identical (raw mesh space).
+# Limb frame for Moosschlund_game.glb, measured in raw mesh space (Z-up storage):
+# soles at z = 0 (up = -Z), head with the root antlers towards +Y, lateral = +X.
+# Feet centres (forward, lateral) from clustering the lowest 5 % of vertices: four
+# pillar legs in a wide rectangle. The jaw is the snout below the eyes in front of
+# the antler roots (antlers start above u = 0.4 and stay rigid); no tail.
 func _setup_limbs() -> void:
 	skin.set_shader_parameter("up_axis", Vector3(0.0, 0.0, -1.0))
 	skin.set_shader_parameter("forward_axis", Vector3(0.0, 1.0, 0.0))
 	skin.set_shader_parameter("ground_offset", 0.0)
-	skin.set_shader_parameter("foot_a_front", Vector2(0.325, -0.113))
-	skin.set_shader_parameter("foot_a_back", Vector2(0.024, 0.234))
-	skin.set_shader_parameter("foot_b_front", Vector2(0.294, 0.063))
-	skin.set_shader_parameter("foot_b_back", Vector2(0.045, -0.252))
-	skin.set_shader_parameter("foot_radius", 0.13)
+	skin.set_shader_parameter("foot_a_front", Vector2(0.192, -0.229))
+	skin.set_shader_parameter("foot_a_back", Vector2(-0.332, 0.247))
+	skin.set_shader_parameter("foot_b_front", Vector2(0.189, 0.237))
+	skin.set_shader_parameter("foot_b_back", Vector2(-0.331, -0.241))
+	skin.set_shader_parameter("foot_radius", 0.14)
 	skin.set_shader_parameter("leg_height", 0.2)
-	skin.set_shader_parameter("stride", 0.05)
+	skin.set_shader_parameter("stride", 0.045)
 	skin.set_shader_parameter("lift", 0.05)
 	skin.set_shader_parameter("stride_centering", 1.0)
 	skin.set_shader_parameter("walk_speed", 0.0)
 	skin.set_shader_parameter("walk_scale", 1.0)
-	skin.set_shader_parameter("jaw_hinge_forward", 0.16)
-	skin.set_shader_parameter("jaw_hinge_height", 0.33)
-	skin.set_shader_parameter("jaw_floor", 0.2)
-	skin.set_shader_parameter("jaw_angle", 0.45)
-	skin.set_shader_parameter("tail_start", -0.3)
-	skin.set_shader_parameter("tail_length", 0.35)
-	skin.set_shader_parameter("tail_floor", 0.03)
-	skin.set_shader_parameter("tail_swing", 0.04)
+	skin.set_shader_parameter("jaw_hinge_forward", 0.24)
+	skin.set_shader_parameter("jaw_hinge_height", 0.36)
+	skin.set_shader_parameter("jaw_floor", 0.16)
+	skin.set_shader_parameter("jaw_angle", 0.5)
+	skin.set_shader_parameter("tail_start", -1.0)
+	skin.set_shader_parameter("tail_length", 0.1)
+	skin.set_shader_parameter("tail_floor", 1.0)
+	skin.set_shader_parameter("tail_swing", 0.0)
 	skin.set_shader_parameter("tail_rate", 0.0)
 	skin.set_shader_parameter("stomp_height", 0.14)
 
@@ -883,40 +864,20 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 	skin.set_shader_parameter("rim_color", _rim)
 	skin.set_shader_parameter("rim_strength", rim_strength)
 	skin.set_shader_parameter("flash", flash)
-	skin.set_shader_parameter("body_tint", SKIN_TINT_RAGE if phase == 2 else SKIN_TINT)
+	var tint_target := SKIN_TINT_RAGE if phase == 2 else SKIN_TINT
+	if state == State.EXHAUSTED:
+		tint_target = SKIN_TINT_EXHAUSTED
+	_tint = tint_target if snap else _tint.lerp(tint_target, minf(1.0, delta * 4.0))
+	skin.set_shader_parameter("body_tint", _tint)
 	skin.set_shader_parameter("walk_amount", _walk)
 	skin.set_shader_parameter("walk_phase", _gait + PI * 0.5)
 	skin.set_shader_parameter("stomp_lift", _stomp_leg)
 	skin.set_shader_parameter("bite_amount", _jaw)
 	skin.set_shader_parameter("tail_phase", _time * 1.3)
-	crown_material.set_shader_parameter("flash", flash)
 	var sac_pulse := 1.0 + 0.35 * sac_swell * (0.7 + 0.3 * sin(_time * 12.0))
 	for sac in sacs:
 		sac.scale = Vector3.ONE * float(sac.get_meta("base")) * sac_pulse
 	sac_material.emission_energy_multiplier = maxf(0.0, 0.4 + 1.6 * sac_swell)
-
-
-# Bounds of every mesh below `root`, expressed in `space` coordinates.
-static func _bounds(root: Node3D, space: Node3D) -> AABB:
-	var result := AABB()
-	var first := true
-	for mesh in root.find_children("*", "MeshInstance3D", true, false):
-		var instance := mesh as MeshInstance3D
-		var local := space.global_transform.affine_inverse() * instance.global_transform if space.is_inside_tree() else _relative(instance, space)
-		var box: AABB = local * instance.mesh.get_aabb()
-		result = box if first else result.merge(box)
-		first = false
-	return result
-
-
-static func _relative(node: Node3D, space: Node3D) -> Transform3D:
-	var result := Transform3D.IDENTITY
-	var current: Node = node
-	while current != null and current != space:
-		if current is Node3D:
-			result = (current as Node3D).transform * result
-		current = current.get_parent()
-	return result
 
 
 func _shake(amount: float) -> void:

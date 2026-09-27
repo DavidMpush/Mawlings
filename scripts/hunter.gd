@@ -11,6 +11,15 @@ const BEETLE_LENGTH := 2.0
 static var _beetle_mesh: Mesh
 static var _beetle_base := Transform3D.IDENTITY
 static var _beetle_checked := false
+# The user's elite crown (Hunyuan). Rendered with its own copy of the creature
+# look (not the creature shader resource), so the biome tint never recolours it.
+const CROWN_PATH := "res://assets/gameplay/props/EliteCrown_game.glb"
+# Crown width relative to the beetle length (before the elite scale).
+const CROWN_WIDTH := 1.0
+static var _crown_mesh: Mesh
+static var _crown_base := Transform3D.IDENTITY
+static var _crown_checked := false
+static var _crown_skin: ShaderMaterial
 # Shared meshes/materials of every hunter (built once, see _shared_parts()).
 static var _parts := {}
 enum State { ARRIVING, CHASE, WARNING, RECOVERY }
@@ -39,6 +48,10 @@ var slow_factor := 1.0
 # guaranteed Alpha-Kern and the bigger reward.
 var elite := false
 var crown: Node3D
+# Top of the body model in local units (feet at y=0), for the crown seat.
+var body_top := 1.0
+var crown_base_y := 1.18
+var crown_clock := 0.0
 
 
 func _ready() -> void:
@@ -78,13 +91,32 @@ func make_elite(health_multiplier: float) -> void:
 	var parts := _shared_parts()
 	crown = Node3D.new()
 	crown.name = "Crown"
-	crown.position = Vector3(0, 1.18, 0)
 	add_child(crown)
-	# Band and five spikes are one merged gold mesh.
-	_part(crown, parts.crown, parts.gold, Vector3.ZERO)
-	_part(crown, parts.gem, FX_BATCH.shared_material(Color("a86bff"), true), Vector3(0, 0.06, 0.46))
+	var crown_top := 0.0
+	var model_mesh: Mesh = _load_crown()
+	if model_mesh != null:
+		# Model crown floats clearly above the back (seat from the beetle AABB).
+		crown_base_y = body_top + 0.02
+		var raw: AABB = Transform3D(_crown_base.basis, Vector3.ZERO) * model_mesh.get_aabb()
+		var shape := Basis.from_scale(Vector3.ONE * (CROWN_WIDTH / maxf(0.01, maxf(raw.size.x, raw.size.z)))) * _crown_base.basis
+		var bounds: AABB = Transform3D(shape, Vector3.ZERO) * model_mesh.get_aabb()
+		var model := MeshInstance3D.new()
+		model.name = "Crown model"
+		model.mesh = model_mesh
+		model.material_override = _crown_skin
+		model.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		model.transform = Transform3D(shape, Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z))
+		crown.add_child(model)
+		crown_top = bounds.size.y
+	else:
+		crown_base_y = maxf(1.18, body_top + 0.1)
+		# Band and five spikes are one merged gold mesh.
+		_part(crown, parts.crown, parts.gold, Vector3.ZERO)
+		_part(crown, parts.gem, FX_BATCH.shared_material(Color("a86bff"), true), Vector3(0, 0.06, 0.46))
+		crown_top = 0.5
+	crown.position = Vector3(0, crown_base_y, 0)
 	health_fill.material_override = FX_BATCH.shared_material(Color("ffd66e"), true)
-	health_fill.position.y = 1.85
+	health_fill.position.y = maxf(1.85, crown_base_y + crown_top + 0.25)
 
 
 func take_damage(amount: float) -> void:
@@ -105,6 +137,11 @@ func step(delta: float, swarm_position: Vector3, pressure: float, swarm_velocity
 	if state != State.WARNING and Vector2(facing.x, facing.z).length() > 0.2:
 		rotation.y = lerp_angle(rotation.y, atan2(facing.x, facing.z), minf(1.0, delta * 8.0))
 	health_fill.rotation.y = -rotation.y
+	if crown != null:
+		# Slow turn and gentle bob so the crown reads as a separate, special object.
+		crown_clock += delta
+		crown.rotation.y = crown_clock * 0.9
+		crown.position.y = crown_base_y + 0.08 * sin(crown_clock * 2.4)
 	if state == State.CHASE:
 		var offset := swarm_position - global_position
 		offset.y = 0.0
@@ -285,3 +322,37 @@ func _build_beetle() -> void:
 	var bounds: AABB = Transform3D(shape, Vector3.ZERO) * _beetle_mesh.get_aabb()
 	model.transform = Transform3D(shape, Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z))
 	body.add_child(model)
+	body_top = bounds.size.y
+
+
+static func _load_crown() -> Mesh:
+	if not _crown_checked:
+		_crown_checked = true
+		if ResourceLoader.exists(CROWN_PATH):
+			var root: Node = (load(CROWN_PATH) as PackedScene).instantiate()
+			var found := root.find_children("*", "MeshInstance3D", true, false)
+			if not found.is_empty():
+				var source: MeshInstance3D = found[0]
+				var base := Transform3D.IDENTITY
+				var node: Node = source
+				while node != root and node is Node3D:
+					base = (node as Node3D).transform * base
+					node = node.get_parent()
+				_crown_mesh = source.mesh
+				_crown_base = base
+			root.free()
+		if _crown_mesh != null:
+			# Same look as creature.gdshader, but a separate (path-less) shader:
+			# gold recolour of the vertex colours and a warm glow.
+			var shader := Shader.new()
+			shader.code = CREATURE_SHADER.code
+			_crown_skin = ShaderMaterial.new()
+			_crown_skin.shader = shader
+			_crown_skin.set_shader_parameter("brightness", 1.45)
+			_crown_skin.set_shader_parameter("saturation", 1.3)
+			_crown_skin.set_shader_parameter("body_tint", Color(1.0, 0.76, 0.2, 0.75))
+			_crown_skin.set_shader_parameter("shape_light", 0.3)
+			_crown_skin.set_shader_parameter("rim_power", 2.2)
+			_crown_skin.set_shader_parameter("rim_color", Color("fff1a8"))
+			_crown_skin.set_shader_parameter("rim_strength", 0.7)
+	return _crown_mesh

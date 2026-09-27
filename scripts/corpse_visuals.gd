@@ -17,12 +17,21 @@ extends Node3D
 # Performance: ONE MultiMesh per design (+ one for all amber pools, + one for
 # all glow halos, + one per crystal size) with shared meshes/materials. Per
 # corpse only instance data (transform + INSTANCE_CUSTOM: fill, glow, phase,
-# pulse speed) is written; no node per corpse. 60 mixed corpses = at most 15
+# pulse speed) is written; no node per corpse. 60 mixed corpses = at most 16
 # draw calls.
 
 const NIBBLER_SCENE = preload("res://assets/gameplay/characters/Nibbler_game.glb")
 const REAPER_SCENE = preload("res://assets/gameplay/characters/MireReaper_game.glb")
-const ROOT_ARCH_SCENE = preload("res://assets/gameplay/props/RootArch_game.glb")
+# Asset pack V3: the real animal models, lying dead (baked into the design mesh).
+const HUNTER_SCENE = preload("res://assets/gameplay/characters/HunterBeetle_game.glb")
+const ELITE_CROWN_SCENE = preload("res://assets/gameplay/props/EliteCrown_game.glb")
+const SKITTER_SCENE = preload("res://assets/gameplay/characters/Skitter_game.glb")
+const MOORBRUT_SCENE = preload("res://assets/gameplay/characters/Moorbrut_game.glb")
+const MOOSSCHLUND_SCENE = preload("res://assets/gameplay/characters/Moosschlund_game.glb")
+const BOG_KING_SCENE = preload("res://assets/gameplay/characters/BogKingNew_game.glb")
+# Triangle budget per remains model (the import LOD closest below it is baked;
+# 0 = full mesh). Moorbrut corpses can number in the hundreds, so they are tiny.
+const MODEL_TRIS := {"hunter": 1500, "elite": 1500, "skitter": 1300, "horde": 300, "boss": 4000, "apex": 4000}
 const DROP_SCENES := {
 	"drop_small": preload("res://assets/gameplay/props/SmallDrop_game.glb"),
 	"drop_medium": preload("res://assets/gameplay/props/MediumDrop_game.glb"),
@@ -62,7 +71,7 @@ const DESIGNS := {
 	"elite": {"rank": "mini", "pool": 1.45, "glow": 0.85, "halo": 4.4, "halo_color": Color(1.0, 0.72, 0.28), "halo_strength": 0.8, "pulse": 2.1, "ref": 26.0, "remains_min": 0.75, "drop": "drop_medium", "drop_size": 1.05, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, -0.3), "drop_lift": 1.35},
 	"leaper": {"rank": "mini", "pool": 1.35, "glow": 0.8, "halo": 4.2, "halo_color": Color(0.95, 0.8, 0.35), "halo_strength": 0.75, "pulse": 2.1, "ref": 10.0, "remains_min": 0.75, "drop": "drop_medium", "drop_size": 0.95, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.9},
 	"boss": {"rank": "boss", "pool": 2.7, "glow": 1.0, "halo": 10.0, "halo_color": Color(1.0, 0.66, 0.24), "halo_strength": 0.9, "pulse": 1.3, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 1.9, "drop_count": 1, "drop_at": Vector3(2.35, 0.0, 0.4), "drop_lift": 0.35},
-	"apex": {"rank": "boss", "pool": 3.1, "glow": 1.0, "halo": 11.0, "halo_color": Color(0.95, 0.8, 0.32), "halo_strength": 0.9, "pulse": 1.1, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(-2.55, 0.0, 0.6), "drop_lift": 0.35},
+	"apex": {"rank": "boss", "pool": 3.1, "glow": 1.0, "halo": 11.0, "halo_color": Color(0.95, 0.8, 0.32), "halo_strength": 0.9, "pulse": 1.1, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(-3.3, 0.0, 0.9), "drop_lift": 0.35},
 	# Aschenkröte (second apex, Glutsumpf): as big as the Moosschlund, orange halo.
 	"apex_toad": {"rank": "boss", "pool": 3.3, "glow": 1.0, "halo": 11.5, "halo_color": Color(1.0, 0.56, 0.2), "halo_strength": 0.95, "pulse": 1.0, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(2.6, 0.0, -0.8), "drop_lift": 0.35},
 	"mawling": {"rank": "special", "pool": 0.0, "glow": 1.0, "halo": 1.6, "halo_color": Color(1.0, 0.5, 0.18), "halo_strength": 0.9, "pulse": 4.0, "ref": 1.0, "remains_min": 0.6, "drop": ""},
@@ -71,7 +80,6 @@ const DESIGNS := {
 
 # Palette (living colours, the shader darkens and desaturates the remains).
 const BONE := Color("efe2c0")
-const BONE_MOSS := Color("d3d6a2")
 const ASH_BONE := Color("c9c0b8")
 const AMBER_EDGE := Color("c0650f")
 const AMBER_MID := Color("f7a62a")
@@ -495,7 +503,7 @@ static func _mesh(layer_name: String) -> Mesh:
 		match layer_name:
 			POOL_LAYER: _build_pool(b)
 			"prey": _build_prey(b)
-			"hunter": _build_bug(b, false)
+			"hunter": _build_hunter(b)
 			"elite": _build_elite(b)
 			"skitter": _build_skitter(b)
 			"horde": _build_horde(b)
@@ -543,82 +551,36 @@ static func _build_prey(b: Builder) -> void:
 	b.bone_splinter(Vector3(0.55, 0.0, -0.4), Vector3(0.75, 0.35, -0.55), 0.05, BONE)
 
 
-# Hunter / elite body: purple beetle on its back, pale belly up, legs in the air,
-# horns broken off beside it, X eyes on the dark face plate.
-static func _build_bug(b: Builder, elite: bool) -> void:
-	var shell := Color("834c9f")
-	var belly := Color("c9a6d8")
-	var leg := Color("4d345f")
-	var horn := Color("e6d6b8")
-	b.blob(Vector3(0.0, 0.3, 0.0), Vector3(1.25, 0.6, 1.4), shell)
-	b.blob(Vector3(0.0, 0.52, -0.05), Vector3(0.92, 0.34, 1.08), belly)
-	# Belly segment grooves.
-	for z in [-0.28, 0.02, 0.3]:
-		b.tube([Vector3(-0.36, 0.62, z), Vector3(0.0, 0.7, z), Vector3(0.36, 0.62, z)], 0.028, 0.028, leg)
-	for side in [-1.0, 1.0]:
-		for z in [-0.3, 0.25]:
-			b.tube([Vector3(side * 0.34, 0.6, z), Vector3(side * 0.56, 0.98, z * 1.4), Vector3(side * 0.78, 0.92, z * 1.7)], 0.07, 0.035, leg)
-		# Broken horn lying on the ground, pointing away.
-		b.tube([Vector3(side * 0.62, 0.12, 0.62), Vector3(side * 0.9, 0.12, 1.05), Vector3(side * 1.02, 0.2, 1.38)], 0.13, 0.015, horn)
-	b.blob(Vector3(0.0, 0.34, 0.66), Vector3(0.78, 0.32, 0.28), Color("3a2848"))
-	for side in [-1.0, 1.0]:
-		var eye := Vector3(side * 0.19, 0.38, 0.8)
-		b.tube([eye + Vector3(-0.07, -0.07, 0.0), eye + Vector3(0.07, 0.07, 0.0)], 0.022, 0.022, Color("ffb070"))
-		b.tube([eye + Vector3(-0.07, 0.07, 0.0), eye + Vector3(0.07, -0.07, 0.0)], 0.022, 0.022, Color("ffb070"))
-	if elite:
-		b.bone_splinter(Vector3(-1.05, 0.0, -0.5), Vector3(-1.3, 0.75, -0.75), 0.08, BONE)
-		b.bone_splinter(Vector3(0.9, 0.0, -0.9), Vector3(1.25, 0.6, -1.25), 0.07, BONE)
-		b.bone_splinter(Vector3(-0.2, 0.0, -1.2), Vector3(-0.25, 0.55, -1.65), 0.07, BONE)
+# Hunter beetle on its back, legs in the air, tipped a little onto one flank.
+static func _build_hunter(b: Builder, crown := false) -> void:
+	var lying := Basis(Vector3(0, 0, 1), PI - 0.35)
+	b.glb(HUNTER_SCENE, 1.9, lying, Vector3(0.0, -0.04, 0.0), Color(1.25, 1.2, 1.3), true, 0.0, false, int(MODEL_TRIS.hunter))
+	if not crown:
+		return
+	# Golden crown fallen off beside the head (glowing bit: stays gold, pulses).
+	var tipped := Basis(Vector3(0, 0, 1), 1.25).rotated(Vector3.UP, 0.6)
+	b.glb(ELITE_CROWN_SCENE, 1.0, tipped, Vector3(1.0, 0.0, 0.9), Color(1.75, 1.35, 0.55), true, 0.0, true, 400)
+	b.bone_splinter(Vector3(-0.95, 0.0, -0.5), Vector3(-1.2, 0.55, -0.75), 0.06, BONE)
+	b.bone_splinter(Vector3(0.2, 0.0, -1.05), Vector3(0.25, 0.45, -1.4), 0.05, BONE)
 
 
-# Elite: the hunter body at elite size plus its golden crown fallen beside it.
+# Elite: the hunter beetle at elite size plus its golden crown fallen beside it.
 static func _build_elite(b: Builder) -> void:
 	b.frame = Transform3D(Basis.from_scale(Vector3.ONE * 1.4), Vector3.ZERO)
-	_build_bug(b, true)
-	# Crown tipped over next to the head: ring + five spikes + glowing gem.
-	var crown := Transform3D(Basis(Vector3(0, 0, 1), 0.75).rotated(Vector3.UP, 0.5), Vector3(1.05, 0.28, 0.55))
-	b.frame = Transform3D(Basis.from_scale(Vector3.ONE * 1.4), Vector3.ZERO) * crown
-	var gold := Color("ffc12a")
-	var ring := []
-	for index in 13:
-		var angle := TAU * float(index) / 12.0
-		ring.append(Vector3(cos(angle) * 0.4, 0.0, sin(angle) * 0.4))
-	b.tube(ring, 0.07, 0.07, gold, 6, true)
-	for index in 5:
-		var angle := TAU * float(index) / 5.0
-		var foot := Vector3(cos(angle) * 0.4, 0.0, sin(angle) * 0.4)
-		b.tube([foot, foot * 1.05 + Vector3(0.0, 0.34, 0.0)], 0.1, 0.01, gold, 5, true)
-	b.blob(Vector3(0.0, 0.08, 0.43), Vector3.ONE * 0.2, Color("b98cff"), Basis.IDENTITY, true)
+	_build_hunter(b, true)
 	b.frame = Transform3D.IDENTITY
 
 
-# Skitter: blue shell on its back, pink blade wings splayed flat, legs up.
+# Skitter on its back, blade legs splayed up.
 static func _build_skitter(b: Builder) -> void:
-	var shell := Color("3874ba")
-	var belly := Color("9cc2ea")
-	var leg := Color("1d2f4f")
-	var blade := Color("de5b99")
-	b.blob(Vector3(0.0, 0.24, 0.0), Vector3(0.95, 0.46, 1.05), shell)
-	b.blob(Vector3(0.0, 0.4, 0.0), Vector3(0.66, 0.26, 0.76), belly)
-	for spec in [[0.55, 0.9], [-0.55, 0.75], [2.5, 0.85], [-2.55, 0.55]]:
-		var angle: float = spec[0]
-		var length: float = spec[1]
-		var dir := Vector3(sin(angle), 0.0, cos(angle))
-		b.blob(dir * (0.35 + length * 0.4) + Vector3(0.0, 0.05, 0.0), Vector3(0.26, 0.06, length), blade, Basis(Vector3.UP, angle))
-	for side in [-1.0, 1.0]:
-		for z in [-0.25, 0.0, 0.25]:
-			b.tube([Vector3(side * 0.25, 0.44, z), Vector3(side * 0.42, 0.78, z * 1.3), Vector3(side * 0.58, 0.72, z * 1.6)], 0.045, 0.022, leg)
-		b.blob(Vector3(side * 0.16, 0.26, 0.5), Vector3.ONE * 0.1, Color("b8a050"))
+	var lying := Basis(Vector3(0, 0, 1), PI + 0.3)
+	b.glb(SKITTER_SCENE, 1.75, lying, Vector3(0.0, -0.04, 0.0), Color(1.2, 1.2, 1.25), true, 0.0, false, int(MODEL_TRIS.skitter))
 
 
-# Horde (Moorbrut): only a few dark olive scraps with yellow flecks.
+# Horde (Moorbrut): a small body on its side, low-poly LOD (they come in hordes).
 static func _build_horde(b: Builder) -> void:
-	var olive := Color("3b4016")
-	for spec in [[Vector3(0.0, 0.08, 0.0), 0.3], [Vector3(0.24, 0.06, 0.16), 0.2], [Vector3(-0.2, 0.05, 0.2), 0.17], [Vector3(-0.08, 0.05, -0.24), 0.2]]:
-		var size: float = spec[1]
-		b.blob(spec[0], Vector3(size, size * 0.62, size * 0.9), olive, Basis(Vector3.UP, size * 9.0))
-	for spot in [Vector3(0.05, 0.17, 0.02), Vector3(0.26, 0.12, 0.14), Vector3(-0.1, 0.1, -0.24)]:
-		b.blob(spot, Vector3.ONE * 0.055, Color("f4e23a"), Basis.IDENTITY, true)
+	var lying := Basis(Vector3(0, 0, 1), PI * 0.5)
+	b.glb(MOORBRUT_SCENE, 0.72, lying, Vector3(0.0, -0.03, 0.0), Color(1.5, 1.45, 1.4), true, 0.0, false, int(MODEL_TRIS.horde))
 
 
 # Mire Reaper on its side, bone splinters around it.
@@ -671,41 +633,19 @@ static func _along(points: Array, t: float) -> Vector3:
 	return (points[index] as Vector3).lerp(points[index + 1], span - float(index))
 
 
-# Bog King: pale bones, violet crown plates scattered by the skull, dark bog flesh.
+# Bog King fallen on its side (squashed flat), a few bone splinters around it.
 static func _build_boss(b: Builder) -> void:
-	b.frame = Transform3D(Basis.from_scale(Vector3.ONE * 0.92), Vector3.ZERO)
-	var flesh := Color("3f2a40")
-	for spec in [[Vector3(0.9, 0.08, -0.6), 0.9], [Vector3(-1.0, 0.07, 0.4), 0.8], [Vector3(0.4, 0.06, 1.8), 0.7], [Vector3(-0.3, 0.07, -2.2), 0.8]]:
-		var size: float = spec[1]
-		b.blob(spec[0], Vector3(size, 0.22, size * 0.8), flesh, Basis(Vector3.UP, size * 4.0))
-	_skeleton(b, BONE)
-	var plate := Color("7a4a96")
-	var plates := [[Vector3(1.4, 0.2, 3.2), 0.4, 0.5], [Vector3(-1.5, 0.22, 2.7), -0.5, 1.4], [Vector3(0.9, 0.18, 4.4), 0.6, 2.2], [Vector3(-0.9, 0.2, 4.6), -0.4, 3.0], [Vector3(0.0, 1.55, 3.0), 0.15, 0.3]]
-	for spec in plates:
-		var tilt: float = spec[1]
-		var yaw: float = spec[2]
-		var basis := Basis(Vector3.RIGHT, tilt).rotated(Vector3.UP, yaw)
-		b.box(spec[0], Vector3(0.62, 0.14, 0.48), plate, basis)
-		b.tube([spec[0] + basis * Vector3(0.0, 0.07, 0.0), spec[0] + basis * Vector3(0.0, 0.5, 0.05)], 0.15, 0.01, plate.lightened(0.15), 5)
-	b.frame = Transform3D.IDENTITY
+	var lying := Basis(Vector3(0, 0, 1), PI * 0.5)
+	b.glb(BOG_KING_SCENE, 6.4, lying, Vector3(0.0, -0.1, 0.0), Color(1.3, 1.2, 1.3), true, 0.0, false, int(MODEL_TRIS.boss), 2.4)
+	b.bone_splinter(Vector3(1.9, 0.0, -2.2), Vector3(2.4, 1.0, -2.7), 0.12, BONE)
+	b.bone_splinter(Vector3(-2.0, 0.0, 1.2), Vector3(-2.6, 0.8, 1.5), 0.11, BONE)
+	b.bone_splinter(Vector3(-1.4, 0.0, -2.6), Vector3(-1.8, 0.9, -3.1), 0.1, BONE)
 
 
-# Moosschlund (apex): larger, mossy bones, a root crown and a glowing spore sac.
+# Moosschlund (apex) collapsed on its back, feet up, squashed flat.
 static func _build_apex(b: Builder) -> void:
-	b.frame = Transform3D(Basis.from_scale(Vector3.ONE * 1.08), Vector3.ZERO)
-	_skeleton(b, BONE_MOSS)
-	var moss := Color("5f8f35")
-	var moss_light := Color("86b84a")
-	var spots := [Vector3(0.0, 1.72, -0.2), Vector3(0.0, 1.7, 0.7), Vector3(0.0, 1.35, -1.6), Vector3(1.2, 0.9, 0.0), Vector3(-1.3, 0.75, 0.6), Vector3(0.0, 1.55, 3.0), Vector3(0.9, 0.6, -2.3), Vector3(-1.5, 0.12, -1.0), Vector3(1.6, 0.12, 1.4)]
-	for index in spots.size():
-		var size := 0.34 + 0.12 * float(index % 3)
-		b.blob(spots[index], Vector3(size * 1.3, size * 0.55, size), moss if index % 2 == 0 else moss_light, Basis(Vector3.UP, float(index)))
-	# Root crown arching over the skull.
-	b.glb(ROOT_ARCH_SCENE, 2.3, Basis.IDENTITY, Vector3(0.0, 1.05, 2.95), Color(1.45, 1.3, 1.15))
-	# Spore sac bursting from the chest, glowing violet.
-	b.blob(Vector3(0.4, 0.55, 0.6), Vector3(0.7, 0.6, 0.65), Color("d6b4ff"), Basis.IDENTITY, true)
-	b.blob(Vector3(-0.5, 0.35, -0.3), Vector3(0.38, 0.32, 0.36), Color("c49cff"), Basis.IDENTITY, true)
-	b.frame = Transform3D.IDENTITY
+	var lying := Basis(Vector3(0, 0, 1), PI - 0.3)
+	b.glb(MOOSSCHLUND_SCENE, 7.2, lying, Vector3(0.0, -0.1, 0.0), Color(1.2, 1.15, 1.15), true, 0.0, false, int(MODEL_TRIS.apex), 2.6)
 
 
 # Aschenkröte (apex_toad): a squat, wide skeleton of ash-grey bones, charred
@@ -791,12 +731,12 @@ class Builder:
 		indices.append(b)
 		indices.append(c)
 
-	func add_mesh(mesh: Mesh, xform: Transform3D, color: Color, keep_colors := false, glow := false, alpha := -1.0) -> void:
+	func add_mesh(mesh: Mesh, xform: Transform3D, color: Color, keep_colors := false, glow := false, alpha := -1.0, lod_indices := PackedInt32Array()) -> void:
 		var arrays := mesh.surface_get_arrays(0)
 		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var mesh_normals = arrays[Mesh.ARRAY_NORMAL]
 		var mesh_colors = arrays[Mesh.ARRAY_COLOR]
-		var mesh_indices = arrays[Mesh.ARRAY_INDEX]
+		var mesh_indices = lod_indices if not lod_indices.is_empty() else arrays[Mesh.ARRAY_INDEX]
 		var full := frame * xform
 		var normal_basis := full.basis.inverse().transposed()
 		var has_normals: bool = mesh_normals != null and mesh_normals.size() == points.size()
@@ -892,7 +832,10 @@ class Builder:
 	# A GLB model (first mesh, its node transform baked), scaled to `length`
 	# along its longest ground axis, rotated, centred, resting on the ground.
 	# height > 0 scales to that height instead (upright props like crystals).
-	func glb(scene: PackedScene, length: float, rotation: Basis, offset: Vector3, tint: Color, rest_on_ground := true, height := 0.0) -> void:
+	# glow: the whole model counts as glowing bit; max_tris > 0 bakes the
+	# import LOD closest below that triangle count instead of the full mesh.
+	# max_height > 0 squashes a taller result flat (collapsed boss carcasses).
+	func glb(scene: PackedScene, length: float, rotation: Basis, offset: Vector3, tint: Color, rest_on_ground := true, height := 0.0, glow := false, max_tris := 0, max_height := 0.0) -> void:
 		var source: Array = CorpseVisualsMeshes.extract(scene)
 		var mesh: Mesh = source[0]
 		var base: Transform3D = source[1]
@@ -903,10 +846,14 @@ class Builder:
 			scale = height / maxf(bounds.size.y, 0.01)
 		shaped = Transform3D(Basis.from_scale(Vector3.ONE * scale), Vector3.ZERO) * shaped
 		bounds = shaped * mesh.get_aabb()
+		if max_height > 0.0 and bounds.size.y > max_height:
+			shaped = Transform3D(Basis.from_scale(Vector3(1.0, max_height / bounds.size.y, 1.0)), Vector3.ZERO) * shaped
+			bounds = shaped * mesh.get_aabb()
 		var center := bounds.get_center()
 		var lift := -bounds.position.y if rest_on_ground else -center.y
 		shaped.origin += Vector3(-center.x, lift, -center.z) + offset
-		add_mesh(mesh, shaped, tint, true)
+		var lod := CorpseVisualsMeshes.lod_indices(mesh, max_tris) if max_tris > 0 else PackedInt32Array()
+		add_mesh(mesh, shaped, tint, true, glow, -1.0, lod)
 
 	func commit() -> ArrayMesh:
 		var arrays := []
@@ -937,4 +884,25 @@ class CorpseVisualsMeshes:
 		var result := [model.mesh, base]
 		root.free()
 		cache[scene.resource_path] = result
+		return result
+
+	# Index list of the finest import LOD (meshes/generate_lods) with at most
+	# `max_tris` triangles; empty = use the full mesh (no LODs, e.g. dummy renderer).
+	static func lod_indices(mesh: Mesh, max_tris: int) -> PackedInt32Array:
+		var result := PackedInt32Array()
+		var surface: Dictionary = RenderingServer.mesh_get_surface(mesh.get_rid(), 0)
+		var index_count := int(surface.get("index_count", 0))
+		if index_count <= max_tris * 3 or not surface.has("lods"):
+			return result
+		var full: PackedByteArray = surface.get("index_data", PackedByteArray())
+		var width := 2 if int(surface.get("vertex_count", 0)) <= 65535 else 4
+		if full.size() > 0:
+			width = full.size() / index_count
+		for lod: Dictionary in surface.lods:
+			var data: PackedByteArray = lod.get("index_data", PackedByteArray())
+			if data.size() / width <= max_tris * 3:
+				result.resize(data.size() / width)
+				for index in result.size():
+					result[index] = data.decode_u16(index * 2) if width == 2 else data.decode_u32(index * 4)
+				return result
 		return result
