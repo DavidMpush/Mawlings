@@ -18,7 +18,7 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 - **Modelle (Hunyuan3D):** Jäger (`08_hunter.png`), Skitter, Biomasse-Knoten (`05_biomass_node.png`), Pilz (`04_fungus.png`), je ein Modell pro Stamm oder Freigabe, Stämme nur farblich zu unterscheiden; Apex-Boss-Entwurf.
 - **UI-Stil:** organisch-glühend (heute), ruhig (UI-Kit V2) oder Mischung – Vergleichsbilder `preview_ui_v2_*.png`.
 - **Sound-Lizenzen:** Herkunft von `merge-3-mobile-game-short…`, `sling-streching…`, `soft-quick-sound-of-slime…` bestätigen (siehe `assets/audio/LICENSES.md`).
-- **Entscheidungen:** Name/Markenprüfung (Überschneidung „Mawling“ in Hollow Knight: Silksong), Monetarisierungsmodell, Package-Name für Android (Platzhalter `com.jaysolution.mawlings`).
+- **Entscheidungen:** Name/Markenprüfung (Überschneidung „Mawling“ in Hollow Knight: Silksong), Monetarisierungsmodell, Package-Name für Android (Platzhalter `com.mawlings.game`).
 - **Handtest:** 5–10 Minuten Spielgefühl (Treffer pro Tier, Königsmoment, Balance Wild/Brutal, Lesbarkeit der Farben).
 
 ## Erledigt

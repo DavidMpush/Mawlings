@@ -39,5 +39,5 @@ if ($NoInstall) { exit 0 }
 $devices = (& adb devices) | Select-Object -Skip 1 | Where-Object { $_ -match '\tdevice$' }
 if (-not $devices) { Write-Output 'Kein Geraet verbunden (USB-Debugging aktivieren, Kabel anschliessen, Freigabe am Handy bestaetigen).'; exit 0 }
 & adb install -r $apk
-& adb shell monkey -p com.jaysolution.mawlings -c android.intent.category.LAUNCHER 1 | Out-Null
+& adb shell monkey -p com.mawlings.game -c android.intent.category.LAUNCHER 1 | Out-Null
 Write-Output 'Installiert und gestartet.'

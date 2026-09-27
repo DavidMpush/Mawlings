@@ -23,15 +23,15 @@ Quelle: https://mixkit.co/free-sound-effects/ – Mixkit-Lizenz: kostenlos in ko
 | `mixkit-video-game-health-recharge-2837.wav` | `regen_1..2` |
 | `mixkit-retro-game-emergency-alarm-1000.wav` | nicht verwendet (sehr schrill, Energie um 17 kHz) |
 
-## ACHTUNG: Herkunft/Lizenz vom Nutzer bestätigen
+## Weitere Stock-Sounds (vom Nutzer bestätigt am 27.09.2026)
 
-Diese drei Dateien wurden geliefert, ihre Quelle und Lizenz sind **unbekannt**. Sie sind eingebunden, dürfen aber erst veröffentlicht werden, wenn der Nutzer Herkunft und Nutzungsrecht bestätigt hat. Sonst: Quelle löschen bzw. umbenennen und `tools/gen_sfx.py` erzeugt die prozeduralen Ersatzklänge (`split`, `grow`) wieder; `leaper_windup` hat keinen prozeduralen Ersatz.
+Der Nutzer hat bestätigt, dass alle gelieferten Sounds lizenzfreie Stock-Sounds sind. Bei einer Veröffentlichung die genaue Quelle je Datei nachtragen.
 
 | Quelldatei | Spiel-IDs | Status |
 |---|---|---|
-| `soft-quick-sound-of-slime-sk5tldnt.wav` | `split_1..4` | **Herkunft/Lizenz vom Nutzer bestätigen** |
-| `merge-3-mobile-game-short-7ir6tzte.wav` | `grow_1..3` | **Herkunft/Lizenz vom Nutzer bestätigen** |
-| `sling-streching-sfx-for-m-vpiblugt.wav` | `leaper_windup_1..2` | **Herkunft/Lizenz vom Nutzer bestätigen** |
+| `soft-quick-sound-of-slime-sk5tldnt.wav` | `split_1..4` | Stock, lizenzfrei (Nutzerangabe) |
+| `merge-3-mobile-game-short-7ir6tzte.wav` | `grow_1..3` | Stock, lizenzfrei (Nutzerangabe) |
+| `sling-streching-sfx-for-m-vpiblugt.wav` | `leaper_windup_1..2` | Stock, lizenzfrei (Nutzerangabe) |
 
 ## Prozedural (eigene Synthese)
 
