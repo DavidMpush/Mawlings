@@ -7,6 +7,8 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 Erledigt seit dem letzten Aufräumen: 15 UI-Supercell, 16 Kristalle/Magnet, 17 duale Progression (Werte, Arsenal, Kokons, Power-ups, Schreine, Bernstein), 17b Schwarm ohne Limit, 17c Anführer-LP + Lebensraub, 17d Stammes-Fähigkeiten, 18/18c Erkundungskarte, 19 Wüste + Sandwurm, 20 Gefahren-Lesbarkeit, 22/22b Leistung, 23 Audio, 24 Einstieg, Kodex. Details in den Etappendateien.
 
 ### Offene Todos
+
+**Neues S25-Nutzerfeedback (28.09.2026):** [Playtest-Protokoll](../playtests/2026-09-28_s25_feedback.md) – nach drei Migrationen/über 15 Minuten zu wenig Gegner zwischen Fluten, Wunsch nach Hordenwellen; außerdem dynamischer rechter Joystick, verdeckte XP-Anzeige, Gebietsnamen-Overlay entfernen und Sprungfähigkeiten über schmale Hindernisse. Noch nicht umgesetzt; vor weiterer Content-Ausweitung als nächsten Geräte- und Survival-Pass priorisieren.
 0. **Stand 28.09.2026 abends (Commit „World reset + stronger apex“):** Umgesetzt, aber **ohne abschließenden Balance-Kontrolllauf**:
    - Apex-Bosse deutlich stärker als der Bog King (Ziel ≥ 3× LP, Kampf 45–70 s).
    - Migration setzt Druck und Flut zurück (Schwarm, Build, Level, Relikte und Bernstein bleiben), Welt-Bonus je Welt, Welt-Anzeige im HUD.
