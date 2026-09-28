@@ -31,7 +31,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS progression_stats: 15 stats, 5 ranks, rarity 70/22/7/1 + luck, offers, values, effects")
+	print("PASS progression_stats: 15 stats, 5 ranks, 5 rarity tiers 55/25/13/6/1 + luck, offers, values, effects")
 	quit(0)
 
 
@@ -56,23 +56,29 @@ func _test_catalog() -> void:
 
 
 func _test_rarity_distribution() -> void:
+	# Etappe 28: fünf Stufen, 55/25/13/6/1 %.
+	_check(STATS.RARITIES == ["common", "uncommon", "rare", "epic", "legendary"], "Fünf Stufen in Rangfolge")
+	for rarity in STATS.RARITIES:
+		_check(STATS.RARITY_FACTOR.has(rarity) and STATS.RARITY_CHANCE.has(rarity) and STATS.RARITY_NAME.has(rarity) and STATS.RARITY_TONE.has(rarity), "Tabellen kennen " + rarity)
+	_check(STATS.RARITY_NAME.uncommon == "UNGEWÖHNLICH" and is_equal_approx(STATS.RARITY_FACTOR.uncommon, 1.25), "ungewöhnlich: Name und Faktor 1,25")
 	var base := STATS.rarity_chances(0.0)
-	_check(is_equal_approx(base.common, 0.70) and is_equal_approx(base.rare, 0.22) and is_equal_approx(base.epic, 0.07) and is_equal_approx(base.legendary, 0.01), "Basischancen 70/22/7/1")
+	_check(is_equal_approx(base.common, 0.55) and is_equal_approx(base.uncommon, 0.25) and is_equal_approx(base.rare, 0.13) and is_equal_approx(base.epic, 0.06) and is_equal_approx(base.legendary, 0.01), "Basischancen 55/25/13/6/1")
 	var lucky := STATS.rarity_chances(5.0)
-	_check(is_equal_approx(lucky.rare, 0.22 * 1.5) and is_equal_approx(lucky.legendary, 0.015), "Glück 5 = +50 % relativ auf selten/episch/legendär")
-	_check(is_equal_approx(lucky.common + lucky.rare + lucky.epic + lucky.legendary, 1.0), "Chancen summieren sich zu 1")
+	_check(is_equal_approx(lucky.uncommon, 0.25 * 1.5) and is_equal_approx(lucky.rare, 0.13 * 1.5) and is_equal_approx(lucky.legendary, 0.015), "Glück 5 = +50 % relativ auf alle Stufen ab ungewöhnlich")
+	_check(is_equal_approx(lucky.common + lucky.uncommon + lucky.rare + lucky.epic + lucky.legendary, 1.0), "Chancen summieren sich zu 1")
 	var floor_epic := STATS.rarity_chances(0.0, "epic")
-	_check(floor_epic.common == 0.0 and floor_epic.rare == 0.0 and is_equal_approx(floor_epic.epic + floor_epic.legendary, 1.0), "Mindest-Seltenheit schneidet ab")
+	_check(floor_epic.common == 0.0 and floor_epic.uncommon == 0.0 and floor_epic.rare == 0.0 and is_equal_approx(floor_epic.epic + floor_epic.legendary, 1.0), "Mindest-Seltenheit schneidet ab")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 17
-	var counts := {"common": 0, "rare": 0, "epic": 0, "legendary": 0}
+	var counts := {"common": 0, "uncommon": 0, "rare": 0, "epic": 0, "legendary": 0}
 	for i in ROLLS:
 		counts[STATS.roll_rarity(rng, 0.0)] += 1
-	_check(absf(float(counts.common) / ROLLS - 0.70) < 0.012, "gewöhnlich ~70 %% (%.3f)" % (float(counts.common) / ROLLS))
-	_check(absf(float(counts.rare) / ROLLS - 0.22) < 0.012, "selten ~22 %% (%.3f)" % (float(counts.rare) / ROLLS))
-	_check(absf(float(counts.epic) / ROLLS - 0.07) < 0.008, "episch ~7 %% (%.3f)" % (float(counts.epic) / ROLLS))
+	_check(absf(float(counts.common) / ROLLS - 0.55) < 0.012, "gewöhnlich ~55 %% (%.3f)" % (float(counts.common) / ROLLS))
+	_check(absf(float(counts.uncommon) / ROLLS - 0.25) < 0.012, "ungewöhnlich ~25 %% (%.3f)" % (float(counts.uncommon) / ROLLS))
+	_check(absf(float(counts.rare) / ROLLS - 0.13) < 0.010, "selten ~13 %% (%.3f)" % (float(counts.rare) / ROLLS))
+	_check(absf(float(counts.epic) / ROLLS - 0.06) < 0.008, "episch ~6 %% (%.3f)" % (float(counts.epic) / ROLLS))
 	_check(absf(float(counts.legendary) / ROLLS - 0.01) < 0.004, "legendär ~1 %% (%.4f)" % (float(counts.legendary) / ROLLS))
-	var lucky_counts := {"common": 0, "rare": 0, "epic": 0, "legendary": 0}
+	var lucky_counts := {"common": 0, "uncommon": 0, "rare": 0, "epic": 0, "legendary": 0}
 	for i in ROLLS:
 		lucky_counts[STATS.roll_rarity(rng, 10.0)] += 1
 	_check(lucky_counts.legendary > counts.legendary * 1.5 and lucky_counts.common < counts.common, "Glück 10 verschiebt spürbar nach oben (%s)" % str(lucky_counts))

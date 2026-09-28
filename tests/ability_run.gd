@@ -181,7 +181,9 @@ func _check_leap_map() -> void:
 			var spot: Vector3 = swarm.position + unit.position
 			for sample in range(1, 9):
 				var probe: Vector3 = swarm.position.lerp(spot, float(sample) / 8.0)
-				if not arena.is_open(probe, 0.05):
+				# A line that only grazes a wall corner (a few cm) is no wall
+				# between; count probes more than 0.3 m inside a wall or stone.
+				if not arena.is_open(probe, -0.3):
 					stuck += 1
 					break
 		stuck_total += stuck
@@ -222,7 +224,8 @@ func _check_haste() -> void:
 	_check(swarm.line_formation and swarm.line_direction.x > 0.9, "Hetzjagd: line along the direction")
 	_steps(4.2)
 	swarm.movement_vector = Vector2.ZERO
-	_check(not swarm.line_formation and absf(swarm.speed_multiplier - base) < 0.01, "Hetzjagd ends")
+	# The ability's own bonus ends (other speed sources may change meanwhile).
+	_check(not swarm.line_formation and is_equal_approx(world.abilities.speed_multiplier(), 1.0), "Hetzjagd ends")
 
 
 func _check_veil() -> void:

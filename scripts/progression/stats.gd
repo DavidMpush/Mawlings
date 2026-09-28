@@ -2,8 +2,9 @@ extends RefCounted
 ## Etappe 17 – Spur 1: Werte (Mutationen). Nur Level geben Werte.
 ##
 ## 14 Werte mit je 5 Rängen. Jede Wahl erhöht den Rang um 1 und den „Wert“ um den
-## Seltenheitsfaktor der Karte (gewöhnlich 1,0 · selten 1,5 · episch 2,0 ·
-## legendär 3,0). Die Wirkung ist Basis je Rang × Wert, z. B. Biss selten = +12 %.
+## Seltenheitsfaktor der Karte (Etappe 28: gewöhnlich 1,0 · ungewöhnlich 1,25 ·
+## selten 1,5 · episch 2,0 · legendär 3,0). Die Wirkung ist Basis je Rang × Wert,
+## z. B. Biss selten = +12 %.
 ##
 ## Die Ränge liegen in einem Dictionary, das sich Stats, Arsenal und die Fassade
 ## (evolution.gd) teilen: `ranks` (id -> Rang). `units` (id -> Wert) fehlt für
@@ -11,13 +12,16 @@ extends RefCounted
 
 const MAX_RANK := 5
 
-const RARITIES := ["common", "rare", "epic", "legendary"]
-const RARITY_FACTOR := {"common": 1.0, "rare": 1.5, "epic": 2.0, "legendary": 3.0}
-const RARITY_CHANCE := {"common": 0.70, "rare": 0.22, "epic": 0.07, "legendary": 0.01}
-const RARITY_NAME := {"common": "GEWÖHNLICH", "rare": "SELTEN", "epic": "EPISCH", "legendary": "LEGENDÄR"}
-## Kit-Töne (UiStyle.BRAWL_TONES) des Seltenheitsrands.
-const RARITY_TONE := {"common": "neutral", "rare": "info", "epic": "special", "legendary": "loot"}
-## Glück: je Punkt +10 % relativ auf selten, episch und legendär.
+## Etappe 28: fünf Stufen (neu: ungewöhnlich). Die Reihenfolge ist der Rang der
+## Stufe (Böden, Strahlhöhe, beste Seltenheit); alle alten Ids bleiben gültig.
+const RARITIES := ["common", "uncommon", "rare", "epic", "legendary"]
+const RARITY_FACTOR := {"common": 1.0, "uncommon": 1.25, "rare": 1.5, "epic": 2.0, "legendary": 3.0}
+const RARITY_CHANCE := {"common": 0.55, "uncommon": 0.25, "rare": 0.13, "epic": 0.06, "legendary": 0.01}
+const RARITY_NAME := {"common": "GEWÖHNLICH", "uncommon": "UNGEWÖHNLICH", "rare": "SELTEN", "epic": "EPISCH", "legendary": "LEGENDÄR"}
+## Kit-Töne (UiStyle.BRAWL_TONES) des Seltenheitsrands. Die Farben selbst liefert
+## ab Etappe 28 UiStyle.rarity_tone(id); dies bleibt der Ton-Name für Altaufrufer.
+const RARITY_TONE := {"common": "neutral", "uncommon": "action", "rare": "info", "epic": "special", "legendary": "loot"}
+## Glück: je Punkt +10 % relativ auf alle Stufen ab ungewöhnlich.
 const LUCK_STEP := 0.10
 
 ## id, Name, Kategorie (attack/protect/growth/special), Basis je Rang, Einheit.
@@ -159,7 +163,7 @@ static func rarity_chances(luck: float, minimum: String = "common") -> Dictionar
 	var boost := 1.0 + LUCK_STEP * maxf(0.0, luck)
 	var out := {}
 	var upper := 0.0
-	for rarity in ["rare", "epic", "legendary"]:
+	for rarity in RARITIES.slice(1):
 		out[rarity] = float(RARITY_CHANCE[rarity]) * boost
 		upper += out[rarity]
 	out["common"] = maxf(0.0, 1.0 - upper)

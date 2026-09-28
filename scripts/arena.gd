@@ -237,6 +237,8 @@ var quicksand_mesh: PlaneMesh
 var enemy_haste := 1.0
 # Quicksand patches per chunk key (Vector4 x, 0, z, radius).
 var _chunk_sands: Dictionary = {}
+# Stage 29: the layout has lakes (shallow_factor in resolve_motion).
+var _has_water := false
 # Shared geometry: every chunk only adds instances of these.
 var rock_mesh: Mesh
 var rock_base: Transform3D
@@ -867,6 +869,7 @@ func _build_layout() -> void:
 	_route = PackedVector3Array()
 	for cache in [_chunk_stones, _chunk_marks, _chunk_trails, _chunk_eruptions, _chunk_caps, _chunk_sands]:
 		cache.clear()
+	_has_water = false
 	if world_seed == 0:
 		layout = null
 		flow = null
@@ -919,6 +922,9 @@ func _build_layout() -> void:
 			_bucket(_chunk_trails, center, Vector4(center.x, 0.0, center.z, _plaza_radius(node)))
 	for point in layout.eruption_points:
 		_bucket(_chunk_eruptions, Vector3(point.x, 0.0, point.z), point)
+	# Stage 29: lakes with a shallow shore (motion lookup in resolve_motion).
+	var lakes: Variant = layout.get("basins")
+	_has_water = lakes is Array and not (lakes as Array).is_empty()
 	# Stage 19: quicksand patches, in every chunk they reach (motion lookup).
 	var sands: Variant = layout.get("quicksand")
 	if sands is Array:
@@ -1374,6 +1380,9 @@ func resolve_motion(start: Vector3, motion: Vector3, radius: float) -> Vector3:
 	# creature except the swarm.
 	if not _chunk_sands.is_empty():
 		motion *= quicksand_factor(start)
+	# Stage 29: the shallow shore of a lake slows every creature the same way.
+	if _has_water:
+		motion *= shallow_factor(start)
 	if enemy_haste != 1.0 and radius != SWARM_MOTION_RADIUS:
 		motion *= enemy_haste
 	var result := start + motion
@@ -1409,6 +1418,24 @@ func quicksand_factor(point: Vector3) -> float:
 			var depth := smoothstep(0.0, TUNING.QUICKSAND_RIM, patch.w - distance)
 			factor = minf(factor, lerpf(1.0, TUNING.QUICKSAND_SLOW, depth))
 	return factor
+
+## Stage 29: speed factor of the ground at a point (1 = dry, TUNING.SHALLOW_SLOW
+## in the shallow water of a lake or Glutsumpf crust ring, eased over
+## SHALLOW_RIM from the shoreline). Deep water is a wall (wall_distance).
+func shallow_factor(point: Vector3) -> float:
+	if not _has_water:
+		return 1.0
+	var shore: float = layout.water_at(point.x, point.z)
+	if shore >= 0.0:
+		return 1.0
+	return lerpf(1.0, TUNING.SHALLOW_SLOW, smoothstep(0.0, TUNING.SHALLOW_RIM, -shore))
+
+## Stage 29: signed distance to the nearest shoreline (m, - in the water;
+## INF-like 64 without lakes).
+func water_distance(point: Vector3) -> float:
+	if not _has_water:
+		return 64.0
+	return layout.water_at(point.x, point.z)
 
 ## Stage 19: quicksand patches of the map (empty outside the desert).
 func quicksand_patches() -> Array[Vector4]:
@@ -1671,6 +1698,7 @@ func _make_chunk(key: Vector2i) -> Node3D:
 	if not in_map(key):
 		chunk.name = "Edge %d %d" % [key.x, key.y]
 		border.build(chunk, key)
+		border.build_water(chunk, key)
 		return chunk
 	if border.touches(key):
 		border.build(chunk, key)
@@ -1694,6 +1722,8 @@ func _make_chunk(key: Vector2i) -> Node3D:
 	if seeded:
 		# Stage 18b: the walls between clearings and paths (dark floor + props).
 		border.build_walls(chunk, key)
+	# Stage 29: one water / lava surface per chunk (lakes and edge water).
+	border.build_water(chunk, key)
 	# Calm ground variation: soft moss tints, a few sand/earth spots, small pebbles
 	# (Glutsumpf: ash, slag and slag lumps). Thinned by the quality decor density.
 	for index in QUALITY.scaled_count(int(biome.moss_patches), decor_density):
@@ -2356,6 +2386,14 @@ func map_features(key: Vector2i) -> Dictionary:
 						trails.append(sample)
 		for stone in _chunk_stones.get(key, []):
 			stones.append(stone)
+		# Stage 29: lakes as their lobes (discs overlap to the lake shape).
+		if _has_water:
+			for basin in layout.basins:
+				var middle: Vector3 = basin.center
+				if not area.grow(float(basin.radius) + 2.0).has_point(Vector2(middle.x, middle.z)):
+					continue
+				for lobe in basin.lobes:
+					pools.append(Vector4(lobe.x, lobe.y, lobe.z + 0.6, lobe.z + 0.6))
 		# Wall distance at WALL_SAMPLES x WALL_SAMPLES points (centres of equal
 		# squares of the chunk, row by row) for the dark walls of the minimap.
 		for gz in WALL_SAMPLES:

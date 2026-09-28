@@ -96,11 +96,12 @@ func _capture() -> void:
 	if _want("open"):
 		var items := {
 			"common": world.evolution.arsenal.relic_item("zaehe_haut"),
+			"uncommon": world.evolution.arsenal.relic_item("hungerstein"),
 			"rare": world.evolution.arsenal.weapon_item("sporenwolke", "rare"),
 			"epic": world.evolution.arsenal.relic_item("koenigszahnkette"),
 			"legendary": world.evolution.arsenal.relic_item("urmutter"),
 		}
-		for rarity in ["common", "rare", "epic", "legendary"]:
+		for rarity in ["common", "uncommon", "rare", "epic", "legendary"]:
 			var entry: Dictionary = chests.spawn("map", origin + Vector3(0.5, 0, -5.5))
 			await _run(0.1)
 			var granted: Dictionary = world.evolution.grant(items[rarity])

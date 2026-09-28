@@ -20,8 +20,19 @@ extends RefCounted
 #   kind       wall character per cell (Wall enum of arena_border.gd + RUIN)
 #   loot_points  Vector4(x, 0, z, tier 0..2) amber nodes
 #   beacons    tall landmarks [{kind, center, radius}]
+#   basins     stage 29 lakes / moors / oasis [{center, radius, lobes, big, region}]
+#   water, water_deep  per NAV cell: signed distance (m, - inside) to the
+#              shoreline and to the deep edge; only deep water blocks, the
+#              shallow band between them is walkable and slows (arena.gd)
+#
+# Stage 29: a swamp region holds 1-2 big basins (buchtig-rund, smooth union of
+# a few discs) and 0-3 small shallow ponds instead of noise bands; the desert
+# oasis is one big pond. The deep part enters the wall distance field directly
+# (sdf = min(land walls, water_deep)), so the collision edge is exactly the
+# edge the water shader draws from the same values.
 
 const NAV := 2.0
+const TUNING = preload("res://scripts/tuning.gd")
 const STYLE := "explore"
 # Sand of the loose trails: narrow, never a rail.
 const SAND_SHARE := 0.5
@@ -69,6 +80,23 @@ const POI := {
 	"elite": [3, 9.0, 60.0],
 }
 const LOOT_COUNT := Vector2i(60, 90)
+# Stage 29 basins: radius ranges (m; diameter 14-30 big, 4-8 small ponds), the
+# smooth-union blend of their lobes, open land between two basins and around
+# every shore (no other wall there, the shallow band always joins the land).
+const BASIN_BIG := Vector2(8.5, 15.0)
+const BASIN_SMALL := Vector2(2.0, 4.0)
+const OASIS_RADIUS := Vector2(10.0, 13.5)
+const BASIN_BLEND := 3.0
+const BASIN_GAP := 8.0
+const BASIN_RING := 5.0
+const BASIN_START_GAP := 20.0
+const SWAMP_ISLANDS := 0.16
+# Water field value far from any basin, and the cells that count as blocked for
+# the mask (closer than WATER_OPEN to the deep edge: too tight to pass).
+const WATER_FAR := 64.0
+const WATER_OPEN := 0.9
+# Deep value of a cell a later pass had to open (a ford): walkable, shallow look.
+const WATER_FORD := 1.6
 
 var rng := RandomNumberGenerator.new()
 # Read by arena.gd (sand band of the trails; null on the 18b layout).
@@ -102,6 +130,15 @@ var desert := false
 var ribs: Array[Dictionary] = []
 ## Desert quicksand patches Vector4(x, 0, z, radius) on open ground.
 var quicksand: Array[Vector4] = []
+## Stage 29 basins [{center: Vector3, radius (nominal), lobes: PackedVector3Array
+## (x, z, r), big: bool, region: Vector2i}] and their water fields (see header).
+var basins: Array[Dictionary] = []
+var water := PackedFloat32Array()
+var water_deep := PackedFloat32Array()
+var _keep_clear: Array[Vector3] = []
+var _water_rng := RandomNumberGenerator.new()
+var _fords := 0
+var _flooded := 0
 var _land_weights: Array = LAND_WEIGHTS
 var _land_target: Array = LAND_TARGET
 var _ribs_dropped := 0
@@ -131,6 +168,9 @@ func _init(seed_value: int, playable_rect: Rect2, bounds_rect: Rect2, map_region
 	regions = map_regions
 	center = Vector3(playable.get_center().x, 0.0, playable.get_center().y)
 	rng.seed = hash("mawlings-explore:%d:%d" % [seed_value, regions])
+	# Stage 29: the basins draw from their own stream (the rest of a map keeps
+	# the random sequence it had before the lakes).
+	_water_rng.seed = hash("mawlings-water:%d:%d" % [seed_value, regions])
 	for noise in [_noise_a, _noise_b, _warp, _cells]:
 		noise.seed = rng.randi()
 	_noise_a.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -153,6 +193,10 @@ func _init(seed_value: int, playable_rect: Rect2, bounds_rect: Rect2, map_region
 	_ruin_cos = cos(ruin_angle)
 	_ruin_sin = sin(ruin_angle)
 	var start := _pick_start(starts)
+	_keep_clear = [start]
+	if starts.size() > 1:
+		_keep_clear.append_array(starts)
+	_keep_clear.append_array(arrivals)
 	_roll_regions(start)
 	_mark("init")
 	_build_mask()
@@ -409,8 +453,7 @@ func _build_mask() -> void:
 	var warp_z := _noise_grid(_warp)
 	_warp.seed -= 17
 	_land_grid(warp_x, warp_z)
-	var fixed := PackedByteArray()
-	fixed.resize(count)
+	_place_basins(nb)
 	for iz in grid:
 		for ix in grid:
 			var index := iz * grid + ix
@@ -437,22 +480,36 @@ func _build_mask() -> void:
 					var ruin := _ruin(grid_origin.x + (float(ix) + 0.5) * NAV, grid_origin.y + (float(iz) + 0.5) * NAV, b)
 					value = ruin.x
 					wall = int(ruin.y)
-					fixed[index] = 1
 				Land.RIDGE:
 					value = (0.11 - absf(a)) * 4.0 - maxf(0.0, b - 0.55) * 3.0 + (b * 0.5 - 0.62)
 				Land.SWAMP:
-					value = a * 0.75 + b * 0.25 - 0.1
-					wall = KIND_WATER
+					# Stage 29: open moor between the basins; the rest of its blocked
+					# share are a few root and thicket islands.
+					value = a * 0.9 + b * 0.35
+					wall = KIND_ROOTS if b > 0.1 else KIND_THICKET
 				_:
 					value = (0.1 - minf(absf(a * 1.3), absf(b))) * 5.0
 			density[index] = value
 			kind[index] = wall
+	# Stage 29: no other wall on and around the water (the shallow band always
+	# joins open land; the deep part is stamped below).
+	for basin in basins:
+		var reach := float(basin.radius) + BASIN_RING + 4.0
+		var lo := _cell_of(basin.center - Vector3(reach, 0.0, reach))
+		var hi := _cell_of(basin.center + Vector3(reach, 0.0, reach))
+		for iz in range(lo.y, hi.y + 1):
+			for ix in range(lo.x, hi.x + 1):
+				var index := iz * grid + ix
+				if water[index] < BASIN_RING:
+					density[index] = -10.0
 	# Every landscape gets its own threshold (its character: few rocks on a
 	# meadow, a dense thicket), scaled together so the map stays 25-35 %
 	# blocked; ruins keep their own absolute shape.
 	var samples: Array = []
+	var deep_samples := PackedInt32Array()
 	for type in _land_target.size():
 		samples.append([])
+		deep_samples.append(0)
 	var mix := 0.0
 	var total := 0
 	var inner := playable.grow(-EDGE_KEEP)
@@ -462,6 +519,8 @@ func _build_mask() -> void:
 			if inner.has_point(p):
 				var index := iz * grid + ix
 				(samples[land[index]] as Array).append(density[index])
+				if water_deep[index] < WATER_OPEN:
+					deep_samples[land[index]] += 1
 				mix += _land_target[land[index]]
 				total += 1
 	var natural := mix / float(maxi(1, total))
@@ -473,8 +532,12 @@ func _build_mask() -> void:
 		if values.is_empty() or type == Land.RUINS:
 			thresholds.append(0.0)
 			continue
-		var share: float = clampf(_land_target[type] * factor, 0.0, 0.9)
-		thresholds.append(values[clampi(roundi((1.0 - share) * float(values.size())), 0, values.size() - 1)])
+		# Deep water already counts towards the landscape's blocked share; the
+		# swamp stays mostly open moor (a few islands, at most SWAMP_ISLANDS).
+		var share: float = clampf(_land_target[type] * factor - float(deep_samples[type]) / float(values.size()), 0.0, 0.9)
+		if type == Land.SWAMP:
+			share = minf(share, SWAMP_ISLANDS)
+		thresholds.append(values[clampi(roundi((1.0 - share) * float(values.size())), 0, values.size() - 1)] if share > 0.0 else 10.0)
 	for iz in grid:
 		var z := grid_origin.y + (float(iz) + 0.5) * NAV
 		var dz := minf(z - playable.position.y, playable.end.y - z)
@@ -486,6 +549,9 @@ func _build_mask() -> void:
 				blocked[index] = 1
 			elif edge < EDGE_KEEP:
 				blocked[index] = 0
+			elif water_deep[index] < WATER_OPEN:
+				blocked[index] = 1
+				kind[index] = KIND_WATER
 			else:
 				blocked[index] = 1 if density[index] > thresholds[land[index]] else 0
 	if desert:
@@ -525,6 +591,181 @@ func _drop_specks() -> void:
 			_specks += 1
 
 
+# ------------------------------------------------------------------ water (stage 29)
+
+# Every swamp region: 1-2 big basins and 0-3 small ponds (the desert oasis: one
+# big pond), placed inside its own land, apart from each other and from the
+# start and arrival clearings. `wobble` (noise bytes per cell) roughens the shore.
+func _place_basins(wobble: PackedByteArray) -> void:
+	basins.clear()
+	var count := grid * grid
+	water.resize(count)
+	water.fill(WATER_FAR)
+	water_deep.resize(count)
+	water_deep.fill(WATER_FAR)
+	for rz in regions:
+		for rx in regions:
+			var key := Vector2i(rx, rz)
+			if region_lands[key] != Land.SWAMP:
+				continue
+			if desert:
+				_try_basin(key, OASIS_RADIUS, true)
+				continue
+			for index in (1 if _water_rng.randf() < 0.3 else 2):
+				_try_basin(key, BASIN_BIG, true)
+			for index in _water_rng.randi_range(0, 3):
+				_try_basin(key, BASIN_SMALL, false)
+	for basin in basins:
+		_stamp_basin(basin, wobble)
+	# Every cell the water fields touch (the later passes only look there).
+	_wet_cells = PackedInt32Array()
+	for index in count:
+		if water[index] < WATER_FAR:
+			_wet_cells.append(index)
+
+
+var _wet_cells := PackedInt32Array()
+
+func _basin_cells() -> PackedInt32Array:
+	return _wet_cells
+
+
+# Tries to fit one basin of a radius in `sizes` into region `key` (smaller on
+# later tries). Returns true if one was added.
+func _try_basin(key: Vector2i, sizes: Vector2, big: bool) -> bool:
+	var size := _region_size()
+	var corner := bounds.position + Vector2(key) * size
+	for attempt in 48:
+		var radius := _water_rng.randf_range(sizes.x, lerpf(sizes.y, sizes.x, float(attempt) / 60.0))
+		var point := Vector3(corner.x + _water_rng.randf_range(0.1, 0.9) * size, 0.0, corner.y + _water_rng.randf_range(0.1, 0.9) * size)
+		if not _inner(EDGE_KEEP + radius + 3.0).has_point(Vector2(point.x, point.z)):
+			continue
+		# Mostly inside its own land (the warped region border may cut a bay).
+		var inside := 0
+		for step in 8:
+			var angle := TAU * float(step) / 8.0
+			var probe := _cell_of(point + Vector3(cos(angle), 0.0, sin(angle)) * radius * 0.85)
+			if land[probe.y * grid + probe.x] == Land.SWAMP:
+				inside += 1
+		var middle := _cell_of(point)
+		if land[middle.y * grid + middle.x] != Land.SWAMP or inside < (6 if attempt < 30 else 4):
+			continue
+		var clash := false
+		for spot in _keep_clear:
+			if Vector2(spot.x - point.x, spot.z - point.z).length() < radius + BASIN_START_GAP:
+				clash = true
+				break
+		for other in basins:
+			if clash:
+				break
+			if point.distance_to(other.center) < radius + float(other.radius) + BASIN_GAP:
+				clash = true
+		if clash:
+			continue
+		basins.append({"center": point, "radius": radius, "lobes": _lobes(point, radius, big), "big": big, "region": key})
+		return true
+	return false
+
+
+# Lobes of a basin: a main disc and 3-5 (small ponds 1-2) overlapping side
+# discs, blended smoothly - a round lake with bays, never a chain of puddles.
+func _lobes(point: Vector3, radius: float, big: bool) -> PackedVector3Array:
+	var lobes := PackedVector3Array([Vector3(point.x, point.z, radius * _water_rng.randf_range(0.58, 0.7))])
+	var count := _water_rng.randi_range(3, 5) if big else _water_rng.randi_range(1, 2)
+	var turn := _water_rng.randf() * TAU
+	for index in count:
+		var angle := turn + TAU * float(index) / float(count) + _water_rng.randf_range(-0.45, 0.45)
+		var reach := radius * _water_rng.randf_range(0.3, 0.5)
+		var lobe := maxf(radius * 0.3, (radius - reach) * _water_rng.randf_range(0.82, 1.0))
+		lobes.append(Vector3(point.x + cos(angle) * reach, point.z + sin(angle) * reach, lobe))
+	return lobes
+
+
+# Polynomial smooth minimum (blend radius k).
+static func _smin(a: float, b: float, k: float) -> float:
+	var h := clampf(0.5 + 0.5 * (b - a) / k, 0.0, 1.0)
+	return lerpf(b, a, h) - k * h * (1.0 - h)
+
+
+# Signed shore distance of one basin at a point (before the wobble).
+static func _basin_value(lobes: PackedVector3Array, x: float, z: float) -> float:
+	var value := Vector2(x - lobes[0].x, z - lobes[0].y).length() - lobes[0].z
+	for index in range(1, lobes.size()):
+		var lobe := lobes[index]
+		value = _smin(value, Vector2(x - lobe.x, z - lobe.y).length() - lobe.z, BASIN_BLEND)
+	return value
+
+
+# Writes a basin into the water fields: shore distance with a gentle noise
+# wobble, deep distance SHALLOW_WIDTH further in (small ponds stay shallow).
+func _stamp_basin(basin: Dictionary, wobble: PackedByteArray) -> void:
+	var reach := float(basin.radius) + BASIN_BLEND + BASIN_RING + 4.0
+	var center: Vector3 = basin.center
+	var lo := _cell_of(center - Vector3(reach, 0.0, reach))
+	var hi := _cell_of(center + Vector3(reach, 0.0, reach))
+	var lobes: PackedVector3Array = basin.lobes
+	var big: bool = basin.big
+	var shallow := TUNING.SHALLOW_WIDTH if big else float(basin.radius) + 3.0
+	var rough := 0.9 if big else 0.35
+	for iz in range(lo.y, hi.y + 1):
+		for ix in range(lo.x, hi.x + 1):
+			var index := iz * grid + ix
+			var p := _cell_center(ix, iz)
+			var value := _basin_value(lobes, p.x, p.y) + (float(wobble[index]) * BYTE - 1.0) * rough
+			if value < water[index]:
+				water[index] = value
+			water_deep[index] = minf(water_deep[index], value + shallow)
+
+
+# After every pass that opened or closed cells: the water fields follow the
+# final mask. A deep cell a pass opened becomes a shallow ford; a shallow cell a
+# pass closed becomes deep water. Blocked water = deep closer than WATER_OPEN.
+func _settle_water() -> void:
+	for index in _wet_cells:
+		if water_deep[index] < WATER_OPEN:
+			if blocked[index] == 0:
+				water_deep[index] = WATER_FORD
+				_fords += 1
+		elif blocked[index] == 1 and water[index] < 0.0:
+			water_deep[index] = -1.0
+			kind[index] = KIND_WATER
+			_flooded += 1
+
+
+# True for a cell of deep (blocked) water - the carving passes go around it.
+func _deep(index: int) -> bool:
+	return water_deep.size() > index and water_deep[index] < WATER_OPEN
+
+
+## Signed distance to the shoreline at a world point (m, - in the water;
+## bilinear like sample(); WATER_FAR without water nearby).
+func water_at(x: float, z: float) -> float:
+	return _bilinear(water, x, z)
+
+
+## Signed distance to the deep edge (m, - in deep water = the collision edge).
+func deep_at(x: float, z: float) -> float:
+	return _bilinear(water_deep, x, z)
+
+
+func _bilinear(values: PackedFloat32Array, x: float, z: float) -> float:
+	if values.is_empty():
+		return WATER_FAR
+	var fx := (x - grid_origin.x) / NAV - 0.5
+	var fz := (z - grid_origin.y) / NAV - 0.5
+	var ix := clampi(floori(fx), 0, grid - 2)
+	var iz := clampi(floori(fz), 0, grid - 2)
+	var i := iz * grid + ix
+	# Far from every basin: skip the blend.
+	if values[i] >= WATER_FAR:
+		return WATER_FAR
+	var tx := clampf(fx - float(ix), 0.0, 1.0)
+	var tz := clampf(fz - float(iz), 0.0, 1.0)
+	var top := values[i] + (values[i + 1] - values[i]) * tx
+	var bottom := values[i + grid] + (values[i + grid + 1] - values[i + grid]) * tx
+	return top + (bottom - top) * tz
+
+
 # ------------------------------------------------------------------ desert (stage 19)
 
 # Density and wall kind of a desert cell (same noise inputs as the green map).
@@ -542,7 +783,9 @@ func _desert_value(type: int, a: float, b: float, cell: float) -> Vector2:
 		Land.RIDGE:
 			return Vector2((0.11 - absf(a)) * 4.0 - maxf(0.0, b - 0.55) * 3.0 + (b * 0.5 - 0.62), KIND_CLIFF)
 		Land.SWAMP:
-			return Vector2(a * 0.75 + b * 0.25 - 0.1, KIND_WATER)
+			# Stage 29: the oasis pond is a basin; around it a few sandstone
+			# outcrops and cacti.
+			return Vector2(a * 0.9 + b * 0.35, KIND_CACTUS if b > 0.2 else KIND_CLIFF)
 	return Vector2((0.1 - minf(absf(a * 1.3), absf(b))) * 5.0, KIND_CLIFF)
 
 
@@ -644,7 +887,7 @@ func _place_quicksand() -> void:
 		tries += 1
 		var radius := rng.randf_range(QUICKSAND_RADIUS.x, QUICKSAND_RADIUS.y)
 		var point := _random_point(radius + 14.0)
-		if sample(point.x, point.z) < radius + 1.2:
+		if sample(point.x, point.z) < radius + 1.2 or water_at(point.x, point.z) < radius + 2.0:
 			continue
 		var cell := _cell_of(point)
 		var type: int = land[cell.y * grid + cell.x]
@@ -685,6 +928,9 @@ func _poi_count(base: int) -> int:
 
 func _free(point: Vector3, radius: float, spacing: float) -> bool:
 	if not _inner(radius + 12.0).has_point(Vector2(point.x, point.z)):
+		return false
+	# Stage 29: places never stand in the water (the whole clearing stays dry).
+	if water_at(point.x, point.z) < radius * 1.15 + 2.5:
 		return false
 	for node in nodes:
 		var other: Vector3 = node.center
@@ -867,8 +1113,9 @@ func _join_open() -> void:
 		_joined += 1
 
 # Multi-source BFS through the wall from a pocket to the main ground; the path
-# found is carved 3 cells wide.
-func _bridge(members: PackedInt32Array, component: PackedInt32Array) -> void:
+# found is carved 3 cells wide. Stage 29: around deep water first (`dry`), only
+# through it when there is no other way.
+func _bridge(members: PackedInt32Array, component: PackedInt32Array, dry := true) -> void:
 	var count := grid * grid
 	var parent := PackedInt32Array()
 	parent.resize(count)
@@ -890,13 +1137,16 @@ func _bridge(members: PackedInt32Array, component: PackedInt32Array) -> void:
 			if nx < 2 or nz < 2 or nx >= grid - 2 or nz >= grid - 2:
 				continue
 			var next := nz * grid + nx
-			if parent[next] != -2:
+			if parent[next] != -2 or (dry and _deep(next)):
 				continue
 			parent[next] = here
 			if blocked[next] == 0 and component[next] == 0:
 				goal = next
 				break
 			queue.append(next)
+	if goal < 0 and dry and not basins.is_empty():
+		_bridge(members, component, false)
+		return
 	var cell := goal
 	while cell >= 0 and parent[cell] != -1:
 		var x := cell % grid
@@ -905,7 +1155,7 @@ func _bridge(members: PackedInt32Array, component: PackedInt32Array) -> void:
 			for dx in range(-1, 2):
 				var nx := clampi(x + dx, 1, grid - 2)
 				var nz := clampi(z + dz, 1, grid - 2)
-				if playable.grow(-1.0).has_point(_cell_center(nx, nz)):
+				if playable.grow(-1.0).has_point(_cell_center(nx, nz)) and not (dry and _deep(nz * grid + nx)):
 					blocked[nz * grid + nx] = 0
 					component[nz * grid + nx] = 0
 		cell = parent[cell]
@@ -921,6 +1171,14 @@ func _bake_sdf() -> void:
 	var count := grid * grid
 	var w := grid
 	var mask := blocked
+	# Stage 29: deep water is not part of the chamfer mask - its exact distance
+	# (water_deep) is blended in below, so its edge is round, not cell-shaped.
+	if not basins.is_empty():
+		_settle_water()
+		mask = blocked.duplicate()
+		for index in _basin_cells():
+			if water_deep[index] < WATER_OPEN:
+				mask[index] = 0
 	var dist := PackedFloat32Array()
 	dist.resize(count)
 	var far := float(grid * 2)
@@ -970,6 +1228,8 @@ func _bake_sdf() -> void:
 			var x := grid_origin.x + (float(ix) + 0.5) * NAV
 			var inside := minf(minf(x - playable.position.x, playable.end.x - x), dz)
 			dist[i] = minf(value, inside)
+	for index in _basin_cells():
+		dist[index] = minf(dist[index], water_deep[index])
 	sdf = dist
 
 # Big bodies (Bog King, apex: radius up to 3.2 m) need wide ground: every
@@ -1054,6 +1314,8 @@ func _join_wide() -> int:
 	var dist := PackedInt32Array()
 	dist.resize(count)
 	var queue := PackedInt32Array()
+	var deeps := water_deep
+	var wet := not basins.is_empty()
 	for cell in groups[main]:
 		parent[cell] = -1
 		queue.append(cell)
@@ -1063,6 +1325,10 @@ func _join_wide() -> int:
 		head += 1
 		var x := here % w
 		var d := dist[here] + 1
+		# Stage 29: never carve a corridor through or along deep water (there it
+		# would stay too narrow for big bodies anyway).
+		if wet and deeps[here] < WIDE + 1.0 and parent[here] != -1:
+			continue
 		if x + 1 < w and parent[here + 1] == -2:
 			parent[here + 1] = here
 			dist[here + 1] = d
@@ -1089,10 +1355,13 @@ func _join_wide() -> int:
 		var members: PackedInt32Array = groups[id]
 		if id == main or (members.size() < 70 and not holds.has(id)):
 			continue
-		var cell := members[0]
+		var cell := -1
 		for member in members:
-			if dist[member] < dist[cell]:
+			if parent[member] != -2 and (cell < 0 or dist[member] < dist[cell]):
 				cell = member
+		# Stage 29: a group only reachable along the water stays as it is.
+		if cell < 0:
+			continue
 		while cell >= 0 and parent[cell] >= 0 and component[cell] != main:
 			var cx := cell % w
 			var cz := cell / w
@@ -1102,7 +1371,8 @@ func _join_wide() -> int:
 						continue
 					var nx := clampi(cx + dx, 1, w - 2)
 					var nz := clampi(cz + dz, 1, w - 2)
-					blocked[nz * w + nx] = 0
+					if not _deep(nz * w + nx):
+						blocked[nz * w + nx] = 0
 			cell = parent[cell]
 		joined += 1
 	_wide_joined = joined
@@ -1122,7 +1392,8 @@ func _trails() -> void:
 	astar.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
 	astar.update()
 	for index in grid * grid:
-		if sdf[index] < 1.5:
+		# Stage 29: trails keep out of the shallow water too.
+		if sdf[index] < 1.5 or water[index] < 0.5:
 			astar.set_point_solid(Vector2i(index % grid, index / grid), true)
 	# Trails lead somewhere: from the start and between important places
 	# (boss arena, elite camps, shrines, landmarks, the Schlund) 45-120 m apart,
@@ -1214,7 +1485,7 @@ func _place_loot() -> void:
 		tries += 1
 		var point := _random_point(6.0)
 		var value := sample(point.x, point.z)
-		if value < 1.2:
+		if value < 1.2 or water_at(point.x, point.z) < 1.0:
 			continue
 		var cell := _cell_of(point)
 		var type: int = land[cell.y * grid + cell.x]
@@ -1357,4 +1628,4 @@ func stats() -> Dictionary:
 	for key in region_lands:
 		var name: String = (DESERT_LAND_NAMES if desert else LAND_NAMES)[region_lands[key]]
 		lands[name] = int(lands.get(name, 0)) + 1
-	return {"timings": timings, "blocked": float(closed) / float(maxi(1, inside)), "pois": counts, "trails": edges.size(), "loot": loot_points.size(), "beacons": beacons.size(), "filled": _filled, "joined": _joined, "wide_joined": _wide_joined, "mask_share": _mask_share, "lands": lands, "ribs": ribs.size(), "ribs_dropped": _ribs_dropped, "quicksand": quicksand.size(), "msec": build_msec, "clearings": nodes.size(), "paths": edges.size(), "bridges": 0, "min_degree": 0, "loops": 0, "hub_degree": (nodes[hub].edges as Array).size(), "attempts": attempts, "narrow": 0}
+	return {"timings": timings, "blocked": float(closed) / float(maxi(1, inside)), "pois": counts, "trails": edges.size(), "loot": loot_points.size(), "beacons": beacons.size(), "filled": _filled, "joined": _joined, "wide_joined": _wide_joined, "mask_share": _mask_share, "lands": lands, "ribs": ribs.size(), "ribs_dropped": _ribs_dropped, "quicksand": quicksand.size(), "basins": basins.size(), "fords": _fords, "flooded": _flooded, "msec": build_msec, "clearings": nodes.size(), "paths": edges.size(), "bridges": 0, "min_degree": 0, "loops": 0, "hub_degree": (nodes[hub].edges as Array).size(), "attempts": attempts, "narrow": 0}

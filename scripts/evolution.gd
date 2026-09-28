@@ -109,9 +109,12 @@ var offers: Array = []
 ## Herkunft der offenen Werte-Karten: "level" (DNA) oder "shrine" (Schrein,
 ## kostenlos, zählt kein Level).
 var offer_source := "level"
-## Boss-Kokon: 1 aus 3 (Welle 2 öffnet ihn; die Karten zeigt mutation_screen im
-## Modus „chest“). Einträge [id, Name, Beschreibung, Seltenheit, item].
+## Kokon-Wahl: 1 aus 3 (Etappe 28: jeder Kokon; die Karten zeigt mutation_screen
+## im Modus „chest“). Einträge [id, Name, Beschreibung, Seltenheit, item].
 var chest_offers: Array = []
+## Art des Kokons der offenen Wahl ("start", "map", "elite", "gold", "boss"; ""
+## ohne Wahl) für Band und Fußzeile des Wahlbildschirms.
+var chest_kind := ""
 ## Welle 2: der erste Boss-Kokon je Biom-Zyklus garantiert eine bereite
 ## Evolution; HuntWorld setzt das bei jeder Ankunft in einem neuen Biom zurück.
 var evolution_guarantee := true
@@ -335,35 +338,34 @@ func skip() -> bool:
 
 # ---------------------------------------------------------------- Arsenal
 
-## Würfelt einen Kokon (kind = map/elite/boss) mit dem Kokon-Zufall und Glück.
+## Würfelt einen Kokon (kind = start/map/elite/gold/boss) mit dem Kokon-Zufall und Glück.
 func roll_chest(kind: String) -> Dictionary:
 	return arsenal.roll_chest(chest_rng, luck(), kind)
 
 
-## Öffnet einen Kokon: Karte/Elite = Beute sofort anwenden, Boss = chest_offers
-## füllen (1 aus 3, die Welt pausiert, bis choose_chest()). Rückgabe wie
-## roll_chest() plus "granted" (angewandte Teile) bei sofortiger Beute.
+## Öffnet einen Kokon (Etappe 28: jede Art ist eine Wahl): füllt chest_offers
+## mit bis zu drei Angeboten und chest_kind (start/map/elite/gold/boss); die Welt
+## pausiert, bis choose_chest(). Gibt es kein gültiges Angebot mehr (alles
+## maximal), bleibt die Wahl zu und "refund" nennt den Bernstein-Ersatz, den
+## der Aufrufer (chests.gd) gutschreibt. Rückgabe wie roll_chest() plus "refund".
 func open_chest(kind: String, minimum: String = "") -> Dictionary:
-	var result: Dictionary
-	if kind == "start":
-		var item: Dictionary = arsenal.roll_start(chest_rng, luck())
-		result = {"kind": "start", "pick": false, "items": [item] if not item.is_empty() else []}
-	else:
-		result = arsenal.roll_chest(chest_rng, luck(), kind, minimum, evolution_guarantee)
+	var result: Dictionary = arsenal.roll_chest(chest_rng, luck(), kind, minimum, evolution_guarantee)
+	kind = String(result.kind)
+	result["refund"] = 0
 	# Only the first boss cocoon of a biome cycle guarantees a ready evolution.
 	if kind == "boss" and result.items.any(func(item): return String(item.get("type", "")) == "evolution"):
 		evolution_guarantee = false
+	if result.items.is_empty():
+		# Nothing can improve any more: the price of the next map cocoon instead
+		# (a paid map cocoon so costs nothing and does not raise the price).
+		result["refund"] = chest_price()
+		return result
 	if kind == "map":
 		arsenal.chests_opened += 1
-	if bool(result.get("pick", false)):
-		chest_offers = []
-		for item in result.items:
-			chest_offers.append(chest_entry(item))
-		return result
-	var granted: Array = []
+	chest_offers = []
+	chest_kind = kind
 	for item in result.items:
-		granted.append(grant(item))
-	result["granted"] = granted
+		chest_offers.append(chest_entry(item))
 	return result
 
 
@@ -372,11 +374,15 @@ static func chest_entry(item: Dictionary) -> Array:
 	return [String(item.get("id", "")), String(item.get("name", "")), String(item.get("desc", "")), String(item.get("rarity", "common")), item]
 
 
+## Nimmt Angebot `slot` der offenen Kokon-Wahl. Rückgabe: das angewandte Teil
+## (arsenal.grant(), mit "applied"), das HuntWorld als Beutekarte zeigt; {} bei
+## ungültigem Platz.
 func choose_chest(slot: int) -> Dictionary:
 	if slot < 0 or slot >= chest_offers.size():
 		return {}
 	var entry: Array = chest_offers[slot]
 	chest_offers.clear()
+	chest_kind = ""
 	return grant(entry[4] if entry.size() > 4 else {})
 
 

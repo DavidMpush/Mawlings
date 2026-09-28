@@ -80,6 +80,13 @@ const DATA := {
 		# Map edge (stage 18, arena_border.gd): forest floor under the wall, fog it
 		# fades into (= the project clear colour), swamp water of the edge.
 		"border": {"floor": Color("4a6a34"), "fog": Color(0.16, 0.23, 0.18), "water": Color("2b8a86"), "shore": Color("6f8a44")},
+		# Stage 29: lakes and moors (shaders/water.gdshader via arena_border.gd):
+		# muddy rim, light sandy shallows, a clear darker teal where it gets deep.
+		"water": {
+			"rim": Color("a39a62"), "shallow_light": Color("9edcc2"), "shallow": Color("4cbfb6"),
+			"deep": Color("1f8993"), "abyss": Color("17687a"), "foam": Color("f0fff6"),
+			"glint": Color("d8fff4"), "pad": Color("5f9e3a"), "pads": 1.0,
+		},
 		"light": {"color": Color(1, 1, 1), "energy": 1.15},
 		"enemy_tints": {},
 	},
@@ -116,6 +123,13 @@ const DATA := {
 		"flower_one_in": 4,
 		"eruptions": true,
 		"border": {"floor": Color("3a2e33"), "fog": Color("1d1417"), "water": Color("ffb040"), "shore": Color("2a2124"), "crust": Color("2e2327"), "crust_glow": Color("1a0802")},
+		# Stage 29: the swamp lakes are lava - a walkable ring of cooled crust
+		# with glowing cracks (slows), molten lava with drifting plates inside.
+		"water": {
+			"lava": true, "rim": Color("3c3033"), "crust": Color("2e2327"), "crack": Color("ff8a2c"),
+			"lava_core": Color("ffe27a"), "lava_mid": Color("ff9a2e"), "lava_crust": Color("5a2014"),
+			"plates": 0.85, "pads": 0.0,
+		},
 		"light": {"color": Color(1.0, 0.86, 0.74), "energy": 1.2},
 		# Shader look of arena.gd (only biomes with this block use it).
 		"ember": {
@@ -200,6 +214,12 @@ const DATA := {
 		# Map edge (arena_border.gd): high dune ridges and sandstone, fading into a
 		# dusty haze; "water" is the dune sea / quicksand ring of the edge.
 		"border": {"floor": Color("bda77e"), "fog": Color(0.6, 0.55, 0.47), "water": Color("cfb07a"), "shore": Color("a78f66")},
+		# Stage 29: the oasis pond - pale sand rim, turquoise shallows, deep teal.
+		"water": {
+			"rim": Color("e9d8a6"), "shallow_light": Color("9fe8d6"), "shallow": Color("5fd3c6"),
+			"deep": Color("1f98a2"), "abyss": Color("17778a"), "foam": Color("fffbef"),
+			"glint": Color("e8fffa"), "pads": 0.0,
+		},
 		"light": {"color": Color(1.0, 0.96, 0.88), "energy": 1.15},
 		# Shader look for the phase-2 ground (like the Glutsumpf "ember" block):
 		# dune ripples, cool shadow side, bone-white flecks, turquoise oasis water.

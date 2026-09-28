@@ -144,6 +144,23 @@ const BRAWL_TONES := {
 ## Colour-blind replacements (Okabe & Ito faces; light/dark derived).
 const BRAWL_CB_FACE := {"ember": CB_ORANGE, "action": CB_GREEN, "info": CB_SKY, "loot": CB_YELLOW,
 	"danger": CB_VERMILLION, "special": CB_PURPLE}
+## Stage 28: card colour follows the RARITY (one table for every screen:
+## mutation cards, loot card, cocoons, relic strip, codex). Same dict format
+## as BRAWL_TONES; common/uncommon are own shades (grey, emerald: not the
+## action green), rare/epic/legendary reuse info/special/loot. Valid in every
+## skin; brawl_tone() resolves these ids too, so kit calls take a rarity id.
+const RARITIES := ["common", "uncommon", "rare", "epic", "legendary"]
+const RARITY_TONES := {
+	"common": {"light": Color("d9dde8"), "face": Color("9ba2b6"), "dark": Color("5b6176")},
+	"uncommon": {"light": Color("8ff5a0"), "face": Color("2cc45e"), "dark": Color("137a3a")},
+	"rare": {"light": Color("7fe6ff"), "face": Color("22a9ef"), "dark": Color("0e62ad")},
+	"epic": {"light": Color("c9a2ff"), "face": Color("925aff"), "dark": Color("5a2db3")},
+	"legendary": {"light": Color("ffe679"), "face": Color("ffbe1f"), "dark": Color("c07800")},
+}
+const RARITY_NAMES := {"common": "GEWÖHNLICH", "uncommon": "UNGEWÖHNLICH", "rare": "SELTEN", "epic": "EPISCH",
+	"legendary": "LEGENDÄR"}
+## Colour-blind faces per rarity (grey stays grey; the chip text names the tier).
+const RARITY_CB_FACE := {"uncommon": CB_GREEN, "rare": CB_SKY, "epic": CB_PURPLE, "legendary": CB_YELLOW}
 const BRAWL_INK := Color("0e0b1f")        # outlines of shapes and text (near black, blue cast)
 const BRAWL_INK_SOFT := Color("0e0b1f99")  # hard drop shadows
 const BRAWL_TEXT := Color("ffffff")
@@ -205,9 +222,30 @@ static func brawl_tone(tone_value: Variant) -> Dictionary:
 	if tone_value is Color:
 		return _derive_tone(tone_value)
 	var key := String(tone_value)
+	if RARITY_TONES.has(key):
+		return rarity_tone(key)
 	if colorblind and BRAWL_CB_FACE.has(key):
 		return _derive_tone(BRAWL_CB_FACE[key])
 	return BRAWL_TONES.get(key, BRAWL_TONES["neutral"])
+
+
+## Stage 28: tone dict {light, face, dark} of a rarity id; unknown -> common.
+## Honours colour-blind mode.
+static func rarity_tone(id: Variant) -> Dictionary:
+	var key := String(id) if RARITY_TONES.has(String(id)) else "common"
+	if colorblind and RARITY_CB_FACE.has(key):
+		return _derive_tone(RARITY_CB_FACE[key])
+	return RARITY_TONES[key]
+
+
+## Face colour of a rarity (cocoon beams, glows, strips).
+static func rarity_color(id: Variant) -> Color:
+	return rarity_tone(id)["face"]
+
+
+## Display name of a rarity ("UNGEWÖHNLICH"); unknown -> GEWÖHNLICH.
+static func rarity_name(id: Variant) -> String:
+	return String(RARITY_NAMES.get(String(id), RARITY_NAMES["common"]))
 
 
 static func _derive_tone(face: Color) -> Dictionary:

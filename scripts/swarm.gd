@@ -554,6 +554,27 @@ func _process(delta: float) -> void:
 	_set_rustle(swarm_velocity.length() / maxf(0.1, move_speed()))
 
 
+# True when the straight line from the swarm centre to `point` passes a wall.
+func _crosses_wall(field: Node, point: Vector3) -> bool:
+	var centre := Vector3(position.x, 0.0, position.z)
+	for sample in range(1, 7):
+		if field.wall_distance(centre.lerp(point, float(sample) / 7.0)) < 0.0:
+			return true
+	return false
+
+
+# The farthest open spot on the line from the swarm centre towards `spot`.
+func _open_towards_centre(field: Node, spot: Vector3) -> Vector3:
+	var centre := Vector3(position.x, 0.0, position.z)
+	var best := centre
+	for sample in range(1, 9):
+		var probe := centre.lerp(spot, float(sample) / 8.0)
+		if field.wall_distance(probe) < UNIT_WALL_RADIUS:
+			break
+		best = probe
+	return best
+
+
 func _animate_units(delta: float) -> void:
 	var fade := 1.0 - exp(-6.0 * delta)
 	rally_blend = lerpf(rally_blend, 1.0 if rally_pressed else 0.0, 1.0 - exp(-9.0 * delta))
@@ -665,6 +686,11 @@ func _animate_units(delta: float) -> void:
 			var spot := Vector3(position.x + next.x, 0.0, position.z + next.z)
 			if field.wall_distance(spot) < UNIT_WALL_RADIUS:
 				var pushed: Vector3 = field.push_walls(spot, UNIT_WALL_RADIUS)
+				# Stage 29: the gradient may point out on the FAR side of a small
+				# obstacle (a deep-water core); then pull the animal back along its
+				# line to the swarm centre instead, so no one ends up behind it.
+				if _crosses_wall(field, pushed):
+					pushed = _open_towards_centre(field, spot)
 				next.x = pushed.x - position.x
 				next.z = pushed.z - position.z
 		unit.position = next

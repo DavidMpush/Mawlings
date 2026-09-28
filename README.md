@@ -60,14 +60,14 @@ Beute platzt in Kristalle und Münzen, die liegen bleiben, bis sie eingesammelt 
 ## Progression im Run (zwei Spuren)
 
 - **Werte** kommen nur über Level (DNA).
-  - Jede Wahl bietet 3 Karten mit Seltenheit (gewöhnlich/selten/episch/legendär); Glück hebt die Seltenheit.
+  - Jede Wahl bietet 3 Karten mit Seltenheit (gewöhnlich grau / ungewöhnlich grün / selten blau / episch violett / legendär gold, Etappe 28); die Kartenfarbe folgt der Seltenheit, Glück hebt sie.
   - 15 Werte mit 5 Rängen: Biss, Kritbiss, Angriffstempo, Reichweite, Rudelinstinkt, Knochenpanzer, Fluchtreflex, Anführerherz, Regeneration, Lebensraub, Brutrate, Lockduft, Genfluss, Sprinter, Glück.
   - Neu würfeln, Verbannen und Überspringen werden über die Meta freigeschaltet.
 - **Arsenal** kommt nur aus Kokons und Bossen.
   - 10 Waffen mit Rang 1–5, 4 Waffenplätze.
   - 21 stapelbare Relikte.
   - 6 Evolutionen: Waffe auf Rang 5 + passendes Relikt → Boss-Kokon.
-- **Kokons:**
+- **Kokons** (Etappe 28: jeder Kokon ist eine 1-aus-3-Wahl, nichts wird zufällig vergeben):
   - Karten-Kokons kosten Bernstein (steigend).
   - Gratis sind der Start-Kokon, goldene Kokons (mindestens episch), Elite-Kokons und Boss-Kokons (1 aus 3).
   - Zum Öffnen den Schwarm 1 s im Kokon halten.
@@ -114,6 +114,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/export_android.ps1    
   - [19 Wüste](stages/19_desert.md)
   - [20 Gefahren-Lesbarkeit](stages/20_danger_readability.md)
   - [21 Große Balance-Runde](stages/21_balance.md)
+  - [28 Seltenheit + Build-Kontrolle](stages/28_tiers_choice.md) · [29 Wasser](stages/29_water.md): Seen/Moore mit bremsendem Flachufer und blockierender Tiefe
   - [27 S25-Feedback](stages/27_s25_feedback.md): Hordenwellen und Direktor-Vorsprung je Welt, schwebender Joystick, XP-Balken sichtbar, kein Gebietsbanner, Glutsprung über Hindernisse
   - [22 Leistung](stages/22_performance.md): HUD-Cache ohne GPU-Rücklesen, gebackene Knöpfe, Chunks über mehrere Frames, nächste Karte im Hintergrund; Bench-Szenen `mid`, `travel`, `apex`, `desert` (`tests/perf_bench.gd`)
 - Ältere Etappen (01–10) und archivierte Prüfnachweise stehen ebenfalls unter `stages/`.

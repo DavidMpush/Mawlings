@@ -31,6 +31,25 @@ const KIND_NAMES := [["thicket", "cliff", "water"], ["char", "basalt", "lava"]]
 const DEFAULT_LOOK := {"floor": Color("4a6a34"), "fog": Color(0.16, 0.23, 0.18), "water": Color("2f9ea6"), "shore": Color("5d7a3a")}
 
 const QUALITY = preload("res://scripts/quality.gd")
+const WATER_SHADER = preload("res://shaders/water.gdshader")
+# Stage 29 water surface: one field texel per NAV cell (2 m, aligned to the
+# layout grid) and two texels of margin around the 28 m chunk (bicubic); the surface
+# floats just above the dark wall floor. Edge water: shoreline on the wavy front
+# line, only a thin shallow lip (beyond the edge nothing is walkable), a band of
+# EDGE_WATER_DEPTH m with round ends.
+const FIELD_STEP := 2.0
+const FIELD_MARGIN := 2
+const FIELD_TEXELS := 18
+const WATER_FAR := 64.0
+const WATER_Y := 0.018
+const EDGE_WATER_DEPTH := 14.0
+const EDGE_WATER_ROUND := 9.0
+const EDGE_WATER_LIP := 0.35
+const WATER_LOOK := {
+	"rim": Color("a39a62"), "shallow_light": Color("9edcc2"), "shallow": Color("4cbfb6"),
+	"deep": Color("1f8993"), "abyss": Color("17687a"), "foam": Color("f0fff6"),
+	"glint": Color("d8fff4"), "pad": Color("5f9e3a"), "pads": 1.0,
+}
 
 var arena: Node3D
 var look: Dictionary = DEFAULT_LOOK
@@ -41,6 +60,9 @@ var skirt_material: StandardMaterial3D
 var water_material: StandardMaterial3D
 var shore_material: StandardMaterial3D
 var crust_material: StandardMaterial3D
+# Stage 29: water / lava surface (shaders/water.gdshader); every chunk with water
+# uses a copy carrying its own field texture.
+var surface_material: ShaderMaterial
 var skirt: MeshInstance3D
 # Instance colour of the prop being placed: darkens towards the fog with depth.
 var _tint := Color.WHITE
@@ -61,6 +83,12 @@ func _init(owner: Node3D) -> void:
 	band_material.vertex_color_is_srgb = true
 	band_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	band_material.roughness = 1.0
+	# Stage 29: the dark wall floor lies under the water surface, and the water
+	# under every other ground decal (puddles -1, shadows 1, telegraphs 0).
+	band_material.render_priority = -3
+	surface_material = ShaderMaterial.new()
+	surface_material.shader = WATER_SHADER
+	surface_material.render_priority = -2
 	fog_low_material = _fog_material(1)
 	fog_high_material = _fog_material(2)
 	skirt_material = StandardMaterial3D.new()
@@ -109,6 +137,20 @@ func apply_biome(data: Dictionary) -> void:
 	crust_material.albedo_color = look.get("crust", look.shore)
 	crust_material.emission_enabled = look.has("crust_glow")
 	crust_material.emission = look.get("crust_glow", Color.BLACK)
+	# Stage 29: lake / lava surface colours (biomes.gd "water").
+	var water_look: Dictionary = WATER_LOOK.duplicate()
+	water_look.merge(data.get("water", {}), true)
+	var params := {
+		"rim_color": "rim", "shallow_light": "shallow_light", "shallow_color": "shallow",
+		"deep_color": "deep", "abyss_color": "abyss", "foam_color": "foam", "glint_color": "glint",
+		"pad_color": "pad", "pads": "pads", "crust_color": "crust", "crack_color": "crack",
+		"lava_core": "lava_core", "lava_mid": "lava_mid", "lava_crust": "lava_crust", "plate_amount": "plates",
+	}
+	for param in params:
+		if water_look.has(params[param]):
+			surface_material.set_shader_parameter(param, water_look[params[param]])
+	surface_material.set_shader_parameter("lava", bool(water_look.get("lava", false)))
+	surface_material.set_shader_parameter("rim_width", float(water_look.get("rim_width", 0.9)))
 
 
 ## The fog-coloured ground past the border chunks (one mesh for the whole map).
@@ -368,20 +410,13 @@ func _place(groups: Dictionary, ember: bool, kind: int, side: int, depth: float,
 				else:
 					_leaf(groups, local, 1.6 + size_roll * 0.5, yaw, 1.0)
 			elif depth < 11.0:
-				# Overlapping flat discs form a swamp lake with a shore rim; in the
-				# Glutsumpf a dark crust field with a few small glowing lava pools.
-				var size := 2.5 + size_roll * 0.7
+				# Stage 29: the lake itself is the water surface (build_water); here
+				# only a few reeds (Glutsumpf: basalt lumps) stand in it.
 				if ember:
-					_disc(groups, "crust", arena.shore_mesh, crust_material, local + Vector3(0, 0.016, 0), size * 1.1)
-					if roll > 0.74 and depth > 2.5:
-						_disc(groups, "lava", arena.pool_mesh, arena.lava_material, local + Vector3(0, 0.024, 0), 1.0 + size_roll * 0.7)
-					elif roll < 0.14:
+					if roll < 0.1:
 						_lump(groups, local, 0.9 + size_roll * 0.6, yaw)
-				else:
-					_disc(groups, "shore", arena.shore_mesh, shore_material, local + Vector3(0, 0.014, 0), size * 1.05)
-					_disc(groups, "water", arena.pool_mesh, water_material, local + Vector3(0, 0.022, 0), size)
-					if depth > 3.0 and roll > 0.84:
-						_add(groups, "reed", arena.reed_mesh, arena.reed_base, arena.reed_material, local, Vector3.ONE * (1.6 + size_roll * 0.6), yaw)
+				elif depth > 3.0 and roll > 0.84:
+					_add(groups, "reed", arena.reed_mesh, arena.reed_base, arena.reed_material, local, Vector3.ONE * (1.6 + size_roll * 0.6), yaw)
 			elif ember:
 				_basalt(groups, local, 1.6 + size_roll * 0.8, (3.0 + size_roll * 2.0) * tall, yaw)
 			elif roll < 0.7:
@@ -411,10 +446,11 @@ func _place_desert(groups: Dictionary, kind: int, depth: float, local: Vector3, 
 				if depth > 4.0 and roll > 0.7:
 					_slab(groups, local, 3.6 + size_roll * 1.2, height * 1.1, yaw)
 		_:
-			if depth < 11.0:
-				var size := 2.5 + size_roll * 0.7
-				_disc(groups, "shore", arena.shore_mesh, shore_material, local + Vector3(0, 0.014, 0), size * 1.05)
-				_disc(groups, "water", arena.pool_mesh, water_material, local + Vector3(0, 0.022, 0), size)
+			# Stage 29: the dune sea is low, wide dunes (no flat disc chains).
+			if depth < 2.5:
+				_dune(groups, local, Vector3(3.0, 0.6, 2.6) * (0.9 + size_roll * 0.4), yaw)
+			elif depth < 11.0:
+				_dune(groups, local, Vector3(5.2, 1.1 * tall, 4.6) * (0.9 + size_roll * 0.3), yaw)
 			else:
 				_dune(groups, local, Vector3(5.6, 2.2 * tall, 5.0) * (0.9 + size_roll * 0.3), yaw)
 
@@ -925,7 +961,10 @@ func _cell_walls(groups: Dictionary, key: Vector2i, origin: Vector3, ember: bool
 			_tint = _shade(depth * 1.3 + 1.0)
 			var type: int = kinds[index]
 			if _desert:
-				_desert_cell(groups, type, local, roll, yaw, inner, camera_side, nav, origin)
+				if type == Wall.WATER:
+					_water_cell(groups, layout, index, local, roll, yaw, false, camera_side, origin)
+				else:
+					_desert_cell(groups, type, local, roll, yaw, inner, camera_side, nav, origin)
 				continue
 			match type:
 				Wall.RUIN, Wall.PILLAR:
@@ -941,13 +980,7 @@ func _cell_walls(groups: Dictionary, key: Vector2i, origin: Vector3, ember: bool
 					var footprint := nav * 1.35
 					_add(groups, "basalt" if ember else "rock", arena.rock_mesh, arena.rock_base, arena.basalt_material if ember else arena.rock_material, local, Vector3(footprint / rock_w, height / rock_h, footprint / rock_w), yaw)
 				Wall.WATER:
-					if ember:
-						_disc(groups, "crust", arena.shore_mesh, crust_material, local + Vector3(0, 0.016, 0), 1.25)
-						if inner and roll > 0.93:
-							_disc(groups, "lava", arena.pool_mesh, arena.lava_material, local + Vector3(0, 0.024, 0), 0.9)
-					else:
-						_disc(groups, "shore", arena.shore_mesh, shore_material, local + Vector3(0, 0.014, 0), 1.2)
-						_disc(groups, "water", arena.pool_mesh, water_material, local + Vector3(0, 0.022, 0), 1.15 if inner else 0.95)
+					_water_cell(groups, layout, index, local, roll, yaw, ember, camera_side, origin)
 				Wall.TREE:
 					if inner and roll < 0.55:
 						var height := minf(4.2 + roll * 2.0, 1.6 if camera_side else 99.0)
@@ -992,10 +1025,6 @@ func _desert_cell(groups: Dictionary, type: int, local: Vector3, roll: float, ya
 				_origin = origin
 				_slab(groups, local, nav * 2.2, height + 1.2, yaw)
 				_fit = 0
-		Wall.WATER:
-			# Inner discs overlap the cell corners (no shore showing through).
-			_disc(groups, "oasis shore", arena.shore_mesh, arena.shore_material, local + Vector3(0, 0.014, 0), 1.35 if inner else 1.15)
-			_disc(groups, "oasis", arena.pool_mesh, arena.water_material, local + Vector3(0, 0.022, 0), 1.5 if inner else 0.95)
 		8:  # map_explore.KIND_CACTUS
 			var part: Array = arena.desert_part("cactus")
 			var mesh: Mesh = part[0]
@@ -1033,6 +1062,221 @@ func _rib_cages(groups: Dictionary, key: Vector2i, origin: Vector3, layout: RefC
 		_origin = origin
 		_add(groups, "ribs", mesh, base, arena.bone_material, center - origin, Vector3(scale, scale * 1.15, scale), float(cage.yaw))
 		_fit = 0
+
+
+# ------------------------------------------------------------ water (stage 29)
+
+# A deep-water cell: the surface itself is build_water(); here only decoration
+# that stands inside the collision (fit mode 1) - reeds lining the drop-off,
+# rarely a stone far out; Glutsumpf: a rare basalt lump in the lava. Reeds on
+# the far (north) side of a lake stay out: they would hide the swarm.
+func _water_cell(groups: Dictionary, layout: RefCounted, index: int, local: Vector3, roll: float, yaw: float, ember: bool, camera_side: bool, origin: Vector3) -> void:
+	var deeps: Variant = layout.get("water_deep")
+	if not deeps is PackedFloat32Array or (deeps as PackedFloat32Array).size() <= index:
+		return
+	var inside := -float(deeps[index])
+	_fit = 1
+	_origin = origin
+	if ember:
+		if inside > 3.0 and roll > 0.93:
+			_lump(groups, local, 0.9 + roll * 0.5, yaw)
+	elif inside > 0.4 and inside < 1.9 and roll < 0.42 and not camera_side:
+		_add(groups, "reed", arena.reed_mesh, arena.reed_base, arena.reed_material, local, Vector3.ONE * (1.3 + roll * 1.2), yaw)
+	elif inside > 4.0 and roll > 0.965:
+		_rock(groups, local, Vector3(1.9, 1.1, 1.7) * (0.9 + (roll - 0.965) * 8.0), yaw)
+	_fit = 0
+
+
+## Adds the water (lava) surface of one chunk: the layout's lakes and, near the
+## map edge, the edge water - one mesh of 2 m quads where there is water, one
+## material copy carrying the chunk's field texture. Nothing without water.
+func build_water(chunk: Node3D, key: Vector2i) -> void:
+	var values := _water_values(key)
+	if values.is_empty():
+		return
+	var rim: float = float(surface_material.get_shader_parameter("rim_width"))
+	var vertices := PackedVector3Array()
+	var cells := FIELD_TEXELS - 2 * FIELD_MARGIN
+	for qz in cells:
+		for qx in cells:
+			# The quad reads texels qx .. qx + 2 * FIELD_MARGIN + 1 (bicubic).
+			var wet := false
+			for j in range(qz + 1, qz + 2 * FIELD_MARGIN):
+				for i in range(qx + 1, qx + 2 * FIELD_MARGIN):
+					if values[j * FIELD_TEXELS + i].x < rim + 0.6:
+						wet = true
+						break
+				if wet:
+					break
+			if not wet:
+				continue
+			var x0 := float(qx) * FIELD_STEP
+			var z0 := float(qz) * FIELD_STEP
+			var a := Vector3(x0, WATER_Y, z0)
+			var b := Vector3(x0 + FIELD_STEP, WATER_Y, z0)
+			var c := Vector3(x0 + FIELD_STEP, WATER_Y, z0 + FIELD_STEP)
+			var d := Vector3(x0, WATER_Y, z0 + FIELD_STEP)
+			vertices.append_array([a, b, c, a, c, d])
+	if vertices.is_empty():
+		return
+	var normals := PackedVector3Array()
+	normals.resize(vertices.size())
+	normals.fill(Vector3.UP)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var material: ShaderMaterial = surface_material.duplicate()
+	material.set_shader_parameter("field", ImageTexture.create_from_image(_field_image(values)))
+	material.set_shader_parameter("field_origin", Vector2(chunk.position.x, chunk.position.z) - Vector2.ONE * FIELD_STEP * FIELD_MARGIN)
+	material.set_shader_parameter("field_size", FIELD_STEP * FIELD_TEXELS)
+	var part := MeshInstance3D.new()
+	part.name = "Water"
+	part.mesh = mesh
+	part.material_override = material
+	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	chunk.add_child(part)
+
+
+## The water field of a chunk as an RGH image (null without water): texel
+## (i, j) sits at the world chunk corner + ((i, j) - FIELD_MARGIN + 0.5) *
+## FIELD_STEP, which are the layout's cell centres; R = shoreline distance,
+## G = deep-edge distance (m, - inside).
+func water_field(key: Vector2i) -> Image:
+	var values := _water_values(key)
+	return null if values.is_empty() else _field_image(values)
+
+
+func _field_image(values: PackedVector2Array) -> Image:
+	var image := Image.create(FIELD_TEXELS, FIELD_TEXELS, false, Image.FORMAT_RGH)
+	for j in FIELD_TEXELS:
+		for i in FIELD_TEXELS:
+			var value := values[j * FIELD_TEXELS + i]
+			image.set_pixel(i, j, Color(value.x, value.y, 0.0))
+	return image
+
+
+# Field values of a chunk (see water_field), empty when no water is near.
+func _water_values(key: Vector2i) -> PackedVector2Array:
+	var layout: RefCounted = arena.layout
+	var shores := PackedFloat32Array()
+	var deeps := PackedFloat32Array()
+	var grid := 0
+	var cell_lo := Vector2i.ZERO
+	var area := Rect2(key.x * arena.CELL, key.y * arena.CELL, arena.CELL, arena.CELL)
+	if layout != null and layout.get("basins") is Array:
+		for basin in layout.basins:
+			var center: Vector3 = basin.center
+			if area.grow(float(basin.radius) + 8.0).has_point(Vector2(center.x, center.z)):
+				grid = int(layout.grid)
+				break
+	if grid > 0:
+		shores = layout.water
+		deeps = layout.water_deep
+		var grid_origin: Vector2 = layout.grid_origin
+		cell_lo = Vector2i(roundi((area.position.x - grid_origin.x) / FIELD_STEP) - FIELD_MARGIN, roundi((area.position.y - grid_origin.y) / FIELD_STEP) - FIELD_MARGIN)
+	var edge: bool = not arena._desert_look() and (not arena.in_map(key) or touches(key)) and _edge_water_near(area)
+	var values := PackedVector2Array()
+	if grid == 0 and not edge:
+		return values
+	values.resize(FIELD_TEXELS * FIELD_TEXELS)
+	var any := false
+	var base := area.position + Vector2.ONE * FIELD_STEP * (0.5 - FIELD_MARGIN)
+	_runs.clear()
+	for j in FIELD_TEXELS:
+		for i in FIELD_TEXELS:
+			var value := Vector2(WATER_FAR, WATER_FAR)
+			if grid > 0:
+				var cx := cell_lo.x + i
+				var cz := cell_lo.y + j
+				if cx >= 0 and cz >= 0 and cx < grid and cz < grid:
+					value = Vector2(shores[cz * grid + cx], deeps[cz * grid + cx])
+			if edge:
+				var lake := _edge_water(base.x + float(i) * FIELD_STEP, base.y + float(j) * FIELD_STEP)
+				value = Vector2(minf(value.x, lake.x), minf(value.y, lake.y))
+			if value.x < 1.5:
+				any = true
+			values[j * FIELD_TEXELS + i] = value
+	if not any:
+		values.clear()
+	return values
+
+
+# True if an edge-water run lies within one segment of the chunk area.
+func _edge_water_near(area: Rect2) -> bool:
+	for u in [0.0, 0.5, 1.0]:
+		for v in [0.0, 0.5, 1.0]:
+			var info := _side_along(area.position.x + area.size.x * u, area.position.y + area.size.y * v)
+			var index := floori((info.y + 1000.0) / SEGMENT)
+			for probe in [index - 1, index, index + 1]:
+				if _kind_of(int(info.x), probe) == Kind.WATER:
+					return true
+	return false
+
+
+# Edge-water runs of one chunk build: (side, segment) -> Vector2(from, to) or
+# Vector2.INF when that segment is no water.
+var _runs: Dictionary = {}
+
+
+func _water_run(side: int, index: int) -> Vector2:
+	var id := side * 100000 + index
+	if _runs.has(id):
+		return _runs[id]
+	var run := Vector2.INF
+	if _kind_of(side, index) == Kind.WATER:
+		var first := index
+		while first > index - 8 and _kind_of(side, first - 1) == Kind.WATER:
+			first -= 1
+		var last := index
+		while last < index + 8 and _kind_of(side, last + 1) == Kind.WATER:
+			last += 1
+		run = Vector2(float(first) * SEGMENT - 1000.0, float(last + 1) * SEGMENT - 1000.0)
+	_runs[id] = run
+	return run
+
+
+# Edge water at a point beyond the front line: a band along every water
+# segment run of a side, shoreline on the wavy front line, the far bank waving
+# around EDGE_WATER_DEPTH m and wide round ends (a lake lying against the edge,
+# not a strip). Returns Vector2(shore, deep) distances (WATER_FAR = none).
+func _edge_water(x: float, z: float) -> Vector2:
+	var rect: Rect2 = arena.playable_rect()
+	# Well inside the map (the common case in a border chunk): no edge water.
+	if x > rect.position.x + 10.0 and x < rect.end.x - 10.0 and z > rect.position.y + 10.0 and z < rect.end.y - 10.0:
+		return Vector2(WATER_FAR, WATER_FAR)
+	var info := _side_along(x, z)
+	var side := int(info.x)
+	var along := info.y
+	var depth: float = arena.edge_distance(Vector3(x, 0.0, z)) - wave(side, along)
+	if depth < -10.0 or depth > EDGE_WATER_DEPTH + 12.0:
+		return Vector2(WATER_FAR, WATER_FAR)
+	var index := floori((along + 1000.0) / SEGMENT)
+	var best := WATER_FAR
+	for probe in [index, index - 1, index + 1]:
+		var run := _water_run(side, probe)
+		if not run.is_finite():
+			continue
+		var from := run.x
+		var to := run.y
+		var phase := float(posmod(roundi(from), 628)) * 0.01
+		var reach := EDGE_WATER_DEPTH + 3.0 * sin(along * 0.09 + phase) + 1.5 * sin(along * 0.23 + phase * 1.7)
+		# Rounded box in (along, depth); the shore runs exactly on the front line.
+		var round_radius := minf(EDGE_WATER_ROUND, reach * 0.5)
+		var half := Vector2((to - from) * 0.5, reach * 0.5)
+		var q := Vector2(absf(along - (from + to) * 0.5), absf(depth - half.y)) - half + Vector2(round_radius, round_radius)
+		var value := Vector2(maxf(q.x, 0.0), maxf(q.y, 0.0)).length() + minf(maxf(q.x, q.y), 0.0) - round_radius
+		best = minf(best, value)
+		if probe == index:
+			break
+	return Vector2(best, best + EDGE_WATER_LIP)
+
+
+func _kind_of(side: int, index: int) -> int:
+	var roll: int = arena._hash(side, index, 1960) % 100
+	return Kind.THICKET if roll < 42 else (Kind.CLIFF if roll < 76 else Kind.WATER)
 
 
 # Stone material of the masonry blocks (instance colours carry the stone).

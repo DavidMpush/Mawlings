@@ -32,7 +32,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS arsenal: 10 weapons, 20 relics, 6 evolutions, slots + Urmutter, rank-ups, stacks, chest rarity floors, evolution ready, relic hooks")
+	print("PASS arsenal: 10 weapons, 25 relics (5 tiers), 6 evolutions, slots + Urmutter, rank-ups, stacks, 1-of-3 for every cocoon kind with floors, refund, evolution ready, relic hooks")
 	quit(0)
 
 
@@ -42,7 +42,13 @@ func _test_catalog() -> void:
 	var tiers := {}
 	for entry in ARSENAL.RELICS:
 		tiers[entry[3]] = int(tiers.get(entry[3], 0)) + 1
-	_check(tiers.get("common", 0) == 6 and tiers.get("rare", 0) == 11 and tiers.get("epic", 0) == 5 and tiers.get("legendary", 0) == 3, "Relikt-Seltenheiten 6/11/5/3: %s" % str(tiers))
+	# Etappe 28: Hungerstein, Witterungsnase, DNA-Splitter sind ungewöhnlich.
+	_check(tiers.get("common", 0) == 3 and tiers.get("uncommon", 0) == 3 and tiers.get("rare", 0) == 11 and tiers.get("epic", 0) == 5 and tiers.get("legendary", 0) == 3, "Relikt-Seltenheiten 3/3/11/5/3: %s" % str(tiers))
+	for entry in ARSENAL.RELICS:
+		_check(STATS.RARITIES.has(entry[3]), "Relikt mit unbekannter Seltenheit: " + str(entry[0]))
+	for rarity in STATS.RARITIES:
+		_check(ARSENAL.RANK_GAIN.has(rarity), "Rangsprung fehlt für " + rarity)
+	_check(ARSENAL.RANK_GAIN.uncommon == 1 and ARSENAL.RANK_GAIN.rare == 1 and ARSENAL.RANK_GAIN.epic == 2 and ARSENAL.RANK_GAIN.legendary == 3, "Rangsprung 1/1/1/2/3")
 	for entry in ARSENAL.WEAPONS:
 		_check(FORMS.FORMS.has(entry[0]) and FORMS.FORMS[entry[0]].ranks.size() == 5, "Waffe ohne 5 Ränge in attack_forms: " + str(entry[0]))
 	for rule in ARSENAL.EVOLUTION_RULES:
@@ -96,32 +102,70 @@ func _test_chests() -> void:
 	var arsenal = ARSENAL.new()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 21
+	# Etappe 28: jede Kokon-Art bietet drei verschiedene Teile zur Wahl.
 	var relics := 0
-	for i in 2000:
+	var items_seen := 0
+	for i in 1000:
 		var map: Dictionary = arsenal.roll_chest(rng, 0.0, "map")
-		_check(map.kind == "map" and not map.pick and map.items.size() == 1, "Karten-Kokon: genau ein Teil sofort")
-		if map.items[0].type == "relic":
-			relics += 1
-	_check(absf(float(relics) / 2000.0 - ARSENAL.RELIC_SHARE) < 0.05, "Karten-Kokon ~55 %% Relikt (%.2f)" % (float(relics) / 2000.0))
-	for i in 400:
-		var elite: Dictionary = arsenal.roll_chest(rng, 0.0, "elite")
-		var item: Dictionary = elite.items[0]
-		if item.type == "weapon":
-			_check(STATS.rarity_at_least(item.rarity, "rare"), "Elite-Kokon: Waffe mindestens selten")
-		else:
-			_check(STATS.rarity_at_least(item.rarity, "rare"), "Elite-Kokon: Relikt mindestens selten (%s)" % item.id)
+		_check(map.kind == "map" and map.pick and map.items.size() == 3, "Karten-Kokon: 1 aus 3")
+		_check(_distinct(map.items), "Karten-Angebote sind verschieden")
+		for item in map.items:
+			items_seen += 1
+			if item.type == "relic":
+				relics += 1
+	# Taken relic tiers fall back to weapons, so the share per card sits a bit below 55 %.
+	_check(absf(float(relics) / float(items_seen) - ARSENAL.RELIC_SHARE) < 0.08, "Karten-Kokon ~55 %% Relikt (%.2f)" % (float(relics) / float(items_seen)))
+	for kind in ["elite", "gold", "boss"]:
+		var lowest: String = ARSENAL.CHEST_FLOOR[kind]
+		for i in 300:
+			var chest: Dictionary = arsenal.roll_chest(rng, 0.0, kind)
+			_check(chest.kind == kind and chest.pick and chest.items.size() == 3 and _distinct(chest.items), "%s-Kokon: 1 aus 3, verschieden" % kind)
+			for item in chest.items:
+				_check(STATS.rarity_at_least(item.rarity, lowest), "%s-Kokon: mindestens %s (%s %s)" % [kind, lowest, item.id, item.rarity])
+	# Start-Kokon: mit < 2 Waffen drei neue Waffen, höchstens selten.
 	for i in 300:
-		var boss: Dictionary = arsenal.roll_chest(rng, 0.0, "boss")
-		_check(boss.pick and boss.items.size() == 3, "Boss-Kokon: 1 aus 3")
-		var ids := {}
-		for item in boss.items:
-			_check(STATS.rarity_at_least(item.rarity, "epic"), "Boss-Kokon: mindestens episch (%s %s)" % [item.id, item.rarity])
-			ids[item.id] = true
-		_check(ids.size() == 3, "Boss-Angebote sind verschieden")
+		var start: Dictionary = arsenal.roll_chest(rng, 20.0, "start")
+		_check(start.pick and start.items.size() == 3 and _distinct(start.items), "Start-Kokon: 1 aus 3")
+		for item in start.items:
+			_check(item.type == "weapon" and arsenal.rank(item.id) == 0, "Start-Kokon bietet neue Waffen (%s)" % item.id)
+			_check(not STATS.rarity_at_least(item.rarity, "epic"), "Start-Kokon höchstens selten (%s)" % item.rarity)
+	var armed = ARSENAL.new()
+	armed.grant(armed.weapon_item("rudelbiss", "common"))
+	armed.grant(armed.weapon_item("sporenwolke", "common"))
+	for i in 300:
+		var later: Dictionary = armed.roll_chest(rng, 20.0, "start")
+		for item in later.items:
+			_check(not STATS.rarity_at_least(item.rarity, "epic"), "Start-Kokon mit 2 Waffen höchstens selten (%s %s)" % [item.id, item.rarity])
+	# Volle Plätze: nur Rang-Aufstiege eigener Waffen und Relikte.
+	var full = ARSENAL.new()
+	for id in ["rudelbiss", "sporenwolke", "klauenwirbel", "giftbiss"]:
+		full.grant(full.weapon_item(id, "common"))
+	for i in 200:
+		for item in full.roll_chest(rng, 0.0, "map").items:
+			_check(item.type == "relic" or (item.type == "weapon" and full.rank(item.id) > 0), "Volle Plätze: nur Aufstieg oder Relikt (%s)" % item.id)
+	# Weniger gültige Teile als drei: so viele, wie es gibt; keines: leere Wahl.
+	var scarce = ARSENAL.new()
+	scarce.relic_pool = []
+	scarce.weapon_pool = ["rudelbiss", "sporenwolke"]
+	var two: Dictionary = scarce.roll_chest(rng, 0.0, "map")
+	_check(two.items.size() == 2 and two.pick and _distinct(two.items), "Nur zwei gültige Teile: zwei Angebote (%d)" % two.items.size())
+	scarce.grant(scarce.weapon_item("rudelbiss", "legendary"))
+	scarce.grant(scarce.weapon_item("rudelbiss", "legendary"))
+	scarce.grant(scarce.weapon_item("sporenwolke", "legendary"))
+	scarce.grant(scarce.weapon_item("sporenwolke", "legendary"))
+	var none: Dictionary = scarce.roll_chest(rng, 0.0, "boss")
+	_check(none.items.is_empty() and not none.pick, "Alles maximal: kein Angebot")
 	# Pools: gesperrte Relikte/Waffen kommen nicht vor.
 	for i in 500:
 		var item: Dictionary = arsenal.roll_item(rng, 30.0, "legendary")
 		_check(not ARSENAL.UNLOCK_RELICS.has(item.id) and not ARSENAL.UNLOCK_WEAPONS.has(item.id), "Gesperrtes Teil gewürfelt: " + str(item.id))
+
+
+static func _distinct(items: Array) -> bool:
+	var ids := {}
+	for item in items:
+		ids[item.id] = true
+	return ids.size() == items.size()
 
 
 func _test_evolution() -> void:
@@ -142,12 +186,29 @@ func _test_evolution() -> void:
 	rng.seed = 4
 	for i in 300:
 		_check(evo.arsenal.roll_item(rng, 0.0).get("id", "") != "rudelbiss", "Evolvierte Grundwaffe als Beute angeboten")
-	# Karten-Kokon: Beute sofort, Preis steigt.
+	# Etappe 28: Karten-Kokon öffnet eine Wahl (chest_kind "map"), Preis steigt.
 	var map_evo = EVOLUTION.new()
 	var price: int = map_evo.chest_price()
 	var opened: Dictionary = map_evo.open_chest("map")
-	_check(not opened.pick and opened.granted.size() == 1 and bool(opened.granted[0].applied) and map_evo.chest_price() > price and map_evo.chest_offers.is_empty(), "Karten-Kokon gibt sofort ein Teil, der nächste kostet mehr")
-	_check(map_evo.revision > 0, "Beute meldet eine Änderung (revision)")
+	_check(opened.pick and map_evo.chest_offers.size() == 3 and map_evo.chest_kind == "map" and map_evo.chest_price() > price, "Karten-Kokon öffnet 1 aus 3, der nächste kostet mehr")
+	var revision: int = map_evo.revision
+	var chosen_id: String = map_evo.chest_offers[1][0]
+	var picked: Dictionary = map_evo.choose_chest(1)
+	_check(bool(picked.get("applied", false)) and picked.id == chosen_id and map_evo.chest_offers.is_empty() and map_evo.chest_kind == "", "choose_chest gibt das gewählte Teil zurück (%s)" % chosen_id)
+	_check(map_evo.revision > revision, "Beute meldet eine Änderung (revision)")
+	for kind in ["start", "elite", "gold", "boss"]:
+		var chest_evo = EVOLUTION.new()
+		chest_evo.open_chest(kind)
+		_check(chest_evo.chest_offers.size() == 3 and chest_evo.chest_kind == kind and chest_evo.revision == 0, "%s-Kokon: Wahl statt Sofort-Beute" % kind)
+	# Nichts mehr zu verbessern: Bernstein-Ersatz, keine Wahl, Preis bleibt.
+	var spent = EVOLUTION.new()
+	spent.arsenal.relic_pool = []
+	spent.arsenal.weapon_pool = ["rudelbiss"]
+	spent.debug_grant("rudelbiss", "legendary")
+	spent.debug_grant("rudelbiss", "legendary")
+	var spent_price: int = spent.chest_price()
+	var refund: Dictionary = spent.open_chest("map")
+	_check(refund.items.is_empty() and int(refund.refund) == spent_price and spent.chest_offers.is_empty() and spent.chest_price() == spent_price, "Alles maximal: Bernstein-Ersatz %d statt Karte" % int(refund.refund))
 
 
 func _test_hooks() -> void:

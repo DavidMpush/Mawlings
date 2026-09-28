@@ -3392,7 +3392,7 @@ func _shake(amount: float) -> void:
 		get_parent().add_shake(amount)
 
 
-# Etappe 17: auch eine offene Boss-Kokon-Wahl (evolution.chest_offers) hält die Welt an.
+# Etappe 17/28: auch eine offene Kokon-Wahl (evolution.chest_offers, jede Kokon-Art) hält die Welt an.
 func choosing() -> bool:
 	return not evolution.offers.is_empty() or not evolution.chest_offers.is_empty()
 
@@ -3406,7 +3406,8 @@ func _award_dna(amount: int) -> void:
 
 
 func choose_mutation(slot: int) -> void:
-	# Etappe 17: während der Boss-Kokon-Wahl wählt dieselbe Karte die Beute.
+	# Etappe 17/28: während einer Kokon-Wahl wählt dieselbe Karte die Beute; die
+	# Beutekarte (hud_loot über chests.show_card) zeigt danach das gewählte Teil.
 	if not evolution.chest_offers.is_empty():
 		if paused or model.extinct:
 			return

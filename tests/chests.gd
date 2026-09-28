@@ -1,11 +1,12 @@
 extends SceneTree
 
-# Etappe 17 Welle 2 - Kokons: map cocoons cost biomass (price rises per opened
-# cocoon), open after the swarm held 1 s inside, pay with the bank + Mawlings
-# (never the leader), grant their loot at once, stay closed and red when too
-# expensive, stay on the map until opened; golden cocoons are free (at least
-# epic); elites drop a free small cocoon (at least rare); bosses drop a golden
-# one that offers 1 of 3 (evolution guaranteed when ready); amber relic finds.
+# Etappe 17 Welle 2 - Kokons: map cocoons cost Bernstein (price rises per opened
+# cocoon), open after the swarm held 1 s inside, never cost Mawlings, stay
+# closed and red when too expensive, stay on the map until opened; golden
+# cocoons are free (at least epic); elites drop a free small cocoon (at least
+# rare); bosses drop a golden one (evolution guaranteed when ready).
+# Etappe 28: every kind opens a 1-of-3 choice that pauses the world; the loot
+# card shows the chosen item.
 const TUNING = preload("res://scripts/tuning.gd")
 const STATS = preload("res://scripts/progression/stats.gd")
 var failures: Array[String] = []
@@ -44,8 +45,20 @@ func _run() -> void:
 		var weapons_before: int = world.evolution.arsenal.weapons().size()
 		_population(10)
 		swarm.position = start.at
-		_steps(1.7)
-		_check(start.has("rarity") and String(start.rarity) in ["common", "rare"] and world.model.population >= 10, "Start cocoon is free, common or rare (%s)" % str(start.get("rarity", "-")))
+		_steps(1.7, false)
+		# Stage 28: the start cocoon offers three new weapons (at most rare) to pick from.
+		var start_offers: Array = world.evolution.chest_offers
+		_check(world.choosing() and start_offers.size() == 3 and world.evolution.chest_kind == "start", "Start cocoon opens a 1-of-3 choice (%d, %s)" % [start_offers.size(), world.evolution.chest_kind])
+		_check(world.evolution.arsenal.weapons().size() == weapons_before, "Nothing is granted before the choice")
+		for offer in start_offers:
+			var item: Dictionary = offer[4]
+			_check(item.type == "weapon" and world.evolution.rank(item.id) == 0 and not STATS.rarity_at_least(String(offer[3]), "epic"), "Start offer is a new weapon, at most rare (%s %s)" % [offer[0], offer[3]])
+		_check(start.has("rarity") and not STATS.rarity_at_least(String(start.rarity), "epic") and world.model.population >= 10, "Start cocoon is free, at most rare (%s)" % str(start.get("rarity", "-")))
+		if start_offers.size() == 3:
+			var start_pick: String = start_offers[2][0]
+			world.choose_mutation(2)
+			_check(not world.choosing() and world.evolution.rank(start_pick) >= 1, "The chosen weapon is the second weapon (%s)" % start_pick)
+			_check(String(chests.card.get("item", {}).get("id", "")) == start_pick, "The loot card shows the chosen weapon")
 		_check(world.evolution.arsenal.weapons().size() == weapons_before + 1, "With one weapon the start cocoon brings a second weapon")
 		_check(world.evolution.arsenal.chests_opened == 0, "It does not raise the map price")
 		swarm.position = Vector3.ZERO
@@ -74,13 +87,24 @@ func _run() -> void:
 	_check(float(cocoon.hold) < 0.1, "Leaving drains the hold (%.2f)" % float(cocoon.hold))
 	swarm.position = spot
 	var revision: int = evo.revision
-	_steps(1.0)
+	_steps(1.0, false)
 	_check(int(cocoon.state) >= 1, "After 1 s inside the cocoon opens")
-	_steps(1.1)
+	_steps(1.1, false)
 	_check(world.model.amber == 40 - p0, "It cost exactly %d Bernstein (left %d)" % [p0, world.model.amber])
 	_check(world.model.population >= 40, "No Mawling is spent on a cocoon (40 -> %d)" % world.model.population)
-	_check(evo.revision > revision, "The loot was granted at once (revision %d -> %d)" % [revision, evo.revision])
-	_check(evo.chest_offers.is_empty() and not world.choosing(), "A map cocoon never pauses")
+	# Stage 28: a map cocoon pauses the world with a 1-of-3 choice; nothing before it.
+	_check(world.choosing() and evo.chest_offers.size() == 3 and evo.chest_kind == "map", "A map cocoon opens a 1-of-3 choice (%d)" % evo.chest_offers.size())
+	_check(evo.revision == revision, "Nothing is granted before the choice (revision %d -> %d)" % [revision, evo.revision])
+	var map_ids: Array = evo.chest_offers.map(func(entry): return entry[0])
+	_check(map_ids.size() == 3 and map_ids[0] != map_ids[1] and map_ids[1] != map_ids[2] and map_ids[0] != map_ids[2], "The three offers differ (%s)" % str(map_ids))
+	var paused_at: float = world.model.elapsed
+	world.step(0.05)
+	_check(is_equal_approx(world.model.elapsed, paused_at) and world.choosing(), "The choice pauses the world")
+	var map_pick: String = map_ids[1] if map_ids.size() > 1 else ""
+	world.choose_mutation(1)
+	_check(not world.choosing() and evo.revision > revision, "Choosing grants the loot (revision %d -> %d)" % [revision, evo.revision])
+	_check(String(chests.card.get("item", {}).get("id", "")) == map_pick, "The loot card shows the chosen item (%s)" % map_pick)
+	_steps(0.6)
 	var p1: int = evo.chest_price()
 	_check(p1 == int(round(evo.arsenal.CHEST_BASE * evo.arsenal.CHEST_GROWTH)) and p1 > p0, "The next one costs more (%d)" % p1)
 	_check(chests.opened == 1 and not chests.cocoons.has(cocoon), "Opened cocoon is gone after its burst")
@@ -216,6 +240,19 @@ func _run() -> void:
 			relic_after += int(evo.relics[id])
 		_check(relic_after == relic_count and world.powerups.pickups.is_empty(), "No relic or power-up from amber nodes")
 
+	# ---- Stage 28: nothing left to improve -> Bernstein instead of a choice.
+	var saved_relics: Array = evo.arsenal.relic_pool
+	var saved_weapons: Array = evo.arsenal.weapon_pool
+	evo.arsenal.relic_pool = []
+	evo.arsenal.weapon_pool = []
+	var spent: Dictionary = chests.spawn("elite", Vector3(40, 0, -40))
+	var amber_now: int = world.model.amber
+	var refund_price: int = evo.chest_price()
+	chests.open_now(spent)
+	_check(not world.choosing() and world.model.amber == amber_now + refund_price, "Nothing to offer: %d Bernstein refund, no choice (%d -> %d)" % [refund_price, amber_now, world.model.amber])
+	evo.arsenal.relic_pool = saved_relics
+	evo.arsenal.weapon_pool = saved_weapons
+
 	# ---- Minimap marks.
 	world._drop_cocoon("elite", Vector3(-40, 0, -40))
 	var marks: Array = world._map_state().chests
@@ -268,11 +305,17 @@ func _quiet() -> void:
 		knoll.at = Vector3(-500, 0, 500)
 
 
-func _steps(seconds: float) -> void:
+# Steps the world; level choices take card 0. Cocoon choices take card 0 too,
+# unless `auto_choose` is false: then it stops as soon as a choice is open.
+func _steps(seconds: float, auto_choose: bool = true) -> void:
 	for index in int(round(seconds / 0.05)):
 		world.unit_points_valid = false
 		world.step(0.05)
-		while not world.evolution.offers.is_empty():
+		while not world.evolution.offers.is_empty() and world.evolution.chest_offers.is_empty():
+			world.choose_mutation(0)
+		if not world.evolution.chest_offers.is_empty():
+			if not auto_choose:
+				return
 			world.choose_mutation(0)
 
 

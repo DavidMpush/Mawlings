@@ -16,6 +16,7 @@ extends RefCounted
 
 const ARSENAL = preload("res://scripts/progression/arsenal.gd")
 const STATS = preload("res://scripts/progression/stats.gd")
+const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const DATA = preload("res://scripts/meta/meta_data.gd")
 const POWERUPS_PATH := "res://scripts/powerups.gd"
 const ABILITIES_PATH := "res://scripts/abilities.gd"
@@ -117,7 +118,8 @@ static func entries(category: String) -> Array:
 		"relics":
 			for row in ARSENAL.RELICS:
 				var rarity := String(row[3])
-				out.append(_entry("relic", row[0], row[1], row[2], String(STATS.RARITY_NAME.get(rarity, "")), String(STATS.RARITY_TONE.get(rarity, "neutral")), icon_for(row[0]), ""))
+				# Stage 28: chip and tone from the central rarity token (rarity id = kit tone).
+				out.append(_entry("relic", row[0], row[1], row[2], UiStyle.rarity_name(rarity), rarity if UiStyle.RARITY_TONES.has(rarity) else "common", icon_for(row[0]), ""))
 		"stats":
 			for d in STATS.STATS:
 				var cat: Array = STAT_CATEGORY.get(String(d.cat), ["WERT", "info"])

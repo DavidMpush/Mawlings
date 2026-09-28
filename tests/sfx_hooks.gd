@@ -156,12 +156,13 @@ func _check_e23() -> void:
 	var cheap: Dictionary = chests.spawn("map", swarm.position + Vector3(-6.0, 0.0, 0.0))
 	chests.open_now(cheap)
 	_expect("cocoon_open", "cocoon opening")
-	for rarity: String in ["common", "rare", "epic", "legendary"]:
+	# Stage 28: uncommon reuses the common opening sound.
+	for rarity: String in ["common", "uncommon", "rare", "epic", "legendary"]:
 		var entry: Dictionary = chests.spawn("map", swarm.position + Vector3(0.0, 0.0, 8.0))
 		chests.play_moment(entry, rarity)
 		if rarity == "legendary" and not sfx.recently_played("fanfare", 2000):
 			failures.append("legendary cocoon without its fanfare")
-		_expect("cocoon_" + rarity, "cocoon moment " + rarity)
+		_expect("cocoon_" + ("common" if rarity == "uncommon" else rarity), "cocoon moment " + rarity)
 
 	_fresh()
 	var powerups: Variant = world.powerups

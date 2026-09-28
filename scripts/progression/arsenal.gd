@@ -10,23 +10,32 @@ extends RefCounted
 ## Beute-Einträge (Dictionaries) für Kokons, HUD und grant():
 ##   {"type": "weapon"|"relic"|"evolution", "id", "name", "desc", "rarity",
 ##    "gain" (Waffe: Ränge), "from", "to" (Rang/Stapel vorher, nachher)}
-## Seltenheit einer Waffe = Rang-Sprung: gewöhnlich/selten +1, episch +2,
-## legendär +3. Relikte haben eine feste Seltenheit; der Wurf wählt die Stufe.
+## Seltenheit einer Waffe = Rang-Sprung: gewöhnlich/ungewöhnlich/selten +1,
+## episch +2, legendär +3. Relikte haben eine feste Seltenheit; der Wurf wählt die Stufe.
+##
+## Etappe 28: Jeder Kokon (start/map/elite/gold/boss) bietet 1 aus 3
+## (roll_chest -> "pick" immer true); nichts wird mehr ohne Wahl vergeben.
 
 const STATS = preload("res://scripts/progression/stats.gd")
 
 const MAX_RANK := 5
 const BASE_SLOTS := 4
-const RANK_GAIN := {"common": 1, "rare": 1, "epic": 2, "legendary": 3}
+const RANK_GAIN := {"common": 1, "uncommon": 1, "rare": 1, "epic": 2, "legendary": 3}
 ## Karten-/Elite-Kokon: Anteil Relikt (Rest Waffe).
 const RELIC_SHARE := 0.55
+## Etappe 28: Mindest-Seltenheit je Kokon-Art (Start: höchstens selten, CHEST_CAP).
+const CHEST_FLOOR := {"start": "common", "map": "common", "elite": "rare", "gold": "epic", "boss": "epic"}
+const CHEST_CAP := {"start": "rare"}
+## Angebote je Kokon (Etappe 28: jeder Kokon ist eine Wahl).
+const CHEST_CHOICES := 3
 ## Karten-Kokon-Preis in Bernstein: 25 · 1,85^n, Glück −3 % je Punkt, Schlundherz −40 % je Stapel.
 const CHEST_BASE := 25.0
 ## Welle 2: 1,35 -> 1,85; Preis in Bernstein (In-Run-Währung); ~5-7 Karten-Kokons je langem Run.
 const CHEST_GROWTH := 1.85
 const CHEST_LUCK_DISCOUNT := 0.03
 const CHEST_MIN_FACTOR := 0.25
-const BOSS_CHOICES := 3
+## Alt-Name (Welle 2: nur der Boss-Kokon bot eine Wahl).
+const BOSS_CHOICES := CHEST_CHOICES
 
 ## [id, Name, Kurzbeschreibung]
 const WEAPONS := [
@@ -59,13 +68,16 @@ const EVOLUTION_RULES := [
 	{"id": "sturmrudel", "base": "blitzbiss", "partner": "gewitterfell"},
 ]
 ## [id, Name, Wirkung je Stapel, Seltenheit]
+## Etappe 28: Hungerstein, Witterungsnase und DNA-Splitter (Wirtschafts-Relikte)
+## rücken auf „ungewöhnlich“, damit die neue Stufe eigene Relikte hat (sonst
+## fiele jeder ungewöhnliche Relikt-Wurf auf gewöhnlich zurück); 3/3/11/5/3.
 const RELICS := [
-	["hungerstein", "Hungerstein", "+20 % Biomasse je Kristall, −5 % Tempo", "common"],
+	["hungerstein", "Hungerstein", "+20 % Biomasse je Kristall, −5 % Tempo", "uncommon"],
 	["zaehe_haut", "Zähe Haut", "−4 % Verluste", "common"],
 	["scharfe_zaehne", "Scharfe Zähne", "+6 % Schaden", "common"],
 	["flinke_beine", "Flinke Beine", "+6 % Tempo", "common"],
-	["witterungsnase", "Witterungsnase", "+15 % Sammelradius", "common"],
-	["dna_splitter", "DNA-Splitter", "+10 % DNA", "common"],
+	["witterungsnase", "Witterungsnase", "+15 % Sammelradius", "uncommon"],
+	["dna_splitter", "DNA-Splitter", "+10 % DNA", "uncommon"],
 	["sporenherz", "Sporenherz", "Kills platzen mit 15 % als Sporenwolke", "rare"],
 	["aetzdruese", "Ätzdrüse", "Säurespucker +20 % Schaden", "rare"],
 	["rudelhorn", "Rudelhorn", "Rally +15 % Tempo", "rare"],
@@ -223,60 +235,60 @@ func chest_price(luck: float = 0.0) -> int:
 	return maxi(1, int(round(CHEST_BASE * pow(CHEST_GROWTH, chests_opened) * maxf(CHEST_MIN_FACTOR, factor))))
 
 
-## Würfelt einen Kokon. kind: "map" (1 Teil sofort), "elite" (1 Teil, mind. selten),
-## "boss" (3 Angebote, mind. episch, Evolution garantiert, wenn eine bereitsteht).
+## Würfelt die Angebote eines Kokons (Etappe 28: jeder Kokon ist eine 1-aus-3-Wahl).
+## kind: "start" (höchstens selten; mit < 2 Waffen drei neue Waffen), "map"
+## (ab gewöhnlich), "elite" (ab selten), "gold" (ab episch), "boss" (ab episch,
+## Evolution garantiert, wenn eine bereitsteht). Unbekannte Arten gelten als "map".
+## Die Angebote sind verschieden und immer anwendbar (volle Waffenplätze: nur
+## Rang-Aufstiege eigener Waffen und Relikte); gibt es weniger als drei, kommen
+## weniger, gibt es keines, ist "items" leer (der Aufrufer zahlt Bernstein-Ersatz).
 ## Rückgabe: {"kind", "pick": bool (true = 1 aus N wählen), "items": Array}.
-## `minimum` hebt die Mindest-Seltenheit an (Welle 2: goldene Karten-Kokons).
+## `minimum` hebt die Mindest-Seltenheit an (auch über die Start-Obergrenze).
 ## `guarantee` = false: der Boss-Kokon bietet keine garantierte Evolution
 ## (Welle 2: nur der erste Boss-Kokon je Biom-Zyklus garantiert sie).
 func roll_chest(rng: RandomNumberGenerator, luck: float, kind: String, minimum: String = "", guarantee: bool = true) -> Dictionary:
-	match kind:
-		"boss":
-			var items: Array = []
-			var ready := evolution_ready() if guarantee else []
-			if not ready.is_empty():
-				items.append(evolution_item(String(ready[rng.randi_range(0, ready.size() - 1)])))
-			var guard := 24
-			while items.size() < BOSS_CHOICES and guard > 0:
-				guard -= 1
-				var item := roll_item(rng, luck, _higher("epic", minimum), items)
-				if item.is_empty():
-					break
-				items.append(item)
-			return {"kind": kind, "pick": true, "items": items}
-		"elite":
-			var elite := roll_item(rng, luck, _higher("rare", minimum))
-			return {"kind": kind, "pick": false, "items": [elite] if not elite.is_empty() else []}
-	var found := roll_item(rng, luck, _higher("common", minimum))
-	return {"kind": "map", "pick": false, "items": [found] if not found.is_empty() else []}
+	if not CHEST_FLOOR.has(kind):
+		kind = "map"
+	var lowest := _higher(String(CHEST_FLOOR[kind]), minimum)
+	var cap := _higher(String(CHEST_CAP.get(kind, "legendary")), lowest)
+	var items: Array = []
+	if kind == "boss" and guarantee:
+		var ready := evolution_ready()
+		if not ready.is_empty():
+			items.append(evolution_item(String(ready[rng.randi_range(0, ready.size() - 1)])))
+	if kind == "start" and weapons().size() < 2:
+		# The second weapon is the start cocoon's job: three fresh weapons to pick from.
+		var fresh: Array = _weapon_candidates([]).filter(func(id): return rank(String(id)) == 0)
+		while items.size() < CHEST_CHOICES and not fresh.is_empty():
+			var id := String(fresh.pop_at(rng.randi_range(0, fresh.size() - 1)))
+			items.append(weapon_item(id, _roll_capped(rng, luck, lowest, cap)))
+	var guard := 24
+	while items.size() < CHEST_CHOICES and guard > 0:
+		guard -= 1
+		var item := roll_item(rng, luck, lowest, items, cap)
+		if item.is_empty():
+			break
+		items.append(item)
+	return {"kind": kind, "pick": not items.is_empty(), "items": items}
 
 
 static func _higher(a: String, b: String) -> String:
 	return b if STATS.RARITIES.find(b) > STATS.RARITIES.find(a) else a
 
 
-## Start-Kokon (Welle 2): gewöhnlich oder selten; eine Waffe, solange
-## weniger als zwei Waffen im Arsenal sind, sonst wie ein Karten-Kokon.
-func roll_start(rng: RandomNumberGenerator, luck: float) -> Dictionary:
-	var rarity := "rare" if STATS.roll_rarity(rng, luck) != "common" else "common"
-	var weapon_ids := _weapon_candidates([])
-	if weapons().size() < 2:
-		var fresh: Array = weapon_ids.filter(func(id): return rank(String(id)) == 0)
-		if not fresh.is_empty():
-			return weapon_item(String(fresh[rng.randi_range(0, fresh.size() - 1)]), rarity)
-	if rng.randf() < RELIC_SHARE or weapon_ids.is_empty():
-		var relic := _pick_relic(rng, rarity, [])
-		if not relic.is_empty():
-			return relic
-	if weapon_ids.is_empty():
-		return {}
-	return weapon_item(String(weapon_ids[rng.randi_range(0, weapon_ids.size() - 1)]), rarity)
+static func _lower(a: String, b: String) -> String:
+	return b if STATS.RARITIES.find(b) < STATS.RARITIES.find(a) else a
+
+
+static func _roll_capped(rng: RandomNumberGenerator, luck: float, minimum: String, cap: String) -> String:
+	return _lower(STATS.roll_rarity(rng, luck, minimum), cap)
 
 
 ## Ein zufälliges Teil: 55 % Relikt, 45 % Waffe (neu oder Rang +1). Bei vollen
-## Plätzen nur Rang-Aufstiege vorhandener Waffen. `taken` verhindert Dopplungen.
-func roll_item(rng: RandomNumberGenerator, luck: float, minimum: String = "common", taken: Array = []) -> Dictionary:
-	var rarity := STATS.roll_rarity(rng, luck, minimum)
+## Plätzen nur Rang-Aufstiege vorhandener Waffen. `taken` verhindert Dopplungen,
+## `cap` begrenzt die gewürfelte Seltenheit (Start-Kokon: höchstens selten).
+func roll_item(rng: RandomNumberGenerator, luck: float, minimum: String = "common", taken: Array = [], cap: String = "legendary") -> Dictionary:
+	var rarity := _roll_capped(rng, luck, minimum, cap)
 	var weapon_ids := _weapon_candidates(taken)
 	var want_relic := rng.randf() < RELIC_SHARE
 	if (want_relic or weapon_ids.is_empty()):

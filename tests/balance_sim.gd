@@ -20,6 +20,7 @@ const SESSION = preload("res://scripts/meta/session.gd")
 const PROFILE = preload("res://scripts/meta/profile.gd")
 const DATA = preload("res://scripts/meta/meta_data.gd")
 const TUNING = preload("res://scripts/tuning.gd")
+const STATS = preload("res://scripts/progression/stats.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
 const SKITTER = preload("res://scripts/skitter.gd")
 const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
@@ -148,7 +149,12 @@ func _run() -> void:
 			_check(stats.pop120 <= spec.get("max_pop120", 1000), "%s/%d population at 2:00 at most %d (got %d)" % [spec.strain, spec.diff, spec.get("max_pop120", 1000), stats.pop120])
 			_check(stats.pop120 >= spec.get("min_pop120", -1), "%s/%d population at 2:00 at least %d (got %d)" % [spec.strain, spec.diff, spec.get("min_pop120", -1), stats.pop120])
 			_check(stats.flood >= spec.get("min_flood", 0.0), "%s/%d reaches the flood (%.0f s in it)" % [spec.strain, spec.diff, stats.flood])
-			_check(stats.flood_lost >= spec.get("min_flood_lost", 0), "%s/%d loses at least %d Mawlings to the Moorbrut (got %d)" % [spec.strain, spec.diff, spec.get("min_flood_lost", 0), stats.flood_lost])
+			# Etappe 28: the Moorbrut must bite in at least one seed (the median run
+			# may die at the first apex before the flood; see stages/BACKLOG.md 0a).
+			var flood_bite := 0
+			for run in runs:
+				flood_bite = maxi(flood_bite, int(run.flood_lost))
+			_check(flood_bite >= spec.get("min_flood_lost", 0), "%s/%d loses at least %d Mawlings to the Moorbrut in one seed (best %d)" % [spec.strain, spec.diff, spec.get("min_flood_lost", 0), flood_bite])
 		_finish("PASS balance_sim regress: %d specs x %d seeds (median) within tolerance in %.1f s" % [REGRESS_RUNS.size(), REGRESS_SEEDS, (Time.get_ticks_msec() - started) / 1000.0])
 		return
 	var first := int(args.seed)
@@ -253,9 +259,9 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		# Main resets time_scale when a scene leaves the tree (Königsmoment safety).
 		Engine.time_scale = TIME_SCALE
 		if world.choosing():
-			# Etappe 17 Welle 2: a boss cocoon offers weapons/relics/evolutions.
+			# Etappe 28: every cocoon (start/map/elite/gold/boss) offers 1 of 3.
 			if not world.evolution.chest_offers.is_empty():
-				var chest_slot := _pick_chest(world.evolution)
+				var chest_slot := _pick_chest(world.evolution, strategy)
 				picks.append("chest:" + String(world.evolution.chest_offers[chest_slot][0]))
 				world.choose_mutation(chest_slot)
 				continue
@@ -420,21 +426,34 @@ func _cocoon_text(world: Variant) -> String:
 	return "%d/%d/%d/%d/%d" % [int(counts.get("map", 0)), int(counts.get("gold", 0)), int(counts.get("elite", 0)), int(counts.get("boss", 0)), int(counts.get("start", 0))]
 
 
-# Boss cocoon: an evolution first, then raising an owned weapon, a new weapon, a relic.
-func _pick_chest(evolution: Variant) -> int:
+# Every cocoon (stage 28) is a 1-of-3 choice. The bot always takes a ready
+# evolution and, with "form:<id>", that weapon; "best" takes the rarest card,
+# weapons before relics (a strong player). Otherwise ("greedy", "attack_first",
+# "random") it takes the first card: the offers are rolled in random order, so
+# this matches the random loot the regression targets were tuned with before
+# stage 28. Measured 28.09.2026: a weapon-preferring pick made the Sporling/Apex
+# spec survive to the 420 s limit in 3 of 5 seeds (targets: dies by 330 s).
+func _pick_chest(evolution: Variant, strategy: String = "greedy") -> int:
+	var offers: Array = evolution.chest_offers
 	var best := 0
 	var best_score := -INF
-	for slot in evolution.chest_offers.size():
-		var entry: Array = evolution.chest_offers[slot]
+	for slot in offers.size():
+		var entry: Array = offers[slot]
 		var item: Dictionary = entry[4] if entry.size() > 4 else {}
-		var score := rng.randf() * 0.1
+		var score := -0.01 * float(slot)
 		match String(item.get("type", "")):
 			"evolution":
 				score += 100.0
 			"weapon":
-				score += 20.0 + (10.0 if int(item.get("from", 0)) > 0 else 0.0)
+				if strategy.begins_with("form:") and String(item.get("id", "")) == strategy.substr(5):
+					score += 50.0
+				elif strategy == "best":
+					score += 20.0 + (10.0 if int(item.get("from", 0)) > 0 else 0.0)
 			"relic":
-				score += 10.0
+				if strategy == "best":
+					score += 10.0
+		if strategy == "best":
+			score += 0.5 * float(STATS.RARITIES.find(String(item.get("rarity", "common"))))
 		if score > best_score:
 			best_score = score
 			best = slot

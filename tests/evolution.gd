@@ -23,7 +23,7 @@ func _run() -> void:
 	for offer in evo.offers:
 		# Etappe 17: Level geben nur Werte, jede Karte mit Seltenheit.
 		check(evo.kind_of(offer[0]) == "trait", "Level offer is a stat (%s)" % offer[0])
-		check(offer.size() >= 4 and ["common", "rare", "epic", "legendary"].has(offer[3]), "Offer has a rarity")
+		check(offer.size() >= 4 and ["common", "uncommon", "rare", "epic", "legendary"].has(offer[3]), "Offer has a rarity")
 	check(not evo.choose(-1) and not evo.choose(3), "Reject invalid selection")
 	evo.earn(1000000)
 	# Etappe 17c: 14 Standard-Werte (ohne Regeneration, mit Lebensraub) mit je 5 Rängen = 70 Wahlen.

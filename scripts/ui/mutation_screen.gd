@@ -28,6 +28,12 @@ extends Control
 # Boss-Kokon choice (mode "chest": weapon / relic / evolution, entry[4] = item)
 # whenever evolution.chest_offers is not empty; the input for that mode belongs
 # to wave 2 (touch_controls / HuntWorld).
+#
+# Stage 28: five rarities (UiStyle.RARITY_TONES: grey, green, blue, violet,
+# gold). Frame, header, plate, pips and chip take the rarity tone everywhere;
+# the category (WAFFE, RELIKT, WERT · ANGRIFF, EVOLUTION) is a small tab on the
+# top edge. Every cocoon kind opens this choice; the ribbon names the kind
+# (evolution.chest_kind).
 
 const UI := preload("res://scripts/ui/ui_style.gd")
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
@@ -69,18 +75,20 @@ const ROMAN := ["I", "II", "III", "IV", "V"]
 # "stack": three wide cards under each other (chosen, see stage 15 notes);
 # "columns": three portrait cards side by side (kit preview), kept for comparison.
 const LAYOUTS := ["stack", "columns"]
-# Trait branch -> card tone. Attack forms are always ember, evolved forms
-# special with a gold rim. Unknown new traits are guessed from their text.
+# Trait branch (category label "WERT · ANGRIFF"). Stage 28: the card tone is the
+# rarity; evolved forms add a gold rim + glint. Unknown new traits are guessed
+# from their text.
 const BRANCH_OF := {
 	"jaws": "attack", "pack": "attack",
 	"brood": "growth", "glutton": "growth", "lockduft": "growth",
 	"armor": "protect", "regeneration": "protect", "dornenhaut": "protect",
 	"scatter": "special",
 }
-const BRANCH_TONE := {"attack": "ember", "growth": "info", "protect": "action", "special": "special"}
 # Stage 17: stat category -> branch (stats.gd "cat").
 const STAT_BRANCH := {"attack": "attack", "protect": "protect", "growth": "growth", "special": "special"}
-const LEGEND_GLINT := 2.6   # seconds per sweep of the legendary shine
+const CHEST_TITLE := {"start": "START-KOKON!", "map": "KOKON!", "elite": "ELITE-KOKON!", "gold": "GOLDENER KOKON!",
+	"boss": "BOSS-KOKON!"}
+const LEGEND_GLINT := 2.6  # seconds per sweep of the legendary shine
 const BRANCH_LABEL := {"attack": "ANGRIFF", "growth": "WACHSTUM", "protect": "SCHUTZ", "special": "SPEZIAL"}
 # Level-up moment timeline (seconds after the choice opens; total <= 0.6).
 const LV_DIM := 0.15
@@ -251,6 +259,16 @@ func mode() -> String:
 	if evo != null and "chest_offers" in evo and not evo.chest_offers.is_empty():
 		return "chest"
 	return "level"
+
+
+## Stage 28: ribbon title of the open cocoon choice by evolution.chest_kind
+## (every cocoon kind opens 1 of 3). Without the field only the Boss-Kokon
+## offered a choice (stage 17), so that stays the fallback.
+func chest_title() -> String:
+	var evo := _evolution()
+	if evo == null or not ("chest_kind" in evo):
+		return "BOSS-KOKON!"
+	return String(CHEST_TITLE.get(String(evo.chest_kind), "KOKON!"))
 
 
 ## True while the open stat cards come from a shrine (Etappe 17 Welle 2).
@@ -704,7 +722,9 @@ func draw_card(c: CanvasItem, slot: int, entry: Array, rank: int, flash: float) 
 	var id := str(entry[0])
 	var s: Vector2 = c.size
 	var category: String = CATEGORY_OF.get(id, "special")
-	var accent: Color = UI.tone(UI.CATEGORY.get(category, UI.VIOLET))
+	# Stage 28: the accent follows the rarity in every skin (category colour
+	# only for old entries without one).
+	var accent: Color = UI.tone(UI.CATEGORY.get(category, UI.VIOLET)) if entry.size() <= 3 else UI.rarity_color(str(entry[3]))
 	var kind: String = evo.kind_of(id) if evo != null else "trait"
 	var is_form := kind in ["attack", "evolved"]
 	var banish: int = hud._count("banishes")
@@ -1322,7 +1342,7 @@ func _process_brawl(now: float, open: bool) -> void:
 		_ribbon.pivot_offset = rr.size * 0.5
 		_ribbon.scale = Vector2.ONE * lerpf(1.35, 1.0, _back(e))
 		_ribbon.modulate = Color(1, 1, 1, clampf(e * 3.0, 0.0, 1.0))
-		_ribbon.refresh([rr.size, int(evo.level), mode(), _shrine()])
+		_ribbon.refresh([rr.size, int(evo.level), mode(), _shrine(), chest_title()])
 		_footer.position = Vector2.ZERO
 		_footer.size = size
 		_footer.modulate = Color(1, 1, 1, clampf((t - 0.34) / 0.22, 0.0, 1.0))
@@ -1396,8 +1416,9 @@ func _brawl_card_key(slot: int, entry: Array, rank: int, flash: float, card_size
 		key.append_array([str(evo.ranks), str(evo.evolutions), evo.slots_used("attack"), evo.slots_used("trait")])
 		if "relics" in evo:
 			key.append(str(evo.relics))
-	# Legendary cards carry a moving glint (20 Hz repaint of that card only).
-	if entry.size() > 3 and str(entry[3]) == "legendary":
+	# Legendary and evolution cards carry a moving glint (20 Hz repaint of that card only).
+	var evolution := entry.size() > 4 and entry[4] is Dictionary and String(entry[4].get("type", "")) == "evolution"
+	if (entry.size() > 3 and str(entry[3]) == "legendary") or evolution:
 		key.append(int(_now() * 20.0))
 	return key
 
@@ -1479,7 +1500,7 @@ func _paint_ribbon(c: CanvasItem) -> void:
 	# Etappe 17 Welle 2: a charged shrine opens the same stat choice (rare or better).
 	var shrine := not chest and _shrine()
 	Kit.ribbon(c, r, "loot" if chest else ("info" if shrine else "special"))
-	Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.size.y * 0.5 - 3.0), "BOSS-KOKON!" if chest else ("SCHREIN!" if shrine else "MUTATION!"), UI.T_HERO, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, r.size.x - 44.0)
+	Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.size.y * 0.5 - 3.0), chest_title() if chest else ("SCHREIN!" if shrine else "MUTATION!"), UI.T_HERO, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, r.size.x - 44.0)
 	if chest:
 		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.end.y + 36.0), "WÄHLE 1 AUS 3", UI.T_BODY, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 	elif shrine:
@@ -1539,7 +1560,9 @@ func _brawl_card(c: CanvasItem, _slot: int, entry: Array, rank: int, flash: floa
 		_card_columns(c, s, head, body, head_right, evo, id, entry, rank, st)
 	else:
 		_card_stack(c, head, body, head_right, evo, id, entry, rank, st)
-	if st.rarity == "legendary":
+	_category_tab(c, rect, st)
+	# Evolutions keep their gold glint on top of the rarity colour.
+	if st.rarity == "legendary" or st.kind == "evolved":
 		_legend_glint(c, rect)
 	if banish > 0:
 		_banish_button(c, _banish_center(rect), banish)
@@ -1550,7 +1573,7 @@ func _brawl_card(c: CanvasItem, _slot: int, entry: Array, rank: int, flash: floa
 # Outer rim in the rarity tone (common: none); legendary with a soft gold halo.
 # Evolved forms keep their gold rim.
 func _rarity_rim(c: CanvasItem, rect: Rect2, st: Dictionary) -> void:
-	var tone: String = "loot" if st.gold else String(STATS.RARITY_TONE.get(st.rarity, "neutral"))
+	var tone: String = "loot" if st.gold else String(st.rarity)
 	if st.rarity == "common" and not st.gold:
 		return
 	var t: Dictionary = UI.brawl_tone(tone)
@@ -1562,14 +1585,28 @@ func _rarity_rim(c: CanvasItem, rect: Rect2, st: Dictionary) -> void:
 
 # Rarity chip right-aligned at `anchor`; returns its left edge.
 func _rarity_chip(c: CanvasItem, anchor: Vector2, st: Dictionary) -> float:
-	var label := String(STATS.RARITY_NAME.get(st.rarity, "GEWÖHNLICH"))
+	var label := UI.rarity_name(st.rarity)
 	var font := UI.display_font()
 	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI.T_LABEL).x + 30.0
 	var h := 42.0
 	var r := Rect2(Vector2(anchor.x - w, anchor.y - h * 0.5), Vector2(w, h))
-	Kit.chip(c, r, String(STATS.RARITY_TONE.get(st.rarity, "neutral")))
+	Kit.chip(c, r, st.rarity)
 	Kit.text_outlined(c, Vector2(r.get_center().x, r.get_center().y - 1.0), label, UI.T_LABEL, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 	return r.position.x
+
+
+# Stage 28: small category tab ("WAFFE", "WERT · ANGRIFF", "EVOLUTION") on the
+# card's top edge, left; a dark capsule so it never competes with the rarity.
+func _category_tab(c: CanvasItem, rect: Rect2, st: Dictionary) -> void:
+	var label := String(st.get("kind_label", ""))
+	if label == "":
+		return
+	var font := UI.display_font()
+	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI.T_LABEL).x + 32.0
+	var h := 36.0
+	var r := Rect2(Vector2(rect.position.x + 26.0, rect.position.y - h * 0.5 - 2.0), Vector2(w, h))
+	Kit.pill(c, r, "dark", UI.STROKE_S)
+	Kit.text_outlined(c, Vector2(r.get_center().x, r.get_center().y - 1.0), label, UI.T_LABEL, UI.brawl_tone(st.rarity)["light"], -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 
 
 # Diagonal light band sweeping over a legendary card every LEGEND_GLINT s.
@@ -1622,8 +1659,7 @@ func _card_stack(c: CanvasItem, head: Rect2, body: Rect2, head_right: float, evo
 		x = _pips(c, Vector2(x0, row_y), rank, st, evo) + 18.0
 	if st.change != "":
 		x += _rank_change(c, Vector2(x, row_y), rank, st, Kit.LEFT) + 18.0
-	if not _evo_pill(c, Vector2(right, row_y), evo, id, rank, Kit.RIGHT, right - x, entry):
-		Kit.text_outlined(c, Vector2(right, row_y), st.kind_label, UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.RIGHT | Kit.MIDDLE, maxf(80.0, right - x))
+	_evo_pill(c, Vector2(right, row_y), evo, id, rank, Kit.RIGHT, right - x, entry)
 
 
 # Portrait card (kit preview): header title, big plate, value, text, rank row.
@@ -1636,9 +1672,7 @@ func _card_columns(c: CanvasItem, s: Vector2, head: Rect2, body: Rect2, head_rig
 	var pc := Vector2(cx, body.position.y + 24.0 + plate * 0.5)
 	_plate_with_icon(c, pc, plate, st, rank)
 	var width := body.size.x - 28.0
-	var y := pc.y + plate * 0.5 + 34.0
-	Kit.text_outlined(c, Vector2(cx, y), st.kind_label, UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, width)
-	y += 50.0
+	var y := pc.y + plate * 0.5 + 84.0
 	var text := ""
 	if st.kind != "trait":
 		if st.change != "":
@@ -1770,26 +1804,27 @@ func _card_style(evo: RefCounted, id: String, entry: Array, rank: int) -> Dictio
 		kind = "attack" if _forms.has(id) else "trait"
 	var item: Dictionary = entry[4] if entry.size() > 4 and entry[4] is Dictionary else {}
 	var rarity := str(entry[3]) if entry.size() > 3 else "common"
-	if not STATS.RARITY_TONE.has(rarity):
+	if not UI.RARITY_TONES.has(rarity):
 		rarity = "common"
-	var st := {"kind": kind, "rarity": rarity, "is_form": kind in ["attack", "evolved"], "gold": false, "icon": _icon_id(evo, id),
-		"pips": 0, "from": rank, "to": rank + 1, "change": "", "badge": ""}
+	# Stage 28: frame, header, plate, pips and chip all take the RARITY tone (a
+	# rarity id is a valid kit tone); the category is only the small tab label.
+	var st := {"kind": kind, "rarity": rarity, "tone": rarity, "is_form": kind in ["attack", "evolved"], "gold": false,
+		"icon": _icon_id(evo, id), "pips": 0, "from": rank, "to": rank + 1, "change": "", "badge": ""}
 	var max_rank: int = int(evo.MAX_RANK) if evo != null else 5
 	if kind == "evolved":
-		st.tone = "special"
 		st.gold = true
 		st.kind_label = "EVOLUTION"
 		st.badge = "EVO"
 	elif kind == "attack":
-		st.tone = "ember"
 		st.kind_label = "WAFFE"
 		st.pips = max_rank
 		st.from = int(item.get("from", rank))
 		st.to = int(item.get("to", mini(max_rank, rank + 1)))
 		st.change = "RANG"
 		st.badge = "NEU" if int(st.from) == 0 else "RANG %d" % int(st.to)
+		if int(st.from) > 0:
+			st.kind_label = "WAFFE · RANG +%d" % maxi(1, int(st.to) - int(st.from))
 	elif kind == "relic":
-		st.tone = "neutral"
 		st.kind_label = "RELIKT"
 		var owned: int = evo.stacks(id) if evo != null and evo.has_method("stacks") else 0
 		st.from = int(item.get("from", owned))
@@ -1799,8 +1834,7 @@ func _card_style(evo: RefCounted, id: String, entry: Array, rank: int) -> Dictio
 	else:
 		var d: Dictionary = STATS.definition(id)
 		var branch: String = STAT_BRANCH.get(String(d.get("cat", "")), BRANCH_OF.get(id, _guess_branch(str(entry[2]) if entry.size() > 2 else "")))
-		st.tone = BRANCH_TONE[branch]
-		st.kind_label = str(BRANCH_LABEL[branch])
+		st.kind_label = "WERT · " + str(BRANCH_LABEL[branch])
 		st.pips = max_rank
 		st.badge = "NEU" if rank == 0 else "RANG %d" % (rank + 1)
 	var hint := _evolution_hint(evo, id, rank, entry)

@@ -4,6 +4,9 @@ extends SceneTree
 # Run WITHOUT --headless (frame_post_draw), with --screen 1 and --audio-driver
 # Dummy. Every scene is rendered at 900 x 1600 and 540 x 960:
 #   rarity       stage 17: three stat cards common / rare / epic, all buttons
+#   tiers        stage 28: all five rarities (tiers_a common/uncommon/rare,
+#                tiers_b epic/legendary/uncommon) + cocoon_elite, cocoon_start
+#   cocoon       only the two cocoon choices
 #   legendary    a legendary card (gold rim + glint) next to rare and common
 #   long         longest stat texts (Regeneration, Reichweite), banish on every card
 #   levelup      level-up moment mid-animation (~0.28 s after opening)
@@ -56,6 +59,26 @@ func _scenes(suffix: String, only: String) -> void:
 		# Common / rare / epic: rarity rim + chip, value before -> after; reroll + skip + banish.
 		await _show({"armor": 2, "rudelbiss": 1}, [["bite", "common"], ["armor", "rare"], ["magnet", "epic"]], 2, 1, 1)
 		await _save("preview_ui_mutations_rarity%s.png" % suffix)
+	if only == "" or only == "tiers":
+		# Stage 28: all five rarities on stat cards (grey, green, blue / violet, gold, green).
+		await _show({"armor": 2, "rudelbiss": 1}, [["bite", "common"], ["armor", "uncommon"], ["magnet", "rare"]], 1, 0, 1)
+		await _save("preview_ui_mutations_tiers_a%s.png" % suffix)
+		await _show({"crit": 1, "rudelbiss": 1}, [["haste", "epic"], ["vigor", "legendary"], ["speed", "uncommon"]], 0, 0, 0, 1.6)
+		await _save("preview_ui_mutations_tiers_b%s.png" % suffix)
+	if only == "" or only == "tiers" or only == "cocoon":
+		# Stage 28: an elite cocoon choice (weapon rank-up, new weapon, relic)
+		# and a start cocoon with three new weapons.
+		await _chest({"rudelbiss": 2}, {"hungerstein": 1}, [
+			evo.arsenal.weapon_item("rudelbiss", "uncommon"),
+			evo.arsenal.weapon_item("giftbiss", "rare"),
+			evo.arsenal.relic_item("hungerstein")], 1.6, "elite")
+		await _save("preview_ui_mutations_cocoon_elite%s.png" % suffix)
+		await _chest({"rudelbiss": 1}, {}, [
+			evo.arsenal.weapon_item("giftbiss", "common"),
+			evo.arsenal.weapon_item("schallbrueller", "uncommon"),
+			evo.arsenal.weapon_item("saeurespucker", "rare")], 1.6, "start")
+		await _save("preview_ui_mutations_cocoon_start%s.png" % suffix)
+		evo.chest_offers = []
 	if only == "" or only == "legendary":
 		await _show({"crit": 1, "rudelbiss": 1}, [["crit", "legendary"], ["vigor", "rare"], ["luck", "common"]], 1, 0, 0, 1.6)
 		await _save("preview_ui_mutations_legendary%s.png" % suffix)
@@ -111,9 +134,12 @@ func _show(ranks: Dictionary, cards: Array, rerolls: int, banishes: int, skips: 
 	await create_timer(wait).timeout
 
 
-func _chest(ranks: Dictionary, relics: Dictionary, items: Array, wait: float = 1.6) -> void:
+func _chest(ranks: Dictionary, relics: Dictionary, items: Array, wait: float = 1.6, kind: String = "boss") -> void:
 	evo.offers = []
 	evo.chest_offers = []
+	# Stage 28: ribbon title per cocoon kind (field of the logic side).
+	if "chest_kind" in evo:
+		evo.chest_kind = kind
 	world._update_hud("")
 	await create_timer(0.5).timeout
 	evo.ranks = ranks.duplicate()

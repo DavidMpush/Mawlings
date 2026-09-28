@@ -280,8 +280,10 @@ func _check_decor_density(arena: Variant) -> void:
 # the classic seed-0 map, whose layout is unchanged) uses the see-through prop
 # shader (prop_fade.gdshader) instead of creature.gdshader; stage 18c follow-up:
 # no pebbles, leaf clumps, flowers, reeds or loose leaves on walkable ground,
-# walls built per grid cell (big, continuous, collision = look).
-const VERDANT_FINGERPRINT := "6f615839655c6aedc2f912601f88fe82"
+# walls built per grid cell (big, continuous, collision = look). Stage 29:
+# re-baselined - swamp regions of seed 4242 hold lakes (basins) and root /
+# thicket islands instead of noise bands of water cells.
+const VERDANT_FINGERPRINT := "921e9d8539273f5d632b475159b77970"
 const FINGERPRINT_SPOTS := [Vector3.ZERO, Vector3(57, 0, -85), Vector3(-88, 0, 56)]
 
 

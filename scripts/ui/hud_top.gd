@@ -1152,12 +1152,13 @@ func _relic_key(evo: Object) -> Array:
 	var table: Variant = evo.get("RELICS")
 	if not table is Array:
 		return []
-	var tones := {"common": "neutral", "rare": "info", "epic": "special", "legendary": "loot"}
+	# Stage 28: the rarity id itself is the kit tone (UiStyle.RARITY_TONES).
 	var key: Array = []
 	for row in table:
 		var stacks := int(evo.stacks(String(row[0])))
 		if stacks > 0:
-			key.append([String(row[0]), stacks, String(tones.get(String(row[3]) if row.size() > 3 else "common", "neutral"))])
+			var rarity := String(row[3]) if row.size() > 3 else "common"
+			key.append([String(row[0]), stacks, rarity if UiStyle.RARITY_TONES.has(rarity) else "common", UiStyle.colorblind])
 	return key
 
 

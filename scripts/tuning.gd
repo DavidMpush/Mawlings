@@ -534,3 +534,9 @@ const SANDSTORM_WARNING := 4.0
 const SANDSTORM_SECONDS := 12.0
 const SANDSTORM_FADE := 2.0
 const SANDSTORM_ENEMY_HASTE := 1.18
+# Etappe 29: Seen und Moore mit Flachufer. Das Uferband (SHALLOW_WIDTH m auf der
+# Wasserseite) ist begehbar und bremst alle Figuren auf SHALLOW_SLOW (über
+# SHALLOW_RIM m eingeblendet); die tiefe Mitte blockiert wie eine Wand.
+const SHALLOW_SLOW := 0.6
+const SHALLOW_WIDTH := 2.5
+const SHALLOW_RIM := 0.8

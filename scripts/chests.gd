@@ -3,14 +3,17 @@ extends Node3D
 # Etappe 17 Welle 2 – Kokons in der Welt (Spur 2: Waffen und Relikte).
 #
 #   map    Brutkokon an arena.poi_slots("cocoon"): kostet Bernstein (die
-#          In-Run-Währung, evolution.chest_price(), steigt je Kokon), Beute sofort.
-#   start  Start-Kokon 15-30 m um den Start: kostenlos, gewöhnlich/selten, bringt
-#          eine zweite Waffe, solange der zweite Waffenplatz leer ist.
+#          In-Run-Währung, evolution.chest_price(), steigt je Kokon).
+#   start  Start-Kokon 15-30 m um den Start: kostenlos, höchstens selten, bietet
+#          drei neue Waffen, solange weniger als zwei Waffen im Arsenal sind.
 #   gold   goldener Kokon an poi_slots("cocoon_gold") (18c: bewacht): kostenlos,
-#          Beute sofort, mindestens episch.
+#          mindestens episch.
 #   elite  kleiner Kokon beim Tod eines Elite-Jägers: kostenlos, mindestens selten.
 #   boss   großer goldener Kokon (Bog King, Moosschlund, Aschenkröte): kostenlos,
-#          1 aus 3 (evolution.chest_offers, mutation_screen Modus „chest“).
+#          mindestens episch, bereite Evolution garantiert.
+# Etappe 28: Jeder Kokon öffnet eine 1-aus-3-Wahl (evolution.chest_offers und
+# chest_kind, mutation_screen Modus „chest“, die Welt pausiert); die Beutekarte
+# zeigt danach das gewählte Teil. Ohne gültiges Angebot gibt es Bernstein-Ersatz.
 #
 # Öffnen: den Schwarm HOLD_SECONDS im Kokon halten (Mitte im Haltekreis); dann
 # zahlt ein Karten-Kokon seinen Preis in Bernstein (nie Tiere oder Biomasse). Zu
@@ -39,7 +42,8 @@ const TAG_RANGE := 20.0
 const FALLBACK_MAP := 6
 const FALLBACK_GOLD := 1
 # Etappe 23: own opening sounds, more festive with every rarity (legendary adds "fanfare").
-const SOUND := {"common": "cocoon_common", "rare": "cocoon_rare", "epic": "cocoon_epic", "legendary": "cocoon_legendary"}
+## Stage 28: uncommon reuses the common sound (no own audio file yet).
+const SOUND := {"common": "cocoon_common", "uncommon": "cocoon_common", "rare": "cocoon_rare", "epic": "cocoon_epic", "legendary": "cocoon_legendary"}
 const SILK := Color("f4ead2")
 const SILK_DARK := Color("cdb994")
 
@@ -238,7 +242,9 @@ func step(delta: float, centre: Vector3) -> void:
 			1:
 				entry.anim += delta
 				if float(entry.anim) >= PULSE_SECONDS:
-					_burst(entry)
+					# Stage 28: one choice at a time; a second cocoon bursts after it.
+					if not _choice_open():
+						_burst(entry)
 				else:
 					_animate_pulse(entry)
 			2:
@@ -250,6 +256,10 @@ func step(delta: float, centre: Vector3) -> void:
 				else:
 					_animate_shards(entry)
 	_step_beams(delta)
+
+
+func _choice_open() -> bool:
+	return world != null and world.has_method("choosing") and world.choosing()
 
 
 func _step_closed(entry: Dictionary, delta: float, centre: Vector3) -> void:
@@ -301,27 +311,20 @@ func _burst(entry: Dictionary) -> void:
 	entry.anim = 0.0
 	opened_by_kind[entry.kind] = int(opened_by_kind.get(entry.kind, 0)) + 1
 	var evo: RefCounted = world.evolution
-	var result: Dictionary = {}
-	match String(entry.kind):
-		"map":
-			opened += 1
-			result = evo.open_chest("map")
-		"gold":
-			# Free and guarded: one item right away, at least epic (no price step).
-			result = evo.open_chest("elite", "epic")
-		"elite":
-			result = evo.open_chest("elite")
-		"boss":
-			result = evo.open_chest("boss")
-		"start":
-			result = evo.open_chest("start")
+	if String(entry.kind) == "map":
+		opened += 1
+	# Stage 28: every kind opens a 1-of-3 choice (evolution.chest_offers, the world
+	# pauses); HuntWorld.choose_mutation shows the loot card of the chosen item.
+	# Floors per kind live in arsenal.CHEST_FLOOR (gold: at least epic, free).
+	var result: Dictionary = evo.open_chest(String(entry.kind))
 	entry["result"] = result
-	var shown := {}
-	if not bool(result.get("pick", false)):
-		var granted: Array = result.get("granted", [])
-		if not granted.is_empty():
-			shown = granted[0]
-	play_moment(entry, _best_rarity(result), shown)
+	var refund := int(result.get("refund", 0))
+	if refund > 0 and world.get("model") != null:
+		# Nothing left to improve: Bernstein instead of a card.
+		world.model.amber += refund
+		if world.has_method("_add_collect_popup"):
+			world._add_collect_popup(0.0, 0, refund)
+	play_moment(entry, _best_rarity(result))
 
 
 ## The opening moment: beam in the rarity colour, rings, shake, sound, shards
@@ -399,12 +402,18 @@ func map_marks() -> Array:
 # ---------------------------------------------------------------- look
 
 static func _rarity_color(rarity: String) -> Color:
-	return UiStyle.brawl_tone(String(STATS.RARITY_TONE.get(rarity, "neutral")))["light"]
+	return _rarity_shades(rarity)["light"]
 
 
 # Beam colour: the tone face (saturated) so the rarity reads on bright ground.
 static func _beam_color(rarity: String) -> Color:
-	return UiStyle.brawl_tone(String(STATS.RARITY_TONE.get(rarity, "neutral")))["face"]
+	return _rarity_shades(rarity)["face"]
+
+
+## Stage 28: the rarity colours come from UiStyle.rarity_tone(id), the one table
+## every screen uses (grey, green, blue, violet, gold).
+static func _rarity_shades(rarity: String) -> Dictionary:
+	return UiStyle.rarity_tone(rarity)
 
 
 static func _glow(kind: String) -> Color:
@@ -641,13 +650,15 @@ func _beam(at: Vector3, rarity: String, size_value: float) -> void:
 	holder.name = "Beam"
 	holder.position = Vector3(at.x, 0.0, at.z)
 	add_child(holder)
-	var height := 9.0 + 5.0 * float(STATS.RARITIES.find(rarity))
+	# 0 (common) .. 1 (legendary): stage 28 keeps the four-tier range for five tiers.
+	var tier := clampf(float(STATS.RARITIES.find(rarity)) / float(STATS.RARITIES.size() - 1), 0.0, 1.0)
+	var height := 9.0 + 15.0 * tier
 	var beam := _piece(holder, _mesh("beam"), material, Vector3.ZERO)
 	var core_material := material.duplicate() as StandardMaterial3D
 	core_material.albedo_color = Color(Color.WHITE, 0.35)
 	var core := _piece(holder, _mesh("beam"), core_material, Vector3.ZERO)
 	_beams.append({"node": holder, "beam": beam, "core": core, "material": material, "core_material": core_material,
-		"age": 0.0, "height": height, "width": size_value * (1.0 + 0.25 * float(STATS.RARITIES.find(rarity)))})
+		"age": 0.0, "height": height, "width": size_value * (1.0 + 0.75 * tier)})
 	_step_beams(0.0)
 
 

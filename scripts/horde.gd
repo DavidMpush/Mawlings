@@ -325,6 +325,7 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 	var woz := 0.0
 	var winv := 0.5
 	var guided := false
+	var wet := PackedFloat32Array()
 	if arena != null and is_instance_valid(arena) and arena.has_method("has_layout") and arena.has_layout():
 		var layout: RefCounted = arena.layout
 		walls = layout.sdf
@@ -333,6 +334,11 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 		woz = layout.grid_origin.y
 		winv = 1.0 / float(layout.NAV)
 		guided = true
+		# Etappe 29: Flachwasser (Uferband der Seen) bremst auch die Brut.
+		var lakes: Variant = layout.get("basins")
+		if lakes is Array and not (lakes as Array).is_empty():
+			wet = layout.water
+	var wet_on := not wet.is_empty()
 	var wall_reach := BODY_RADIUS + 1.6
 	for i in _n:
 		# Logik (Ziel, Separation, Kollision, Biss) je Brut nur jeden zweiten Frame
@@ -344,7 +350,13 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 			if not resting:
 				var gv := vel[i]
 				var gp := pos[i]
-				var glide := Vector3(gp.x + gv.x * delta, 0.0, gp.z + gv.z * delta)
+				var gslow := 1.0
+				if wet_on:
+					var sx := int((gp.x - wox) * winv)
+					var sz := int((gp.z - woz) * winv)
+					if sx >= 0 and sz >= 0 and sx < wgrid and sz < wgrid and wet[sz * wgrid + sx] < 1.5:
+						gslow = arena.shallow_factor(gp)
+				var glide := Vector3(gp.x + gv.x * delta * gslow, 0.0, gp.z + gv.z * delta * gslow)
 				if rocks:
 					var gox := (glide.x - oax) / OCELL
 					var goz := (glide.z - oaz) / OCELL
@@ -468,7 +480,13 @@ func step(delta: float, swarm_points: PackedVector3Array) -> Dictionary:
 		v.x += (dvx - v.x) * steer
 		v.z += (dvz - v.z) * steer
 		vel[i] = v
-		var next := Vector3(p.x + v.x * move_dt, 0.0, p.z + v.z * move_dt)
+		var slow := 1.0
+		if wet_on:
+			var sx := int((p.x - wox) * winv)
+			var sz := int((p.z - woz) * winv)
+			if sx >= 0 and sz >= 0 and sx < wgrid and sz < wgrid and wet[sz * wgrid + sx] < 1.5:
+				slow = arena.shallow_factor(p)
+		var next := Vector3(p.x + v.x * move_dt * slow, 0.0, p.z + v.z * move_dt * slow)
 		# Schnellprüfung: leere Felsgitterzelle -> kein Funktionsaufruf.
 		if rocks:
 			var lox := (next.x - oax) / OCELL

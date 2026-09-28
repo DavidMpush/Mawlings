@@ -156,7 +156,8 @@ func _draw_card(card: Dictionary) -> void:
 	var t := clampf(float(card.t), 0.0, 1.0)
 	var item: Dictionary = card.item
 	var rarity := String(item.get("rarity", "common"))
-	var tone := String(STATS.RARITY_TONE.get(rarity, "neutral"))
+	# Stage 28: central rarity tone (a rarity id is a valid kit tone).
+	var tone := rarity if UiStyle.RARITY_TONES.has(rarity) else "common"
 	var appear := clampf(t / 0.1, 0.0, 1.0)
 	var fade := clampf((1.0 - t) / 0.12, 0.0, 1.0)
 	var pop := 1.0 + 0.12 * sin(PI * appear) * (1.0 - appear * 0.5)
@@ -185,7 +186,7 @@ func _draw_card(card: Dictionary) -> void:
 		Kit.text_outlined(self, Kit.plate_center(pc, plate), id.left(1).to_upper(), UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 	var x := pc.x + plate * 0.5 + 16.0
 	var right := inner.end.x
-	var chip_text := String(STATS.RARITY_NAME.get(rarity, "")).to_upper()
+	var chip_text := UiStyle.rarity_name(rarity)
 	var chip_w := UiStyle.display_font().get_string_size(chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL - 4).x + 24.0
 	var chip := Rect2(right - chip_w, inner.position.y + 2.0, chip_w, 28.0)
 	Kit.chip(self, chip, tone)
