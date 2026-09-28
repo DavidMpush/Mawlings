@@ -648,14 +648,28 @@ func _difficulty_flood_start() -> float:
 	return float(table[index].get("flood_start", TUNING.FLOOD_START_SECONDS))
 
 
+# Etappe 27 (Nutzerentscheidung Variante c): every reached world starts its flood
+# earlier (x FLOOD_WORLD_FACTOR per world, at least FLOOD_WORLD_MIN s world time),
+# so migrating before the flood is no endless escape. flood_start stays the
+# difficulty's first-world value (tests may set it directly).
+func world_flood_start() -> float:
+	if arrivals <= 0:
+		return flood_start
+	return maxf(minf(flood_start, TUNING.FLOOD_WORLD_MIN), flood_start * pow(TUNING.FLOOD_WORLD_FACTOR, float(arrivals)))
+
+
 # Seconds since the flood started (0 before).
 func flood_seconds() -> float:
-	return maxf(0.0, world_time() - flood_start) if flood_state == 2 else 0.0
+	return maxf(0.0, world_time() - world_flood_start()) if flood_state == 2 else 0.0
 
 
 # Flood stage k: strength doubles every FLOOD_DOUBLING_SECONDS.
+# Etappe 27 (c): a later world's flood starts FLOOD_WORLD_STAGE stages higher per
+# reached world (the pressure keeps rising over the whole run, not per world).
 func flood_level() -> float:
-	return flood_seconds() / TUNING.FLOOD_DOUBLING_SECONDS
+	if flood_state != 2:
+		return 0.0
+	return flood_seconds() / TUNING.FLOOD_DOUBLING_SECONDS + TUNING.FLOOD_WORLD_STAGE * float(arrivals)
 
 
 # Stats of newly spawned Moorbrut at the current stage (horde contract):
@@ -683,17 +697,17 @@ func flood_wave_count() -> int:
 # Announcement, waves, bites and kills. Returns true when step() must stop
 # (extinction or a mutation offer).
 func _step_flood(delta: float, damage: float) -> bool:
-	if flood_state == 0 and world_time() >= flood_start - TUNING.FLOOD_WARNING_SECONDS:
+	if flood_state == 0 and world_time() >= world_flood_start() - TUNING.FLOOD_WARNING_SECONDS:
 		flood_state = 1
 		flood_beep = -1
 		_sfx("flood_warn", 150)
 	if flood_state == 1:
-		var countdown := ceili(flood_start - world_time())
+		var countdown := ceili(world_flood_start() - world_time())
 		# Short beeps over the last three seconds (the sfx rules rate-limit them).
 		if countdown <= 3 and countdown != flood_beep and countdown > 0:
 			flood_beep = countdown
 			_sfx("warn", 40)
-		if world_time() >= flood_start:
+		if world_time() >= world_flood_start():
 			flood_state = 2
 			flood_reached = true
 			flood_wave_clock = 0.0
@@ -781,7 +795,7 @@ func surge_interval() -> float:
 # Waves wait while the flood is announced or running, an apex rises or fights,
 # the migration runs, and (first world) while the swarm is still tiny.
 func _surge_blocked() -> bool:
-	if flood_state != 0 or world_time() >= flood_start - TUNING.FLOOD_WARNING_SECONDS - TUNING.SURGE_WARNING_SECONDS:
+	if flood_state != 0 or world_time() >= world_flood_start() - TUNING.FLOOD_WARNING_SECONDS - TUNING.SURGE_WARNING_SECONDS:
 		return true
 	if apex_state == 1 or apex_state == 2 or migration_state == 1 or horde == null:
 		return true
@@ -972,7 +986,7 @@ func flush_flood_bundles() -> bool:
 
 func _flood_message(message: String) -> String:
 	if flood_state == 1:
-		return "DIE FLUT KOMMT IN %d s!" % maxi(1, ceili(flood_start - world_time()))
+		return "DIE FLUT KOMMT IN %d s!" % maxi(1, ceili(world_flood_start() - world_time()))
 	if flood_state == 2 and (message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Biomasse") or message.begins_with("Kristalle") or message.begins_with("Schwarm voll")):
 		return "DIE FLUT · in Bewegung bleiben, Brut zerbeißen"
 	return message
@@ -982,7 +996,7 @@ func _flood_message(message: String) -> String:
 func _flood_hud() -> Dictionary:
 	return {
 		"state": flood_state,
-		"countdown": maxf(0.0, flood_start - world_time()),
+		"countdown": maxf(0.0, world_flood_start() - world_time()),
 		"stage": int(floor(flood_level())) + 1,
 		"level": flood_level(),
 		"seconds": flood_seconds(),
@@ -1978,7 +1992,7 @@ func _apex_schedule(delta: float, message: String) -> String:
 		var next_kind := apex_kind_for(biome_id)
 		var needed: int = TUNING.APEX_TOAD_MIN_POPULATION if next_kind == "apex_toad" else (TUNING.APEX_SANDWORM_MIN_POPULATION if next_kind == "apex_sandworm" else TUNING.APEX_MIN_POPULATION)
 		var swarm_ready: bool = model.population >= needed or model.elapsed >= due + TUNING.APEX_LATEST_EXTRA
-		var king_clear: bool = boss == null or world_time() >= flood_start - TUNING.APEX_FLOOD_MARGIN
+		var king_clear: bool = boss == null or world_time() >= world_flood_start() - TUNING.APEX_FLOOD_MARGIN
 		if swarm_ready and king_clear:
 			begin_apex_warning()
 	if apex_state == 1:

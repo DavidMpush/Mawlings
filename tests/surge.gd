@@ -137,6 +137,24 @@ func _run() -> void:
 		world.step(0.05)
 	_check(world.hunters.size() >= 1 + TUNING.WORLD_HUNTER_HEADSTART, "World 2: head start of %d hunters (got %d)" % [TUNING.WORLD_HUNTER_HEADSTART, world.hunters.size()])
 
+	# ---- Etappe 27 (c): the flood starts earlier in every later world.
+	_fresh(60)
+	world.flood_start = 270.0
+	var starts: Array[float] = []
+	for arrived in 5:
+		world.arrivals = arrived
+		starts.append(world.world_flood_start())
+	_check(is_equal_approx(starts[0], 270.0) and absf(starts[1] - 162.0) < 0.01 and absf(starts[2] - 97.2) < 0.01 and is_equal_approx(starts[3], TUNING.FLOOD_WORLD_MIN) and is_equal_approx(starts[4], TUNING.FLOOD_WORLD_MIN), "Flood start per world 270 -> 162 -> 97 -> %.0f (got %s)" % [TUNING.FLOOD_WORLD_MIN, starts])
+	world.arrivals = 2
+	world.model.world_start = world.model.elapsed
+	world.model.elapsed += starts[2] - TUNING.FLOOD_WARNING_SECONDS + 0.01
+	world.step(0.05)
+	_check(world.flood_state == 1, "World 3: flood announced at %.0f s world time" % (starts[2] - TUNING.FLOOD_WARNING_SECONDS))
+	world.model.elapsed += TUNING.FLOOD_WARNING_SECONDS
+	world.step(0.05)
+	_check(world.flood_state == 2, "World 3: flood runs from %.0f s world time" % starts[2])
+	_check(absf(world.flood_level() - 2.0 * TUNING.FLOOD_WORLD_STAGE) < 0.1, "World 3: flood starts %.1f stages higher (level %.2f)" % [2.0 * TUNING.FLOOD_WORLD_STAGE, world.flood_level()])
+
 	# ---- Reset starts over.
 	world.surge_total = 5
 	world.config = {}

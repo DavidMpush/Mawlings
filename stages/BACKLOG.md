@@ -9,8 +9,7 @@ Erledigt seit dem letzten Aufräumen: 15 UI-Supercell, 16 Kristalle/Magnet, 17 d
 ### Offene Todos
 
 **Neues S25-Nutzerfeedback (28.09.2026):** [Playtest-Protokoll](../playtests/2026-09-28_s25_feedback.md) – nach drei Migrationen/über 15 Minuten zu wenig Gegner zwischen Fluten, Wunsch nach Hordenwellen; außerdem dynamischer rechter Joystick, verdeckte XP-Anzeige, Gebietsnamen-Overlay entfernen und Sprungfähigkeiten über schmale Hindernisse. **Umgesetzt in [Etappe 27](27_s25_feedback.md)** (Hordenwellen + Direktor-Vorsprung je Welt, schwebender Joystick, XP-Balken, kein Gebietsbanner, Glutsprung über Hindernisse); offen ist der S25-Vergleichsrun über drei Migrationen.
-0a. **Late-Game-Druck ab Welt 2 (Entscheidung nötig, Etappe 27):** Der Balance-Lauf ist zweigeteilt: Wer den ersten Apex schlägt, migriert vor jeder Flut weiter und überlebt mit über 1000 Tieren 20+ min. Optionen: Flut-Countdown über Migrationen fortsetzen statt zurückzusetzen, Welt-Bonus stark erhöhen (z. B. ×2 je Welt), oder die Flut in Welt n früher starten. Danach Zielkurven neu festlegen.
-0. **Stand 28.09.2026 abends (Commit „World reset + stronger apex“):** Umgesetzt, aber **ohne abschließenden Balance-Kontrolllauf**:
+0a. **Erster Apex als Klippe (Etappe 27):** Etwa die Hälfte der Bot-Runs stirbt am ersten Apex (Wild ~285–400 s); wer ihn schlägt, kommt jetzt bis Welt 3–5 (Late-Game-Druck über Variante c gelöst). Apex-Stärke aus 5186d6e bzw. Einstiegskurve prüfen und Zielkurven neu festlegen.`n0. **Stand 28.09.2026 abends (Commit „World reset + stronger apex“):** Umgesetzt, aber **ohne abschließenden Balance-Kontrolllauf**:
    - Apex-Bosse deutlich stärker als der Bog King (Ziel ≥ 3× LP, Kampf 45–70 s).
    - Migration setzt Druck und Flut zurück (Schwarm, Build, Level, Relikte und Bernstein bleiben), Welt-Bonus je Welt, Welt-Anzeige im HUD.
    - Lautstärkeregler im Pause-Menü.

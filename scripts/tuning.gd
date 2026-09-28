@@ -239,6 +239,12 @@ const ELITE_DNA := 40
 # (FLOOD_SPEED_SHARE), damit man der Brut immer noch davonlaufen kann.
 const FLOOD_START_SECONDS := 300.0
 const FLOOD_WARNING_SECONDS := 10.0
+# Etappe 27 (Nutzerentscheidung c): in Welt n beginnt die Flut bei Weltzeit
+# flood_start x FLOOD_WORLD_FACTOR^(n-1), frühestens FLOOD_WORLD_MIN (Wild: 270 -> 162 -> 97 -> 60 s).
+const FLOOD_WORLD_FACTOR := 0.6
+const FLOOD_WORLD_MIN := 60.0
+# ... und startet dort FLOOD_WORLD_STAGE Stufen höher je Welt (Welt 2 x2,8, Welt 3 x8, Welt 4 x22).
+const FLOOD_WORLD_STAGE := 1.5
 const FLOOD_DOUBLING_SECONDS := 24.0     # Etappe 21: 40 -> 24 (Waffen wachsen jetzt ohne Deckel, stages/21_balance.md)
 const FLOOD_WAVE_SECONDS := 3.0
 const FLOOD_WAVE_COUNT := 8          # Brut pro Welle bei Stufe 0; x 2^k bis FLOOD_WAVE_MAX
