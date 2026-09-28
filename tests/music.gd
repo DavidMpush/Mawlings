@@ -249,11 +249,20 @@ func _run() -> void:
 		return
 	music.play_menu()
 	music.stop(true)
+	# Lautstärke-Regler: every music player plays on the Music bus, which sends to Master.
+	var music_bus := AudioServer.get_bus_index("Music")
+	if music_bus < 0 or AudioServer.get_bus_send(music_bus) != "Master":
+		_fail("Music bus missing or not sending to Master")
+		return
+	for player in music.find_children("*", "AudioStreamPlayer", true, false):
+		if (player as AudioStreamPlayer).bus != "Music":
+			_fail("Music player %s is not on the Music bus" % player.name)
+			return
 
 	music.queue_free()
 	await process_frame
 	await process_frame
-	print("MUSIC TEST PASSED (stems %.2f s, styles classic+v1, biomes verdant+desert, silent driver: %s)" % [stem_length, str(AudioServer.get_driver_name() == "Dummy")])
+	print("MUSIC TEST PASSED (stems %.2f s, styles classic+v1, biomes verdant+desert, Music bus, silent driver: %s)" % [stem_length, str(AudioServer.get_driver_name() == "Dummy")])
 	quit(0)
 
 

@@ -174,7 +174,8 @@ func _run() -> void:
 	menu2.tap(menu2.settings_button_rect().get_center())
 	check(menu2.settings_open and menu2.settings_panel_rect().encloses(menu2.settings_tips_rect()), "Tips reset button inside the settings panel")
 	check(menu2.settings_tips_rect().size.y >= 96.0, "Tips reset button is a full touch target")
-	check(not menu2.settings_panel_rect().has_point(menu2.daily_rect().get_center()), "TAGES-BRUT still outside the settings panel")
+	# Lautstärke-Regler: the taller panel now covers TAGES-BRUT; the tab dock stays free.
+	check(not menu2.settings_panel_rect().intersects(menu2.tab_rect(0)), "Tab dock still outside the settings panel")
 	menu2.tap(menu2.settings_tips_rect().get_center())
 	check(PROFILE.load_or_create(MENU_PROFILE).seen_tips.is_empty(), "TIPPS ZURÜCKSETZEN clears the seen tips")
 	check(menu2.toast != "", "Reset confirms with a toast")

@@ -315,6 +315,21 @@ func _check_game_wiring() -> bool:
 		if music.style() != "classic":
 			_fail("Setting music_v1 off did not restore the classic style")
 			return false
+	# Lautstärke-Regler: SFX players sit on the SFX bus; the run applies the three levels.
+	for player in game_sfx.find_children("*", "AudioStreamPlayer", true, false):
+		if (player as AudioStreamPlayer).bus != "SFX":
+			_fail("Sfx player %s is not on the SFX bus" % player.name)
+			return false
+	var audio: Script = load("res://scripts/audio_settings.gd")
+	scene._apply_settings({"volume_master": 0.8, "volume_music": 0.0, "volume_sfx": 0.5})
+	if audio.bus_muted("Master") or not audio.bus_muted("Music") or not is_equal_approx(audio.bus_db("SFX"), audio.to_db(0.5)) or not is_equal_approx(audio.bus_db("Master"), audio.to_db(0.8)) or not game_sfx.get("sfx_enabled"):
+		_fail("Run volumes not applied to the buses")
+		return false
+	scene._apply_settings({"volume_master": 0.0})
+	if not audio.bus_muted("Master") or game_sfx.get("sfx_enabled"):
+		_fail("Master 0 must mute the run")
+		return false
+	scene._apply_settings({"volume_master": 1.0, "volume_music": 1.0, "volume_sfx": 1.0})
 	world.alpha_cores_enabled = true
 	var core: Node3D = world._drop_alpha_core(Vector3.ZERO)
 	if core.get_node("Float").get_node_or_null("CoreModel") == null:

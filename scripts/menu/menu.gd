@@ -26,8 +26,17 @@ const DIFFICULTY_COLORS := [Color("8fd46a"), Color("f2a04a"), Color("ff5a44")]
 const UPGRADE_COLORS := {"brood_size": Color("68d8c7"), "rending": Color("f58a4d"), "chitin": Color("b8d879"), "sprinter": Color("7cc3f0"), "digestion": Color("f6cc70"), "witterung": Color("7fe6ff"), "geneflow": Color("6ee4d4"), "attack_slot": Color("ff8a3d"), "trait_slot": Color("b798ec")}
 const UI_STYLE_PATH := "res://scripts/ui/ui_style.gd"
 ## Einstellungen im Panel: [Profil-Schlüssel, Titel, Erklärung].
+## Lautstärke-Regler über den Schaltern: [Profil-Schlüssel, Titel, Symbol]. Sie ersetzen
+## den alten Schalter TON (Gesamt 0 = stumm), scripts/audio_settings.gd.
+const VOLUMES := [
+	["volume_master", "GESAMT", "g_sound"],
+	["volume_music", "MUSIK", "g_music"],
+	["volume_sfx", "EFFEKTE", "g_sound"],
+]
+const AUDIO_SETTINGS_PATH := "res://scripts/audio_settings.gd"
+## Probe-Klick beim Ziehen des Effekt-Reglers höchstens so oft (s).
+const VOLUME_PROBE_GAP := 0.15
 const SETTINGS := [
-	["sound", "TON", "Geräusche und Musik"],
 	["vibration", "VIBRATION", "Kurzes Rütteln bei Treffern"],
 	["colorblind", "FARBENBLIND-MODUS", "Warnflächen mit Mustern und Kontur"],
 	["music_v1", "MUSIK: KLASSIK V1", "Aus: adaptive Musik · An: Musikpaket V1"],
@@ -488,6 +497,49 @@ func setting(key: String) -> bool:
 	return profile != null and profile.get_setting(key)
 
 
+## Lautstärke 0,0-1,0 eines Reglers (volume_master / volume_music / volume_sfx).
+func volume(key: String) -> float:
+	return profile.get_volume(key) if profile != null else 1.0
+
+
+## Wert unter x auf der Leiste von Regler k (5-%-Schritte).
+func volume_at(k: int, x: float) -> float:
+	var track := settings_slider_rect(k)
+	return clampf((x - track.position.x) / maxf(1.0, track.size.x), 0.0, 1.0)
+
+
+func _volume_row_at(location: Vector2) -> int:
+	if not settings_open or profile == null or not reward.is_empty():
+		return -1
+	for k in VOLUMES.size():
+		if settings_volume_rect(k).has_point(location):
+			return k
+	return -1
+
+
+var _probe_clock := 0
+
+
+## Setzt einen Regler, wendet ihn sofort auf die Busse an und spielt beim
+## Effekt-Regler einen gedrosselten Probe-Klick; save = sofort speichern
+## (beim Ziehen erst beim Loslassen).
+func set_volume(key: String, value: float, save: bool = true) -> void:
+	if profile == null:
+		return
+	var before: float = profile.get_volume(key)
+	profile.set_volume(key, value)
+	if save:
+		profile.save()
+	_apply_settings()
+	var now := Time.get_ticks_msec()
+	if key == "volume_sfx" and not is_equal_approx(before, profile.get_volume(key)) and now - _probe_clock >= int(VOLUME_PROBE_GAP * 1000.0):
+		_probe_clock = now
+		var sfx := get_node_or_null("Sfx")
+		if sfx != null and sfx.has_method("play"):
+			sfx.play("ui")
+	queue_redraw()
+
+
 func toggle_setting(key: String) -> void:
 	if profile == null:
 		return
@@ -545,9 +597,9 @@ func _apply_settings() -> void:
 	var sfx := get_node_or_null("Sfx")
 	if sfx != null:
 		sfx.set("sfx_enabled", profile.get_setting("sound"))
-	var bus := AudioServer.get_bus_index("Master")
-	if bus >= 0:
-		AudioServer.set_bus_mute(bus, not profile.get_setting("sound"))
+	# Lautstärke-Regler: Pegel der Busse Master/Music/SFX (0 = stumm).
+	if ResourceLoader.exists(AUDIO_SETTINGS_PATH):
+		load(AUDIO_SETTINGS_PATH).apply(profile.settings)
 	if ResourceLoader.exists(UI_STYLE_PATH):
 		var style: Script = load(UI_STYLE_PATH)
 		if style.get("colorblind") != null:
@@ -670,9 +722,16 @@ func _gui_input(event: InputEvent) -> void:
 				_press_pos = event.position
 				_last_drag = event.position
 				_drag_mode = ""
+				# Lautstärke-Regler: Drücken setzt den Wert sofort, Ziehen folgt dem Finger.
+				var slider := _volume_row_at(event.position)
+				if slider >= 0:
+					_drag_mode = "volume%d" % slider
+					set_volume(VOLUMES[slider][0], volume_at(slider, event.position.x), false)
 			else:
 				if _press_pos.is_finite() and _drag_mode == "":
 					tap(event.position)
+				elif _drag_mode.begins_with("volume") and profile != null:
+					profile.save()
 				_press_pos = Vector2.INF
 				_drag_mode = ""
 			accept_event()
@@ -688,7 +747,10 @@ func _gui_input(event: InputEvent) -> void:
 				_drag_mode = "swipe"
 			else:
 				_drag_mode = "none"
-		if _drag_mode == "scroll":
+		if _drag_mode.begins_with("volume"):
+			var k := int(_drag_mode.trim_prefix("volume"))
+			set_volume(VOLUMES[k][0], volume_at(k, event.position.x), false)
+		elif _drag_mode == "scroll":
 			_scroll_trophies(event.position.y - _last_drag.y)
 		elif _drag_mode == "swipe" and absf(moved.x) > SWIPE_DISTANCE:
 			select_strain(-1 if moved.x > 0 else 1)
@@ -776,6 +838,10 @@ func _tap_settings(location: Vector2) -> void:
 	if settings_close_rect().has_point(location) or not settings_panel_rect().has_point(location):
 		close_settings()
 		return
+	for k in VOLUMES.size():
+		if settings_volume_rect(k).has_point(location):
+			set_volume(VOLUMES[k][0], volume_at(k, location.x))
+			return
 	for i in SETTINGS.size():
 		if settings_row_rect(i).has_point(location):
 			toggle_setting(SETTINGS[i][0])
@@ -810,6 +876,8 @@ func _button_rects() -> Array:
 	var rects: Array = []
 	if settings_open:
 		rects.append(settings_close_rect())
+		for k in VOLUMES.size():
+			rects.append(settings_volume_rect(k))
 		for i in SETTINGS.size():
 			rects.append(settings_row_rect(i))
 		for k in UI_SKINS.size():
@@ -926,8 +994,9 @@ func daily_rect() -> Rect2:
 ## Stage 15: centred modal (ribbon on top, four switch rows and the UI style
 ## row). TAGES-BRUT stays outside it; a tap outside closes it.
 func settings_panel_rect() -> Rect2:
-	var h := 96.0 + SETTINGS.size() * SETTINGS_ROW_STEP + 186.0 + 64.0 + SETTINGS_TIPS_STEP
-	return Rect2(40, 250, size.x - 80, h)
+	var h := 96.0 + (VOLUMES.size() + SETTINGS.size()) * SETTINGS_ROW_STEP + 186.0 + 64.0 + SETTINGS_TIPS_STEP
+	# Lautstärke-Regler: das Panel beginnt höher und endet über der Tab-Leiste.
+	return Rect2(40, 164, size.x - 80, h)
 
 
 # Etappe 25: five switch rows - a little tighter (was 128 / 114) so TAGES-BRUT
@@ -943,6 +1012,21 @@ func settings_close_rect() -> Rect2:
 
 
 func settings_row_rect(i: int) -> Rect2:
+	return _settings_slot(VOLUMES.size() + i)
+
+
+## Zeile k der Lautstärke-Regler (über den Schaltern, Trefferfläche die ganze Zeile).
+func settings_volume_rect(k: int) -> Rect2:
+	return _settings_slot(k)
+
+
+## Leiste eines Reglers (Tipp/Ziehen setzt den Wert entlang ihrer Breite).
+func settings_slider_rect(k: int) -> Rect2:
+	var row := settings_volume_rect(k)
+	return Rect2(row.position.x + 132, row.position.y + 58, row.size.x - 132 - 150, 28)
+
+
+func _settings_slot(i: int) -> Rect2:
 	var p := settings_panel_rect()
 	return Rect2(p.position.x + 28, p.position.y + 84 + i * SETTINGS_ROW_STEP, p.size.x - 56, 100)
 

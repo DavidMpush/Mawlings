@@ -97,6 +97,9 @@ func _capture_size(window: Vector2i, suffix: String) -> void:
 	# Settings over the main page.
 	menu.open_tab("chronicle")
 	menu.open_settings()
+	# Volume sliders: master 100 %, music 45 %, effects off (mute cross).
+	menu.set_volume("volume_music", 0.45)
+	menu.set_volume("volume_sfx", 0.0)
 	await _settle(8)
 	await _shot("res://previews/preview_ui_menu_sheets_settings%s.png" % suffix)
 	# UI style switch: RUHIG applies at once (the old frames draw the same

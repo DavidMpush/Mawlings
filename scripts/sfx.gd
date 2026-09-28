@@ -115,6 +115,7 @@ var master_volume_db := 0.0:
 		_apply_ambience()
 		for id: String in _loops:
 			(_loops[id] as AudioStreamPlayer).volume_db = loop_volume_db(id)
+const AUDIO_SETTINGS = preload("res://scripts/audio_settings.gd")
 var sfx_enabled := true
 var vibration_enabled := true
 var ambience_volume_db := -17.0
@@ -144,6 +145,8 @@ var _silent := false
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_silent = AudioServer.get_driver_name() == "Dummy"
+	# Lautstärke-Regler: alle Geräusche laufen über den SFX-Bus (audio_settings.gd).
+	AUDIO_SETTINGS.ensure_buses()
 	for id: String in RULES:
 		_load_variants(id)
 	for id: String in AMBIENCES:
@@ -153,6 +156,7 @@ func _ready() -> void:
 	for i in POOL_SIZE:
 		var player := AudioStreamPlayer.new()
 		player.name = "Voice%d" % i
+		player.bus = AUDIO_SETTINGS.SFX
 		add_child(player)
 		_players.append(player)
 		_player_ids.append("")
@@ -268,6 +272,7 @@ func _ambience_player(id: String) -> AudioStreamPlayer:
 	if player == null:
 		player = AudioStreamPlayer.new()
 		player.name = "Ambience" if id == AMBIENCE_ID else "Ambience_" + id.trim_prefix("ambience_")
+		player.bus = AUDIO_SETTINGS.SFX
 		add_child(player)
 		player.stream = _looped(variants[0])
 		_ambience_players[id] = player
@@ -303,6 +308,7 @@ func start_loop(id: String, volume_db := 0.0) -> void:
 	if player == null:
 		player = AudioStreamPlayer.new()
 		player.name = "Loop_" + id
+		player.bus = AUDIO_SETTINGS.SFX
 		add_child(player)
 		player.stream = _looped(variants[0])
 		_loops[id] = player

@@ -50,6 +50,7 @@ const DUCK_RELEASE_SECONDS := 0.8
 
 enum Mode { NONE, MENU, RUN }
 
+const AUDIO_SETTINGS = preload("res://scripts/audio_settings.gd")
 ## Global offset in dB for all music.
 var master_volume_db := 0.0:
 	set(value):
@@ -92,6 +93,8 @@ var _silent := false
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_silent = AudioServer.get_driver_name() == "Dummy"
+	# Lautstärke-Regler: Musik läuft über den Music-Bus (audio_settings.gd).
+	AUDIO_SETTINGS.ensure_buses()
 	_load(MENU_ID, true)
 	for id in STEMS:
 		_load(id, true)
@@ -423,6 +426,7 @@ func _load(id: String, loop: bool) -> void:
 func _make_player(player_name: String) -> AudioStreamPlayer:
 	var player := AudioStreamPlayer.new()
 	player.name = player_name
+	player.bus = AUDIO_SETTINGS.MUSIC
 	player.volume_db = SILENT_DB
 	add_child(player)
 	return player

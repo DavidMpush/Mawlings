@@ -3,6 +3,7 @@ extends RefCounted
 
 const DATA = preload("res://scripts/meta/meta_data.gd")
 const CODEX = preload("res://scripts/meta/codex.gd")
+const AUDIO_SETTINGS = preload("res://scripts/audio_settings.gd")
 const SCRIPT_PATH := "res://scripts/meta/profile.gd"
 const DEFAULT_PATH := "user://mawlings_profile.json"
 const VERSION := 1
@@ -34,7 +35,10 @@ var seen_tips: Array = []
 ## KODEX: entdeckte Einträge "<art>:<id>" (scripts/meta/codex.gd), nie wieder vergessen.
 var codex_seen: Array = []
 
-const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false, "music_v1": false, "skin_calm": false, "skin_organic": false, "speech": true}
+## Lautstärke-Regler (volume_*, 0,0-1,0 in 5-%-Schritten, scripts/audio_settings.gd)
+## ersetzen den alten Schalter "sound"; get_setting("sound") = Gesamt > 0.
+const VOLUME_KEYS := ["volume_master", "volume_music", "volume_sfx"]
+const DEFAULT_SETTINGS := {"volume_master": 1.0, "volume_music": 1.0, "volume_sfx": 1.0, "vibration": true, "colorblind": false, "music_v1": false, "skin_calm": false, "skin_organic": false, "speech": true}
 ## So viele Tage bleiben in daily_records erhalten (älteste fallen heraus).
 const DAILY_KEEP := 30
 
@@ -131,8 +135,15 @@ func _apply(d: Dictionary) -> void:
 	var saved_settings: Variant = d.get("settings")
 	if saved_settings is Dictionary:
 		for key in DEFAULT_SETTINGS:
-			if saved_settings.get(key) is bool:
-				settings[key] = saved_settings[key]
+			var value: Variant = saved_settings.get(key)
+			if DEFAULT_SETTINGS[key] is float:
+				if value is float or value is int:
+					settings[key] = AUDIO_SETTINGS.snap(float(value))
+			elif value is bool:
+				settings[key] = value
+		# Alte Profile: Schalter TON aus -> Gesamt-Lautstärke 0.
+		if not saved_settings.has("volume_master") and saved_settings.get("sound") is bool and not bool(saved_settings.sound):
+			settings.volume_master = 0.0
 	var saved_daily: Variant = d.get("daily_records")
 	if saved_daily is Dictionary:
 		for key in saved_daily:
@@ -351,11 +362,26 @@ func _trim_daily() -> void:
 		daily_records.erase(keys.pop_front())
 
 func get_setting(key: String) -> bool:
-	return bool(settings.get(key, DEFAULT_SETTINGS.get(key, false)))
+	if key == "sound":
+		return get_volume("volume_master") > 0.0
+	var value: Variant = settings.get(key, DEFAULT_SETTINGS.get(key, false))
+	if value is float:
+		return value > 0.0
+	return bool(value)
 
 func set_setting(key: String, value: bool) -> void:
-	if DEFAULT_SETTINGS.has(key):
+	if key == "sound":
+		set_volume("volume_master", 1.0 if value else 0.0)
+	elif DEFAULT_SETTINGS.has(key) and DEFAULT_SETTINGS[key] is bool:
 		settings[key] = value
+
+## Lautstärke 0,0-1,0 eines Reglers (volume_master / volume_music / volume_sfx).
+func get_volume(key: String) -> float:
+	return AUDIO_SETTINGS.volume(settings, key)
+
+func set_volume(key: String, value: float) -> void:
+	if VOLUME_KEYS.has(key):
+		settings[key] = AUDIO_SETTINGS.snap(value)
 
 # --- Einstieg (Tipps) -------------------------------------------------------------
 

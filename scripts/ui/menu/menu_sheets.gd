@@ -1162,6 +1162,8 @@ func _draw_settings() -> void:
 	for d in [Vector2(1, 1), Vector2(1, -1)]:
 		draw_line(cc - d * 17, cc + d * 17, S.color("outline"), 11, true)
 		draw_line(cc - d * 17, cc + d * 17, S.color("bone"), 6, true)
+	for k in menu.VOLUMES.size():
+		_volume_row(k)
 	var accents := [S.color("cyan"), S.color("ember"), S.color("violet")]
 	for i in menu.SETTINGS.size():
 		var entry: Array = menu.SETTINGS[i]
@@ -1228,6 +1230,41 @@ func _switch(rect: Rect2, on: bool, accent: Color) -> void:
 	var free := rect.size.x - 2.0 * r
 	var lx := rect.position.x + free * 0.5 + (0.0 if on else 2.0 * r)
 	_txt(label, Vector2(lx, rect.get_center().y + 9), 24, S.color("outline") if on else S.color("text_dim"), 1, 0 if on else 4)
+
+
+## Lautstärke-Regler k (beide Skins, Kit-Bausteine): Symbol-Plakette (bei 0 mit
+## Stumm-Kreuz), Titel, Leiste mit Griff und der Wert in Prozent.
+const VOLUME_TONES := ["info", "loot", "ember"]
+
+
+func _volume_row(k: int) -> void:
+	var entry: Array = menu.VOLUMES[k]
+	var row: Rect2 = menu.settings_volume_rect(k)
+	var track: Rect2 = menu.settings_slider_rect(k)
+	var value: float = menu.volume(String(entry[0]))
+	var muted := value <= 0.001
+	var tone: String = "neutral" if muted else VOLUME_TONES[k % VOLUME_TONES.size()]
+	Kit.well(self, row, S.R_M)
+	var pc := Vector2(row.position.x + 56, row.get_center().y)
+	Kit.icon_plate(self, pc, 80, tone)
+	var ic := Kit.plate_center(pc, 80)
+	if not _b_icon(String(entry[2]), ic, 50.0, Color(0.6, 0.62, 0.68) if muted else Color.WHITE):
+		_setting_glyph("sound", ic, Color.WHITE, not muted)
+	if muted:
+		# Stumm: weißes Kreuz über dem Lautsprecher (kein Magenta, das bleibt Gefahr).
+		for d in [Vector2(1, 1), Vector2(1, -1)]:
+			draw_line(ic - d * 16, ic + d * 16, S.BRAWL_INK, 11.0, true)
+			draw_line(ic - d * 16, ic + d * 16, Color.WHITE, 6.0, true)
+	_b_text(Vector2(track.position.x, row.position.y + 30), String(entry[1]), S.T_HEAD, Color.WHITE if not muted else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, track.size.x)
+	Kit.bar(self, track, value, tone)
+	# Griff: runder Knopf auf der Leiste.
+	var knob := Vector2(track.position.x + track.size.x * value, track.get_center().y)
+	Kit.disc(self, knob + Vector2(0, 3), 21.0, Color(S.BRAWL_INK, 0.6))
+	Kit.disc(self, knob, 21.0, S.BRAWL_INK)
+	Kit.disc(self, knob, 17.0, Color.WHITE)
+	Kit.disc(self, knob, 8.0, _b_light(tone))
+	var label := "AUS" if muted else "%d %%" % roundi(value * 100.0)
+	_b_text(Vector2(row.end.x - 24, row.get_center().y + 2), label, S.T_HEAD, Color.WHITE if not muted else S.BRAWL_TEXT_DIM, Kit.RIGHT | Kit.MIDDLE, 120.0, S.number_font())
 
 
 func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
@@ -1725,6 +1762,8 @@ func _b_settings() -> void:
 	Kit.ribbon(self, rib, "info")
 	_b_text(rib.get_center() + Vector2(0, -2), "EINSTELLUNGEN", S.T_TITLE, Color.WHITE, Kit.CENTER | Kit.MIDDLE, rib.size.x - 40)
 	_b_close(menu.settings_close_rect())
+	for k in menu.VOLUMES.size():
+		_volume_row(k)
 	for i in menu.SETTINGS.size():
 		var entry: Array = menu.SETTINGS[i]
 		var row: Rect2 = menu.settings_row_rect(i)

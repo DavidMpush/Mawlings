@@ -171,8 +171,8 @@ func _run() -> void:
 			_fail("Every start needs a new seed: %s after %s" % [again, seeds])
 			return
 		seeds.append(again)
-	if not (config.get("settings") is Dictionary) or config.settings.get("sound", true):
-		_fail("RunConfig must carry the saved settings (sound off): %s" % config.get("settings"))
+	if not (config.get("settings") is Dictionary) or float(config.settings.get("volume_master", 1.0)) != 0.0 or not is_equal_approx(float(config.settings.get("volume_music", 1.0)), 0.5):
+		_fail("RunConfig must carry the saved settings (master 0, music 50 %%): %s" % config.get("settings"))
 		return
 	# TAGES-BRUT: daily seed, fixed Wild and first biome, selected strain; even with Brutal chosen.
 	menu.profile.unlocked_difficulties.append(1)
@@ -462,9 +462,14 @@ func _check_sheet_layout(menu: Control, screen: Rect2) -> bool:
 		_fail("Sheet close button too small")
 		return false
 	var panel: Rect2 = menu.settings_panel_rect()
-	if not screen.encloses(panel) or panel.has_point(menu.daily_rect().get_center()):
+	if not screen.encloses(panel) or panel.intersects(menu.tab_rect(0)) or panel.intersects(menu.settings_button_rect()):
 		_fail("Settings modal out of spec: %s" % panel)
 		return false
+	for k in menu.VOLUMES.size():
+		var slider_row: Rect2 = menu.settings_volume_rect(k)
+		if slider_row.size.y < 96.0 or not panel.encloses(slider_row) or not slider_row.encloses(menu.settings_slider_rect(k)) or slider_row.intersects(menu.settings_row_rect(0)):
+			_fail("Volume row %d out of spec: %s" % [k, slider_row])
+			return false
 	for i in menu.SETTINGS.size():
 		var row: Rect2 = menu.settings_row_rect(i)
 		if row.size.y < 96.0 or not panel.encloses(row):
@@ -502,27 +507,45 @@ func _check_settings(menu: Control) -> bool:
 	if not menu.settings_open:
 		_fail("Gear did not open the settings")
 		return false
-	# A tap on a row area toggles; the strain arrow lies outside the panel and closes it.
+	# Volume sliders: a tap sets the value under the finger (5 % steps), a drag follows it.
+	var audio: Script = load("res://scripts/audio_settings.gd")
+	for k in menu.VOLUMES.size():
+		if menu.volume(menu.VOLUMES[k][0]) != 1.0:
+			_fail("Volume %s must default to 100 %%" % menu.VOLUMES[k][0])
+			return false
+	var track: Rect2 = menu.settings_slider_rect(0)
+	menu.tap(Vector2(track.position.x - 20.0, menu.settings_volume_rect(0).get_center().y))
+	track = menu.settings_slider_rect(2)
+	menu.tap(Vector2(track.position.x + track.size.x * 0.76, track.get_center().y))
+	track = menu.settings_slider_rect(1)
+	_drag(menu, Vector2(track.end.x, track.get_center().y), Vector2(-track.size.x * 0.52, 0.0))
+	if menu.volume("volume_master") != 0.0 or not is_equal_approx(menu.volume("volume_music"), 0.5) or not is_equal_approx(menu.volume("volume_sfx"), 0.75) or menu.setting("sound"):
+		_fail("Volume sliders wrong: %s" % menu.profile.settings)
+		return false
+	if not audio.bus_muted("Master") or audio.bus_muted("Music") or not is_equal_approx(audio.bus_db("Music"), audio.to_db(0.5)) or not is_equal_approx(audio.bus_db("SFX"), audio.to_db(0.75)):
+		_fail("Bus levels wrong: master muted %s, music %.1f dB, sfx %.1f dB" % [audio.bus_muted("Master"), audio.bus_db("Music"), audio.bus_db("SFX")])
+		return false
+	if not menu.settings_open:
+		_fail("Slider taps must keep the settings open")
+		return false
+	# A tap on a switch row toggles.
 	for i in menu.SETTINGS.size():
 		menu.tap(menu.settings_row_rect(i).get_center())
-	menu.tap(menu.settings_row_rect(1).get_center())
+	menu.tap(menu.settings_row_rect(0).get_center())
 	if menu.setting("sound") or not menu.setting("vibration") or not menu.setting("colorblind"):
 		_fail("Setting rows did not toggle")
 		return false
 	var reloaded: Variant = load("res://scripts/meta/profile.gd").load_or_create(TEST_PROFILE)
-	if reloaded.get_setting("sound") or not reloaded.get_setting("vibration") or not reloaded.get_setting("colorblind"):
+	if reloaded.get_setting("sound") or not reloaded.get_setting("vibration") or not reloaded.get_setting("colorblind") or not is_equal_approx(reloaded.get_volume("volume_music"), 0.5) or not is_equal_approx(reloaded.get_volume("volume_sfx"), 0.75):
 		_fail("Settings were not saved: %s" % reloaded.settings)
 		return false
-	if not AudioServer.is_bus_mute(AudioServer.get_bus_index("Master")):
-		_fail("Sound off must mute the master bus")
-		return false
 	var strain_before: String = menu.current_strain()
-	# Stage 15: SPIELEN sits under the tall settings panel; TAGES-BRUT lies outside it.
-	if menu.settings_panel_rect().has_point(menu.daily_rect().get_center()):
-		_fail("TAGES-BRUT must lie outside the settings panel for this check")
+	# The tall settings panel covers the main view; the tab dock lies outside it.
+	if menu.settings_panel_rect().intersects(menu.tab_rect(0)):
+		_fail("The tab dock must lie outside the settings panel for this check")
 		return false
-	menu.tap(menu.daily_rect().get_center())
-	if menu.settings_open or not session.pending_config.is_empty() or menu.current_strain() != strain_before:
+	menu.tap(menu.tab_rect(0).get_center())
+	if menu.settings_open or menu.tab != "" or not session.pending_config.is_empty() or menu.current_strain() != strain_before:
 		_fail("A tap outside the settings panel must only close it")
 		return false
 	menu.tap(menu.settings_button_rect().get_center())

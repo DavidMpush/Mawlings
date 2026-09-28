@@ -6,6 +6,7 @@ extends Node3D
 @onready var world: Node3D = $HuntWorld
 @onready var arena: Node3D = $Arena
 
+const AUDIO_SETTINGS = preload("res://scripts/audio_settings.gd")
 const CAMERA_OFFSET := Vector3(0.0, 23.0, 15.0)
 # Parallel modules are loaded at runtime so the game still starts without them.
 const SESSION_PATH := "res://scripts/meta/session.gd"
@@ -248,15 +249,21 @@ func quality_value(key: String, fallback: Variant = null) -> Variant:
 	return quality.get(key, fallback)
 
 
-# Menu settings travel inside the RunConfig; the menu already mutes the bus.
+# Menu settings travel inside the RunConfig. Lautstärke-Regler: the bus levels
+# (Master/Music/SFX) are set again here, so a run started without the menu
+# (NEUER RUN, tests) uses the saved volumes too; master 0 = sound off.
 func _apply_settings(settings: Variant) -> void:
+	var sound := true
+	if settings is Dictionary:
+		AUDIO_SETTINGS.apply(settings)
+		sound = AUDIO_SETTINGS.volume(settings, "volume_master") > 0.0
 	var sfx := get_node_or_null("Sfx")
 	if sfx != null and settings is Dictionary:
 		sfx.set("vibration_enabled", bool(settings.get("vibration", true)))
-		sfx.set("sfx_enabled", bool(settings.get("sound", true)))
+		sfx.set("sfx_enabled", sound)
 	var music := get_node_or_null("Music")
 	if music != null and settings is Dictionary:
-		music.set_enabled(bool(settings.get("sound", true)))
+		music.set_enabled(sound)
 		# Menu switch "MUSIK: KLASSIK V1": audio pack V1 loops instead of the adaptive stems.
 		if music.has_method("set_style"):
 			music.set_style("v1" if bool(settings.get("music_v1", false)) else "classic")
