@@ -1,7 +1,9 @@
 extends Node3D
 
 # ASCHENKRÖTE – apex of the Glutsumpf (stage 10 follow-up, second apex). A huge,
-# squat lava toad: ash-grey hide, glowing ember bubbles on the back. Like the
+# squat lava toad (user model AshToad_game.glb): ash-black rock hide cracked by
+# glowing ember veins, which the skin shader lets glow (brighter before a spit and
+# in phase 2). Like the
 # Moosschlund every loss is announced: each attack locks its shape at the start
 # of the wind-up, shows its own ground telegraph (pattern AND colour, so it reads
 # without colour) and resolves exactly once.
@@ -54,7 +56,7 @@ signal phase_changed(phase: int)
 
 const FX = preload("res://scripts/fx.gd")
 const UI_STYLE = preload("res://scripts/ui/ui_style.gd")
-const MODEL = preload("res://assets/gameplay/characters/BogKing_game.glb")
+const MODEL = preload("res://assets/gameplay/characters/AshToad_game.glb")
 const CREATURE_ANIM_SHADER = preload("res://shaders/creature_anim.gdshader")
 
 enum State { ARRIVING, CHASE, WINDUP, STRIKE, EXHAUSTED, PHASE_SHIFT, DEAD }
@@ -64,9 +66,17 @@ const DISPLAY_NAME := "Aschenkröte"
 const CORPSE_KIND := "apex_toad"
 # See "Fight length" above.
 const HEALTH := 1500.0
-const MODEL_SCALE := 11.5
-# Squashed Bog King body: wide and flat (body space: x = length, y = height, z = width).
-const HULL_SCALE := Vector3(1.0, 0.62, 1.45)
+# AshToad_game.glb is ~1.05 x 1.04 m in plan and 0.56 m high (feet at 0, head +Z);
+# scaled to the footprint of the former stand-in (~12 m). The hull flattens it a
+# little so the back does not tower over the swarm in the top-down camera
+# (body space: x = length, head towards -x; y = height; z = width).
+const MODEL_SCALE := 11.2
+const HULL_SCALE := Vector3(1.0, 0.8, 1.0)
+# Mouth corner in raw mesh units (forward, height): spit balls and the tongue start here.
+const MOUTH := Vector2(0.46, 0.29)
+# Distance (m) from the centre to the front feet / haunches: pitch pivots.
+const LEAN_PIVOT_FRONT := 3.4
+const LEAN_PIVOT_BACK := 3.0
 const BODY_RADIUS := 3.6
 # Centre distance for HuntWorld's melee_factor fallback (body edge + ~2 m).
 const MELEE_RANGE := 5.6
@@ -125,27 +135,30 @@ const RIM_CHASE := Color("ffb45a")
 const RIM_WARNING := Color("ffe45a")
 const RIM_EXHAUSTED := Color("7fe7ff")
 const RIM_RAGE := Color("ff6a2a")
-const SKIN_TINT := Color(0.36, 0.3, 0.3, 0.8)
-const SKIN_TINT_RAGE := Color(0.42, 0.26, 0.22, 0.82)
+# The model's own colours stay (no recolour); phase 2 only warms them slightly.
+const SKIN_TINT := Color(1.0, 1.0, 1.0, 0.0)
+const SKIN_TINT_RAGE := Color(1.0, 0.42, 0.16, 0.16)
 const ASH := Color(0.55, 0.5, 0.5, 0.7)
-const BUBBLE_ALBEDO := Color("e8a850")
-const BUBBLE_GLOW := Color("ff8a1e")
+# Ember veins: orange vertex colours are pushed towards this glow colour.
+const EMBER_COLOR := Color("ff7a1e")
+const EMBER_COLOR_RAGE := Color("ffa23a")
 const TONGUE_COLOR := Color("d8506e")
 
-# Telegraph palettes per shape: every shape also differs by pattern (diagonal
-# hatch + growing shadow + crosshair, pie timer + X, sine wave in a lane,
-# bubbling lava with crust), so colour is never the only cue.
+# Stage 20: shared boss telegraph style (telegraph_style.gd). Leap and spit are
+# the SVG boss circle, the tongue a boss lane with chevrons, the Glutpfützen a
+# filled hazard area ("liegt da"); shapes differ, so colour is never the only cue.
+const TG = preload("res://scripts/telegraph_style.gd")
 const PALETTE := {
-	SHAPE_LEAP: {"fill": Color("1a1216"), "pattern": Color("f4efe4"), "edge": Color("ffffff"), "fill_alpha": 0.42},
-	SHAPE_SPIT: {"fill": Color("4a1a08"), "pattern": Color("ffd23f"), "edge": Color("fff4c0"), "fill_alpha": 0.42},
-	SHAPE_TONGUE: {"fill": Color("5b2a86"), "pattern": Color("ffc4f0"), "edge": Color("ffffff"), "fill_alpha": 0.44},
-	SHAPE_PUDDLE: {"fill": Color("ff8a1e"), "pattern": Color("ffe27a"), "edge": Color("ffd9a0"), "fill_alpha": 0.72},
+	SHAPE_LEAP: TG.PALETTE["boss"],
+	SHAPE_SPIT: TG.PALETTE["boss"],
+	SHAPE_TONGUE: TG.PALETTE["boss"],
+	SHAPE_PUDDLE: TG.PALETTE["hazard"],
 }
 const PALETTE_COLORBLIND := {
-	SHAPE_LEAP: {"fill": UI_STYLE.CB_BLACK, "pattern": UI_STYLE.CB_WHITE, "edge": UI_STYLE.CB_YELLOW, "fill_alpha": 0.46},
-	SHAPE_SPIT: {"fill": UI_STYLE.CB_BLUE, "pattern": UI_STYLE.CB_ORANGE, "edge": UI_STYLE.CB_WHITE, "fill_alpha": 0.4},
-	SHAPE_TONGUE: {"fill": UI_STYLE.CB_SKY, "pattern": UI_STYLE.CB_WHITE, "edge": UI_STYLE.CB_YELLOW, "fill_alpha": 0.36},
-	SHAPE_PUDDLE: {"fill": UI_STYLE.CB_ORANGE, "pattern": UI_STYLE.CB_YELLOW, "edge": UI_STYLE.CB_WHITE, "fill_alpha": 0.72},
+	SHAPE_LEAP: TG.PALETTE_COLORBLIND["boss"],
+	SHAPE_SPIT: TG.PALETTE_COLORBLIND["boss"],
+	SHAPE_TONGUE: TG.PALETTE_COLORBLIND["boss"],
+	SHAPE_PUDDLE: TG.PALETTE_COLORBLIND["hazard"],
 }
 
 var state := State.ARRIVING
@@ -180,8 +193,8 @@ var model: Node3D
 var hull: Node3D
 var body: Node3D
 var skin: ShaderMaterial
-var bubble_material: StandardMaterial3D
-var bubbles: Array[MeshInstance3D] = []
+# Ember vein glow of the skin (0..1), raised before a spit and in phase 2.
+var ember := 0.0
 var shadow: MeshInstance3D
 var warning: Node3D
 var telegraphs: Array[MeshInstance3D] = []
@@ -418,7 +431,7 @@ func _enter_phase_two() -> void:
 	remaining = PHASE_SHIFT_SECONDS
 	cycle_index = 0
 	_clear_telegraphs()
-	FX.ring(_fx_parent(), global_position, Color(1.0, 0.5, 0.18, 0.9), 1.0, 9.5, 0.8)
+	FX.ring(_fx_parent(), global_position, Color(1.0, 0.49, 0.76, 0.9), 1.0, 9.5, 0.8)
 	FX.ring(_fx_parent(), global_position, Color(0.6, 0.55, 0.55, 0.7), 0.5, 6.5, 1.2)
 	_shake(0.6)
 	phase_changed.emit(phase)
@@ -562,7 +575,8 @@ class Puddles extends Node3D:
 		if spots.is_empty():
 			tick_clock = PUDDLE_TICK
 		var mesh := PlaneMesh.new()
-		mesh.size = Vector2(radius * 2.0, radius * 2.0)
+		mesh.size = Vector2(radius * 2.0, radius * 2.0) + Vector2.ONE * TG.SHAPE_MARGIN * 2.0
+		material.set_shader_parameter("outer", radius)
 		var part := MeshInstance3D.new()
 		part.name = "Glutpfütze"
 		part.mesh = mesh
@@ -609,6 +623,7 @@ class Puddles extends Node3D:
 			var fresh: ShaderMaterial = factory.call()
 			var old := node.material_override as ShaderMaterial
 			fresh.set_shader_parameter("progress", old.get_shader_parameter("progress"))
+			fresh.set_shader_parameter("outer", old.get_shader_parameter("outer"))
 			node.material_override = fresh
 
 	func clear() -> void:
@@ -622,124 +637,16 @@ class Puddles extends Node3D:
 
 # --------------------------------------------------------------- telegraphs
 
-const TELEGRAPH_CODE := """
-shader_type spatial;
-render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
-// Aschenkröte telegraphs: 0 leap disc (diagonal ash hatch, crosshair, the toad's
-// shadow grows in the middle), 1 spit circle (pie timer sweeping round + X),
-// 2 tongue lane (sine wave running from the mouth, reach grows), 3 glow puddle
-// (bubbling lava, crust contour). Shared dark-bright-dark contour.
-uniform int pattern = 0;
-uniform vec4 fill_color : source_color = vec4(0.1, 0.07, 0.08, 1.0);
-uniform vec4 pattern_color : source_color = vec4(1.0, 0.95, 0.9, 1.0);
-uniform vec4 edge_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
-uniform vec4 dark_color : source_color = vec4(0.06, 0.04, 0.05, 1.0);
-uniform float fill_alpha = 0.4;
-uniform float progress = 0.0;
-uniform float time = -1.0;
-uniform float opacity = 1.0;
-varying vec2 local_m;
-varying vec2 half_m;
-
-void vertex() {
-	vec2 s = vec2(length(MODEL_MATRIX[0].xyz), length(MODEL_MATRIX[2].xyz));
-	local_m = VERTEX.xz * s;
-	half_m = abs(VERTEX.xz) * s;
-}
-
-float aa(float e, float v) {
-	float w = max(fwidth(v), 1e-4);
-	return smoothstep(e - w, e + w, v);
-}
-
-void fragment() {
-	float t = time >= 0.0 ? time : TIME;
-	vec2 p = local_m;
-	float r = length(p);
-	float pulse = 0.5 + 0.5 * sin(t * mix(3.0, 15.0, progress * progress));
-	float d = 0.0;
-	float mark = 0.0;
-	float mark_dark = 0.0;
-	float reached = 0.0;
-	float core = 0.0;
-	if (pattern == 0) {
-		d = half_m.x - r;
-		float shadow_r = half_m.x * (0.12 + 0.62 * progress);
-		core = 1.0 - aa(shadow_r, r);
-		float w = fract((p.x + p.y) / 1.1 - t * 0.25);
-		float hatch = (1.0 - aa(0.28, w)) * aa(0.36, d);
-		float cross = (1.0 - aa(0.11, min(abs(p.x), abs(p.y)))) * (1.0 - aa(half_m.x * 0.8, r));
-		mark = max(hatch * (1.0 - core), cross);
-		mark_dark = aa(0.28, w) * (1.0 - aa(0.4, w)) * aa(0.36, d) * (1.0 - core);
-		reached = progress;
-	} else if (pattern == 1) {
-		d = half_m.x - r;
-		float a = fract(atan(p.x, -p.y) / 6.2832 + 1.0);
-		reached = (1.0 - aa(progress, a)) * aa(0.3, d);
-		float diag = min(abs(p.x - p.y), abs(p.x + p.y)) * 0.7071;
-		float x_mark = (1.0 - aa(0.13 + 0.05 * progress, diag)) * (1.0 - aa(half_m.x * 0.62, r));
-		mark = x_mark;
-		mark_dark = (1.0 - aa(0.26 + 0.05 * progress, diag)) * (1.0 - x_mark) * (1.0 - aa(half_m.x * 0.66, r));
-	} else if (pattern == 2) {
-		d = min(half_m.x - abs(p.x), half_m.y - abs(p.y));
-		float along = p.y + half_m.y;
-		reached = 1.0 - aa(2.0 * half_m.y * (0.2 + 0.8 * progress), along);
-		float wave = sin(along * 1.7 - t * 9.0) * half_m.x * 0.42;
-		float gap = abs(p.x - wave);
-		mark = (1.0 - aa(0.13 + 0.06 * progress, gap)) * reached;
-		mark_dark = (1.0 - aa(0.28 + 0.06 * progress, gap)) * (1.0 - mark) * reached;
-	} else {
-		d = half_m.x - r;
-		vec2 cell = p / 0.75;
-		vec2 id = floor(cell);
-		float seed = fract(sin(dot(id, vec2(12.9898, 78.233))) * 43758.5453);
-		vec2 c = fract(cell) - 0.5;
-		float grow = fract(t * 0.9 + seed);
-		float bubble = (1.0 - aa(0.12 + 0.22 * grow, length(c))) * aa(0.3, d) * step(0.35, seed);
-		mark = bubble * (1.0 - grow * 0.6);
-		mark_dark = 0.0;
-		reached = 0.6 + 0.4 * pulse;
-	}
-	if (d < 0.0) {
-		discard;
-	}
-	vec3 color = mix(fill_color.rgb, mix(fill_color.rgb, edge_color.rgb, 0.3), reached * 0.5);
-	float alpha = fill_alpha + reached * 0.18;
-	float strength = mix(0.8, 1.0, pulse * progress);
-	color = mix(color, dark_color.rgb, mark_dark * 0.8);
-	alpha = mix(alpha, 0.6, mark_dark * 0.8);
-	color = mix(color, pattern_color.rgb, mark);
-	alpha = mix(alpha, 1.0, mark * strength);
-	color = mix(color, dark_color.rgb, core * 0.85);
-	alpha = mix(alpha, 0.72, core);
-	float outer_dark = 1.0 - aa(0.08, d);
-	float bright = aa(0.08, d) * (1.0 - aa(0.3, d));
-	float inner_dark = aa(0.3, d) * (1.0 - aa(0.37, d));
-	float glow = mix(1.0, 0.7 + 0.3 * pulse, smoothstep(0.4, 1.0, progress));
-	color = mix(color, dark_color.rgb, max(outer_dark, inner_dark));
-	color = mix(color, edge_color.rgb * glow, bright);
-	alpha = mix(alpha, 0.9, max(outer_dark, inner_dark));
-	alpha = mix(alpha, 1.0, bright);
-	ALBEDO = color;
-	ALPHA = clamp(alpha * opacity, 0.0, 1.0);
-}
-"""
-static var _telegraph_shader: Shader
-
-
 static func telegraph_material(shape: int, colorblind_on: bool) -> ShaderMaterial:
-	if _telegraph_shader == null:
-		_telegraph_shader = Shader.new()
-		_telegraph_shader.code = TELEGRAPH_CODE
-	var result := ShaderMaterial.new()
-	result.shader = _telegraph_shader
+	var result: ShaderMaterial
+	match shape:
+		SHAPE_TONGUE:
+			result = TG.shape_material(TG.Shape.LANE, "boss", colorblind_on)
+		SHAPE_PUDDLE:
+			result = TG.shape_material(TG.Shape.HAZARD, "hazard", colorblind_on)
+		_:
+			result = TG.material("boss", colorblind_on)
 	result.set_shader_parameter("pattern", shape)
-	var table: Dictionary = PALETTE_COLORBLIND if colorblind_on else PALETTE
-	var colors: Dictionary = table[shape]
-	result.set_shader_parameter("fill_color", colors["fill"])
-	result.set_shader_parameter("pattern_color", colors["pattern"])
-	result.set_shader_parameter("edge_color", colors["edge"])
-	result.set_shader_parameter("fill_alpha", colors["fill_alpha"])
 	return result
 
 
@@ -757,22 +664,25 @@ func _build_telegraphs() -> void:
 	var height := 0.12
 	for zone in zones:
 		var shape := int(zone.shape)
-		var mesh := PlaneMesh.new()
 		var part := MeshInstance3D.new()
 		part.name = "Toad telegraph %s" % pattern_name(current_pattern)
-		part.mesh = mesh
-		part.material_override = telegraph_material(shape, colorblind)
+		var material := telegraph_material(shape, colorblind)
+		part.material_override = material
 		part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var center: Vector3 = zone.center
 		if shape == SHAPE_TONGUE:
 			var direction: Vector3 = zone.direction
 			var length := float(zone.length)
-			mesh.size = Vector2(float(zone.width), length)
+			var mesh := PlaneMesh.new()
+			mesh.size = Vector2(float(zone.width), length) + Vector2.ONE * TG.SHAPE_MARGIN * 2.0
+			part.mesh = mesh
+			material.set_shader_parameter("half_width", float(zone.width) * 0.5)
+			material.set_shader_parameter("lane_length", length)
 			part.rotation.y = atan2(direction.x, direction.z)
 			part.position = center + direction * (TONGUE_START + length * 0.5) + Vector3(0, height + 0.01, 0)
 		else:
-			var radius := float(zone.radius)
-			mesh.size = Vector2(radius * 2.0, radius * 2.0)
+			# SVG boss circle: its hit ring lies exactly on the zone radius.
+			part.mesh = TG.boss_circle_mesh(float(zone.radius))
 			part.position = center + Vector3(0, height, 0)
 		height += 0.004
 		warning.add_child(part)
@@ -800,11 +710,11 @@ func _strike_fx() -> void:
 				var radius := float(zone.radius)
 				FX.ring(parent, center, Color(0.95, 0.92, 0.86, 0.95), 1.0, radius * 1.05, 0.45)
 				# Shock ring: runs past the zone edge (visual only, the loss is the disc).
-				FX.ring(parent, center, Color(1.0, 0.6, 0.2, 0.85), radius * 0.8, radius * 1.7, 0.7)
+				FX.ring(parent, center, Color(1.0, 0.49, 0.76, 0.85), radius * 0.8, radius * 1.7, 0.7)
 				FX.ring(parent, center, ASH, 0.6, radius * 0.9, 1.0)
 				_shake(0.75)
 			SHAPE_SPIT:
-				FX.ring(parent, center, Color(1.0, 0.72, 0.25, 0.95), 0.3, float(zone.radius) * 1.1, 0.4)
+				FX.ring(parent, center, Color(1.0, 0.49, 0.76, 0.95), 0.3, float(zone.radius) * 1.1, 0.4)
 				_shake(0.2)
 			SHAPE_TONGUE:
 				var direction: Vector3 = zone.direction
@@ -817,8 +727,9 @@ func _strike_fx() -> void:
 
 # ------------------------------------------------------------------ look
 
-## Builds the body. Replace this with a dedicated toad model later: everything
-## else only needs `model`, `body`, `skin` (creature_anim material) and `bubbles`.
+## Builds the body from AshToad_game.glb (user model, head +Z, feet at y = 0).
+## Everything else only needs `model`, `body` and `skin` (creature_anim material
+## plus the ember-vein glow, see _skin_shader()).
 func _build_model() -> void:
 	body = Node3D.new()
 	body.name = "Aschenkröte body"
@@ -830,77 +741,85 @@ func _build_model() -> void:
 	model = MODEL.instantiate()
 	model.name = "Aschenkröte model"
 	model.scale = Vector3.ONE * MODEL_SCALE
+	# Head (+Z) towards body -X, the facing direction of _forward().
 	model.rotation.y = -PI * 0.5
 	hull.add_child(model)
 	skin = ShaderMaterial.new()
-	skin.shader = CREATURE_ANIM_SHADER
-	skin.set_shader_parameter("brightness", 1.25)
-	skin.set_shader_parameter("saturation", 0.7)
+	skin.shader = _skin_shader()
+	skin.set_shader_parameter("brightness", 1.1)
+	skin.set_shader_parameter("saturation", 0.2)
 	skin.set_shader_parameter("shape_light", 0.5)
 	skin.set_shader_parameter("rim_color", _rim)
-	skin.set_shader_parameter("rim_strength", 0.9)
-	skin.set_shader_parameter("rim_power", 2.0)
+	skin.set_shader_parameter("rim_strength", 0.8)
+	skin.set_shader_parameter("rim_power", 2.6)
 	skin.set_shader_parameter("body_tint", SKIN_TINT)
 	skin.set_shader_parameter("flash", 0.0)
+	skin.set_shader_parameter("ember_color", EMBER_COLOR)
+	skin.set_shader_parameter("ember_glow", 0.7)
 	_setup_limbs()
 	for mesh in model.find_children("*", "MeshInstance3D", true, false):
 		mesh.material_override = skin
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var bounds := _bounds(model, body)
-	# Ember bubbles: glowing blisters on the back, they swell before a spit.
-	bubble_material = StandardMaterial3D.new()
-	bubble_material.albedo_color = BUBBLE_ALBEDO
-	bubble_material.emission_enabled = true
-	bubble_material.emission = BUBBLE_GLOW
-	bubble_material.roughness = 0.5
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.5
-	sphere.height = 1.0
-	sphere.radial_segments = 12
-	sphere.rings = 6
-	# (length share, height share, side share) in body bounds; +x = rear.
-	var spots := [Vector3(0.08, 0.7, 0.0), Vector3(-0.08, 0.68, 0.2), Vector3(-0.08, 0.68, -0.2), Vector3(0.22, 0.64, 0.16), Vector3(0.22, 0.64, -0.16), Vector3(-0.22, 0.66, 0.06), Vector3(0.34, 0.58, 0.0)]
-	var sizes := [0.1, 0.08, 0.08, 0.07, 0.07, 0.06, 0.055]
-	for index in spots.size():
-		var spot: Vector3 = spots[index]
-		var bubble := MeshInstance3D.new()
-		bubble.name = "Ember bubble"
-		bubble.mesh = sphere
-		bubble.material_override = bubble_material
-		bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		bubble.position = Vector3(bounds.get_center().x + spot.x * bounds.size.x, bounds.position.y + spot.y * bounds.size.y, bounds.get_center().z + spot.z * bounds.size.z)
-		bubble.scale = Vector3(1.0, 0.7, 1.0) * bounds.size.x * float(sizes[index])
-		bubble.set_meta("base", bubble.scale)
-		body.add_child(bubble)
-		bubbles.append(bubble)
 
 
-# Same mesh as the Bog King / Moosschlund, so the limb frame is identical (raw mesh space).
+# creature_anim.gdshader plus an ember-vein glow: vertex colours that are clearly
+# orange (red well above blue) are pushed towards `ember_color` by `ember_glow`.
+# Built from the shared shader's source so the limb animation stays identical.
+static var _ember_shader: Shader
+
+
+static func _skin_shader() -> Shader:
+	if _ember_shader != null:
+		return _ember_shader
+	var code: String = CREATURE_ANIM_SHADER.code
+	var uniforms := "uniform vec4 ember_color : source_color = vec4(1.0, 0.69, 0.25, 1.0);
+uniform float ember_glow = 0.5;
+
+void vertex()"
+	var glow := "float ember_mask = smoothstep(0.34, 0.6, COLOR.r - COLOR.b) * smoothstep(0.48, 0.7, COLOR.r);
+	look = mix(look, ember_color.rgb, clamp(ember_mask * ember_glow, 0.0, 0.92));
+	ALBEDO = look;"
+	if code.count("void vertex()") != 1 or code.count("ALBEDO = look;") != 1:
+		push_warning("Aschenkröte: creature_anim shader changed, ember glow disabled")
+		_ember_shader = CREATURE_ANIM_SHADER
+		return _ember_shader
+	var shader := Shader.new()
+	shader.code = code.replace("void vertex()", uniforms).replace("ALBEDO = look;", glow)
+	_ember_shader = shader
+	return _ember_shader
+
+
+# Limb frame for AshToad_game.glb in raw mesh space (Z-up storage): soles and belly
+# at z = 0 (up = -Z), head towards +Y, lateral = +X. Feet centres (forward,
+# lateral) from the lowest vertices outside the belly: short front legs under the
+# head, wide sprawled haunches. The belly rests on the ground, so the legs only
+# shuffle a little (the toad hops with the whole body, see _pose). The jaw is the
+# pale throat below the mouth line (u = 0.29) in front of the forelegs; no tail.
 func _setup_limbs() -> void:
 	skin.set_shader_parameter("up_axis", Vector3(0.0, 0.0, -1.0))
 	skin.set_shader_parameter("forward_axis", Vector3(0.0, 1.0, 0.0))
 	skin.set_shader_parameter("ground_offset", 0.0)
-	skin.set_shader_parameter("foot_a_front", Vector2(0.325, -0.113))
-	skin.set_shader_parameter("foot_a_back", Vector2(0.024, 0.234))
-	skin.set_shader_parameter("foot_b_front", Vector2(0.294, 0.063))
-	skin.set_shader_parameter("foot_b_back", Vector2(0.045, -0.252))
+	skin.set_shader_parameter("foot_a_front", Vector2(0.3, -0.26))
+	skin.set_shader_parameter("foot_a_back", Vector2(-0.19, 0.4))
+	skin.set_shader_parameter("foot_b_front", Vector2(0.3, 0.26))
+	skin.set_shader_parameter("foot_b_back", Vector2(-0.19, -0.4))
 	skin.set_shader_parameter("foot_radius", 0.13)
-	skin.set_shader_parameter("leg_height", 0.2)
-	skin.set_shader_parameter("stride", 0.05)
-	skin.set_shader_parameter("lift", 0.05)
-	skin.set_shader_parameter("stride_centering", 1.0)
+	skin.set_shader_parameter("leg_height", 0.16)
+	skin.set_shader_parameter("stride", 0.035)
+	skin.set_shader_parameter("lift", 0.04)
+	skin.set_shader_parameter("stride_centering", 0.0)
 	skin.set_shader_parameter("walk_speed", 0.0)
 	skin.set_shader_parameter("walk_scale", 1.0)
-	skin.set_shader_parameter("jaw_hinge_forward", 0.16)
-	skin.set_shader_parameter("jaw_hinge_height", 0.33)
-	skin.set_shader_parameter("jaw_floor", 0.2)
-	skin.set_shader_parameter("jaw_angle", 0.5)
-	skin.set_shader_parameter("tail_start", -0.3)
-	skin.set_shader_parameter("tail_length", 0.35)
-	skin.set_shader_parameter("tail_floor", 0.03)
-	skin.set_shader_parameter("tail_swing", 0.02)
+	skin.set_shader_parameter("jaw_hinge_forward", 0.3)
+	skin.set_shader_parameter("jaw_hinge_height", 0.29)
+	skin.set_shader_parameter("jaw_floor", 0.12)
+	skin.set_shader_parameter("jaw_angle", 0.38)
+	skin.set_shader_parameter("tail_start", -1.0)
+	skin.set_shader_parameter("tail_length", 0.1)
+	skin.set_shader_parameter("tail_floor", 1.0)
+	skin.set_shader_parameter("tail_swing", 0.0)
 	skin.set_shader_parameter("tail_rate", 0.0)
-	skin.set_shader_parameter("stomp_height", 0.14)
+	skin.set_shader_parameter("stomp_height", 0.1)
 
 
 # Lava balls (spit) and the tongue (strike), top-level, hidden until used.
@@ -977,11 +896,12 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 			if stride > 0.2 and before != 0.0 and signf(wave) != signf(before):
 				FX.ring(_fx_parent(), global_position, ASH, 0.6, 3.0, 0.45)
 				_shake(0.1)
-			# Hops: the body lifts off and squashes on landing.
-			lift = absf(wave) * 0.7 * stride
-			stretch = (absf(wave) - 0.5) * 0.1 * stride
-			walk = stride * 0.6
-			lean = -0.08 * wave * stride
+			# Hops with the whole body: up and stretched in the air, squashed on contact.
+			var hop := absf(wave)
+			lift = hop * 0.8 * stride
+			stretch = (hop - 0.45) * 0.14 * stride
+			walk = stride * 0.4
+			lean = -0.07 * wave * stride
 		State.WINDUP:
 			var rise := 1.0 - pow(1.0 - minf(1.0, progress / 0.7), 3.0)
 			rim_target = RIM_WARNING
@@ -989,42 +909,51 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 			match current_pattern:
 				Pattern.LEAP:
 					if progress < LEAP_CROUCH:
-						var crouch := progress / LEAP_CROUCH
-						lift = -0.45 * crouch
-						stretch = -0.14 * crouch
+						# Loads up: squashes low, nose down, trembling.
+						var crouch := sin(progress / LEAP_CROUCH * PI * 0.5)
+						stretch = -0.22 * crouch
 						lean = 0.12 * crouch
-						tremble = 0.08 * crouch
+						tremble = 0.07 * crouch
 					else:
-						stretch = 0.12
-						lean = -0.25
-						jaw = 0.3
+						# Take-off stretch, nose up; tips forward towards the landing.
+						var flight := (progress - LEAP_CROUCH) / (1.0 - LEAP_CROUCH)
+						stretch = 0.24 * pow(1.0 - flight, 2.0) + 0.06 * flight
+						lean = lerpf(-0.32, 0.14, flight)
+						jaw = 0.25
+						tremble = 0.0
 				Pattern.SPIT:
-					lean = -0.2 * rise
-					jaw = 0.9 * rise
+					# Rears up with a swelling throat, veins flare, mouth opens.
+					lean = -0.18 * rise
+					stretch = 0.07 * rise
+					jaw = 0.85 * rise * (0.85 + 0.15 * sin(_time * 14.0))
 					swell = rise
 				Pattern.TONGUE:
-					lean = 0.18 * rise
-					lift = -0.15 * rise
+					# Ducks low with the head forward, mouth wide open.
+					lean = 0.16 * rise
+					stretch = -0.1 * rise
 					jaw = 1.0 * rise
 				Pattern.COMBO:
-					lean = -0.1 * rise
+					lean = -0.08 * rise
+					stretch = 0.03 * rise
 					jaw = 1.0 * rise
 					swell = rise
 			for part in telegraphs:
 				(part.material_override as ShaderMaterial).set_shader_parameter("progress", progress)
 		State.EXHAUSTED:
+			# Slumped flat, chin on the ground, veins almost out, slow heavy breath.
 			var breath := sin(_time * 1.6)
-			lift = -0.4
-			lean = 0.2 + 0.03 * breath
-			stretch = -0.06 + 0.04 * breath
-			jaw = 0.5 + 0.2 * breath
+			lean = 0.14 + 0.02 * breath
+			stretch = -0.14 + 0.04 * breath
+			jaw = 0.45 + 0.2 * breath
 			rim_target = RIM_EXHAUSTED
-			rim_strength = 1.0 + 0.5 * (0.5 + 0.5 * sin(_time * 5.0))
-			swell = -0.6
+			# The craggy rock hide has many grazing facets: a softer rim than the
+			# Moosschlund keeps the model readable under the pulsing blue.
+			rim_strength = 0.7 + 0.35 * (0.5 + 0.5 * sin(_time * 5.0))
+			swell = -0.7
 		State.PHASE_SHIFT:
 			var roar := clampf(1.0 - remaining / PHASE_SHIFT_SECONDS, 0.0, 1.0)
-			lean = -0.3 * sin(roar * PI)
-			stretch = 0.12 * sin(roar * PI)
+			lean = -0.34 * sin(roar * PI)
+			stretch = 0.15 * sin(roar * PI)
 			jaw = 1.0
 			tremble = 0.12
 			swell = 1.0
@@ -1032,15 +961,17 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 			rim_strength = 1.2
 		State.DEAD:
 			_sink = minf(1.0, _sink + delta / 2.4)
-			lean = 0.25
+			lean = 0.2
 			jaw = 0.8
 			sway = 0.22 * _sink
+			stretch = -0.15 * _sink
 			swell = -1.0
 	if _slam > 0.0:
 		var slam := _slam / STRIKE_SECONDS
 		if current_pattern == Pattern.LEAP:
-			stretch -= 0.25 * slam
-			lift -= 0.3 * slam
+			# Landing squash.
+			stretch -= 0.32 * slam
+			lean *= 1.0 - slam
 		else:
 			lean += 0.2 * slam
 			jaw = maxf(jaw, slam)
@@ -1062,7 +993,11 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 		_air = 0.0
 	var risen := 1.0 - pow(1.0 - emerge, 3.0)
 	var jitter := Vector3(sin(_time * 43.0), 0.0, sin(_time * 37.0 + 1.3)) * tremble
-	body.position = Vector3(0.0, _lift + _air - EMERGE_DEPTH * (1.0 - risen) - EMERGE_DEPTH * 0.6 * _sink, 0.0) + jitter
+	# Pitch pivots on the lower end (front feet when the nose dips, haunches when it
+	# rises), so the feet stay on the ground instead of sinking into it.
+	var pivot := LEAN_PIVOT_FRONT if _lean > 0.0 else LEAN_PIVOT_BACK
+	var level := absf(sin(_lean)) * pivot * _grow
+	body.position = Vector3(0.0, _lift + _air + level - EMERGE_DEPTH * (1.0 - risen) - EMERGE_DEPTH * 0.6 * _sink, 0.0) + jitter
 	body.rotation = Vector3(_sway, 0.0, _lean)
 	body.scale = Vector3(1.0 - _stretch * 0.5, 1.0 + _stretch, 1.0 - _stretch * 0.5) * _grow
 	var shadow_size := lerpf(0.3, 1.0, risen) * (1.0 - 0.4 * clampf(_air / LEAP_HEIGHT, 0.0, 1.0)) * (1.0 - _sink * 0.7) * _grow
@@ -1076,12 +1011,11 @@ func _pose(delta: float, speed: float, snap: bool = false) -> void:
 	skin.set_shader_parameter("stomp_lift", 0.0)
 	skin.set_shader_parameter("bite_amount", _jaw)
 	skin.set_shader_parameter("tail_phase", _time * 1.1)
-	var bubble_pulse := 1.0 + 0.25 * swell * (0.7 + 0.3 * sin(_time * 12.0))
-	for index in bubbles.size():
-		var bubble := bubbles[index]
-		var wobble := 1.0 + 0.06 * sin(_time * 2.3 + float(index) * 1.7)
-		bubble.scale = (bubble.get_meta("base") as Vector3) * maxf(0.3, bubble_pulse * wobble)
-	bubble_material.emission_energy_multiplier = maxf(0.1, 0.5 + 0.9 * swell + (0.2 if phase == 2 else 0.0))
+	var ember_target := clampf(0.7 * (1.0 + minf(swell, 0.0)) + 0.3 * maxf(swell, 0.0) + (0.2 if phase == 2 else 0.0), 0.04, 1.0)
+	ember = ember_target if snap else lerpf(ember, ember_target, minf(1.0, delta * 6.0))
+	var flicker := 1.0 + 0.08 * sin(_time * 7.0) * (0.3 + 0.7 * maxf(swell, 0.0))
+	skin.set_shader_parameter("ember_glow", clampf(ember * flicker, 0.0, 1.0))
+	skin.set_shader_parameter("ember_color", EMBER_COLOR_RAGE if phase == 2 else EMBER_COLOR)
 	_pose_projectiles(progress)
 
 
@@ -1090,7 +1024,7 @@ func _pose_projectiles(progress: float) -> void:
 		return
 	var spit := state == State.WINDUP and (current_pattern == Pattern.SPIT or current_pattern == Pattern.COMBO)
 	var ball_index := 0
-	var mouth := position + _forward() * body_radius * 0.9 + Vector3(0, 2.2 * _grow, 0)
+	var mouth := _mouth()
 	var launch := 0.45
 	for zone in zones:
 		if not spit or ball_index >= balls.size():
@@ -1114,11 +1048,23 @@ func _pose_projectiles(progress: float) -> void:
 	if tongue != null:
 		tongue.visible = state == State.STRIKE and not lane.is_empty()
 		if tongue.visible:
+			# From the mouth down to the lane tip on the ground.
 			var reach := sin(clampf(1.0 - remaining / STRIKE_SECONDS, 0.0, 1.0) * PI)
 			var direction: Vector3 = lane.direction
-			var length := maxf(0.1, (TONGUE_START + float(lane.length)) * reach)
 			var origin: Vector3 = lane.center
-			tongue.global_transform = Transform3D(Basis(Vector3.UP, atan2(direction.x, direction.z)) * Basis.from_scale(Vector3(float(lane.width) * 0.6, 1.0, length)), origin + direction * length * 0.5 + Vector3(0, 0.9, 0))
+			var start := _mouth()
+			var near := Vector2(start.x - origin.x, start.z - origin.z).length()
+			var far := maxf(near + 0.3, (TONGUE_START + float(lane.length)) * reach)
+			var tip := origin + direction * far + Vector3(0, 0.45, 0)
+			var span := tip - start
+			var shape := Basis.looking_at(span.normalized(), Vector3.UP) * Basis.from_scale(Vector3(float(lane.width) * 0.6, 1.0, span.length()))
+			tongue.global_transform = Transform3D(shape, (start + tip) * 0.5)
+
+
+## World position of the mouth (spit balls and the tongue start there).
+func _mouth() -> Vector3:
+	var height := MOUTH.y * MODEL_SCALE * HULL_SCALE.y * _grow * (1.0 + _stretch) + body.position.y
+	return Vector3(position.x, 0.0, position.z) + _forward() * MOUTH.x * MODEL_SCALE * _grow + Vector3(0, height, 0)
 
 
 # Bounds of every mesh below `root`, expressed in `space` coordinates.

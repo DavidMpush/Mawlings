@@ -18,8 +18,8 @@ const FORMS := {
 		"name": "Rudelbiss",
 		"icon_hint": "jaws_leap",
 		"ranks": [
-			"Rally: alle 2,2 s Sprungangriff auf den nächsten Gegner (4 m), 8 Flächenschaden.",
-			"Rally: alle 1,8 s Sprungangriff, 12 Flächenschaden.",
+			"Rally: alle 1,8 s Sprungangriff auf den nächsten Gegner (4 m), 12 Flächenschaden.",
+			"Rally: alle 1,6 s Sprungangriff, 14,5 Flächenschaden.",
 			"Rally: alle 1,4 s Sprungangriff, 16 Schaden – springt weiter zu einem zweiten Ziel.",
 			"Rally: alle 1,2 s Doppelsprung, 20 Schaden.",
 			"Rally: alle 1,0 s Doppelsprung, 24 Schaden – Sprünge betäuben kurz.",
@@ -29,8 +29,8 @@ const FORMS := {
 		"name": "Sporenwolke",
 		"icon_hint": "spore_cloud",
 		"ranks": [
-			"Sporen-Aura (3 m): 5 Schaden/s, Gegner werden verlangsamt.",
-			"Sporen-Aura (3,4 m): 8 Schaden/s, Gegner werden verlangsamt.",
+			"Sporen-Aura (3 m): 8 Schaden/s, Gegner werden verlangsamt.",
+			"Sporen-Aura (3,4 m): 9,5 Schaden/s, Gegner werden verlangsamt.",
 			"Große Sporen-Aura (4,4 m): 11,5 Schaden/s, Gegner werden verlangsamt.",
 			"Sporen-Aura (4,8 m): 14 Schaden/s.",
 			"Sporen-Aura (5,2 m): 17 Schaden/s – lähmt Gegner stark.",
@@ -40,8 +40,8 @@ const FORMS := {
 		"name": "Säurespucker",
 		"icon_hint": "acid_drop",
 		"ranks": [
-			"Alle 1,3 s ein Säureschuss auf den nächsten Gegner (9 m), 5 Schaden.",
-			"Alle 1,1 s ein Säureschuss, 7,5 Schaden.",
+			"Alle 1,1 s ein Säureschuss auf den nächsten Gegner (9 m), 7,5 Schaden.",
+			"Alle 1,0 s ein Säureschuss, 8,5 Schaden.",
 			"Alle 0,9 s zwei Säuresalven, je 10 Schaden.",
 			"Alle 0,8 s zwei Salven, je 12 Schaden.",
 			"Alle 0,7 s zwei Salven, je 14 Schaden – Säure durchschlägt ein weiteres Ziel.",
@@ -51,8 +51,8 @@ const FORMS := {
 		"name": "Stachelrücken",
 		"icon_hint": "spikes",
 		"ranks": [
-			"Wer den Schwarm trifft, erleidet 26 Schaden + 5 je verlorenem Mawling.",
-			"Rückstoß-Stacheln: 44 Schaden + 5 je verlorenem Mawling.",
+			"Wer den Schwarm trifft, erleidet 44 Schaden + 5 je verlorenem Mawling.",
+			"Rückstoß-Stacheln: 56 Schaden + 5 je verlorenem Mawling.",
 			"Rückstoß-Stacheln: 70 Schaden (+50 %) + 5 je verlorenem Mawling.",
 			"Rückstoß-Stacheln: 84 Schaden + 5 je verlorenem Mawling.",
 			"Rückstoß-Stacheln: 100 Schaden – eine Stachelsalve trifft 5 nahe Gegner.",
@@ -83,8 +83,8 @@ const FORMS := {
 		"name": "Gräber",
 		"icon_hint": "burrow",
 		"ranks": [
-			"Alle 2,6 s wühlt sich ein Tunnelstoß zum entferntesten Gegner (10 m) und bricht mit 10 Flächenschaden aus.",
-			"Alle 2,2 s ein Tunnelstoß (11 m), 14 Flächenschaden.",
+			"Alle 2,6 s wühlt sich ein Tunnelstoß zum entferntesten Gegner (10 m) und bricht mit 13 Flächenschaden aus.",
+			"Alle 2,2 s ein Tunnelstoß (11 m), 15 Flächenschaden.",
 			"Alle 2,0 s zwei Tunnelstöße (12 m), je 17 Flächenschaden.",
 			"Alle 1,8 s zwei Tunnelstöße, je 21 Flächenschaden.",
 			"Alle 1,6 s zwei Tunnelstöße, je 25 Schaden – jeder mit Nachbeben.",
@@ -94,8 +94,8 @@ const FORMS := {
 		"name": "Blitzbiss",
 		"icon_hint": "chain_bite",
 		"ranks": [
-			"Alle 1,6 s ein Kettenbiss: springt zwischen bis zu 3 nahen Gegnern oder Brut, 5,5 Schaden (−15 % je Sprung).",
-			"Alle 1,4 s ein Kettenbiss über bis zu 4 Ziele, 7,5 Schaden.",
+			"Alle 1,6 s ein Kettenbiss: springt zwischen bis zu 3 nahen Gegnern oder Brut, 7 Schaden (−15 % je Sprung).",
+			"Alle 1,4 s ein Kettenbiss über bis zu 4 Ziele, 8 Schaden.",
 			"Alle 1,3 s ein Kettenbiss über bis zu 6 Ziele, 9 Schaden.",
 			"Alle 1,2 s über bis zu 7 Ziele, 10,5 Schaden.",
 			"Alle 1,1 s über bis zu 8 Ziele, 12 Schaden – ohne Abschwächung.",
@@ -105,8 +105,8 @@ const FORMS := {
 		"name": "Brutsack",
 		"icon_hint": "brood_sac",
 		"ranks": [
-			"Alle 3,2 s platzt eine Brutblase am Schwarm und setzt 2 Hilfs-Beißer frei (je 4 Schaden).",
-			"Alle 2,8 s eine Brutblase mit 3 Hilfs-Beißern (je 5 Schaden).",
+			"Alle 3,2 s platzt eine Brutblase am Schwarm und setzt 2 Hilfs-Beißer frei (je 5 Schaden).",
+			"Alle 2,8 s eine Brutblase mit 3 Hilfs-Beißern (je 5,5 Schaden).",
 			"Alle 2,6 s zwei Brutblasen mit je 3 Hilfs-Beißern (je 6 Schaden).",
 			"Alle 2,4 s zwei Brutblasen mit je 4 Hilfs-Beißern (je 7 Schaden).",
 			"Alle 2,2 s zwei Brutblasen, je 4 Beißer (8 Schaden) – Beißer leben länger und jagen weiter.",
@@ -137,8 +137,8 @@ const FORMS := {
 		"name": "Klauenwirbel",
 		"icon_hint": "claw_orbit",
 		"ranks": [
-			"Zwei Knochenklingen kreisen um den Schwarm, je 6 Schaden pro Treffer.",
-			"Zwei Klingen, schneller, je 8 Schaden.",
+			"Zwei Knochenklingen kreisen um den Schwarm, je 8 Schaden pro Treffer.",
+			"Zwei Klingen, schneller, je 9 Schaden.",
 			"Drei Klingen kreisen um den Schwarm, je 9 Schaden.",
 			"Drei Klingen, je 11 Schaden.",
 			"Vier große Klingen, je 13 Schaden, weiter Kreis.",
@@ -148,8 +148,8 @@ const FORMS := {
 		"name": "Giftbiss",
 		"icon_hint": "venom_fang",
 		"ranks": [
-			"Alle 1,5 s schnappen Giftfänge nach 2 nahen Gegnern: 3 Schaden + Gift (4 Schaden/s, 3 s).",
-			"Alle 1,4 s nach 2 Gegnern: 4 Schaden + Gift (5 Schaden/s).",
+			"Alle 1,5 s schnappen Giftfänge nach 2 nahen Gegnern: 4 Schaden + Gift (5,5 Schaden/s, 3 s).",
+			"Alle 1,4 s nach 2 Gegnern: 4,5 Schaden + Gift (6 Schaden/s).",
 			"Alle 1,3 s nach 3 Gegnern: 5 Schaden + starkes Gift (7 Schaden/s, 4 s).",
 			"Alle 1,2 s nach 3 Gegnern: 6 Schaden + Gift (8 Schaden/s, 4 s).",
 			"Alle 1,1 s nach 4 Gegnern: 7 Schaden + Gift (10 Schaden/s) – Gift springt beim Tod über.",
@@ -159,8 +159,8 @@ const FORMS := {
 		"name": "Schallbrüller",
 		"icon_hint": "roar_cone",
 		"ranks": [
-			"Alle 2,4 s ein Schallkegel nach vorn (6 m): 8 Schaden, wirft Gegner zurück.",
-			"Alle 2,2 s ein Schallkegel (6,5 m): 10 Schaden.",
+			"Alle 2,4 s ein Schallkegel nach vorn (6 m): 10 Schaden, wirft Gegner zurück.",
+			"Alle 2,2 s ein Schallkegel (6,5 m): 11,5 Schaden.",
 			"Alle 2,0 s ein breiter Schallkegel (7 m): 13 Schaden, stößt weit zurück.",
 			"Alle 1,8 s ein breiter Schallkegel (7,5 m): 15 Schaden.",
 			"Alle 1,6 s ein doppelter Schallkegel nach vorn und hinten: 18 Schaden.",
@@ -189,8 +189,10 @@ const FORMS := {
 }
 const MAX_RANK := 5
 
-const RUDELBISS_INTERVAL := [2.2, 1.8, 1.4, 1.2, 1.0]
-const RUDELBISS_DAMAGE := [8.0, 12.0, 16.0, 20.0, 24.0]
+# Etappe 17 Welle 2: Rang 1 moderat angehoben (Startwaffe ohne Level-Ränge),
+# die Ränge 2-5 steigen weiter sichtbar.
+const RUDELBISS_INTERVAL := [1.8, 1.6, 1.4, 1.2, 1.0]
+const RUDELBISS_DAMAGE := [12.0, 14.5, 17.0, 20.5, 24.0]
 # Rang 3: +1 Sprungziel (der Sprung setzt vom ersten Ziel zum nächsten fort).
 const RUDELBISS_HOPS := [0, 0, 1, 1, 1]
 const RUDELBISS_RADIUS := 1.6
@@ -208,16 +210,16 @@ const MEUTE_RALLY_MULTIPLIER := 2.0
 
 # Etappe 17: Rang 3 +30 % Fläche, Rang 5 starke Verlangsamung.
 const SPORE_RADIUS := [3.0, 3.4, 4.4, 4.8, 5.2]
-const SPORE_DPS := [5.0, 8.0, 11.5, 14.0, 17.0]
+const SPORE_DPS := [8.0, 9.5, 11.5, 14.0, 17.0]
 const SPORE_SLOW := [0.6, 0.6, 0.6, 0.6, 0.35]
 const PILZ_RADIUS := 6.0
 const PILZ_DPS := 22.0
 const PILZ_SLOW := 0.35
 
-const SPIT_INTERVAL := [1.3, 1.1, 0.9, 0.8, 0.7]
+const SPIT_INTERVAL := [1.1, 1.0, 0.9, 0.8, 0.7]
 const SPIT_REACH := 9.0
 const SPIT_SPEED := 14.0
-const SPIT_DAMAGE := [5.0, 7.5, 10.0, 12.0, 14.0]
+const SPIT_DAMAGE := [7.5, 8.5, 10.0, 12.0, 14.0]
 # Rang 3: zwei Salven kurz nacheinander; Rang 5: durchschlägt ein weiteres Ziel.
 const SPIT_SALVOS := [1, 1, 2, 2, 2]
 const SPIT_SALVO_GAP := 0.16
@@ -231,7 +233,7 @@ const PUDDLE_RADIUS := 1.2
 const PUDDLE_DPS := 4.0
 
 # Rang 3: Rückschaden +50 %; Rang 5: Stachelsalve auf nahe Gegner.
-const SPINE_DAMAGE := [26.0, 44.0, 70.0, 84.0, 100.0]
+const SPINE_DAMAGE := [44.0, 56.0, 70.0, 84.0, 100.0]
 const SPINE_PER_LOSS := 5.0
 const SPINE_SECONDS := 0.42
 const SPINE_COUNT := 12
@@ -248,7 +250,7 @@ const WALL_SPINES := 20
 # Gräber: Tunnelstoß wandert unter der Erde zum entferntesten Ziel in Reichweite.
 const GRAEBER_INTERVAL := [2.6, 2.2, 2.0, 1.8, 1.6]
 const GRAEBER_REACH := [10.0, 11.0, 12.0, 12.5, 13.0]
-const GRAEBER_DAMAGE := [10.0, 14.0, 17.0, 21.0, 25.0]
+const GRAEBER_DAMAGE := [13.0, 15.0, 17.0, 21.0, 25.0]
 const GRAEBER_RADIUS := [1.6, 1.9, 2.1, 2.3, 2.5]
 # Rang 3: zwei Stöße; Rang 5: Nachbeben.
 const GRAEBER_TUNNELS := [1, 1, 2, 2, 2]
@@ -265,7 +267,7 @@ const BLITZ_REACH := 5.0
 const BLITZ_JUMP := 3.5
 # Rang 3: +2 Kettenziele; Rang 5: keine Abschwächung.
 const BLITZ_TARGETS := [3, 4, 6, 7, 8]
-const BLITZ_DAMAGE := [5.5, 7.5, 9.0, 10.5, 12.0]
+const BLITZ_DAMAGE := [7.0, 8.0, 9.0, 10.5, 12.0]
 const BLITZ_FALLOFF := 0.85
 const BOLT_SECONDS := 0.3
 const STORM_INTERVAL := 1.0
@@ -281,11 +283,11 @@ const SAC_SENSE := 7.0
 const SAC_OFFSET := 2.2
 const SAC_GROW := 0.55
 const SAC_BURST_RADIUS := 1.4
-const SAC_BURST_DAMAGE := [4.0, 5.0, 6.0, 7.0, 8.0]
+const SAC_BURST_DAMAGE := [5.0, 5.5, 6.0, 7.0, 8.0]
 # Rang 3: +1 Blase; Rang 5: Beißer leben länger (und jagen weiter).
 const SAC_COUNT := [1, 1, 2, 2, 2]
 const SAC_BITERS := [2, 3, 3, 4, 4]
-const SAC_BITE := [4.0, 5.0, 6.0, 7.0, 8.0]
+const SAC_BITE := [5.0, 5.5, 6.0, 7.0, 8.0]
 const BITER_REACH := 4.5
 const BITER_REACH_LONG := 6.5
 const BITER_SPEED := 8.0
@@ -298,7 +300,7 @@ const THORN_HORDE_COOLDOWN := 0.5
 # --- Etappe 17: neue Waffen ------------------------------------------------
 # Klauenwirbel: Klingen kreisen außen um den Schwarm.
 const CLAW_BLADES := [2, 2, 3, 3, 4]
-const CLAW_DAMAGE := [6.0, 8.0, 9.0, 11.0, 13.0]
+const CLAW_DAMAGE := [8.0, 9.0, 10.0, 11.5, 13.0]
 const CLAW_SPIN := [2.4, 2.8, 3.0, 3.3, 3.6]
 const CLAW_ORBIT := [1.2, 1.2, 1.3, 1.3, 1.7]
 const CLAW_SIZE := [1.0, 1.0, 1.1, 1.1, 1.35]
@@ -309,15 +311,15 @@ const CLAW_TRAIL := 3
 # Giftbiss: Giftfänge schnappen nach nahen Zielen, Gift als Schaden über Zeit.
 const GIFT_INTERVAL := [1.5, 1.4, 1.3, 1.2, 1.1]
 const GIFT_TARGETS := [2, 2, 3, 3, 4]
-const GIFT_BITE := [3.0, 4.0, 5.0, 6.0, 7.0]
-const GIFT_DPS := [4.0, 5.0, 7.0, 8.0, 10.0]
+const GIFT_BITE := [4.0, 4.5, 5.0, 6.0, 7.0]
+const GIFT_DPS := [5.5, 6.0, 7.0, 8.0, 10.0]
 const GIFT_SECONDS := [3.0, 3.0, 4.0, 4.0, 4.0]
 const GIFT_REACH := 2.4
 const GIFT_SPREAD := 3.5
 const SNAP_SECONDS := 0.3
 # Schallbrüller: Kegel zum nächsten Ziel, schiebt leichte Gegner zurück.
 const ROAR_INTERVAL := [2.4, 2.2, 2.0, 1.8, 1.6]
-const ROAR_DAMAGE := [8.0, 10.0, 13.0, 15.0, 18.0]
+const ROAR_DAMAGE := [10.0, 11.5, 13.0, 15.0, 18.0]
 const ROAR_REACH := [6.0, 6.5, 7.0, 7.5, 8.0]
 const ROAR_ANGLE := [0.61, 0.61, 0.87, 0.87, 0.87]
 const ROAR_PUSH := [1.2, 1.4, 1.8, 2.0, 2.2]
@@ -378,6 +380,13 @@ const SPORE_MOTES := 10
 
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
 const QUALITY = preload("res://scripts/quality.gd")
+# VFX-Paket V1: gepoolte Effekt-Sprites (Biss, Säure, Sporen, Schockwelle, Pickups).
+const VFX_SPRITES = preload("res://scripts/vfx_sprites.gd")
+# Kontaktbisse: höchstens ein Biss-Sprite je Intervall (klein -> groß werdender Schwarm).
+const CONTACT_FX_SLOW := 0.4
+const CONTACT_FX_FAST := 0.22
+const CONTACT_FX_REACH := 1.4
+const SPORE_FX_INTERVAL := 0.45
 
 const BITE_COLOR := Color(1.0, 0.62, 0.18)
 const LEAP_CORE := Color(1.0, 0.93, 0.55)
@@ -510,6 +519,11 @@ var _puff_batch: MultiMeshInstance3D
 var _mark_batch: MultiMeshInstance3D
 var _wall_batch: MultiMeshInstance3D
 var _dot_ring_batch: MultiMeshInstance3D
+var vfx: Node3D
+var _contact_fx_cd := 0.0
+var _brood_fx_cd := 0.0
+var _spore_fx_cd := 0.0
+var _contact_pick := 0
 
 
 func setup(world_node: Node3D, swarm_node: Node3D) -> void:
@@ -590,6 +604,11 @@ func step(delta: float, targets: Array, rally: bool, enemy_scale: float) -> void
 	_draw_extra()
 	_draw_new()
 	_step_rings(delta)
+	_contact_fx_cd = maxf(0.0, _contact_fx_cd - delta)
+	_brood_fx_cd = maxf(0.0, _brood_fx_cd - delta)
+	_spore_fx_cd = maxf(0.0, _spore_fx_cd - delta)
+	_brood_contact_fx(origin)
+	vfx.step(delta, origin)
 
 
 # Rückstoß für stachelruecken: sofortiger Schaden am Angreifer, Effekt läuft in step().
@@ -644,8 +663,12 @@ func clear() -> void:
 			entry.active = false
 			if entry.has("target"):
 				entry.target = null
+	_contact_fx_cd = 0.0
+	_brood_fx_cd = 0.0
+	_spore_fx_cd = 0.0
 	if not _built:
 		return
+	vfx.clear()
 	_draw_extra()
 	_draw_new(true)
 	_arc_root.visible = false
@@ -747,6 +770,78 @@ func on_kill(at: Vector3, burst: bool = false) -> void:
 		spore_burst(at)
 
 
+# --- VFX-Paket V1: Hooks aus HuntWorld (nur Optik, keine Spiellogik) --------
+
+## Kontaktbisse der Mawlings: HuntWorld meldet einmal je Schritt, ob ein Tier
+## gerade zubeißt. Gedrosselt zeigt ein Biss-Sprite am Körperrand eines Ziels
+## in Beißweite (reihum), nicht jeder Einzelbiss.
+func contact_fx(contact: bool) -> void:
+	if not contact or not _built or _contact_fx_cd > 0.0 or not VFX_SPRITES.enabled:
+		return
+	var origin := _swarm_position()
+	var reach := _swarm_radius() + CONTACT_FX_REACH
+	var close: Array = []
+	for target in _current:
+		if _valid_target(target) and _target_distance(target, origin) <= reach:
+			close.append(target)
+	if close.is_empty():
+		return
+	_contact_fx_cd = _contact_interval()
+	_contact_pick = (_contact_pick + 1) % close.size()
+	var target: Node3D = close[_contact_pick]
+	var at := _flat(target.global_position)
+	if target.has_method("body_distance"):
+		# Große Bosse: Biss am Körperrand zum Schwarm hin, nicht in der Körpermitte.
+		var toward := _flat(origin) - at
+		var rim := maxf(0.0, _flat_distance(at, origin) - float(target.body_distance(origin)))
+		at += toward.normalized() * rim if toward.length() > 0.05 else Vector3.ZERO
+	vfx.spawn("bite", at + Vector3(_rng.randf_range(-0.3, 0.3), 0.0, _rng.randf_range(-0.3, 0.3)))
+
+
+## Eingesammelte Kristalle (zusammengefasst je Schritt): Biomasse-Flecken am
+## Schwarmrand werden zur Mitte gezogen, DNA leuchtet über dem Schwarm auf.
+func pickup_fx(bio_crystals: int, dna_crystals: int) -> void:
+	if not _built or not VFX_SPRITES.enabled:
+		return
+	var origin := _flat(_swarm_position())
+	if bio_crystals > 0:
+		var angle := _rng.randf() * TAU
+		var edge := _swarm_radius() * 0.9 + 0.4
+		vfx.spawn("harvest", origin + Vector3(cos(angle), 0.0, sin(angle)) * edge, 0.85 + 0.1 * minf(4.0, float(bio_crystals - 1)))
+	if dna_crystals > 0:
+		# Am oberen Schwarmrand (Bildschirm oben = -Z), nicht auf Anführer und Krone.
+		var top := _swarm_radius() * 0.6 + 0.6
+		vfx.spawn("dna", origin + Vector3(_rng.randf_range(-0.8, 0.8), 0.0, -top), 1.0 + 0.08 * minf(3.0, float(dna_crystals - 1)))
+
+
+## Schwerer Aufprall eines Bosses (Bog-King-Stampf, Apex-Angriff) an `at`;
+## `radius` = Wirkradius der Warnfläche in Metern.
+func impact_fx(at: Vector3, radius: float) -> void:
+	if not _built or at == Vector3.INF:
+		return
+	vfx.spawn("shock", _flat(at), clampf(radius, 1.0, 8.0) * 2.2)
+
+
+# Flut: Bisse in die Moorbrut am Schwarmrand (die Horde meldet keinen Kontakt).
+func _brood_contact_fx(origin: Vector3) -> void:
+	if _brood_fx_cd > 0.0 or not VFX_SPRITES.enabled or not _has_horde():
+		return
+	var reach := _swarm_radius() + 0.9
+	var brood := _brood_near(origin, reach)
+	_brood_fx_cd = _contact_interval() * 1.3
+	if brood == Vector3.INF:
+		return
+	# Nicht immer das nächste Tier: ein zufälliger Punkt am Rand in Richtung Brut.
+	var toward := brood - _flat(origin)
+	var angle := atan2(toward.z, toward.x) + _rng.randf_range(-0.9, 0.9)
+	var edge := minf(toward.length(), _swarm_radius() + 0.3)
+	vfx.spawn("bite", _flat(origin) + Vector3(cos(angle), 0.0, sin(angle)) * edge, 0.9)
+
+
+func _contact_interval() -> float:
+	return lerpf(CONTACT_FX_SLOW, CONTACT_FX_FAST, clampf(float(_population()) / 150.0, 0.0, 1.0))
+
+
 ## Sporenwolke an `at` (Sporenherz, Pilzreich): kurzer Schaden über Zeit + Verlangsamung.
 func spore_burst(at: Vector3) -> void:
 	_build()
@@ -757,6 +852,7 @@ func spore_burst(at: Vector3) -> void:
 	entry.radius = _area(PUFF_RADIUS)
 	entry.dps = PUFF_DPS
 	_ring(entry.at, Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.9), 0.3, entry.radius * 1.1, 0.35, true)
+	vfx.spawn("spore", entry.at, entry.radius / 1.6)
 
 
 # --- Rudelbiss / Meute ---------------------------------------------------
@@ -831,6 +927,7 @@ func _advance_leap(delta: float, _rally: bool) -> void:
 		# Betäubung: ein weißer Doppelring zeigt den Stillstand.
 		_ring(_leap_to, Color(1.0, 1.0, 0.9, 0.9), _leap_radius * 0.3, _leap_radius * 0.8, 0.5)
 	var source := "meute" if rank("meute") > 0 else "rudelbiss"
+	vfx.spawn("bite", _leap_to, 1.35 if _leap_radius > RUDELBISS_RADIUS * 1.2 else 1.15)
 	for target in _targets_near(_leap_to, _leap_radius):
 		_hurt(target, _leap_damage, source)
 		_ignite(target)
@@ -886,11 +983,20 @@ func _step_spores(delta: float, origin: Vector3, living: Array) -> void:
 	var dps: float = (PILZ_DPS if realm else SPORE_DPS[level - 1]) * _enemy_scale
 	var slow: float = PILZ_SLOW if realm else SPORE_SLOW[level - 1]
 	var source := "pilzreich" if realm else "sporenwolke"
+	var puff_at := Vector3.INF
 	for target in living:
 		if _target_distance(target, origin) > radius:
 			continue
 		_hurt(target, dps * delta, source, true)
 		_want_slow(target, slow)
+		if puff_at == Vector3.INF or _rng.randf() < 0.35:
+			puff_at = _flat(target.global_position)
+	if _spore_fx_cd <= 0.0:
+		if puff_at == Vector3.INF and _has_horde():
+			puff_at = _brood_near(origin, radius)
+		if puff_at != Vector3.INF:
+			_spore_fx_cd = SPORE_FX_INTERVAL * (0.7 if realm else 1.0)
+			vfx.spawn("spore", puff_at, 0.55 if realm else 0.45)
 	if _has_horde():
 		horde.damage_circle(origin, radius, dps * delta)
 		_note_horde(source, dps * delta)
@@ -1054,6 +1160,7 @@ func _step_projectiles(delta: float, living: Array) -> void:
 			_hurt(entry.target, entry.damage, source)
 			entry.hit.append(entry.target.get_instance_id())
 			_ring(hit_point, Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.85), 0.15, 0.9, 0.25)
+			vfx.spawn("acid", hit_point)
 			if rank("aetzflut") > 0:
 				_spawn_puddle(hit_point)
 			# Rang 5 / Ätzflut: die Säure schlägt durch und fliegt zum nächsten Ziel weiter.
@@ -1073,6 +1180,7 @@ func _step_projectiles(delta: float, living: Array) -> void:
 			if struck != Vector3.INF:
 				_note_horde(source, entry.damage)
 				_ring(struck, Color(ACID_COLOR.r, ACID_COLOR.g, ACID_COLOR.b, 0.85), 0.15, 0.9, 0.25)
+				vfx.spawn("acid", struck)
 				if rank("aetzflut") > 0:
 					_spawn_puddle(struck)
 		entry.active = false
@@ -1322,6 +1430,7 @@ func _erupt(at: Vector3, damage: float, radius: float, source: String) -> void:
 		_note_horde(source, damage)
 	_ring(at, Color(EARTH_LIGHT.r, EARTH_LIGHT.g, EARTH_LIGHT.b, 0.95), radius * 0.5, radius * 1.1, 0.42, true)
 	_ring(at, Color(EARTH_COLOR.r, EARTH_COLOR.g, EARTH_COLOR.b, 0.9), 0.2, radius * 0.75, 0.3, true)
+	vfx.spawn("shock", at, radius * 1.5)
 	var entry: Dictionary = _take(_eruptions, MAX_ERUPTIONS, _make_eruption)
 	entry.active = true
 	entry.age = 0.0
@@ -1666,6 +1775,9 @@ func _snap(at: Vector3, origin: Vector3) -> void:
 	var facing := at - _flat(origin)
 	entry.dir = facing.normalized() if facing.length() > 0.05 else Vector3.FORWARD
 	_ring(at, Color(VENOM_COLOR.r, VENOM_COLOR.g, VENOM_COLOR.b, 0.85), 0.15, 1.0, 0.28)
+	# Giftbiss: Biss plus kleiner Giftspritzer (Säure-Sprite in Giftgrün).
+	vfx.spawn("bite", at, 0.9)
+	vfx.spawn("acid", at, 0.55)
 
 
 func _poison(target: Node3D, dps: float, seconds: float, spread: bool) -> void:
@@ -1715,6 +1827,7 @@ func _step_roar(delta: float, origin: Vector3, living: Array) -> void:
 
 func _cone(origin: Vector3, dir: Vector3, reach: float, angle: float, damage: float, push: float, living: Array) -> void:
 	var cos_limit := cos(angle)
+	var struck := 0
 	for target in living:
 		var offset := _flat(target.global_position) - origin
 		var distance := _target_distance(target, origin)
@@ -1724,6 +1837,9 @@ func _cone(origin: Vector3, dir: Vector3, reach: float, angle: float, damage: fl
 		if along.dot(dir) < cos_limit and offset.length() > 1.0:
 			continue
 		_hurt(target, damage, "schallbrueller")
+		if struck < 3:
+			struck += 1
+			vfx.spawn("shock", _flat(target.global_position), 1.6)
 		_slow_for(target, 0.5, ROAR_STAGGER)
 		_push(target, along * push * (1.0 - 0.4 * clampf(distance / reach, 0.0, 1.0)))
 	if _has_horde():
@@ -2536,6 +2652,8 @@ func _build() -> void:
 	_spine_batch = _batch(_spine_root, _spike_mesh, SPINE_COUNT, "Spines", true, false)
 	_spine_batch.visible = true
 	_build_extra(density)
+	vfx = VFX_SPRITES.create()
+	add_child(vfx)
 
 
 func _glow_material(tint: Color, transparent: bool) -> StandardMaterial3D:

@@ -18,7 +18,8 @@ const GRID := 2.8                   # placement grid (10 cells per 28 m chunk)
 const PER_CHUNK := 10
 const DEPTH := 30.0                 # decorated depth beyond the playable edge
 const SEGMENT := 36.0               # edge length with one character
-const WAVE_MAX := 2.6               # front line waves 0..WAVE_MAX m outwards (< BORDER_INSET)
+# Stage 18c follow-up: the visible front stays within 0.3 m of the collision edge.
+const WAVE_MAX := 0.3               # front line waves 0..WAVE_MAX m outwards (< BORDER_INSET)
 const BAND_Y := 0.009
 const FOG_LOW_Y := 1.2
 const FOG_HIGH_Y := 5.0
@@ -41,6 +42,8 @@ var crust_material: StandardMaterial3D
 var skirt: MeshInstance3D
 # Instance colour of the prop being placed: darkens towards the fog with depth.
 var _tint := Color.WHITE
+# Stage 19: the Dürrschlund builds dunes, sandstone, bones and cacti.
+var _desert := false
 # Placed props per chunk key (revisits only rebuild the MultiMeshes); cleared
 # with every new layout or biome.
 var _cache: Dictionary = {}
@@ -59,7 +62,8 @@ func _init(owner: Node3D) -> void:
 	skirt_material = StandardMaterial3D.new()
 	skirt_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	water_material = StandardMaterial3D.new()
-	water_material.roughness = 0.3
+	# Rough enough that the sun does not glare white off whole swamp walls.
+	water_material.roughness = 0.65
 	water_material.vertex_color_use_as_albedo = true
 	shore_material = StandardMaterial3D.new()
 	shore_material.roughness = 0.95
@@ -226,6 +230,7 @@ func segments() -> Array:
 func build(chunk: Node3D, key: Vector2i) -> void:
 	var origin := chunk.position
 	var ember: bool = arena._ember_look()
+	_desert = arena._desert_look()
 	var groups: Dictionary = _cache.get(key, {})
 	if groups.is_empty():
 		groups = _place_all(key, origin, ember)
@@ -263,7 +268,10 @@ func _place_all(key: Vector2i, origin: Vector3, ember: bool) -> Dictionary:
 			var kind := _kind(side, info.y + (arena._unit(ix, iz, 1972) - 0.5) * 9.0)
 			_tint = _shade(depth)
 			var local := Vector3(wx - origin.x, 0.0, wz - origin.z)
+			_fit = 2
+			_origin = origin
 			_place(groups, ember, kind, side, depth, local, ix, iz)
+			_fit = 0
 	return groups
 
 
@@ -286,6 +294,9 @@ func _place(groups: Dictionary, ember: bool, kind: int, side: int, depth: float,
 	var along_yaw := (PI * 0.5 if side == Side.NORTH or side == Side.SOUTH else 0.0) + (roll - 0.5) * 0.5
 	if depth > 14.0 and roll < 0.35:
 		return  # deep in the fog: thinner
+	if _desert:
+		_place_desert(groups, kind, depth, local, roll, size_roll, yaw, tall)
+		return
 	match kind:
 		Kind.THICKET:
 			if depth < 2.5:
@@ -375,6 +386,54 @@ func _place(groups: Dictionary, ember: bool, kind: int, side: int, depth: float,
 				_rock(groups, local, Vector3(3.0, 2.6 * tall, 2.8) * (0.9 + size_roll * 0.3), yaw)
 
 
+# Dürrschlund edge: THICKET = high dune ridges (the rock model in sand colour,
+# flat and wide), CLIFF = rust sandstone blocks with standing slabs, WATER =
+# the dune sea (flat sand discs). Tall parts stay behind, low ones in front.
+func _place_desert(groups: Dictionary, kind: int, depth: float, local: Vector3, roll: float, size_roll: float, yaw: float, tall: float) -> void:
+	match kind:
+		Kind.THICKET:
+			if depth < 2.5:
+				_dune(groups, local, Vector3(2.6, 0.7, 2.3) * (0.9 + size_roll * 0.4), yaw)
+			elif depth < 10.0:
+				_dune(groups, local, Vector3(4.6, 1.6 * tall, 4.0) * (0.9 + size_roll * 0.3), yaw)
+			else:
+				_dune(groups, local, Vector3(6.2, 2.6 * tall, 5.4) * (0.9 + size_roll * 0.3), yaw)
+		Kind.CLIFF:
+			if depth < 1.8:
+				_sandstone(groups, local, Vector3(1.4, 1.0, 1.3) * (0.8 + size_roll * 0.5), yaw)
+			else:
+				var height := (2.4 + size_roll * 1.8) * tall * (1.0 + clampf(depth / 16.0, 0.0, 0.5))
+				_sandstone(groups, local, Vector3(3.2 + roll * 1.4, height, 3.0 + size_roll * 1.4), yaw)
+				if depth > 4.0 and roll > 0.7:
+					_slab(groups, local, 3.6 + size_roll * 1.2, height * 1.1, yaw)
+		_:
+			if depth < 11.0:
+				var size := 2.5 + size_roll * 0.7
+				_disc(groups, "shore", arena.shore_mesh, shore_material, local + Vector3(0, 0.014, 0), size * 1.05)
+				_disc(groups, "water", arena.pool_mesh, water_material, local + Vector3(0, 0.022, 0), size)
+			else:
+				_dune(groups, local, Vector3(5.6, 2.2 * tall, 5.0) * (0.9 + size_roll * 0.3), yaw)
+
+
+func _dune(groups: Dictionary, local: Vector3, size: Vector3, yaw: float) -> void:
+	_add(groups, "dune", arena.rock_mesh, arena.rock_base, arena.dune_material, local + Vector3(0, -0.1 * size.y, 0), size, yaw)
+
+
+func _sandstone(groups: Dictionary, local: Vector3, size: Vector3, yaw: float) -> void:
+	_add(groups, "sandstone", arena.rock_mesh, arena.rock_base, arena.sandstone_material, local + Vector3(0, -0.1 * size.y, 0), size, yaw)
+
+
+# Standing sandstone slab (the flat SandstoneCliff model on its edge), `length`
+# along its long side, stretched to `height`.
+func _slab(groups: Dictionary, local: Vector3, length: float, height: float, yaw: float) -> void:
+	var part: Array = arena.desert_part("sandstone")
+	var mesh: Mesh = part[0]
+	var base: Transform3D = part[1]
+	var box: AABB = Transform3D(base.basis, Vector3.ZERO) * mesh.get_aabb()
+	var scale := length / maxf(0.01, maxf(box.size.x, box.size.z))
+	_add(groups, "slab", mesh, base, arena.sandstone_material, local, Vector3(scale, height / maxf(0.01, box.size.y), scale), yaw)
+
+
 func _leaf(groups: Dictionary, local: Vector3, size: float, yaw: float, tall: float) -> void:
 	_add(groups, "leaf", arena.leaf_mesh, arena.leaf_base, arena.leaf_material, local, Vector3(size, size * tall, size), yaw)
 
@@ -404,6 +463,17 @@ func _mushroom(groups: Dictionary, local: Vector3, size: float, yaw: float) -> v
 
 func _log(groups: Dictionary, local: Vector3, material: Material, size: float, yaw: float) -> void:
 	_add(groups, "log %d" % material.get_instance_id(), arena.log_mesh, arena.log_base, material, local, arena.LOG_SIZE * size, yaw)
+
+
+# Pale weathered stone for ruin walls (Verdant; created once).
+var _ruin: ShaderMaterial
+func _ruin_material() -> ShaderMaterial:
+	if _ruin == null:
+		_ruin = (arena.rock_material as ShaderMaterial).duplicate()
+		arena.fade_materials.append(_ruin)
+		_ruin.set_shader_parameter("body_tint", Color(0.78, 0.72, 0.6, 0.55))
+		_ruin.set_shader_parameter("brightness", 1.05)
+	return _ruin
 
 
 # Upright tree trunk (log model standing), any material.
@@ -443,7 +513,59 @@ static func _rest(mesh: Mesh, shape: Basis, local: Vector3) -> Transform3D:
 	return Transform3D(shape, local + Vector3(-box.get_center().x, -box.position.y, -box.get_center().z))
 
 
+# Stage 18c follow-up ("collision = look"): while a fit mode is set, a prop's
+# footprint (its oriented bounding box: edge midpoints within 0.3 m, corners
+# within 0.8 m for the rounded models) must lie inside the collision - the wall
+# (mode 1, layout wall distance) or beyond the map edge (mode 2). Too big props
+# shrink step by step (height too); what ends up smaller than MIN_PROP is left
+# out, so no tiny pieces stand at a wall.
+const MIN_PROP := 0.75
+var _fit := 0
+var _origin := Vector3.ZERO
+
+
+func _outside(x: float, z: float) -> float:
+	if _fit == 1:
+		return arena.layout.sample(x, z)
+	return -arena.edge_distance(Vector3(x, 0.0, z))
+
+
+func _fits(mesh: Mesh, placed: Transform3D) -> bool:
+	var box := mesh.get_aabb()
+	var lo := box.position
+	var hi := box.end
+	for u in [0.0, 0.5, 1.0]:
+		for v in [0.0, 0.5, 1.0]:
+			if u == 0.5 and v == 0.5:
+				continue
+			var corner: bool = u != 0.5 and v != 0.5
+			var local := Vector3(lerpf(lo.x, hi.x, float(u)), lo.y, lerpf(lo.z, hi.z, float(v)))
+			var world := placed * local + _origin
+			if _outside(world.x, world.z) > (0.8 if corner else 0.3):
+				return false
+	return true
+
+
 func _append(groups: Dictionary, id: String, mesh: Mesh, material: Material, placed: Transform3D) -> void:
+	if _fit != 0 and not _fits(mesh, placed):
+		var box: AABB = placed * mesh.get_aabb()
+		var middle := Vector3(box.get_center().x, 0.0, box.get_center().z)
+		var lift := placed.origin.y - _rest(mesh, placed.basis, middle).origin.y
+		var half := maxf(box.size.x, box.size.z) * 0.5
+		var fitted := false
+		for step in 6:
+			half *= 0.8
+			if half < MIN_PROP:
+				break
+			var shape := Basis.from_scale(Vector3.ONE * pow(0.8, step + 1)) * placed.basis
+			var trial := _rest(mesh, shape, middle)
+			trial.origin.y += lift * pow(0.8, step + 1)
+			if _fits(mesh, trial):
+				placed = trial
+				fitted = true
+				break
+		if not fitted:
+			return
 	if not groups.has(id):
 		groups[id] = [mesh, material, []]
 	(groups[id][2] as Array).append([placed, _tint])
@@ -478,7 +600,7 @@ static func _multimesh(chunk: Node3D, id: String, mesh: Mesh, material: Material
 const WALL_PER_CHUNK := 12
 const WALL_GRID := 28.0 / 12.0
 const WALL_ZONE := 46.0             # size of one wall character patch
-enum Wall { THICKET, CLIFF, ROOTS, WATER, RUIN, TREE }
+enum Wall { THICKET, CLIFF, ROOTS, WATER, RUIN, TREE, PILLAR }
 var _wall_cache: Dictionary = {}
 var _heights: Dictionary = {}
 
@@ -536,6 +658,14 @@ func _mesh_height(mesh: Mesh, base: Transform3D) -> float:
 
 func _place_walls(key: Vector2i, origin: Vector3, ember: bool, layout: RefCounted) -> Dictionary:
 	var groups := {}
+	_desert = arena._desert_look()
+	# Exploration map: walls from the grid cells (see _cell_walls).
+	if layout.get("kind") != null:
+		_fit = 0
+		_cell_walls(groups, key, origin, ember, layout)
+		if _desert:
+			_rib_cages(groups, key, origin, layout)
+		return groups
 	for gz in WALL_PER_CHUNK:
 		for gx in WALL_PER_CHUNK:
 			var ix := key.x * WALL_PER_CHUNK + gx
@@ -562,7 +692,10 @@ func _place_walls(key: Vector2i, origin: Vector3, ember: bool, layout: RefCounte
 			var kind: int = layout.kind_at(wx, wz) if layout.has_method("kind_at") else wall_kind(wx + jitter, wz - jitter)
 			_tint = _shade(depth * 1.3 + 1.0)
 			var tangent := atan2(slope.x, -slope.y)
+			_fit = 1
+			_origin = origin
 			_place_wall(groups, ember, kind, depth, Vector3(wx - origin.x, 0.0, wz - origin.z), ix, iz, cap, tangent)
+			_fit = 0
 	return groups
 
 
@@ -657,10 +790,20 @@ func _place_wall(groups: Dictionary, ember: bool, kind: int, depth: float, local
 				_wall_leaf(groups, local, 3.0 + size_roll * 1.2, yaw, cap)
 			else:
 				_log(groups, local, arena.log_material, 1.0 + size_roll * 0.3, along)
+		Wall.RUIN, Wall.PILLAR:
+			return  # built from the grid cells (_masonry)
 		Wall.RUIN:
-			# Broken walls: box-like blocks along the wall, rubble in front.
-			var stone: Material = arena.basalt_material if ember else arena.rock_material
-			if depth < 1.2:
+			# Broken walls: pale box-like blocks along the wall, rubble in front.
+			var stone: Material = arena.basalt_material if ember else _ruin_material()
+			if depth >= -0.3:
+				# Every point of the thin wall carries an overlapping block along the
+				# wall line, so the outline (corners, door gaps) reads continuous.
+				var rock_h := maxf(0.01, _mesh_height(arena.rock_mesh, arena.rock_base))
+				var wall_h := minf(cap, 1.8 + size_roll * 1.6) / rock_h
+				_add(groups, "ruin", arena.rock_mesh, arena.rock_base, stone, local, Vector3(3.2, wall_h, 2.1), tangent + (roll - 0.5) * 0.12)
+				if roll > 0.82:
+					_add(groups, "ruin", arena.rock_mesh, arena.rock_base, stone, local + Vector3(cos(yaw) * 1.8, 0.0, sin(yaw) * 1.8), Vector3(0.9, 0.6, 0.8), yaw)
+			elif depth < 0.25:
 				if roll < 0.6:
 					_add(groups, "ruin", arena.rock_mesh, arena.rock_base, stone, local, Vector3(1.0, 0.7, 0.9) * (0.8 + size_roll * 0.5), yaw)
 				elif not ember:
@@ -670,6 +813,14 @@ func _place_wall(groups: Dictionary, ember: bool, kind: int, depth: float, local
 				_add(groups, "ruin", arena.rock_mesh, arena.rock_base, stone, local, Vector3(2.5, block, 1.5), tangent + (roll - 0.5) * 0.2)
 				if not ember and roll > 0.8:
 					_wall_leaf(groups, local + Vector3(0.6, 0.0, 0.5), 1.6 + size_roll * 0.5, yaw, cap)
+		Wall.PILLAR:
+			# Broken column: a tall narrow shaft, a fallen drum beside it.
+			var column: Material = arena.basalt_material if ember else _ruin_material()
+			var rock_h := maxf(0.01, _mesh_height(arena.rock_mesh, arena.rock_base))
+			var tall := minf(cap, 2.6 + size_roll * 2.2) / rock_h
+			_add(groups, "ruin", arena.rock_mesh, arena.rock_base, column, local, Vector3(1.25, tall, 1.25), yaw)
+			if roll > 0.45:
+				_add(groups, "ruin", arena.rock_mesh, arena.rock_base, column, local + Vector3(cos(yaw) * 1.6, 0.0, sin(yaw) * 1.6), Vector3(1.1, 0.8, 1.9), yaw + 1.2)
 		Wall.TREE:
 			# Tree groups of the light forest: trunks with a leaf crown, bushes in front.
 			if depth < 0.9 or cap < 2.6:
@@ -717,6 +868,178 @@ func _place_wall(groups: Dictionary, ember: bool, kind: int, depth: float, local
 				_wall_rock(groups, local, Vector3(3.0, 2.6, 2.8) * (0.9 + size_roll * 0.3), yaw, cap)
 
 
+# Stage 18c follow-up ("big, clear obstacles; collision = look"): on the
+# exploration map every blocked 2 m grid cell carries one big element of its
+# wall character - rock block, bush mass, tree, water, masonry - sized to its
+# cell, so the walls are continuous, have no loose small bits and end exactly
+# at the collision edge. Taller inside, low on the camera side (open ground to
+# the north), deep inside thinner (the dark floor carries it).
+var _block_mesh: BoxMesh
+var _masonry_material: ShaderMaterial
+
+func _mesh_width(mesh: Mesh, base: Transform3D) -> float:
+	var box: AABB = Transform3D(base.basis, Vector3.ZERO) * mesh.get_aabb()
+	return maxf(0.01, maxf(box.size.x, box.size.z))
+
+
+func _cell_walls(groups: Dictionary, key: Vector2i, origin: Vector3, ember: bool, layout: RefCounted) -> void:
+	if _block_mesh == null:
+		_block_mesh = BoxMesh.new()
+	var nav: float = layout.NAV
+	var grid: int = layout.grid
+	var grid_origin: Vector2 = layout.grid_origin
+	var lo := Vector2i(floori((key.x * 28.0 - grid_origin.x) / nav), floori((key.y * 28.0 - grid_origin.y) / nav))
+	var cells := int(round(28.0 / nav))
+	var kinds: PackedByteArray = layout.kind
+	var closed: PackedByteArray = layout.blocked
+	var rock_w := _mesh_width(arena.rock_mesh, arena.rock_base)
+	var rock_h := _mesh_height(arena.rock_mesh, arena.rock_base)
+	var leaf_w := _mesh_width(arena.leaf_mesh, arena.leaf_base)
+	var leaf_h := _mesh_height(arena.leaf_mesh, arena.leaf_base)
+	for dz in cells:
+		for dx in cells:
+			var ix := lo.x + dx
+			var iz := lo.y + dz
+			if ix < 1 or iz < 1 or ix >= grid - 1 or iz >= grid - 1:
+				continue
+			var index := iz * grid + ix
+			if closed[index] == 0:
+				continue
+			var cx: float = grid_origin.x + (float(ix) + 0.5) * nav
+			var cz: float = grid_origin.y + (float(iz) + 0.5) * nav
+			if arena.edge_distance(Vector3(cx, 0.0, cz)) > -2.5:
+				continue
+			var depth: float = -float(layout.sdf[index])
+			var roll: float = arena._unit(ix, iz, 3300)
+			var yaw: float = arena._unit(ix, iz, 3301) * TAU
+			var inner := closed[index - 1] == 1 and closed[index + 1] == 1 and closed[index - grid] == 1 and closed[index + grid] == 1
+			var camera_side := closed[index - grid] == 0
+			if depth > 9.0 and roll < 0.5:
+				continue
+			var local := Vector3(cx - origin.x, 0.0, cz - origin.z)
+			_tint = _shade(depth * 1.3 + 1.0)
+			var type: int = kinds[index]
+			if _desert:
+				_desert_cell(groups, type, local, roll, yaw, inner, camera_side, nav, origin)
+				continue
+			match type:
+				Wall.RUIN, Wall.PILLAR:
+					var height := (3.4 + roll * 1.4) if type == Wall.PILLAR else (1.5 + roll * 1.3)
+					if camera_side:
+						height = minf(height, 1.8)
+					_tint = Color("4a4046").lerp(Color("5c5157"), roll) if ember else Color("8f8676").lerp(Color("aaa08a"), roll)
+					_append(groups, "masonry", _block_mesh, _masonry(ember), Transform3D(Basis.from_scale(Vector3(nav, height, nav)), local + Vector3(0.0, height * 0.5, 0.0)))
+				Wall.CLIFF:
+					var height := (2.2 + roll * 1.6) if inner else (1.4 + roll * 0.8)
+					if camera_side:
+						height = minf(height, 1.4)
+					var footprint := nav * 1.35
+					_add(groups, "basalt" if ember else "rock", arena.rock_mesh, arena.rock_base, arena.basalt_material if ember else arena.rock_material, local, Vector3(footprint / rock_w, height / rock_h, footprint / rock_w), yaw)
+				Wall.WATER:
+					if ember:
+						_disc(groups, "crust", arena.shore_mesh, crust_material, local + Vector3(0, 0.016, 0), 1.25)
+						if inner and roll > 0.93:
+							_disc(groups, "lava", arena.pool_mesh, arena.lava_material, local + Vector3(0, 0.024, 0), 0.9)
+					else:
+						_disc(groups, "shore", arena.shore_mesh, shore_material, local + Vector3(0, 0.014, 0), 1.2)
+						_disc(groups, "water", arena.pool_mesh, water_material, local + Vector3(0, 0.022, 0), 1.15 if inner else 0.95)
+				Wall.TREE:
+					if inner and roll < 0.55:
+						var height := minf(4.2 + roll * 2.0, 1.6 if camera_side else 99.0)
+						_trunk(groups, local, arena.char_material if ember else arena.log_material, 1.2, height, yaw)
+						if not ember and height > 3.0:
+							_add(groups, "leaf", arena.leaf_mesh, arena.leaf_base, arena.leaf_material, local + Vector3(0.0, height * 0.72, 0.0), Vector3.ONE * (nav * 1.5 / leaf_w), yaw)
+					elif ember:
+						_add(groups, "basalt", arena.rock_mesh, arena.rock_base, arena.basalt_material, local, Vector3(nav * 1.3 / rock_w, 0.9 / rock_h, nav * 1.3 / rock_w), yaw)
+					else:
+						_add(groups, "leaf", arena.leaf_mesh, arena.leaf_base, arena.leaf_material, local, Vector3(nav * 1.4 / leaf_w, minf(1.3, 2.0) / leaf_h, nav * 1.4 / leaf_w), yaw)
+				_:
+					# Thicket and root walls: one dense bush (charred stump) per cell,
+					# logs lying in the inside of root walls.
+					var height := (2.0 + roll * 1.2) if inner else 1.4
+					if camera_side:
+						height = minf(height, 1.3)
+					if ember:
+						_stump(groups, local, nav * 1.1, height, yaw)
+					elif type == Wall.ROOTS and inner and roll < 0.3:
+						_log(groups, local, arena.log_material, 0.55, yaw)
+					else:
+						_add(groups, "leaf", arena.leaf_mesh, arena.leaf_base, arena.leaf_material, local, Vector3(nav * 1.45 / leaf_w, height / leaf_h, nav * 1.45 / leaf_w), yaw)
+
+
+# Stage 19 (Dürrschlund): one big element per blocked cell, like the green
+# map - sandstone block (CLIFF, standing slabs inside), oasis water with a
+# green rim (WATER), a cactus (CACTUS); rib cells stay empty (one RibBones model
+# per cage, _rib_cages). Collision = look: every piece is checked against the
+# wall distance (fit mode 1) and shrinks or drops when it would stick out.
+func _desert_cell(groups: Dictionary, type: int, local: Vector3, roll: float, yaw: float, inner: bool, camera_side: bool, nav: float, origin: Vector3) -> void:
+	var rock_w := _mesh_width(arena.rock_mesh, arena.rock_base)
+	var rock_h := _mesh_height(arena.rock_mesh, arena.rock_base)
+	match type:
+		Wall.CLIFF:
+			var height := (2.4 + roll * 1.8) if inner else (1.5 + roll * 0.8)
+			if camera_side:
+				height = minf(height, 1.4)
+			var footprint := nav * 1.35
+			_add(groups, "sandstone", arena.rock_mesh, arena.rock_base, arena.sandstone_material, local, Vector3(footprint / rock_w, height / rock_h, footprint / rock_w), yaw)
+			if inner and not camera_side and roll < 0.28:
+				_fit = 1
+				_origin = origin
+				_slab(groups, local, nav * 2.2, height + 1.2, yaw)
+				_fit = 0
+		Wall.WATER:
+			# Inner discs overlap the cell corners (no shore showing through).
+			_disc(groups, "oasis shore", arena.shore_mesh, arena.shore_material, local + Vector3(0, 0.014, 0), 1.35 if inner else 1.15)
+			_disc(groups, "oasis", arena.pool_mesh, arena.water_material, local + Vector3(0, 0.022, 0), 1.5 if inner else 0.95)
+		8:  # map_explore.KIND_CACTUS
+			var part: Array = arena.desert_part("cactus")
+			var mesh: Mesh = part[0]
+			var base: Transform3D = part[1]
+			var width := _mesh_width(mesh, base)
+			var high := _mesh_height(mesh, base)
+			var size := nav * 1.5 / width
+			var height := size * high * (1.5 if inner else 1.05)
+			if camera_side:
+				height = minf(height, 1.5)
+			_add(groups, "cactus", mesh, base, arena.cactus_material, local, Vector3(size, height / high, size), yaw)
+		7:  # map_explore.KIND_RIB: the cage model covers it
+			pass
+		_:
+			_add(groups, "sandstone", arena.rock_mesh, arena.rock_base, arena.sandstone_material, local, Vector3(nav * 1.35 / rock_w, 1.6 / rock_h, nav * 1.35 / rock_w), yaw)
+
+
+# One RibBones model per intact rib cage whose centre lies in this chunk,
+# stretched over the stamped block (fit-checked against the wall distance).
+func _rib_cages(groups: Dictionary, key: Vector2i, origin: Vector3, layout: RefCounted) -> void:
+	var cages: Variant = layout.get("ribs")
+	if not cages is Array:
+		return
+	var part: Array = arena.desert_part("ribs")
+	var mesh: Mesh = part[0]
+	var base: Transform3D = part[1]
+	var box: AABB = Transform3D(base.basis, Vector3.ZERO) * mesh.get_aabb()
+	for cage in cages:
+		var center: Vector3 = cage.center
+		if floori(center.x / 28.0) != key.x or floori(center.z / 28.0) != key.y:
+			continue
+		var scale := float(cage.length) / maxf(0.01, box.size.z)
+		_tint = Color.WHITE
+		_fit = 1
+		_origin = origin
+		_add(groups, "ribs", mesh, base, arena.bone_material, center - origin, Vector3(scale, scale * 1.15, scale), float(cage.yaw))
+		_fit = 0
+
+
+# Stone material of the masonry blocks (instance colours carry the stone).
+func _masonry(ember: bool) -> Material:
+	if ember:
+		return arena.basalt_material
+	if _masonry_material == null:
+		_masonry_material = (arena.rock_material as ShaderMaterial).duplicate()
+		_masonry_material.set_shader_parameter("body_tint", Color(0.72, 0.68, 0.6, 0.35))
+		arena.fade_materials.append(_masonry_material)
+	return _masonry_material
+
 # Leaf clump with its height limited to `cap` metres.
 func _wall_leaf(groups: Dictionary, local: Vector3, size: float, yaw: float, cap: float) -> void:
 	var height := size * _mesh_height(arena.leaf_mesh, arena.leaf_base)
@@ -732,27 +1055,34 @@ func _wall_rock(groups: Dictionary, local: Vector3, size: Vector3, yaw: float, c
 
 # Dark forest floor under the walls (fully dark 1 m behind the wall line,
 # darker still deep inside); transparent on open ground.
+# Finer grid than the props: the edge of the dark floor follows the collision.
+const FLOOR_PER_CHUNK := 24
+
+
 func _wall_floor(chunk: Node3D, key: Vector2i, layout: RefCounted) -> void:
 	# Glutsumpf: the ember ground is dark itself, so its walls go darker still.
 	var floor_color: Color = look.floor if not arena._ember_look() else (look.fog as Color).lerp(look.floor, 0.3)
 	var deep: Color = floor_color.lerp(look.fog, 0.45)
-	var count := WALL_PER_CHUNK + 1
+	var count := FLOOR_PER_CHUNK + 1
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var colors: Array[Color] = []
 	var points: Array[Vector3] = []
 	for gz in count:
 		for gx in count:
-			var wx := key.x * 28.0 + float(gx) * WALL_GRID
-			var wz := key.y * 28.0 + float(gz) * WALL_GRID
+			var wx := key.x * 28.0 + float(gx) * 28.0 / FLOOR_PER_CHUNK
+			var wz := key.y * 28.0 + float(gz) * 28.0 / FLOOR_PER_CHUNK
 			var depth: float = -layout.sample(wx, wz)
 			var color := floor_color.lerp(deep, smoothstep(4.0, 18.0, depth))
-			color.a = smoothstep(-0.8, 0.9, depth) * 0.96
+			# A dark contact shadow right at the collision edge (the border reads
+			# as "solid here"), sharp towards the open ground.
+			color = color.darkened(0.45 * (1.0 - smoothstep(0.0, 1.6, depth)))
+			color.a = smoothstep(-0.35, 0.25, depth) * 0.97
 			colors.append(color)
 			points.append(Vector3(wx - chunk.position.x, 0.012, wz - chunk.position.z))
 	var quads := 0
-	for gz in WALL_PER_CHUNK:
-		for gx in WALL_PER_CHUNK:
+	for gz in FLOOR_PER_CHUNK:
+		for gx in FLOOR_PER_CHUNK:
 			var a := gz * count + gx
 			var corners := [a, a + 1, a + count + 1, a + count]
 			var visible := false

@@ -9,7 +9,7 @@ Two tribe portraits are recoloured to their strain tint (see TRIBES).
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 SRC = Path(r"C:\Users\vrxby\Documents\Codex\Swarm\Design\UI_Assets_V2")
 OUT = Path(__file__).resolve().parent
@@ -17,15 +17,28 @@ OUT = Path(__file__).resolve().parent
 # strain id -> (portrait, recolour: (hue_lo, hue_hi, target_hue, sat_mul, val_mul) or None)
 TRIBES = {
     "glutmaw": ("base_mawling", None),
-    "sporling": ("harvester", (15, 50, 330, 0.8, 1.0)),       # orange carapace -> spore pink
-    "knochenkiefer": ("bulk", (35, 80, 42, 0.3, 1.3)),         # olive plates -> bone ivory
+    "sporling": ("tribe_sporling", None),
+    "knochenkiefer": ("tribe_knochenkiefer", None),
     "flinkzahn": ("leaper", None),
     "aetzmaul": ("spitter", None),
-    "nachtmaul": ("ripper", (330, 25, 285, 0.7, 0.6)),         # red -> night violet
+    "nachtmaul": ("tribe_nachtmaul", None),
 }
-BOSSES = {"bog_king": "bog_king"}
+BOSSES = {"bog_king": "bog_king", "moosschlund": "moosschlund", "ash_toad": "ash_toad", "apex_sandworm": "portrait_apex_sandworm"}
+# Head crops of the tribe portraits for the swarm icon (mawling_head_<strain>,
+# finished by assets/ui/v4/build_icons_v4.py). Values in 448-px portrait
+# units: (centre x, centre y, radius) of a soft circular bust mask; the head's
+# own painted outline stays inside, the body is cut by the circle.
+HEADS = {
+    "glutmaw": (165, 148, 145),
+    "sporling": (215, 175, 158),
+    "knochenkiefer": (210, 185, 160),
+    "flinkzahn": (185, 155, 135),
+    "aetzmaul": (178, 160, 142),
+    "nachtmaul": (205, 180, 158),
+}
+HEAD_SIZE = 512
 ICONS = {
-    "Attacks": ["acid_spit", "spore_burst", "sickle_slash", "slam", "swarm_wave", "leap"],
+    "Attacks": ["bite", "acid_spit", "spore_burst", "sickle_slash", "slam", "swarm_wave", "leap", "brood_sac", "spikeback"],
     "Evolutions": ["hunger_mass", "razor_offense", "carapace_survival", "mutation_special"],
     "Facilities": ["brood_nest", "curse_totem"],
     "Currencies": ["dna", "biomass"],
@@ -59,6 +72,26 @@ def save(image, name, colours=0):
         image = image.quantize(colours, method=Image.FASTOCTREE, dither=Image.FLOYDSTEINBERG)
     image.save(path, optimize=True)
     print(f"{name}: {image.size[0]}x{image.size[1]}, {path.stat().st_size // 1024} KB")
+
+
+def head_crop(strain):
+    """Square head crop of a tribe portrait from the full-size source, masked
+    by a soft circle, recoloured like the portrait, HEAD_SIZE px."""
+    file, spec = TRIBES[strain]
+    image = Image.open(SRC / "Portraits" / "Tribes" / f"{file}.png").convert("RGBA")
+    k = max(image.size) / 448.0
+    cx, cy, r = (v * k for v in HEADS[strain])
+    box = tuple(int(round(v)) for v in (cx - r, cy - r, cx + r, cy + r))
+    image = image.crop(box)
+    mask = Image.new("L", image.size, 0)
+    ImageDraw.Draw(mask).ellipse([cx - r - box[0], cy - r - box[1], cx + r - box[0], cy + r - box[1]], fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(2.0))
+    alpha = np.minimum(np.array(image.getchannel("A")), np.array(mask))
+    image.putalpha(Image.fromarray(alpha))
+    image = image.resize((HEAD_SIZE, HEAD_SIZE), Image.LANCZOS)
+    if spec:
+        image = recolour(image, spec)
+    return image
 
 
 def app_icons():
@@ -110,6 +143,8 @@ def main():
         if spec:
             image = recolour(image, spec)
         save(image, f"tribes/{strain}.png")
+    for strain in HEADS:
+        save(head_crop(strain), f"heads/{strain}.png")
     for boss, file in BOSSES.items():
         save(fit(Image.open(SRC / "Portraits" / "Bosses" / f"{file}.png").convert("RGBA"), (256, 256)), f"bosses/{boss}.png")
     for folder, names in ICONS.items():

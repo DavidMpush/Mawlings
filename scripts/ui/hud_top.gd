@@ -385,7 +385,7 @@ func _draw_swarm(rect: Rect2) -> void:
 	var head_c := rect.position + Vector2(52, 52)
 	if _pop_pulse > 0.0 and not UiStyle.is_calm():
 		_cv.draw_circle(head_c, 40 + 8 * _pop_pulse + 10 * hurt, Color(pulse_color, 0.25 * _pop_pulse + 0.2 * hurt))
-	var head_ids := ["v2_population"] if UiStyle.is_calm() else ["mawling_head_color", "mawling_head"]
+	var head_ids := ["v2_population"] if UiStyle.is_calm() else [_strain_head(), "mawling_head_color", "mawling_head"]
 	var head_r := 34.0 if UiStyle.is_calm() else 40.0
 	if not _icon(head_ids, Rect2(head_c - Vector2(head_r, head_r), Vector2(head_r, head_r) * 2.0), Color.WHITE):
 		_fb_head(head_c, 36, UiStyle.color("ember"))
@@ -439,7 +439,7 @@ func _draw_time(rect: Rect2) -> void:
 	elif _paint == "time_skull":
 		if UiStyle.is_calm() and _icon(["v2_threat"], Rect2(skull_c - Vector2(21, 21), Vector2(42, 42)), Color.WHITE):
 			return
-		if not _icon(["skull"], Rect2(skull_c - Vector2(24, 24), Vector2(48, 48)), Color.WHITE.lerp(UiStyle.color("amber"), 0.5 * (1.0 - fraction))):
+		if not _icon(["pressure", "skull"], Rect2(skull_c - Vector2(24, 24), Vector2(48, 48)), Color.WHITE.lerp(UiStyle.color("amber"), 0.5 * (1.0 - fraction))):
 			_fb_skull(skull_c, 17, color)
 
 
@@ -676,6 +676,7 @@ func _draw_medallions(y: float) -> void:
 # per element, repainted only when its values change).
 
 const BRAWL_LAYERS := [
+	["xp", false, Rect2()],
 	["leader", false, Rect2()],
 	["swarm", true, Rect2()],
 	["time_glow", false, Rect2()],
@@ -686,6 +687,7 @@ const BRAWL_LAYERS := [
 	["boss", true, Rect2()],
 	["context", true, Rect2()],
 	["medals", true, Rect2()],
+	["boosts", false, Rect2()],
 ]
 const B_TOP := 28.0
 const B_PILL_H := 80.0
@@ -699,6 +701,13 @@ const CONTEXT_H := 50.0
 const CONTEXT_QUEUE := 3
 const CONTEXT_STALE := 4.0
 const MEDAL_SIZE := 64.0
+# Etappe 17 Welle 2: relic strip under the weapons, power-up row under the swarm pill.
+const RELIC_SIZE := 42.0
+const RELIC_GAP := 10.0
+const RELIC_COLS := 2
+const RELIC_MAX := 8
+const BOOST_SIZE := 50.0
+const BOOST_GAP := 12.0
 
 var _b_swarm := Rect2()
 var _b_time := Rect2()
@@ -730,7 +739,9 @@ func _paint_brawl(part: String) -> void:
 		"time":
 			_b_draw_time()
 		"dna":
-			_b_draw_dna()
+			_b_draw_amber()
+		"xp":
+			_b_draw_xp()
 		"alpha":
 			_b_draw_alpha()
 		"pause":
@@ -744,6 +755,8 @@ func _paint_brawl(part: String) -> void:
 			_b_draw_context()
 		"medals":
 			_b_draw_medals()
+		"boosts":
+			_b_draw_boosts()
 
 
 func _brawl_layout() -> void:
@@ -801,7 +814,7 @@ func _brawl_refresh() -> void:
 	_region("medals", Rect2(size.x - MEDAL_SIZE - 56, _b_medal_y - 12, MEDAL_SIZE + 56, maxf(1.0, size.y - _b_medal_y)))
 	_refresh_leader()
 	var shaking := _pop_pulse > 0.0 and _pop_delta < 0
-	_layers.swarm.refresh([pop, _pop_delta, _pop_pulse, int(_time * 60.0) if shaking else 0, _b_swarm])
+	_layers.swarm.refresh([pop, _pop_delta, _pop_pulse, int(_time * 60.0) if shaking else 0, _b_swarm, _strain_head(), _leader_hp(), _leader_max_hp()])
 	_layers.time.refresh([int(float(_hud_value("elapsed", 0.0))), danger_q, _b_time])
 	var glow: Control = _layers.time_glow
 	glow.visible = hot > 0.0
@@ -811,8 +824,14 @@ func _brawl_refresh() -> void:
 	var dna_key: Array = [_level(), _level_pulse, _b_dna]
 	if evo != null:
 		dna_key.append_array([int(evo.get("dna")), int(evo.threshold()), bool(evo.complete())])
+	dna_key.append(int(_hud_value("amber", 0)))
 	_layers.dna.refresh(dna_key)
 	_layers.pause.refresh([_b_pause_c, _b_pause_r])
+	# XP bar (Welle 2): thin violet strip over the full width, no numbers.
+	var xp: Control = _layers.xp
+	xp.visible = not extinct
+	if xp.visible:
+		xp.refresh([_xp_fill(), _level_pulse, size, _xp_top()])
 	var cores := int(_hud_value("alpha_cores", 0))
 	var alpha: Control = _layers.alpha
 	alpha.visible = cores > 0
@@ -833,7 +852,15 @@ func _brawl_refresh() -> void:
 	var medals: Control = _layers.medals
 	medals.visible = not extinct
 	if medals.visible:
-		medals.refresh([_medal_key(evo), _b_medal_y, size])
+		medals.refresh([_medal_key(evo), _relic_key(evo), _b_medal_y, size])
+	var boosts: Control = _layers.boosts
+	var active := _boost_list()
+	boosts.visible = not extinct and not active.is_empty()
+	if boosts.visible:
+		var boost_key: Array = [_b_boost_origin(), _b_boost_limit()]
+		for entry: Dictionary in active:
+			boost_key.append([String(entry.id), int(float(entry.fraction) * 90.0), float(entry.left) <= 1.5 and int(_time * 6.0) % 2 == 0])
+		boosts.refresh(boost_key)
 
 
 # Collects context events and advances the one visible line.
@@ -911,8 +938,9 @@ func _b_draw_swarm() -> void:
 	var plate_tone: Variant = "ember"
 	if hurt > 0.0:
 		plate_tone = (UiStyle.brawl_tone("ember")["face"] as Color).lerp(danger["face"], hurt)
-	Kit.icon_plate(_cv, plate_c, B_PLATE, plate_tone)
-	_icon(["mawling_head", "mawling_head_color"], Rect2(Kit.plate_center(plate_c, B_PLATE) - Vector2(24, 24), Vector2(48, 48)), Color.WHITE)
+	# The painted strain portrait head on a dark plate (turns red while hurt).
+	Kit.icon_plate(_cv, plate_c, B_PLATE, plate_tone if hurt > 0.0 else "dark")
+	_icon([_strain_head(), "mawling_head_color"], Rect2(Kit.plate_center(plate_c, B_PLATE) - Vector2(26, 26), Vector2(52, 52)), Color.WHITE)
 	var x := plate_c.x + B_PLATE * 0.5 + 10.0
 	var pulse_color: Color = action["light"] if gain else danger["light"]
 	var at := Vector2(x, cy)
@@ -921,15 +949,18 @@ func _b_draw_swarm() -> void:
 	elif hurt > 0.0:
 		at.x += sin(_time * 70.0) * 6.0 * hurt
 	var room := rect.end.x - 18.0 - x
-	var w := Kit.number(_cv, at, pop, UiStyle.T_HEAD, Color.WHITE.lerp(pulse_color, _pop_pulse * 0.7), Kit.LEFT | Kit.MIDDLE, room * 0.62)
-	var tail := Vector2(x + w + 6.0, cy + 4.0)
+	# Etappe 17b: no limit any more - the count stands alone, short from 10.000 ("12,3k").
+	at.y -= 7.0
+	var w := Kit.number(_cv, at, short_count(pop), UiStyle.T_HEAD, Color.WHITE.lerp(pulse_color, _pop_pulse * 0.7), Kit.LEFT | Kit.MIDDLE, room * 0.62)
+	var tail := Vector2(x + w + 6.0, cy - 3.0)
 	if _pop_pulse > 0.0 and _pop_delta != 0:
-		# Change pulse ("+7" / "−12") takes the place of "/250", then settles back.
-		var text := "%s%d" % ["+" if gain else "−", absi(_pop_delta)]
+		# Change pulse ("+7" / "−12") next to the count, then settles back.
+		var text := "%s%s" % ["+" if gain else "−", short_count(absi(_pop_delta))]
 		var rise := (1.0 - _pop_pulse) * 8.0
 		Kit.number(_cv, tail - Vector2(0, 4.0 + rise), text, UiStyle.T_BODY, Color(pulse_color, minf(1.0, _pop_pulse * 1.8)), Kit.LEFT | Kit.MIDDLE, rect.end.x - 16.0 - tail.x)
-	else:
-		Kit.text_outlined(_cv, tail, "/%d" % MAX_POPULATION, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.LEFT | Kit.MIDDLE, rect.end.x - 16.0 - tail.x)
+	# Etappe 17c: the leader's LP as a small strip along the pill.
+	var hp_rect := Rect2(x, rect.end.y - 24.0, rect.end.x - 22.0 - x, 12.0)
+	_hp_strip(hp_rect, _leader_hp(), _leader_max_hp())
 
 
 func _b_draw_time() -> void:
@@ -992,7 +1023,10 @@ func _b_draw_context() -> void:
 	Kit.text_outlined(_cv, Vector2(plate_c.x + plate_size * 0.5 + 10.0, rect.get_center().y), String(_ctx_current[0]), UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
 
 
-# Owned attack forms as plates down the right edge, rank as three pips.
+# Owned weapons as plates down the right edge, rank 1-5 as five pips (gold at
+# rank 5); an evolved weapon glows violet and carries an EVO chip. Under them
+# the relic strip (Etappe 17 Welle 2): small square plates in RELIC_COLS
+# columns with a stack badge, at most RELIC_MAX (the last one shows "+N").
 func _b_draw_medals() -> void:
 	var hud := get_parent()
 	var c := Vector2(size.x - 16.0 - MEDAL_SIZE * 0.5, _b_medal_y + MEDAL_SIZE * 0.5)
@@ -1002,16 +1036,185 @@ func _b_draw_medals() -> void:
 		var tone: Variant = "special"
 		if not evolved:
 			tone = _b_tone(hud._mutation_color(id)) if hud != null and hud.has_method("_mutation_color") else "ember"
+		if evolved:
+			Kit.glow(_cv, c, MEDAL_SIZE * 0.95, "special", 0.75)
 		Kit.icon_plate(_cv, c, MEDAL_SIZE, tone)
-		if not _icon([id], Rect2(Kit.plate_center(c, MEDAL_SIZE) - Vector2(24, 24), Vector2(48, 48)), Color.WHITE):
+		if not _icon([_item_icon(id), id], Rect2(Kit.plate_center(c, MEDAL_SIZE) - Vector2(24, 24), Vector2(48, 48)), Color.WHITE):
 			Kit.text_outlined(_cv, Kit.plate_center(c, MEDAL_SIZE), id.left(1).to_upper(), UiStyle.T_BODY, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
-		if not evolved:
+		if evolved:
+			var chip := Rect2(c + Vector2(-26.0, MEDAL_SIZE * 0.5 - 8.0), Vector2(52.0, 24.0))
+			Kit.chip(_cv, chip, "special")
+			Kit.text_outlined(_cv, chip.get_center(), "EVO", UiStyle.T_LABEL - 4, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+		else:
 			var light: Color = UiStyle.brawl_tone(tone)["light"]
-			for i in 3:
-				var p := c + Vector2(-17.0 + 17.0 * i, MEDAL_SIZE * 0.5 + 5.0)
-				Kit.disc(_cv, p, 8.0, UiStyle.BRAWL_INK)
-				Kit.disc(_cv, p, 5.0, light if i < int(entry[1]) else UiStyle.BRAWL_WELL)
+			var rank := int(entry[1])
+			var fill: Color = UiStyle.brawl_tone("loot")["light"] if rank >= 5 else light
+			for i in 5:
+				var p := c + Vector2(-24.0 + 12.0 * i, MEDAL_SIZE * 0.5 + 5.0)
+				Kit.disc(_cv, p, 6.5, UiStyle.BRAWL_INK)
+				Kit.disc(_cv, p, 4.0, fill if i < rank else UiStyle.BRAWL_WELL)
 		c.y += MEDAL_SIZE + 28.0
+	var relics := _relic_key(_evolution())
+	if relics.is_empty():
+		return
+	var shown := mini(relics.size(), RELIC_MAX)
+	var right := size.x - 16.0
+	var top_y := c.y - MEDAL_SIZE * 0.5 - 4.0
+	for index in shown:
+		var col := index % RELIC_COLS
+		var row := index / RELIC_COLS
+		var rc := Vector2(right - RELIC_SIZE * 0.5 - float(RELIC_COLS - 1 - col) * (RELIC_SIZE + RELIC_GAP), top_y + RELIC_SIZE * 0.5 + float(row) * (RELIC_SIZE + RELIC_GAP))
+		var entry: Array = relics[index]
+		Kit.icon_plate(_cv, rc, RELIC_SIZE, String(entry[2]), "square")
+		if index == RELIC_MAX - 1 and relics.size() > RELIC_MAX:
+			Kit.text_outlined(_cv, Kit.plate_center(rc, RELIC_SIZE), "+%d" % (relics.size() - RELIC_MAX + 1), UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+			continue
+		var id := String(entry[0])
+		if not _icon([_item_icon(id), id], Rect2(Kit.plate_center(rc, RELIC_SIZE) - Vector2(15, 15), Vector2(30, 30)), Color.WHITE):
+			Kit.text_outlined(_cv, Kit.plate_center(rc, RELIC_SIZE), id.left(1).to_upper(), UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+		if int(entry[1]) > 1:
+			Kit.badge(_cv, rc + Vector2(RELIC_SIZE * 0.4, RELIC_SIZE * 0.36), str(int(entry[1])), "dark", 16)
+
+
+# Head icon of the played strain (cut from its painted portrait, ui_icons.strain_head).
+func _strain_head() -> String:
+	var strain := String(_hud_value("strain_id", ""))
+	if strain != "" and _lib_has(_icons, "strain_head"):
+		return String(_icons.call("strain_head", strain))
+	return "mawling_head_color"
+
+
+# Existing icon for an item id (evolution.icon_id maps new ids to old icons).
+func _item_icon(id: String) -> String:
+	var evo := _evolution()
+	if evo != null and evo.has_method("icon_id"):
+		return String(evo.icon_id(id))
+	return id
+
+
+# Owned relics [id, stacks, rarity tone] in catalogue order.
+func _relic_key(evo: Object) -> Array:
+	if evo == null or not evo.has_method("stacks"):
+		return []
+	var table: Variant = evo.get("RELICS")
+	if not table is Array:
+		return []
+	var tones := {"common": "neutral", "rare": "info", "epic": "special", "legendary": "loot"}
+	var key: Array = []
+	for row in table:
+		var stacks := int(evo.stacks(String(row[0])))
+		if stacks > 0:
+			key.append([String(row[0]), stacks, String(tones.get(String(row[3]) if row.size() > 3 else "common", "neutral"))])
+	return key
+
+
+# Active power-ups from HuntWorld (HUD meta "arsenal_world").
+func _boost_list() -> Array:
+	var state: Variant = _hud_value("arsenal_world", {})
+	if state is Dictionary:
+		return (state as Dictionary).get("active", [])
+	return []
+
+
+func _b_boost_origin() -> Vector2:
+	var left := _b_left_x()
+	return Vector2(left + BOOST_SIZE * 0.5 + (6.0 if left > 16.0 else 4.0), _b_swarm.end.y + 16.0 + BOOST_SIZE * 0.5)
+
+
+func _b_boost_limit() -> float:
+	return maxf(_b_boost_origin().x + BOOST_SIZE, _b_time.position.x - 8.0)
+
+
+# Power-up row under the swarm pill: plate + icon in the booster tone, a ring
+# timer around it (white arc = time left), blinking in the last 1.5 s.
+func _b_draw_boosts() -> void:
+	var origin := _b_boost_origin()
+	var limit := _b_boost_limit()
+	var c := origin
+	for entry: Dictionary in _boost_list():
+		if c.x + BOOST_SIZE * 0.5 > limit and c.x > origin.x:
+			c = Vector2(origin.x, c.y + BOOST_SIZE + BOOST_GAP + 6.0)
+		var tone := String(entry.get("tone", "neutral"))
+		var fraction := clampf(float(entry.get("fraction", 0.0)), 0.0, 1.0)
+		var blink := float(entry.get("left", 0.0)) <= 1.5 and int(_time * 6.0) % 2 == 0
+		var ring_r := BOOST_SIZE * 0.5 + 6.0
+		Kit.disc(_cv, c + Vector2(0, 3), ring_r + 3.0, UiStyle.BRAWL_INK_SOFT)
+		Kit.disc(_cv, c, ring_r + 3.0, UiStyle.BRAWL_INK)
+		Kit.circle_ring(_cv, c, ring_r, 5.0, UiStyle.BRAWL_WELL)
+		if fraction > 0.0:
+			var arc_color: Color = UiStyle.brawl_tone("danger")["light"] if blink else UiStyle.brawl_tone(tone)["light"].lerp(Color.WHITE, 0.45)
+			_cv.draw_arc(c, ring_r - 0.5, -PI * 0.5, -PI * 0.5 + TAU * fraction, maxi(8, int(48.0 * fraction)), arc_color, 5.0, true)
+		Kit.icon_plate(_cv, c, BOOST_SIZE, tone)
+		if not _icon([String(entry.get("icon", "")), String(entry.get("id", ""))], Rect2(Kit.plate_center(c, BOOST_SIZE) - Vector2(17, 17), Vector2(34, 34)), Color(1, 1, 1, 0.55 if blink else 1.0)):
+			Kit.text_outlined(_cv, Kit.plate_center(c, BOOST_SIZE), String(entry.get("id", "?")).left(1).to_upper(), UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+		c.x += BOOST_SIZE + BOOST_GAP + 12.0
+
+
+# Etappe 17 Welle 2 - Bernstein pill (right): gold plate + Bernstein count with
+# German thousands dots; the level sits as a small violet badge on the plate.
+# The DNA number is gone - experience shows as the thin violet XP bar on top.
+func _b_draw_amber() -> void:
+	var rect := _b_dna
+	var evo := _evolution()
+	var level := _level()
+	var maxed := evo != null and bool(evo.complete())
+	var amber := int(_hud_value("amber", 0))
+	var loot: Dictionary = UiStyle.brawl_tone("loot")
+	if _level_pulse > 0.0:
+		Kit.ring(_cv, rect.grow(6), rect.size.y * 0.5 + 6.0, 7.0, Color(UiStyle.brawl_tone("special")["light"], 0.9 * _level_pulse))
+	Kit.pill(_cv, rect)
+	var plate_c := Vector2(rect.position.x + B_PLATE * 0.5 + 2.0, rect.get_center().y)
+	Kit.icon_plate(_cv, plate_c, B_PLATE, "loot")
+	if not _icon(["amber", "currency_amber", "crown_tooth"], Rect2(Kit.plate_center(plate_c, B_PLATE) - Vector2(24, 24), Vector2(48, 48)), Color.WHITE):
+		Kit.disc(_cv, Kit.plate_center(plate_c, B_PLATE), 16.0, loot["light"])
+	var x0 := plate_c.x + B_PLATE * 0.5 + 10.0
+	var x1 := rect.end.x - 20.0
+	Kit.number(_cv, Vector2(x0, rect.get_center().y), amber, UiStyle.T_HEAD, (loot["light"] as Color).lerp(Color.WHITE, 0.35), Kit.LEFT | Kit.MIDDLE, x1 - x0)
+	if level <= 0 and not maxed:
+		return
+	var badge_size := UiStyle.T_BODY if _level_pulse > 0.4 else UiStyle.T_LABEL
+	Kit.badge(_cv, plate_c + Vector2(-B_PLATE * 0.36, B_PLATE * 0.34), "MAX" if maxed else str(level), "special", badge_size)
+
+
+## XP fill 0..1 (DNA towards the next level; 1 when every stat is maxed).
+func _xp_fill() -> float:
+	var evo := _evolution()
+	if evo == null:
+		return 0.0
+	if bool(evo.complete()):
+		return 1.0
+	return clampf(float(evo.get("dna")) / maxf(1.0, float(evo.threshold())), 0.0, 1.0)
+
+
+## Top edge of the XP bar: below the display's safe area (notch).
+func _xp_top() -> float:
+	var safe := DisplayServer.get_display_safe_area()
+	var screen := DisplayServer.screen_get_size()
+	var window := DisplayServer.window_get_size()
+	if screen.y <= 0 or window.y <= 0 or safe.size.y <= 0 or window.y < screen.y - 2:
+		return 0.0
+	return clampf(float(safe.position.y) * size.y / float(screen.y), 0.0, 80.0)
+
+
+const XP_H := 10.0
+
+
+# Thin violet strip across the full width (Kit tone special), no numbers; it
+# flashes on a level-up.
+func _b_draw_xp() -> void:
+	var top := _xp_top()
+	var track := Rect2(0.0, top, size.x, XP_H)
+	var special: Dictionary = UiStyle.brawl_tone("special")
+	_cv.draw_rect(track, Color(UiStyle.BRAWL_WELL, 0.85))
+	var fill := _xp_fill()
+	if fill > 0.0:
+		var bar := Rect2(track.position, Vector2(track.size.x * fill, XP_H))
+		_cv.draw_rect(bar, special["face"])
+		_cv.draw_rect(Rect2(bar.position, Vector2(bar.size.x, 3.0)), Color(special["light"], 0.9))
+		_cv.draw_rect(Rect2(bar.end.x - 3.0, bar.position.y, 3.0, XP_H), Color(Color.WHITE, 0.8))
+	_cv.draw_rect(Rect2(0.0, track.end.y, size.x, 2.0), Color(UiStyle.BRAWL_INK, 0.8))
+	if _level_pulse > 0.0:
+		_cv.draw_rect(track.grow(2.0), Color(special["light"], 0.6 * _level_pulse))
 
 
 # ---------------------------------------------------------------- boss stack (package H)
@@ -1271,7 +1474,9 @@ func _refresh_leader() -> void:
 	var hit := float(_leader.get("hit_age", 99.0))
 	var broke := float(_leader.get("pip_break_age", 99.0))
 	var moving := jump < 1.0 or hit < 0.5 or broke < PIP_BREAK_SECONDS
-	layer.refresh([hp, max_hp, int(_time * 60.0) if moving else 0, jump < 1.0])
+	var heal: Variant = _hud_value("leader_heal", {})
+	var healing: bool = heal is Dictionary and float(heal.get("age", 99.0)) < 0.9
+	layer.refresh([hp, max_hp, int(_time * 60.0) if moving or healing or (max_hp > 0 and hp * 4 < max_hp) else 0, jump < 1.0])
 	# Invulnerable: the whole marker blinks through modulate (no repaint).
 	var blink := bool(_hud_value("leader_invulnerable", _leader.get("invulnerable", false)))
 	layer.modulate = Color(1, 1, 1, 0.35 if blink and fmod(_time * 7.0, 1.0) < 0.5 else 1.0)
@@ -1285,46 +1490,92 @@ func _leader_max_hp() -> int:
 	return int(_hud_value("leader_max_hp", _leader.get("max_hp", 0)))
 
 
-# Crown above hit point pips, drawn around the layer origin (the leader's head).
-# Backing and pips are quads of ONE shared disc texture (batched into a single
-# draw call); the crown is the icon texture, so the marker costs ~2 draw calls.
+# Etappe 17c: crown above a health bar in the enemy-bar style (green -> yellow ->
+# red with the share of LP), a white chunk fades where the last hit took LP, a
+# small green "+N" rises when the leader heals (Lebensraub, Regeneration).
 func _draw_leader() -> void:
 	if _leader.is_empty():
 		return
 	var hp := _leader_hp()
-	var max_hp := mini(_leader_max_hp(), 8)
+	var max_hp := maxi(1, _leader_max_hp())
 	var hit := float(_leader.get("hit_age", 99.0))
 	var shake := Vector2.ZERO
 	if hit < 0.4:
 		var k := 1.0 - hit / 0.4
 		shake = Vector2(sin(_time * 80.0) * 6.0 * k, cos(_time * 67.0) * 3.0 * k)
-	var row_w := LEADER_PIP_GAP * float(maxi(0, max_hp - 1))
-	var pip_y := 0.0
-	var disc := _disc_texture()
-	if max_hp > 0:
-		# Dark backing keeps the pips readable over grass and sand.
-		var half := Vector2(row_w * 0.5 + LEADER_PIP_R + 14, LEADER_PIP_R + 10)
-		_cv.draw_texture_rect(disc, Rect2(shake - half, half * 2.0), false, Color(UiStyle.color("outline"), 0.7))
-		for i in max_hp:
-			var c := Vector2(-row_w * 0.5 + LEADER_PIP_GAP * i, pip_y) + shake
-			_pip(disc, c, i < hp, hit < 0.3 and i == hp - 1)
-		var broken := int(_leader.get("pip_broken", -1))
-		var broke := float(_leader.get("pip_break_age", 99.0))
-		if broken >= 0 and broken < max_hp and broke < PIP_BREAK_SECONDS:
-			_broken_pip(Vector2(-row_w * 0.5 + LEADER_PIP_GAP * broken, pip_y) + shake, broke / PIP_BREAK_SECONDS)
+	var bar := Rect2(Vector2(-LEADER_BAR_W * 0.5, -LEADER_BAR_H * 0.5) + shake, Vector2(LEADER_BAR_W, LEADER_BAR_H))
+	var before := int(_leader.get("pip_broken", -1))
+	var broke := float(_leader.get("pip_break_age", 99.0))
+	_hp_bar(bar, hp, max_hp, before if broke < PIP_BREAK_SECONDS else -1, broke / PIP_BREAK_SECONDS)
+	var heal: Variant = _hud_value("leader_heal", {})
+	if heal is Dictionary and int(heal.get("amount", 0)) > 0 and float(heal.get("age", 99.0)) < 0.9:
+		var t := float(heal.age) / 0.9
+		var at := Vector2(LEADER_BAR_W * 0.5 + 10.0, -6.0 - 22.0 * t) + shake
+		Kit.text_outlined(_cv, at, "+%d" % int(heal.amount), UiStyle.T_LABEL, Color(UiStyle.brawl_tone("action")["light"], 1.0 - t * t), -1, -1, null, Kit.LEFT | Kit.MIDDLE)
 	# Crown: jumps in an arc from the fallen leader to its successor.
-	var crown := Vector2(0, pip_y - (LEADER_PIP_R + 24 if max_hp > 0 else 6))
+	var crown := Vector2(0, bar.position.y - 20.0)
 	var jump := float(_leader.get("jump", 1.0))
 	var scale := 1.0
+	var disc := _disc_texture()
 	if jump < 1.0:
 		var from := _crown_from_screen - _leader_screen + crown
 		crown = from.lerp(crown, _ease(jump)) + Vector2(0, -70.0 * sin(PI * jump))
 		scale = 1.0 + 0.5 * sin(PI * jump)
 		var glow := Vector2(34, 34) * scale
 		_cv.draw_texture_rect(disc, Rect2(crown - glow, glow * 2.0), false, Color(UiStyle.color("gold"), 0.3 * (1.0 - jump)))
-	var r := 28.0 * scale
+	var r := 24.0 * scale
 	if not _icon(["crown"], Rect2(crown - Vector2(r, r), Vector2(r, r) * 2.0), Color.WHITE):
-		_crown(crown, 20.0 * scale)
+		_crown(crown, 18.0 * scale)
+
+
+const LEADER_BAR_W := 92.0
+const LEADER_BAR_H := 14.0
+
+
+## Health colour: green (full) -> yellow (half) -> red (critical).
+static func hp_color(share: float) -> Color:
+	var green := Color("5fe03a")
+	var yellow := Color("ffd23a")
+	var red := Color("ff3b4a")
+	if share >= 0.5:
+		return yellow.lerp(green, (share - 0.5) / 0.5)
+	return red.lerp(yellow, clampf((share - 0.2) / 0.3, 0.0, 1.0))
+
+
+# Enemy-bar style: ink frame, dark track, coloured fill with a top gloss and
+# (optionally) the white chunk of the last hit fading out.
+func _hp_bar(rect: Rect2, hp: int, max_hp: int, before: int = -1, chunk_t: float = 1.0) -> void:
+	var share := clampf(float(hp) / float(maxi(1, max_hp)), 0.0, 1.0)
+	Kit.rrect(_cv, rect.grow(3.0), rect.size.y * 0.5 + 3.0, UiStyle.BRAWL_INK)
+	Kit.rrect(_cv, rect, rect.size.y * 0.5, UiStyle.BRAWL_WELL)
+	if before > hp and chunk_t < 1.0:
+		var from := clampf(float(before) / float(maxi(1, max_hp)), 0.0, 1.0)
+		var chunk := Rect2(rect.position.x + rect.size.x * share, rect.position.y, rect.size.x * (from - share), rect.size.y)
+		_cv.draw_rect(chunk, Color(1, 1, 1, 0.85 * (1.0 - chunk_t)))
+	if share > 0.0:
+		var fill := Rect2(rect.position, Vector2(maxf(rect.size.y, rect.size.x * share), rect.size.y))
+		var color := hp_color(share)
+		Kit.rrect(_cv, fill, rect.size.y * 0.5, color)
+		Kit.rrect(_cv, Rect2(fill.position + Vector2(3, 2), Vector2(fill.size.x - 6.0, rect.size.y * 0.3)), rect.size.y * 0.15, Color(1, 1, 1, 0.35))
+	# Low LP: the frame pulses red.
+	if share < 0.25 and share > 0.0:
+		Kit.ring(_cv, rect.grow(3.0), rect.size.y * 0.5 + 3.0, 2.0, Color(UiStyle.brawl_tone("danger")["light"], 0.5 + 0.5 * sin(_time * 10.0)))
+
+
+# Thin LP strip on the swarm pill (same colours as the leader bar).
+func _hp_strip(rect: Rect2, hp: int, max_hp: int) -> void:
+	if max_hp <= 0 or rect.size.x <= 8.0:
+		return
+	_hp_bar(rect, hp, max_hp)
+
+
+## Population text: German thousands dots, short from 10.000 ("12,3k", "1,2M").
+static func short_count(value: int) -> String:
+	if value >= 1000000:
+		return ("%.1fM" % (float(value) / 1000000.0)).replace(".", ",")
+	if value >= 10000:
+		return ("%.1fk" % (float(value) / 1000.0)).replace(".", ",").replace(",0k", "k")
+	return Kit.format_int(value)
 
 
 # Soft-edged white disc shared by the leader pips and their backing.

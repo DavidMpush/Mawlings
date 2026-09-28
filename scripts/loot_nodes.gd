@@ -2,15 +2,17 @@ extends Node3D
 
 # Stage 18c: Bernsteinknollen - breakable amber nodes strewn over the
 # exploration map (map_explore.gd loot_points, like Megabonk's pots). One touch
-# of any Mawling breaks a node: it bursts into crystals (biomass + DNA, better
-# the deeper in the land and the more dangerous the zone: tier 0..2), with a
-# small chance of a power-up and a very small one of a relic (hooks for stage 17
-# wave 2: signal `bonus`). Nodes stay until broken (resource rule); a new map
+# of any Mawling breaks a node: it bursts into Bernstein coins and DNA (better
+# the deeper in the land and the more dangerous the zone: tier 0..2). Etappe 17
+# Welle 2: no biomass, power-ups or relics from nodes (signal `bonus` stays for
+# compatibility and is no longer emitted). Nodes stay until broken (resource rule); a new map
 # (seed, migration) brings new nodes, a restart restores them all.
 # Drawn as one MultiMesh per tier (small / medium / big drop model), no node
 # per knot; only nodes near the swarm are tested.
 
 signal bonus(kind: String, at: Vector3)
+
+const TUNING = preload("res://scripts/tuning.gd")
 
 const MODELS := [
 	preload("res://assets/gameplay/props/SmallDrop_game.glb"),
@@ -21,8 +23,6 @@ const SIZE := [1.5, 1.9, 2.4]
 # Crystal content per tier: [biomass, dna, loot rank].
 const CONTENT := [[3.0, 8, "normal"], [6.0, 16, "mini"], [11.0, 30, "boss"]]
 const BREAK_RANGE := [0.85, 1.0, 1.2]
-const POWERUP_CHANCE := 0.05
-const RELIC_CHANCE := 0.01
 const CHECK_RANGE := 14.0
 
 var world: Node3D
@@ -40,6 +40,19 @@ func setup(world_node: Node3D, arena_node: Node3D) -> void:
 	world = world_node
 	arena = arena_node
 	_rebuild()
+
+
+# Warm amber, brighter and glowing more for the better tiers.
+static func _amber(tier: int) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = [Color("e89a2e"), Color("f2b640"), Color("ffd35a")][tier]
+	material.roughness = 0.3
+	material.metallic_specular = 0.7
+	material.emission_enabled = true
+	material.emission = [Color("7a3a06"), Color("a8580c"), Color("d88a14")][tier]
+	material.rim_enabled = true
+	material.rim = 0.6
+	return material
 
 
 ## Nodes still standing.
@@ -91,7 +104,7 @@ func _rebuild() -> void:
 		var view := MultiMeshInstance3D.new()
 		view.name = "Amber nodes %d" % tier
 		view.multimesh = multimesh
-		view.material_override = piece.get_active_material(0)
+		view.material_override = _amber(tier)
 		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(view)
 		_views.append(view)
@@ -131,9 +144,7 @@ func _break(index: int) -> void:
 	view.multimesh.set_instance_transform(_slot[index], Transform3D(Basis.from_scale(Vector3.ONE * 0.0001), at))
 	var content: Array = CONTENT[tier]
 	if world != null and world.has_method("drop_loot"):
-		world.drop_loot(at, float(content[0]), int(content[1]), String(content[2]))
-	var roll := _rng.randf()
-	if roll < RELIC_CHANCE * float(tier + 1):
-		bonus.emit("relic", at)
-	elif roll < POWERUP_CHANCE * float(tier + 1):
-		bonus.emit("powerup", at)
+		# Etappe 17 Welle 2 (Nutzer): the open world gives only coins and XP - an
+		# amber node bursts into Bernstein (TUNING.AMBER_NODE by tier) and DNA, no
+		# biomass (that comes from kills), no power-ups, no relics (cocoons).
+		world.drop_loot(at, 0.0, int(content[1]), String(content[2]), int(TUNING.AMBER_NODE[tier]))

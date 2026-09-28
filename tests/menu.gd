@@ -83,6 +83,14 @@ func _run() -> void:
 	if menu.biome_id != "verdant_maw":
 		_fail("Locked biome must not be selectable")
 		return
+	# Etappe 19: the Dürrschlund opens once the Moosschlund was defeated.
+	menu.profile.records.total_moss = 1
+	menu.tap(menu.biome_rect(1).get_center())
+	if menu.biome_id != "duerrschlund":
+		_fail("Dürrschlund must unlock after a Moosschlund victory")
+		return
+	menu.profile.records.total_moss = 0
+	menu.select_biome("verdant_maw")
 	# Upgrades tab: buying without essence fails, with essence succeeds and saves.
 	menu.tap(menu.tab_rect(0).get_center())
 	if menu.tab != "upgrades":
@@ -262,7 +270,7 @@ func _run() -> void:
 func _check_layout(menu: Control) -> bool:
 	var rects := {"prev": menu.strain_prev_rect(), "next": menu.strain_next_rect(), "play": menu.play_rect(),
 		"daily": menu.daily_rect(), "gear": menu.settings_button_rect(),
-		"biome0": menu.biome_rect(0), "biome1": menu.biome_rect(1), "diff0": menu.difficulty_rect(0),
+		"biome0": menu.biome_rect(0), "biome1": menu.biome_rect(1), "biome2": menu.biome_rect(2), "diff0": menu.difficulty_rect(0),
 		"diff1": menu.difficulty_rect(1), "diff2": menu.difficulty_rect(2), "tab0": menu.tab_rect(0),
 		"tab3": menu.tab_rect(3), "records": menu.records_rect()}
 	var screen := Rect2(Vector2.ZERO, menu.size)

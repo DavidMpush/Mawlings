@@ -369,9 +369,19 @@ func _step_milestone(hud: Control, real_delta: float) -> void:
 			_milestone_time = -1.0
 
 
+static func _thousands(value: int) -> String:
+	var text := str(value)
+	var out := ""
+	while text.length() > 3:
+		out = "." + text.right(3) + out
+		text = text.left(text.length() - 3)
+	return text + out
+
+
 func _milestone_text(mark: int) -> String:
-	if mark >= 250:
-		return "SCHWARM VOLL: 250"
+	# Etappe 17b: no limit - big marks read as a swarm count.
+	if mark >= 1000:
+		return "SCHWARM: %s!" % _thousands(mark)
 	if mark >= 100:
 		return "HORDE: %d!" % mark
 	return "%d MAWLINGS!" % mark
@@ -493,7 +503,9 @@ func _draw_popups(hud: Control) -> void:
 		if int(popup.get("dna", 0)) > 0:
 			parts.append(["dna", "+%d" % int(popup.dna), UiStyle.color("cyan")])
 		if int(popup.get("biomass", 0)) > 0:
-			parts.append(["biomass", "+%d" % int(popup.biomass), UiStyle.color("amber")])
+			parts.append(["biomass", "+%d" % int(popup.biomass), UiStyle.brawl_tone("action")["light"]])
+		if int(popup.get("amber", 0)) > 0:
+			parts.append(["crown_tooth", "+%d" % int(popup.amber), UiStyle.color("amber")])
 		if parts.is_empty():
 			continue
 		var fs := floorf(34 * pop)
@@ -657,9 +669,12 @@ func _draw_popups_brawl(hud: Control) -> void:
 		var t: float = popup.get("t", 1.0)
 		if t >= 1.0:
 			continue
+		# Etappe 17 Welle 2: Bernstein gold (loot), Biomasse green (action), DNA blue (info).
 		var parts: Array = []
+		if int(popup.get("amber", 0)) > 0:
+			parts.append(["loot", "crown_tooth", "+%d" % int(popup.amber)])
 		if int(popup.get("biomass", 0)) > 0:
-			parts.append(["loot", "biomass", "+%d" % int(popup.biomass)])
+			parts.append(["action", "biomass", "+%d" % int(popup.biomass)])
 		if int(popup.get("dna", 0)) > 0:
 			parts.append(["info", "dna", "+%d" % int(popup.dna)])
 		if parts.is_empty():

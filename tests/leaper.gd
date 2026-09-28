@@ -134,17 +134,18 @@ func _run() -> void:
 	leaper.remaining = 5.0
 	leaper.health = 0.01
 	var zone_node: Variant = leaper.warning
+	var consumed_before: float = world.model.consumed_biomass
 	world.step(0.01)
 	world.collect_loot_now()
 	check(world.leapers.is_empty() and world.evolution.dna == TUNING.LEAPER_DNA, "Kill awards DNA once")
-	check(is_equal_approx(world.loot.total(0), TUNING.LEAPER_BIOMASS), "Leaper leaves persistent biomass crystals at cap")
+	check(is_equal_approx(world.loot.total(0) + world.model.consumed_biomass - consumed_before, TUNING.LEAPER_BIOMASS), "Leaper leaves its biomass (no cap, Etappe 17b)")
 	check(not is_instance_valid(zone_node) or (not zone_node.visible and leaper.is_queued_for_deletion()), "Zone removed on kill")
 	world.step(0.01)
 	check(world.evolution.dna == TUNING.LEAPER_DNA, "DNA is not awarded twice")
 	world.model.elapsed = 300.0
 	for tick in 100:
 		world.step(0.01)
-	check(is_equal_approx(world.loot.total(0), TUNING.LEAPER_BIOMASS), "Biomass persists while the swarm is full")
+	check(is_equal_approx(world.loot.total(0) + world.model.consumed_biomass - consumed_before, TUNING.LEAPER_BIOMASS), "Biomass is never lost")
 
 	# Airborne leapers cannot be hit by the swarm.
 	world.reset_run()

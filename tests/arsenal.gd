@@ -37,11 +37,12 @@ func _run() -> void:
 
 
 func _test_catalog() -> void:
-	_check(ARSENAL.WEAPONS.size() == 10 and ARSENAL.RELICS.size() == 20 and ARSENAL.EVOLVED.size() == 6, "10 Waffen, 20 Relikte, 6 Evolutionen")
+	# Etappe 17c: + Blutzahn (selten) = 21 Relikte.
+	_check(ARSENAL.WEAPONS.size() == 10 and ARSENAL.RELICS.size() == 21 and ARSENAL.EVOLVED.size() == 6, "10 Waffen, 21 Relikte, 6 Evolutionen")
 	var tiers := {}
 	for entry in ARSENAL.RELICS:
 		tiers[entry[3]] = int(tiers.get(entry[3], 0)) + 1
-	_check(tiers.get("common", 0) == 6 and tiers.get("rare", 0) == 7 and tiers.get("epic", 0) == 4 and tiers.get("legendary", 0) == 3, "Relikt-Seltenheiten 6/7/4/3: %s" % str(tiers))
+	_check(tiers.get("common", 0) == 6 and tiers.get("rare", 0) == 8 and tiers.get("epic", 0) == 4 and tiers.get("legendary", 0) == 3, "Relikt-Seltenheiten 6/8/4/3: %s" % str(tiers))
 	for entry in ARSENAL.WEAPONS:
 		_check(FORMS.FORMS.has(entry[0]) and FORMS.FORMS[entry[0]].ranks.size() == 5, "Waffe ohne 5 Ränge in attack_forms: " + str(entry[0]))
 	for rule in ARSENAL.EVOLUTION_RULES:
@@ -82,13 +83,13 @@ func _test_relics() -> void:
 	var second: Dictionary = arsenal.grant(arsenal.relic_item("hungerstein"))
 	_check(first.applied and second.from == 1 and second.to == 2 and arsenal.stacks("hungerstein") == 2, "Relikte stapeln")
 	_check(arsenal.relic_item("urmutter").rarity == "legendary" and arsenal.relic_item("zaehe_haut").rarity == "common", "Relikt-Seltenheit ist fest")
-	# Preis: 25 · 1,35^n, Glück −3 %/Punkt, Schlundherz −40 %.
+	# Preis: 25 · CHEST_GROWTH^n, Glück −3 %/Punkt, Schlundherz −40 %.
 	_check(arsenal.chest_price() == 25, "Erster Kokon kostet 25")
 	arsenal.chests_opened = 2
-	_check(arsenal.chest_price() == int(round(25.0 * 1.35 * 1.35)), "Preis steigt je Kokon")
+	_check(arsenal.chest_price() == int(round(25.0 * ARSENAL.CHEST_GROWTH * ARSENAL.CHEST_GROWTH)), "Preis steigt je Kokon")
 	_check(arsenal.chest_price(5.0) < arsenal.chest_price(0.0), "Glück macht Kokons billiger")
 	arsenal.grant(arsenal.relic_item("schlundherz"))
-	_check(arsenal.chest_price() == int(round(25.0 * 1.35 * 1.35 * 0.6)), "Schlundherz −40 %")
+	_check(arsenal.chest_price() == int(round(25.0 * ARSENAL.CHEST_GROWTH * ARSENAL.CHEST_GROWTH * 0.6)), "Schlundherz −40 %")
 
 
 func _test_chests() -> void:
@@ -158,7 +159,7 @@ func _test_hooks() -> void:
 	_check(evo.loss_after_armor(100, true) == 96, "Zähe Haut −4 % Verluste")
 	evo.debug_grant("scharfe_zaehne")
 	evo.debug_grant("blutmond")
-	_check(is_equal_approx(evo.damage_multiplier(false), 1.06 * 1.4) and evo.leader_hp_bonus() == -1, "Scharfe Zähne + Blutmond (−1 LP)")
+	_check(is_equal_approx(evo.damage_multiplier(false), 1.06 * 1.4) and evo.leader_hp_bonus(100) == -EVOLUTION.BLOODMOON_LP, "Scharfe Zähne + Blutmond (−25 Max-LP)")
 	evo.debug_grant("flinke_beine")
 	evo.debug_grant("rudelhorn")
 	_check(is_equal_approx(evo.speed_multiplier(true), 0.95 * 1.06 * 1.15) and is_equal_approx(evo.speed_multiplier(false), 0.95 * 1.06), "Flinke Beine, Rudelhorn nur bei Rally")
@@ -190,6 +191,6 @@ func _test_hooks() -> void:
 	var chain = EVOLUTION.new()
 	chain.debug_grant("koenigszahnkette")
 	chain.debug_grant("koenigszahnkette")
-	_check(chain.note_kills(7) == 0 and chain.note_kills(1) == 1, "Königszahnkette ×2 heilt alle 8 Kills")
+	_check(chain.note_kills(7) == 0 and chain.note_kills(1) == EVOLUTION.CHAIN_HEAL_LP, "Königszahnkette ×2 heilt alle 8 Kills 15 LP")
 	# Alles über debug_grant bleibt in summary() sichtbar.
 	_check(evo.summary().contains("Hungerstein ×1"), "summary() nennt Relikte: " + evo.summary())

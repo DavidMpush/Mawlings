@@ -178,6 +178,105 @@ Ohne Waffen-Aufstieg fiel der Wild-Median auf ~230 s. Ausgleich: Startwaffe auf 
 
 ### Offen
 - Icons fehlen (Prompts in `stages/ICON_REQUESTS.md`); Klauenwirbel, Giftbiss, Schallbrüller und Glutdrüse zeigen eine Buchstaben-Plakette.
-- HUD oben zeigt Waffen-Medaillons noch mit 3 Rangpunkten, keine Relikt-Leiste (Welle 2, `hud_top.gd`).
+- ~~HUD oben zeigt Waffen-Medaillons noch mit 3 Rangpunkten, keine Relikt-Leiste~~ → Welle 2.
 - Kritbiss wirkt als Erwartungswert (keine sichtbaren Krit-Treffer).
 - Schallbrüller schiebt nur Gegner mit `slow_factor` (Nibbler, Jäger, Skitter), nie Bosse/Leaper.
+
+## Ergebnis Welle 2 – Kokons, Power-ups, Schreine (27.09.2026)
+
+### Umgesetzt
+- **Kokons** (`scripts/chests.gd`, ein Knoten „Chests“ unter HuntWorld):
+  - Karten-Kokons an `arena.poi_slots("cocoon")`, goldene an `poi_slots("cocoon_gold")`; ohne Plätze (Seed 0) 6 + 1 Rückfall-Plätze auf offenem Boden.
+  - Öffnen: Schwarm-Mitte 1 s im Haltekreis (Verlassen lässt die Haltezeit doppelt so schnell sinken). Karten-Kokon zahlt `evolution.chest_price()` aus der Biomasse des Schwarms (erst die Bank, dann ganze Tiere, nie der Anführer). Zu teuer: bleibt zu, Pille rot mit Chip „ZU TEUER“, Warnklang.
+  - Goldener Kokon: gratis, `open_chest("elite", "epic")` (sofort, mindestens episch, erhöht den Preis nicht). Auslegung der Vorgabe „selten bzw. episch“: Elite-Kokon mindestens selten, goldener mindestens episch.
+  - Elite-Jäger → kleiner Gratis-Kokon (`open_chest("elite")`, mindestens selten) statt Alpha-Kern. Bog King, Moosschlund, Aschenkröte → goldener Boss-Kokon → `open_chest("boss")` → 1 aus 3 im `mutation_screen` (Modus `chest`); die Wahl zeigt danach ihre Beute-Karte.
+  - Kokons bleiben liegen, bis sie geöffnet sind; eine neue Karte (Migration) bringt neue Karten-Kokons, fallen gelassene (Elite/Boss) wandern mit an den Ankunftsort.
+  - Öffnungsmoment: 0,45 s Pulsieren mit Zittern → Platzen (Splitter), Lichtstrahl in der Seltenheitsfarbe (Höhe wächst mit der Seltenheit), zwei Ringe, Wackler, Klang je Seltenheit (`pickup`/`mutate`/`alpha_core`/`evolve` + `fanfare`), Beute-Karte 2 s im HUD.
+  - Optik: eigenes Primitiv (Seiden-Ei mit drei Bändern auf einem Seidenhügel, glühender Schlitz zur Kamera, Boden-Halo und Haltekreis; golden bzw. mit Knochenkrone für den Boss-Kokon). Modell-Wunsch in `ASSET_REQUESTS.md`.
+  - Bernsteinknollen: `loot_nodes.bonus("relic")` → `evolution.relic_find()` (ein Relikt, Seltenheit mit Glück) mit Strahl und Karte.
+- **Power-ups** (`scripts/powerups.gd`): die 6 Booster des Konzepts über `evolution.boosts`; Blutrausch erhöht `evolution.revision`, damit die Waffen-Abklingzeiten neu gesetzt werden. `leader_immune` wirkt in `hunt_world._apply_hit` (Anführer wird nicht getroffen). Quellen: 1,5 % je normalem Kill (Nibbler, Jäger, Skitter, Leaper; höchstens einer je 20 s; Magnetkern ×2 je Stapel, Glück +10 % je Punkt), jeder Elite-Jäger, jede neue Flutstufe, Pilzknollen-Haine (`poi_slots("grove")`, 2–3 Knollen, ein Biss; der Booster springt knapp vor den Schwarmrand), `loot_nodes.bonus("powerup")`. Nur Hinlaufen (kein Magnet, kein Lockruf); Stapeln bis zum Doppelten; nach 45 s Blinken, nie Verschwinden. Welt: schwebende, pendelnde Plakette mit Symbol, Lichtsäule und Bodenring in der Booster-Farbe. Am Schwarm: Rausch Tempo-Linien, Chitinschild Kuppel, Raserei roter Rand, Magnetsturm der Sammelkreis, Blutrausch pulsierender Glutring; letzte 1,5 s blinken.
+- **Schreine** (`scripts/shrines.gd`): Steinkreis mit 16 Ladeplatten und Kristall; Schwarm-Mitte im Ring lädt in 4 s (Verlassen pausiert) → `evolution.open_shrine()`: 1 aus 3 Werten, mindestens selten, über den Level-up-Screen (Band „SCHREIN!“ · „MINDESTENS SELTEN“), kostet keine DNA und zählt kein Level; Neu würfeln/Verbannen behalten Schrein-Karten, Überspringen kostet keine DNA. Ein voller Schrein wartet, bis eine offene Wahl geschlossen ist. Einmal je Schrein.
+- **HUD:** `hud_top.gd`: Waffen-Medaillons mit 5 Rang-Punkten (Rang 5 gold), Evolution mit violettem Glanz und EVO-Chip, darunter Relikt-Leiste (2 Spalten, Plaketten in Seltenheitsfarbe, Stapel-Abzeichen, ab 8 „+N“), Power-up-Reihe mit Ring-Timern unter der Schwarm-Pille (neben der Minimap). Neu `scripts/ui/hud_loot.gd`: Preis-Pillen über Kokons in der Nähe (Haltebalken), Lade-Pillen über Schreinen, Beute-Karte (Kit-Karte mit Seltenheitsrand), Power-up-Band. HUD-Meta `arsenal_world`; Karten-Meta `map` trägt `chests` [{at, kind, dropped}], `powerups` [{at, id}], `shrines` [{at, done, charge}], gefiltert über `arena.is_discovered` (Rückfall `is_explored`).
+- **Fassade:** `evolution.open_chest(kind, minimum)`, `open_shrine()`, `offer_source`, `relic_find()`; `arsenal.roll_chest(..., minimum)`, `roll_relic()`; `stats.roll_offers(..., minimum)`. `SIGNATURE_START_RANK` = 1.
+- **Bot** (`tests/balance_sim.gd`): Boss-Kokon-Wahl (Evolution > Waffe aufwerten > neue Waffe > Relikt), Power-ups bis 14 m und Knollen bis 9 m auf dem Weg, Karten-Kokons nach „Biomasse > 2 × Preis und Pop ≥ 20“ bis 90 m, Gratis-Kokons bei kleinem Schwarm nur bis 25 m, Schreine ab Pop 15 ohne Gegner in 12 m. BALANCE-Zeile: `cocoons=map/gold/elite/boss boosts= shrines=`.
+
+### Tests und Bilder
+- Neu: `tests/chests.gd`, `tests/powerups.gd`, `tests/shrines.gd` (in `tools/test.ps1`).
+- Bilder: `tests/capture_arsenal17.gd` (ohne `--headless`, `--screen 1 --audio-driver Dummy`, optional `-- cocoon|open|boss|powerups|shrine|hud`) → `preview_arsenal17_cocoon_price|cocoon_red|cocoon_hold|open_common|open_rare|open_epic|open_legendary|boss_choice|boss_card|powerups_world|powerup_<id>|shrine|hud_full.png`.
+
+### Balance (3 Stämme × 4–6 Seeds, greedy; Messungen stark verrauscht, der Rechner lief parallel mit anderen Agenten)
+| Variante | Wild | Brutal | Apex | Wachstum Wild 1:00 / 2:00 |
+|---|---|---|---|---|
+| Rang 1, Konzept-Preis (Stand jetzt) | 230 s | 227 s | 161 s | 5,5 / 12,5 |
+| Rang 2 | 261 s | – | 172 s | 5,5 / 14 |
+| Rang 4 (Welle-1-Wert) + Kokons | 779 s (Läufe bis 900 s) | – | 281 s | 5,5 / 22,5 |
+| Rang 1 + kleiner Schwarm beißt stärker (SMALL_SWARM_BITE 3–4, FORM_MIN_SHARE 0,35–0,5) | 235 s | 249 s | 184 s | 6 / 17 |
+
+Befund: Mit Rang 1 sterben viele Läufe bei 90–110 s am ersten Jäger-Paar, bevor der Schwarm 20 Tiere erreicht; dann kauft der Bot nach der Regel keinen Kokon. Wer überlebt, schneeballt mit Kokons stark (Rang 4: 5–7 Karten-, 3 Elite-, 5 Boss-Kokons, bis 30 Power-ups je Lauf). Die Zielkurven sind **nicht erreicht**; die Frühphasen-Stellschrauben in `tuning.gd` halfen kaum und sind deshalb nicht übernommen. Werte (`stats.gd`) bleiben auf Welle-1-Niveau (ein Zurück zum Konzept schwächt die Frühphase weiter). Stamm-Spreizung: Knochenkiefer (passiver Stachelrücken) bleibt klar am schwächsten.
+Vorschläge: Rang-1-Werte der Waffen in `attack_forms.gd` anheben (Datei des VFX-Agenten) oder ein Gratis-„Start-Kokon“ nahe dem Start; gegen den Schneeball Boss-Kokons nur beim ersten Bog King je Zyklus oder `CHEST_GROWTH` 1,45–1,5.
+
+Suite-Stand (27.09., 23:57): alle Tests grün außer `arena` („Verdant Maw chunks unchanged“, Karten-Agent) und `balance_regress` (glutmaw/Apex erreicht die Flut nicht mehr: 0 s Flut, 0 Moorbrut-Verluste – Folge von Rang 1).
+
+### Offen
+- Balance-Zielkurven und `balance_regress` (siehe oben); Entscheidung über den Ausgleich für Rang 1 nötig.
+- Eigene Icons für Power-ups/Kokon/Schrein (`ICON_REQUESTS.md`), Modelle (`ASSET_REQUESTS.md`).
+- Die Minimap-Symbole für `chests`/`powerups`/`shrines` zeichnet der Karten-Agent.
+
+## Welle 2b – Orchestrator- und Nutzerentscheidungen (28.09.2026)
+
+Diese Stände ersetzen die entsprechenden Punkte von Welle 2 oben.
+
+### Wirtschaft: drei Ressourcen
+- **Biomasse** = Wachstum, nur aus Gegner-Kills; Kristalle jetzt grün/lime (Kit-Ton action).
+- **DNA** = Erfahrung; im HUD nur noch als dünner violetter XP-Balken ganz oben über die volle Breite (unter der Safe Area, ohne Zahl). Das Level steht als violettes Abzeichen an der Bernstein-Pille.
+- **Bernstein** = In-Run-Währung für Kokons (`model.amber`, verfällt am Run-Ende, keine Meta-Währung):
+  - Münzen (`loot.Kind.AMBER`, eigene MultiMesh, goldene, zur Kamera geneigte Scheiben) aus Kills: `TUNING.AMBER_KILL` = Nibbler 1, Jäger 2, Skitter 1, Leaper 2, Elite 12, Bog King 25, Apex 40; Moorbrut 0,25 je Tier.
+  - Aus Bernsteinknollen (`AMBER_NODE` 3/6/12) und dem Hain-Schatz (`AMBER_GROVE` 6 je Knolle).
+  - Magnet wie Kristalle; ein voller Schwarm nimmt Bernstein weiter.
+- **Kokons kosten Bernstein** (`chest_price()` = 25 · 1,85^n), nie Tiere oder Biomasse. Die Preis-Pille zeigt Bernstein und ist rot, wenn er nicht reicht.
+- HUD: Die rechte Pille ist die Bernstein-Pille (Gold-Plakette, Zahl mit Tausenderpunkt). Der Sammel-Zähler am Schwarm zeigt Bernstein gold, Biomasse grün, DNA blau. Die Schwarm-Pille zeigt den gemalten Stammkopf (`UiIcons.strain_head`) auf dunkler Plakette.
+- **Offene Welt gibt nur Münzen und XP**: Bernsteinknollen geben Bernstein und DNA, keine Biomasse, keine Power-ups, keine Relikte. Das Signal `loot_nodes.bonus` wird nicht mehr gesendet; der Relikt-Wurf ist entfernt.
+
+### Power-ups
+- Nur noch von **Mini-Bossen**: Elite-Jäger, Mire Leaper, Bog King, Apex. Je Kill garantiert ein zufälliger aus den sechs.
+- Entfallen: 1,5 %-Drop bei normalen Kills, Drop je Flutstufe, Pilzknollen als Quelle.
+- Die Hain-Plätze tragen jetzt einen **Bernstein-Schatz** (2–3 goldene Knollen dicht beieinander, ein Biss bricht sie in Münzen).
+
+### Balance-Maßnahmen
+- **Waffen-Rang 1 moderat angehoben** (`attack_forms.gd`, Rang 2–5 steigen weiter sichtbar): z. B. Rudelbiss 12 Schaden alle 1,8 s, Sporen 8/s, Stachelrücken 44 (Knochenkiefer-Stärkung), Säure 7,5 alle 1,1 s. Die Rangtexte sind angepasst.
+- **Start-Kokon**:
+  - Gratis, 15–30 m um den Start auf offenem Boden, immer auf der Minimap.
+  - Beute gewöhnlich/selten; eine neue Waffe, solange weniger als zwei Waffen da sind (`arsenal.roll_start`).
+- **Gegen den späten Schneeball**:
+  - `CHEST_GROWTH` 1,85.
+  - Die garantierte Evolution gibt es nur im ersten Boss-Kokon je Biom-Zyklus (`evolution.evolution_guarantee`, zurückgesetzt bei der Ankunft im neuen Biom).
+  - Nur der erste Bog King je Biom-Zyklus hinterlässt einen Boss-Kokon, weitere einen Elite-Kokon. Apex-Bosse geben immer einen.
+  - Werte wieder auf Konzept (Biss 8, Kritbiss 4, Tempo 6, Reichweite 8, Rudel 10, Panzer/Flucht 6, Brutrate 6 %).
+  - Level-Schwelle `20 + 10·L + 1,5·L²`: späte Level teurer, frühe fast unverändert.
+- **Bot**: Er kauft Karten-Kokons, sobald der Bernstein reicht und nichts droht. Gratis-Kokons holt er bei kleinem Schwarm nur bis 25 m, den Start-Kokon immer.
+
+### Balance-Messungen (3 Stämme × 5 Seeds, greedy; Rechner parallel ausgelastet, verrauscht)
+
+| Stand | Wild | Brutal | Apex | Wachstum 1:00 / 2:00 | Spreizung W/B/A |
+|---|---|---|---|---|---|
+| Rang-1-Anhebung + Start-Kokon (Biomasse-Preis) | 809 s | 514 s | 240 s | 12 / 25 | 42/37/32 % |
+| + Bernstein-Wirtschaft (Wachstum 1,5) | 900 s | 755 s | 340 s | 13 / 35 | 10/26/52 % |
+| + Werte Konzept, Wachstum 1,7, weniger Bernstein/Kill, Level-Schwelle quadratisch | 580 s | 390 s | 222 s | 13 / 31 | 27/33/3 % |
+| **+ Wachstum 1,85 (Stand jetzt)** | **566 s** | **366 s** ✓ | **221 s** ✓ | **13 / 31** ✓ | **9/22/3 %** ✓ |
+
+Wild liegt noch rund 10 % über dem Ziel 390–510 s. Gute Läufe überleben die Flut lange; Wild hat den spätesten Flutstart. Brutal, Apex, Wachstum und Spreizung liegen im Ziel.
+
+### Tests (28.09.2026, 01:40)
+- `tools/test.ps1` ist grün bis auf zwei Tests in fremden Bereichen:
+  - `arena` („Verdant Maw chunks unchanged“, Kartenbau des Karten-Agenten).
+  - `apex_run` („HUD: MIGRATION pointer data“: das Migrationsziel ist nicht mehr GLUTSUMPF, Folge des neuen Bioms Dürrschlund in `biomes.gd` des Wüsten-Agenten).
+- `balance_regress` ist grün. Die Toleranz für Moorbrut-Verluste bei Apex liegt jetzt bei 3 statt 5: Apex-Läufe enden häufiger in den ersten Flutsekunden durch Jäger oder Leaper.
+- Angepasst:
+  - `chests`: Bernstein-Kauf, keine Tiere, Münz-Drop und Magnet, Bernsteinknollen ohne Biomasse/Relikt/Power-up, XP-Balken ohne Zahl, Start-Kokon, Evolutionsgarantie je Zyklus.
+  - `powerups`: nur Mini-Bosse, Hain-Schatz.
+  - `loot_magnet`: Münzen zählen nicht zu den Kristallen.
+  - `attack_forms` und `forms_extra`: Rangwerte über die Konstanten.
+  - `arsenal`: Preis über `CHEST_GROWTH`.
+  - `evolution`: quadratische Level-Schwelle.
+  - `horde`: Stachelrücken Rang 1 = 44.
+- Bilder `preview_arsenal17_*.png` sind neu erzeugt, darunter `loot` (Münzen gold, Biomasse grün, DNA blau). `hud_full` zeigt Bernstein-Pille, XP-Balken und Stammkopf; `cocoon_price` und `cocoon_red` zeigen den Bernstein-Preis.

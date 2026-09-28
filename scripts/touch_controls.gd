@@ -7,6 +7,8 @@ signal hub_requested
 signal reroll_requested
 signal skip_requested
 signal banish_requested(slot: int)
+## Stage 17d: the tribe ability (button above Rally, Q / Shift).
+signal ability_requested
 
 var evolution: RefCounted
 
@@ -14,6 +16,14 @@ var movement_vector := Vector2.ZERO
 var rally_pressed := false
 var movement_pointer := -1
 var rally_pointer := -1
+## Stage 17d: button state from abilities.gd hud_state() ({} = no button);
+## ability_requests counts presses (HuntWorld may poll it instead of the signal).
+var ability_state: Dictionary = {}
+var ability_requests := 0
+var ability_pressed_at := -100000
+const ABILITY_R := 58.0          # drawn button radius (brawl skin)
+const ABILITY_TOUCH_R := 70.0    # touch radius (140 px across)
+const ABILITY_OFFSET := Vector2(178.0, -62.0)  # from the Rally centre: up-right
 var population := 25
 var biomass_bank := 0.0
 var corpse_count := 0
@@ -107,6 +117,8 @@ func _input(event: InputEvent) -> void:
 			hub_requested.emit()
 		elif not extinct and not paused and not _choosing() and event.keycode in [KEY_M, KEY_TAB]:
 			set_map_open(not map_open)
+		elif not extinct and not paused and not _choosing() and event.keycode in [KEY_Q, KEY_SHIFT]:
+			request_ability()
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_press(event.index, event.position)
@@ -152,6 +164,14 @@ func _press(pointer: int, location: Vector2) -> void:
 		# hit areas it draws. The legacy rects below stay as they are (in the
 		# organic/calm skins mutation_screen calls them itself).
 		var ms := get_node_or_null("mutation_screen")
+		if _chest_choosing():
+			for slot in evolution.chest_offers.size():
+				var chest_area: Rect2 = ms.card_rect(slot) if ms != null else _mutation_rect(slot)
+				if chest_area.has_point(location):
+					_tap_sound()
+					mutation_chosen.emit(slot)
+					return
+			return
 		for slot in evolution.offers.size():
 			var banish_area: Rect2 = ms.banish_rect(slot) if ms != null else _banish_rect(slot)
 			if _count("banishes") > 0 and banish_area.has_point(location):
@@ -174,6 +194,9 @@ func _press(pointer: int, location: Vector2) -> void:
 		return
 	if _map_tap(location):
 		_tap_sound()
+		return
+	if not ability_state.is_empty() and location.distance_to(_ability_center()) < ABILITY_TOUCH_R:
+		request_ability()
 		return
 	if movement_pointer == -1 and location.distance_to(_movement_center()) < 125.0:
 		movement_pointer = pointer
@@ -214,6 +237,25 @@ func _movement_center() -> Vector2:
 
 func _rally_center() -> Vector2:
 	return Vector2(125.0, size.y - 145.0)
+
+
+## Stage 17d: the ability button sits up-right of Rally (left thumb reaches both).
+func _ability_center() -> Vector2:
+	return _rally_center() + ABILITY_OFFSET
+
+
+func ability_rect() -> Rect2:
+	return Rect2(_ability_center() - Vector2.ONE * ABILITY_TOUCH_R, Vector2.ONE * ABILITY_TOUCH_R * 2.0)
+
+
+## Counts a press; emits ability_requested (a cooling button still answers with
+## a short shake in hud_controls, the ability itself refuses).
+func request_ability() -> void:
+	if ability_state.is_empty():
+		return
+	ability_requests += 1
+	ability_pressed_at = Time.get_ticks_msec()
+	ability_requested.emit()
 
 
 # Minimap (round, top left below the swarm panel) and big map overlay.
@@ -306,7 +348,12 @@ func _skip_rect() -> Rect2:
 	return Rect2(Vector2(size.x * 0.5 + (22 if both else -160), size.y * 0.5 + 440), Vector2(300 if both else 320, 72))
 
 func _choosing() -> bool:
-	return evolution != null and not evolution.offers.is_empty()
+	return evolution != null and (not evolution.offers.is_empty() or _chest_choosing())
+
+# Etappe 17: an open boss-cocoon choice (evolution.chest_offers) uses the same
+# cards; only picking is allowed there (no banish/reroll/skip).
+func _chest_choosing() -> bool:
+	return evolution != null and "chest_offers" in evolution and not evolution.chest_offers.is_empty()
 
 # Reroll/banish/skip counters; 0 when the evolution has none.
 func _count(counter: String) -> int:

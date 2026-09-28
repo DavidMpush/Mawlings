@@ -39,21 +39,29 @@ func _run() -> void:
 	model.configure(1, 80.0, 5)
 	_check(model.leader_hp == 5 and model.leader_max_hp == 5, "Config leader_hp raises the leader's LP")
 
-	# ---- A hit on the lone leader costs 1 LP, then 1.2 s invulnerability.
+	# ---- Etappe 17c: a hunter hit costs the leader LEADER_HIT.hunter x sqrt(pressure) LP,
+	# then 1.2 s invulnerability.
 	_fresh(1)
+	var hunter_hit: int = world.leader_damage(null, "hunter")
+	_check(hunter_hit == int(round(float(TUNING.LEADER_HIT.hunter) * pow(world.model.pressure(), TUNING.LEADER_HIT_PRESSURE))), "Hunter hit = LEADER_HIT x pressure^k (%d)" % hunter_hit)
 	_ring_hunter(20)
 	world.step(0.02)
-	_check(world.model.population == 1 and world.model.leader_hp == TUNING.LEADER_HP - 1, "Leader hit costs exactly 1 LP (hp %d, pop %d)" % [world.model.leader_hp, world.model.population])
+	_check(world.model.population == 1 and world.model.leader_hp == TUNING.LEADER_HP - hunter_hit, "Leader hit costs %d LP (hp %d, pop %d)" % [hunter_hit, world.model.leader_hp, world.model.population])
 	_check(world.model.leader_invulnerable > 1.1, "Leader hit starts the invulnerability window")
-	_check(_hud("leader_hp") == TUNING.LEADER_HP - 1 and _hud("leader_max_hp") == TUNING.LEADER_HP and bool(_hud("leader_invulnerable")), "HUD shows leader LP and invulnerability")
+	_check(_hud("leader_hp") == TUNING.LEADER_HP - hunter_hit and _hud("leader_max_hp") == TUNING.LEADER_HP and bool(_hud("leader_invulnerable")), "HUD shows leader LP and invulnerability")
 	_ring_hunter(20)
 	world.step(0.02)
-	_check(world.model.leader_hp == TUNING.LEADER_HP - 1, "Invulnerable leader ignores a second hit")
+	_check(world.model.leader_hp == TUNING.LEADER_HP - hunter_hit, "Invulnerable leader ignores a second hit")
 	_steps(TUNING.LEADER_INVULNERABLE_SECONDS)
 	_check(world.model.leader_invulnerable == 0.0 and not bool(_hud("leader_invulnerable")), "Invulnerability ends after %.1f s" % TUNING.LEADER_INVULNERABLE_SECONDS)
 	_ring_hunter(20)
 	world.step(0.02)
-	_check(world.model.leader_hp == TUNING.LEADER_HP - 2, "After the window the leader can be hit again")
+	hunter_hit = world.leader_damage(null, "hunter")
+	_check(world.model.leader_hp <= TUNING.LEADER_HP - 2 * hunter_hit + 1, "After the window the leader can be hit again (hp %d)" % world.model.leader_hp)
+	_check(world.leader_damage(null, "boss") > world.leader_damage(null, "hunter") and world.leader_damage(null, "hunter") > world.leader_damage(null, "horde"), "Boss stomp > hunter > Moorbrut bite")
+	world.model.elapsed = world.model.pressure_doubling * 2.0
+	_check(world.leader_damage(null, "hunter") == int(round(float(TUNING.LEADER_HIT.hunter) * pow(4.0, TUNING.LEADER_HIT_PRESSURE))), "Leader damage grows with the pressure (%d)" % world.leader_damage(null, "hunter"))
+	world.model.elapsed = 0.0
 
 	# ---- Several sources in one frame cost only one LP; followers die normally.
 	_fresh(10)
@@ -61,7 +69,7 @@ func _run() -> void:
 	_ring_hunter(10)
 	_ring_hunter(10)
 	world.step(0.02)
-	_check(world.model.leader_hp == TUNING.LEADER_HP - 1, "Two hits in one frame cost only 1 LP (hp %d)" % world.model.leader_hp)
+	_check(world.model.leader_hp == TUNING.LEADER_HP - world.leader_damage(null, "hunter"), "Two hits in one frame cost only one hit (hp %d)" % world.model.leader_hp)
 	_check(world.model.population == 1 and not world.model.extinct, "Followers inside die, the leader survives (pop %d)" % world.model.population)
 	_check(is_equal_approx(world.last_loss_fraction, 0.9), "last_loss_fraction = loss / population before (%.2f)" % world.last_loss_fraction)
 
@@ -90,7 +98,7 @@ func _run() -> void:
 	world.step(0.02)
 	_check(swarm.units[0] == leader_unit and world.model.population == 4, "An area hit on the leader keeps the same leader at index 0 (pop %d)" % world.model.population)
 
-	# ---- Takeover: LP 0 -> next animal leads with max(1, max - 1) LP.
+	# ---- Takeover: LP 0 -> next animal leads with 80 % of the old maximum, fully healed.
 	_fresh(5)
 	world.model.leader_hp = 1
 	_place(1, swarm.position, swarm.position + Vector3(0, 0, 12))
@@ -100,7 +108,8 @@ func _run() -> void:
 	_ring_hunter(20)
 	world.step(0.02)
 	_check(world.model.population == 4 and world.model.leader_swaps == 1, "Leader death costs one animal and promotes another (pop %d)" % world.model.population)
-	_check(world.model.leader_max_hp == TUNING.LEADER_HP - 1 and world.model.leader_hp == TUNING.LEADER_HP - 1, "New leader: max(1, old max - 1) LP, fully healed (%d/%d)" % [world.model.leader_hp, world.model.leader_max_hp])
+	var successor: int = int(round(float(TUNING.LEADER_HP) * TUNING.LEADER_SUCCESSOR_SHARE))
+	_check(world.model.leader_max_hp == successor and world.model.leader_hp == successor, "New leader: 80 %% of the old max, fully healed (%d/%d)" % [world.model.leader_hp, world.model.leader_max_hp])
 	_check(swarm.units.size() == 4 and swarm.units[0] != old_leader, "Another animal is units[0] now")
 	_check(world.run_stats().get("leader_swaps", 0) == 1, "RunStats count leader swaps")
 	# The chain never drops below 1 max LP.
@@ -128,7 +137,7 @@ func _run() -> void:
 	_check(nibbler.snap_state == 1, "A Nibbler next to the lone leader announces a snap")
 	nibbler.snap_center = swarm.position
 	_steps(TUNING.NIBBLER_SNAP_WARNING + 0.1)
-	_check(world.model.leader_hp == TUNING.LEADER_HP - 1, "Nibbler snap costs the leader 1 LP (hp %d, snap %d, points %s, centre %s)" % [world.model.leader_hp, nibbler.snap_state, str(swarm.unit_world_points()), str(nibbler.snap_center)])
+	_check(world.model.leader_hp == TUNING.LEADER_HP - world.leader_damage(null, "prey"), "Nibbler snap costs the leader its LP (hp %d, snap %d, points %s, centre %s)" % [world.model.leader_hp, nibbler.snap_state, str(swarm.unit_world_points()), str(nibbler.snap_center)])
 	world.model.leader_hp = 1
 	world.model.leader_invulnerable = 0.0
 	world.snap_gap = 0.0
@@ -179,7 +188,7 @@ func _run() -> void:
 	world.step(0.02)
 	_check(is_equal_approx(world.loot.total(0), 13.0 * TUNING.FALLEN_BIOMASS), "Later losses add their biomass (%.1f)" % world.loot.total(0))
 
-	# ---- Milestones and +1 LP per 25.
+	# ---- Milestones and +LEADER_HEAL_AMOUNT LP per 25.
 	var cost: float = RUN_MODEL.BIOMASS_PER_MAWLING
 	_fresh(24)
 	world.model.leader_hp = 1
@@ -187,11 +196,11 @@ func _run() -> void:
 	world.step(1.0)
 	world.collect_loot_now()
 	_check(world.model.population == 25, "Collected biomass grows to 25 (got %d)" % world.model.population)
-	_check(world.model.leader_hp == 2, "Reaching 25 heals the leader by 1 LP (hp %d)" % world.model.leader_hp)
+	_check(world.model.leader_hp == 1 + TUNING.LEADER_HEAL_AMOUNT, "Reaching 25 heals the leader by %d LP (hp %d)" % [TUNING.LEADER_HEAL_AMOUNT, world.model.leader_hp])
 	_check(world.milestone_value == 25 and _hud("milestone") == 25, "Milestone 25 is announced")
 	_steps(world.MILESTONE_SHOW_SECONDS + 0.1)
 	_check(_hud("milestone") == 0, "Milestone banner value clears again")
-	world.model.leader_hp = 3
+	world.model.leader_hp = 30
 	world.model.apply_hit(3, false)
 	swarm.set_population(world.model.population, false)
 	world.model.leader_hp = 1
@@ -204,7 +213,36 @@ func _run() -> void:
 	_check(model.population == 5 and model.take_milestone() == 5 and model.take_milestone() == 0, "Milestone 5 once, then consumed (pop %d)" % model.population)
 	model.leader_hp = 1
 	model.absorb(cost * 45.0 + 0.01)
-	_check(model.population == 50 and model.leader_hp == 3, "25 and 50 each heal one LP up to the max (hp %d)" % model.leader_hp)
+	_check(model.population == 50 and model.leader_hp == 1 + 2 * TUNING.LEADER_HEAL_AMOUNT, "25 and 50 each heal up to the max (hp %d)" % model.leader_hp)
+	model.leader_hp = model.leader_max_hp - 3
+	model.absorb(cost * 25.0 + 0.01)
+	_check(model.leader_hp == model.leader_max_hp, "Healing is capped at the max")
+
+	# ---- Etappe 17c: Lebensraub heals a share of the swarm damage, Regeneration LP/s.
+	world.reset_run()
+	world.model.leader_hp = 40
+	world.evolution.debug_grant("lifesteal", "legendary")
+	world.evolution.debug_grant("blutzahn")
+	var share: float = world.evolution.lifesteal()
+	_check(is_equal_approx(share, 0.012 + 0.03), "Lebensraub legendär + Blutzahn = 4,2 %% (%.3f)" % share)
+	world.melee_dealt = 500.0
+	world._step_leader_heal(0.05)
+	_check(world.model.leader_hp == 40 + int(floor(500.0 * share)), "Lebensraub heals %d LP from 500 damage (hp %d)" % [int(500.0 * share), world.model.leader_hp])
+	_check(int(world.leader_heal_shown) > 0, "The heal shows as a green +N")
+	world.evolution.debug_grant("regen", "legendary")
+	var hp_before: int = world.model.leader_hp
+	for index in 20:
+		world._step_leader_heal(0.05)
+	_check(absf(float(world.model.leader_hp - hp_before) - world.evolution.regen_rate()) <= 1.0, "Regeneration heals LP per second (%d -> %d)" % [hp_before, world.model.leader_hp])
+	world.model.leader_hp = world.model.leader_max_hp
+	world.melee_dealt = 10000.0
+	world._step_leader_heal(0.05)
+	_check(world.model.leader_hp == world.model.leader_max_hp, "Healing never exceeds the max")
+	# Anführerherz +15 % max LP per rank.
+	var max_before: int = world.model.leader_max_hp
+	world.evolution.debug_grant("vigor", "common")
+	world._sync_attack_forms()
+	_check(world.model.leader_max_hp == max_before + 15, "Anführerherz +15 %% max LP (%d -> %d)" % [max_before, world.model.leader_max_hp])
 
 	# ---- First hunter waits for 4 Mawlings or 50 s.
 	world.reset_run()
@@ -230,7 +268,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS leader: lone start, 1 LP per hit, invulnerability, one LP per frame, takeover -1 max, extinction, Nibbler never lethal, one snap at a time, Rückeroberung, milestones + heal, hunter gate")
+	print("PASS leader: lone start, LP per hit by attacker x pressure^k, invulnerability, one hit per frame, takeover 80 % max, extinction, Nibbler never lethal, one snap at a time, Rückeroberung, milestones + heal, Lebensraub/Regeneration/Anführerherz, hunter gate")
 	quit(0)
 
 

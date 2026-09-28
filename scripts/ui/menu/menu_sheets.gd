@@ -1052,6 +1052,8 @@ func _draw_share_button() -> void:
 
 ## Share glyph: three linked nodes.
 func _share_glyph(c: Vector2, r: float, color: Color) -> void:
+	if S.is_brawl() and _b_icon("g_share", c, r * 2.4, color):
+		return
 	var a := c + Vector2(r * 0.7, -r * 0.8)
 	var b := c + Vector2(-r * 0.75, 0)
 	var d := c + Vector2(r * 0.7, r * 0.8)
@@ -1223,6 +1225,10 @@ func _switch(rect: Rect2, on: bool, accent: Color) -> void:
 
 
 func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
+	if S.is_brawl():
+		var glyph_id: String = {"sound": "g_sound", "vibration": "g_vibration", "music_v1": "g_music"}.get(key, "g_eye")
+		if _b_icon(glyph_id, c, 50.0, color if on else Color(0.5, 0.55, 0.6)):
+			return
 	match key:
 		"sound":
 			# Speaker with sound waves (crossed out when off).
@@ -1309,7 +1315,7 @@ func _claw(base: Vector2, direction: Vector2, length: float, width: float, color
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const UiArtRef := preload("res://scripts/ui/ui_art.gd")
 const B_TAB_TONE := {"upgrades": "info", "trophies": "loot", "instinct": "ember", "chronicle": "special"}
-const B_TAB_ICON := {"upgrades": "brood", "trophies": "trophy", "instinct": "instinct", "chronicle": "clock"}
+const B_TAB_ICON := {"upgrades": "tab_brutkammer", "trophies": "trophy", "instinct": "tab_instinct", "chronicle": "tab_chronicle"}
 ## Plate tone per Brutkammer upgrade (own swarm ember, growth/DNA info, loot, evolution special).
 const B_UPGRADE_TONE := {"brood_size": "ember", "rending": "ember", "chitin": "action", "sprinter": "info",
 	"digestion": "loot", "witterung": "info", "geneflow": "info", "attack_slot": "special", "trait_slot": "special"}
@@ -1348,18 +1354,24 @@ func _b_light(tone: Variant) -> Color:
 
 ## White X with an ink rim (close buttons).
 func _b_cross(c: Vector2, r: float) -> void:
+	if _b_icon("g_close", c, r * 2.0):
+		return
 	for pass_i in 2:
 		for d in [Vector2(1, 1), Vector2(1, -1)]:
 			draw_line(c - d * r, c + d * r, S.BRAWL_INK if pass_i == 0 else Color.WHITE, 15.0 if pass_i == 0 else 8.0, true)
 
 
 func _b_check(c: Vector2, r: float) -> void:
+	if _b_icon("g_check", c, r * 2.0):
+		return
 	var pts := PackedVector2Array([c + Vector2(-0.62, 0.02) * r, c + Vector2(-0.16, 0.46) * r, c + Vector2(0.66, -0.44) * r])
 	draw_polyline(pts, S.BRAWL_INK, maxf(6.0, r * 0.5), true)
 	draw_polyline(pts, Color.WHITE, maxf(3.0, r * 0.26), true)
 
 
 func _b_arrow(c: Vector2, r: float, color: Color = Color.WHITE) -> void:
+	if _b_icon("g_arrow_right", c, r * 2.0, color):
+		return
 	var pts := PackedVector2Array([c + Vector2(0.6, 0.0) * r, c + Vector2(-0.4, -0.72) * r, c + Vector2(-0.4, 0.72) * r])
 	draw_colored_polygon(pts, color)
 	pts.append(pts[0])

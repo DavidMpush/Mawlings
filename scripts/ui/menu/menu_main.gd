@@ -1199,7 +1199,7 @@ func _draw_biomes() -> void:
 		var id: String = menu.meta.BIOME_ORDER[i]
 		var b: Dictionary = menu.meta.BIOMES[id]
 		var rect: Rect2 = menu.biome_rect(i)
-		var locked: bool = b.get("locked", false)
+		var locked: bool = not menu.biome_unlocked(id)
 		var selected: bool = id == menu.biome_id
 		var accent: Color = S.color("toxic") if id == "verdant_maw" else S.color("ember")
 		var edge: Color = accent if selected else Color(accent, 0.45)
@@ -1580,7 +1580,7 @@ func _draw_tabs() -> void:
 			if active and not S.is_calm():
 				_glow(ic, Vector2(56, 40), Color(accent, 0.4))
 		if _on("top"):
-			if not _icon([["brood"], ["trophy"], ["mawling_head_color"], ["clock"]][i], Rect2(ic - Vector2(32, 32), Vector2(64, 64))):
+			if not _icon([["tab_brutkammer"], ["trophy"], ["tab_instinct"], ["tab_chronicle"]][i], Rect2(ic - Vector2(32, 32), Vector2(64, 64))):
 				_tab_icon(id, ic, accent)
 			_txt(String(names[id]), Vector2(rect.get_center().x, rect.position.y + 96), LABEL + 1, S.color("text") if active else S.color("text").darkened(0.15), true, 5)
 		var badge := ""
@@ -1627,7 +1627,7 @@ func _tab_icon(id: String, c: Vector2, accent: Color) -> void:
 
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const TAB_TONES := ["info", "loot", "ember", "special"]
-const TAB_ICONS := ["brood", "trophy", "instinct", "clock"]
+const TAB_ICONS := ["tab_brutkammer", "trophy", "tab_instinct", "tab_chronicle"]
 const STRAIN_HEADER := 74.0
 const PORTRAIT_H := 288.0
 
@@ -1688,6 +1688,8 @@ func _b_ellipse_points(c: Vector2, rx: float, ry: float, n: int = 40) -> PackedV
 
 
 func _b_check(c: Vector2, r: float) -> void:
+	if _b_icon("g_check", c, r * 2.0):
+		return
 	var pts := PackedVector2Array([c + Vector2(-0.62, 0.02) * r, c + Vector2(-0.16, 0.46) * r, c + Vector2(0.66, -0.44) * r])
 	_cv.draw_polyline(pts, S.BRAWL_INK, maxf(6.0, r * 0.5), true)
 	_cv.draw_polyline(pts, Color.WHITE, maxf(3.0, r * 0.26), true)
@@ -1695,6 +1697,8 @@ func _b_check(c: Vector2, r: float) -> void:
 
 ## Solid white arrow head with an ink rim (dir -1 left, 1 right).
 func _b_arrow(c: Vector2, r: float, dir: float) -> void:
+	if _b_icon("g_arrow_right" if dir > 0.0 else "g_arrow_left", c, r * 2.0):
+		return
 	var pts := PackedVector2Array([c + Vector2(dir * 0.6, 0.0) * r, c + Vector2(-dir * 0.4, -0.72) * r, c + Vector2(-dir * 0.4, 0.72) * r])
 	_cv.draw_colored_polygon(pts, Color.WHITE)
 	pts.append(pts[0])
@@ -1702,6 +1706,8 @@ func _b_arrow(c: Vector2, r: float, dir: float) -> void:
 
 
 func _b_gear_glyph(c: Vector2, r: float) -> void:
+	if _b_icon("g_settings", c, r * 2.0):
+		return
 	for pass_i in 2:
 		var k := 1.16 if pass_i == 0 else 1.0
 		var pts := PackedVector2Array()
@@ -1714,6 +1720,8 @@ func _b_gear_glyph(c: Vector2, r: float) -> void:
 
 
 func _b_sun_glyph(c: Vector2, r: float) -> void:
+	if _b_icon("g_daily", c, r * 2.0):
+		return
 	for pass_i in 2:
 		for i in 8:
 			var a := TAU * i / 8.0 + PI / 8.0
@@ -1999,7 +2007,7 @@ func _b_biomes() -> void:
 		var id: String = menu.meta.BIOME_ORDER[i]
 		var b: Dictionary = menu.meta.BIOMES[id]
 		var rect: Rect2 = menu.biome_rect(i)
-		var locked: bool = b.get("locked", false)
+		var locked: bool = not menu.biome_unlocked(id)
 		var selected: bool = id == menu.biome_id
 		var tone := "disabled" if locked else ("info" if selected else "neutral")
 		var state := "disabled" if locked else ("selected" if selected else "normal")

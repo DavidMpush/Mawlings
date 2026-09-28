@@ -8,6 +8,31 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 2. **17 Duale Progression** – Werte über Level, Waffen und Relikte über Kokons und Bosse, Seltenheit, Evolutionen über Waffe 5 + Relikt. Konzept und Schnittstellen: `stages/17_dual_progression.md`.
 3. **18 Lesbarkeit nach Swarm-Vorbild (Rest)** – S1–S4 (Farbregeln in der Welt, Anführer-Ring, drei Gefahrenformen, Treffer-Blitz am Anführer), S11 Kartenzonen, S12 Kommentare. S5–S10 und S13 sind mit 15/16 erledigt.
 3b. **18b Kartenlayout** – Die begrenzte Karte (Etappe 18) braucht ein gestaltetes Wegenetz statt zufälliger Streifen und Sackgassen: Wege verbinden die Regionen, eine Mitte, klare POI-Plätze (Nest, Kokon, Boss-Arena, Migrationsschlund), Landmarken als Orientierung. Glutsumpf-Rand als echte Klippe statt Geröllfeld; eigene Baum- und Klippenmodelle anfragen (`stages/ASSET_REQUESTS.md`).
+3a. **17b Schwarm ohne Limit** (Nutzerwunsch 27.09.2026: „Power soll linear unendlich skalieren“) – direkt nach Etappe 17 Welle 2:
+   - Das logische Limit 250 entfällt (`run_model`, `meta_data`, `profile`), Kampfkraft skaliert linear mit der Population, die Flut bleibt das exponentielle Gegengewicht.
+   - Darstellung: ab 120 sichtbaren Modellen steht jedes Modell für mehrere Tiere (dichter/breiter, leicht größere Tiere, kräftigerer Bodenring); Treffer pro Tier weiterhin anteilig.
+   - HUD ohne „/250“, Kurzform ab 10.000 („12,3k“).
+   - Meilensteine 500/1.000/2.500/5.000/…, Trophäen-Stufen statt „Die volle Brut 250“.
+   - Balance: lange Runs enden durch die Flut; Leistung stabil bei sehr großen Zahlen.
+3b. **17c Anführer mit Lebensbalken + Lebensraub** (Nutzerwunsch 28.09.2026), zusammen mit 17b umsetzen:
+   - Statt 3 Treffer-Pips echte LP (Start ~100) mit Balken über dem Anführer im Stil der Gegner-Leisten (grün → rot), dazu eine kleine Leiste an der Schwarm-Pill.
+   - Treffer kosten angriffsabhängig LP (Jäger ~20, Boss-Stampf ~35, Moorbrut-Biss ~4, × Druck-Skalierung); kurze Unverwundbarkeit bleibt.
+   - **Lebensraub** als neuer Wert (Mutation) und in Relikten (z. B. „Blutzahn“ +3 %): ein Anteil des ausgeteilten Schwarm-Schadens heilt den Anführer.
+   - Regeneration wird zu LP/s; die Königszahn-Kette heilt 15 LP; Anführerherz +15 % Max-LP; der Chitinschild schützt weiter.
+   - Nachfolger übernimmt mit 80 % des bisherigen Maximums.
+   - Die Balance-Zielkurven gelten weiter.
+3b2. **17d Stammes-Fähigkeiten** (Nutzer bestätigt 28.09.2026), direkt nach 17b/17c:
+   - Genau **eine aktive Fähigkeit pro Stamm**, eigener kleinerer runder Knopf schräg über Rally (linke Hand), Cooldown 20–40 s als Ring am Knopf, **kein Zielen** (wirkt in Laufrichtung bzw. am Schwarm).
+   - Klar unterschieden von Power-ups (passiv, vom Mini-Boss).
+   - Glutmaw **Glutsprung** (8 m Sprung nach vorn, beißt auf der Bahn, kurz unverwundbar, 25 s)
+   - Sporling **Sporenbombe** (Wolke am Schwarm, verlangsamt + Gift 5 s, 30 s)
+   - Knochenkiefer **Panzerstoß** (Schockwelle wirft zurück, 2 s −60 % Verluste, 30 s)
+   - Flinkzahn **Hetzjagd** (4 s +70 % Tempo, Schwarm streckt sich zur Linie, 20 s)
+   - Ätzmaul **Säureschwall** (Kegel nach vorn + Pfützen, 30 s)
+   - Nachtmaul **Schattenschleier** (3 s verlieren Gegner das Ziel, Warnflächen verfehlen, 40 s)
+   - Relikte verändern Fähigkeiten (z. B. −20 % Cooldown, Feuerspur beim Glutsprung).
+   - Später: Varianten pro Stamm über die Meta-Progression.
+   - Tastatur: Q/Shift. Bot nutzt die Fähigkeit sinnvoll (vor Warnflächen, bei Einkesselung); Balance-Zielkurven halten.
 3c. **19 Wüstenwelt „Dürrschlund“ mit Sandwurm** (Nutzerwunsch 27.09.2026) – Neue Biom-Reihenfolge: **Verdant Maw → Wüste → Glutsumpf**. Der Moosschlund-Schlund führt in die Wüste; deren Endboss ist der **Sandwurm**, erst sein Schlund führt in den Glutsumpf.
    - **Biom:** Dünen, Knochenfelder (Riesenrippen als Wände/Engpässe), Felsbögen, Sandstein-Klippen, vereinzelte Kakteen/Dornbüsche, Oasen als Lichtungen; Gefahr: Treibsand-Flächen (verlangsamen) und Sandstürme (Sicht, kurze Wellen). Farbwelt warmes Ocker/Sand mit türkisen Oasen, der Schwarm bleibt klar lesbar (Sand nicht zu orange).
    - **Gegner-Tints bzw. neue Wüstengegner** später; zunächst Tints der bestehenden Gegner.

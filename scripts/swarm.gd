@@ -31,7 +31,7 @@ const SPLIT_SWELL := 0.25
 const SPLIT_SLIDE := 0.32
 const SPLIT_PARALLEL := 6
 const MAX_SPLITS := 60
-const MILESTONES := [5, 10, 25, 50, 100, 250]
+const MILESTONES := [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
 const MILESTONE_GLOW_SECONDS := 0.9
 
 # Purely visual tuning; none of this feeds back into game state.
@@ -123,7 +123,7 @@ var leader_invulnerable := false
 var leader_hit_age := 99.0
 var leader_swap_age := 99.0
 var crown_from := Vector3.ZERO
-# Pip that broke on the last hit (index into the pips) and its age, for the HUD.
+# LP before the last hit (the HUD bar flashes the lost chunk) and its age.
 var pip_broken := -1
 var pip_break_age := 99.0
 var _dead_leader: Node3D = null
@@ -316,13 +316,14 @@ func prefer_removal(indices: PackedInt32Array) -> void:
 
 # ---------------------------------------------------------------- leader API
 
-## Leader display: hit points (pips), maximum and the post-hit invulnerability (blink).
+## Leader display: hit points (Etappe 17c: a health bar in the HUD), maximum and
+## the post-hit invulnerability (blink).
 func set_leader_state(hp: int, max_hp: int, invulnerable: bool) -> void:
 	hp = maxi(0, hp)
 	max_hp = maxi(0, max_hp)
-	# A lost point breaks its pip (independent of leader_hit(), which adds the rest).
+	# A lost chunk of LP flashes on the bar: pip_broken keeps the LP before the hit.
 	if hp < leader_hp and max_hp == leader_max_hp:
-		pip_broken = hp
+		pip_broken = leader_hp
 		pip_break_age = 0.0
 	leader_hp = hp
 	leader_max_hp = max_hp
@@ -768,7 +769,9 @@ func _update_ground_marks(radius: float) -> void:
 	var halo_radius := radius + 0.6
 	halo.visible = visible_swarm
 	halo.scale = Vector3(halo_radius, 1.0, halo_radius)
-	halo_material.albedo_color = Color(coral.r, coral.g, coral.b, lerpf(0.10, 0.2, rally_blend))
+	# Etappe 17b: a big swarm gets a stronger ground ring (it stands for the mass).
+	var mass := clampf(_mass_level() / 5.0, 0.0, 1.0)
+	halo_material.albedo_color = Color(coral.r, coral.g, coral.b, lerpf(0.10, 0.2, rally_blend) + 0.14 * mass)
 	ring.visible = visible_swarm and rally_blend > 0.01
 	var pulse := 1.0 + 0.04 * sin(clock * 9.0)
 	ring.scale = Vector3(halo_radius * pulse, 0.3, halo_radius * pulse)
@@ -1238,7 +1241,10 @@ func _origin() -> Transform3D:
 
 
 func _flow_radius() -> float:
-	var radius := 2.65 + maxf(0.0, sqrt(float(population) / 25.0) - 1.0) * 0.55
+	# Etappe 17b: beyond the visible limit every model stands for several animals;
+	# the formation only widens logarithmically (dense, not sparse).
+	var shown := minf(float(population), float(VISUAL_LIMIT))
+	var radius := 2.65 + maxf(0.0, sqrt(shown / 25.0) - 1.0) * 0.55 + 0.45 * _mass_level()
 	# A handful of animals stands closer together around the leader.
 	return radius * clampf(sqrt(float(population) / 25.0), 0.55, 1.0)
 
@@ -1253,7 +1259,19 @@ func _individuality(value: int) -> float:
 func _scale_for(value: int) -> float:
 	if value <= 25:
 		return lerpf(0.91, 1.22, _individuality(value))
-	return lerpf(0.91, 0.58, clampf(float(value - 25) / 225.0, 0.0, 1.0))
+	if value <= VISUAL_LIMIT:
+		return lerpf(0.91, 0.66, clampf(float(value - 25) / float(VISUAL_LIMIT - 25), 0.0, 1.0))
+	# Etappe 17b: above the visible limit the animals grow a little again with the mass.
+	return minf(1.0, 0.66 + 0.065 * _mass_level_of(value))
+
+
+## Doublings above the visible limit (0 up to 120 animals, ~5.4 at 5.000).
+func _mass_level() -> float:
+	return _mass_level_of(population)
+
+
+static func _mass_level_of(value: int) -> float:
+	return maxf(0.0, log(maxf(1.0, float(value) / float(VISUAL_LIMIT))) / log(2.0))
 
 
 # Ease-out with a slight overshoot so hatchlings pop into place.

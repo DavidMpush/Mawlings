@@ -6,11 +6,16 @@ const TUNING = preload("res://scripts/tuning.gd")
 # through collected loot crystals (scripts/loot.gd) and absorb(); the crystals
 # lying on the map are the run's stored resources. apply_loss() is the raw loss
 # (tests, direct use); HuntWorld resolves hits through apply_hit() (leader rules).
+# Etappe 17b: no population limit any more (power scales linearly, the flood is
+# the exponential counterweight). Kept as the old value for reference only.
 const MAX_POPULATION := 250
 const BIOMASS_PER_MAWLING: float = TUNING.BIOMASS_PER_MAWLING
 
 var population: int = TUNING.START_POPULATION
 var biomass_bank := 0.0
+## Etappe 17 Welle 2: Bernstein (In-Run-Währung für Kokons, verfällt am Run-Ende).
+var amber := 0
+var amber_collected := 0
 var kills := 0
 var elapsed := 0.0
 var peak_population: int = TUNING.START_POPULATION
@@ -41,7 +46,7 @@ func _init() -> void:
 
 
 func configure(start_population: int, doubling_seconds: float, leader_hp_value: int = TUNING.LEADER_HP) -> void:
-	population = clampi(start_population, 1, MAX_POPULATION)
+	population = maxi(1, start_population)
 	peak_population = population
 	pressure_doubling = maxf(1.0, doubling_seconds)
 	leader_max_hp = maxi(1, leader_hp_value)
@@ -67,7 +72,8 @@ func take_milestone() -> int:
 	return value
 
 
-# First-time population steps: milestones once per run, +1 leader LP per 25.
+# First-time population steps: milestones once per run, +LEADER_HEAL_AMOUNT LP per
+# LEADER_HEAL_STEP of the peak (Etappe 17c: real LP).
 func _note_growth() -> void:
 	for step in TUNING.MILESTONES:
 		if population >= int(step) and not milestones_reached.has(int(step)):
@@ -76,27 +82,33 @@ func _note_growth() -> void:
 	var steps := peak_population / TUNING.LEADER_HEAL_STEP
 	while heal_steps < steps:
 		heal_steps += 1
-		leader_hp = mini(leader_max_hp, leader_hp + 1)
+		leader_hp = mini(leader_max_hp, leader_hp + TUNING.LEADER_HEAL_AMOUNT)
 
 
 # One resolved hit under the leader rules. `followers` animals other than the
-# leader die (never the leader: at most population - 1); a struck leader loses
-# 1 LP unless invulnerable (and a `nonlethal` source never takes its last LP).
-# At 0 LP the leader dies: the next animal leads with max(1, old max - 1) LP, or
-# the run ends when it was the last one.
-# Result: {"lost": animals lost, "leader": "none" | "blocked" | "hit" | "swap" | "extinct"}.
-func apply_hit(followers: int, leader_struck: bool, nonlethal: bool = false) -> Dictionary:
+# leader die (never the leader: at most population - 1). Etappe 17c: a struck
+# leader loses `leader_damage` LP (real hit points, start TUNING.LEADER_HP)
+# unless invulnerable; a `nonlethal` source never takes its last LP. At 0 LP the
+# leader dies: the next animal leads with LEADER_SUCCESSOR_SHARE of the old
+# maximum, fully healed, or the run ends when it was the last one.
+# Result: {"lost": animals lost, "leader": "none" | "blocked" | "hit" | "swap" | "extinct", "damage": LP taken}.
+func apply_hit(followers: int, leader_struck: bool, nonlethal: bool = false, leader_damage: int = 1) -> Dictionary:
 	if extinct:
-		return {"lost": 0, "leader": "none"}
+		return {"lost": 0, "leader": "none", "damage": 0}
 	var loss := clampi(followers, 0, population - 1)
 	population -= loss
 	lost_population += loss
 	var leader := "none"
+	var taken := 0
 	if leader_struck:
+		var damage := maxi(1, leader_damage)
 		if leader_invulnerable > 0.0 or (nonlethal and leader_hp <= 1):
 			leader = "blocked"
 		else:
-			leader_hp -= 1
+			if nonlethal:
+				damage = mini(damage, leader_hp - 1)
+			taken = mini(damage, leader_hp)
+			leader_hp -= damage
 			leader_hits += 1
 			leader_invulnerable = TUNING.LEADER_INVULNERABLE_SECONDS
 			leader = "hit"
@@ -110,11 +122,20 @@ func apply_hit(followers: int, leader_struck: bool, nonlethal: bool = false) -> 
 					extinct = true
 					leader = "extinct"
 				else:
-					leader_max_hp = maxi(1, leader_max_hp - 1)
+					leader_max_hp = maxi(1, int(round(float(leader_max_hp) * TUNING.LEADER_SUCCESSOR_SHARE)))
 					leader_hp = leader_max_hp
 					leader_swaps += 1
 					leader = "swap"
-	return {"lost": loss, "leader": leader}
+	return {"lost": loss, "leader": leader, "damage": taken}
+
+
+## Heals the leader by `amount` LP (capped at the maximum). Returns LP gained.
+func heal_leader(amount: int) -> int:
+	if extinct or amount <= 0:
+		return 0
+	var before := leader_hp
+	leader_hp = mini(leader_max_hp, leader_hp + amount)
+	return leader_hp - before
 
 
 # Counts one defeated creature by type; called exactly once per death.
@@ -148,11 +169,11 @@ func apply_loss(amount: int) -> int:
 	return loss
 
 
-# Biomass the swarm can still take before it reaches MAX_POPULATION.
+# Biomass the swarm can still take: unlimited since Etappe 17b (0 when extinct).
 func biomass_capacity() -> float:
 	if extinct:
 		return 0.0
-	return maxf(0.0, float(MAX_POPULATION - population) * BIOMASS_PER_MAWLING - biomass_bank)
+	return INF
 
 
 # Collected biomass (a loot crystal reached the swarm): banks it and grows one
@@ -166,7 +187,7 @@ func absorb(amount: float) -> float:
 		return 0.0
 	biomass_bank += consumed
 	consumed_biomass += consumed
-	var newborn := mini(int(floor((biomass_bank + 0.00001) / BIOMASS_PER_MAWLING)), MAX_POPULATION - population)
+	var newborn := int(floor((biomass_bank + 0.00001) / BIOMASS_PER_MAWLING))
 	population += newborn
 	peak_population = maxi(peak_population, population)
 	biomass_bank -= float(newborn) * BIOMASS_PER_MAWLING

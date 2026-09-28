@@ -52,13 +52,15 @@ func _run() -> void:
 	world.drop_loot(Vector3(30, 0, 0), 12.0)
 	world.model.population = 250
 	swarm.set_population(250)
+	var consumed_before: float = world.model.consumed_biomass
 	swarm.set_controls(Vector2.ZERO, true)
 	hunter = world._spawn_hunter(Vector3(0.5, 0, 0))
 	hunter.state = HUNTER.State.CHASE
 	for tick in 60:
 		world.step(1.0 / 60.0)
 	_check(world.hunters.is_empty(), "Normal swarm combat defeats hunter before its attack")
-	_check(world.loot.total(0) > 12.0 + TUNING.HUNTER_BIOMASS * 0.99 and world.model.population == 250, "Hunter yields biomass crystals that stay at cap")
+	# Etappe 17b: no cap - the swarm of 250 may take the hunter's biomass.
+	_check(world.loot.total(0) + world.model.consumed_biomass - consumed_before > 12.0 + TUNING.HUNTER_BIOMASS * 0.99 and world.model.population >= 250, "Hunter yields biomass crystals (no cap)")
 	_check(world.loot.lying_near(Vector3(30, 0, 0), 3.0).size() > 0, "Old crystals survive the hunter defeat")
 
 	world.reset_run()

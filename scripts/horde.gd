@@ -17,6 +17,8 @@ extends Node3D
 const CREATURE_SHADER = preload("res://shaders/creature_anim.gdshader")
 const MOORBRUT_SCENE = preload("res://assets/gameplay/characters/Moorbrut_game.glb")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
+const FX = preload("res://scripts/fx.gd")
+const UI_STYLE = preload("res://scripts/ui/ui_style.gd")
 
 const MAX_BROOD := 160
 const DEFAULT_STATS := {"hp": 6.0, "speed": 4.8, "bite": 1.0, "bite_cooldown": 1.2, "biomass": 0.4, "dna": 1}
@@ -197,6 +199,9 @@ func spawn_ring(center: Vector3, amount: int, radius: float, stats: Dictionary) 
 	var biomass := maxf(0.0, float(stats.get("biomass", DEFAULT_STATS.biomass)))
 	var dna := maxi(0, int(stats.get("dna", DEFAULT_STATS.dna)))
 	var spawned := 0
+	# Stage 20 (S3): big ring = "an event is running" - every flood wave draws a
+	# faint danger ring contracting from the spawn ring towards the swarm.
+	FX.ring(world if world != null and is_instance_valid(world) else self, Vector3(center.x, 0.0, center.z), Color(UI_STYLE.BRAWL_DANGER_LIGHT, 0.5), radius, radius * 0.55, 1.4)
 	var offset := fposmod(float(_frame) * 0.618034 + center.x * 0.13, 1.0) * TAU
 	# Etappe 18b: auf einer Karte mit Wegen entsteht die Brut an Weg- und
 	# Lichtungsrändern in 24-44 m Laufweite (außerhalb des Bildes) und strömt

@@ -116,19 +116,21 @@ func _test_rudelbiss() -> void:
 	_run_for(forms, 3.0, targets, false)
 	_check(_lost(near) == 0.0, "Rudelbiss darf ohne Rally nicht angreifen")
 	_run_for(forms, 0.5, targets, true)
-	_check(is_equal_approx(_lost(near), 8.0), "Rudelbiss R1 sollte 8 Schaden machen, war %s" % _lost(near))
-	_check(is_equal_approx(_lost(splash), 8.0), "Rudelbiss-Flächenschaden fehlt (Radius 1,6)")
+	var bite: float = FORMS_SCRIPT.RUDELBISS_DAMAGE[0]
+	_check(is_equal_approx(_lost(near), bite), "Rudelbiss R1 sollte %s Schaden machen, war %s" % [bite, _lost(near)])
+	_check(is_equal_approx(_lost(splash), bite), "Rudelbiss-Flächenschaden fehlt (Radius 1,6)")
 	_check(_lost(far) == 0.0, "Rudelbiss traf Ziel außerhalb von 4 m")
-	# Intervall R1 = 2,2 s: bis 2,0 s kein zweiter Biss, danach ja.
-	_run_for(forms, 1.5, targets, true)
-	_check(is_equal_approx(_lost(near), 8.0), "Rudelbiss-Intervall zu kurz")
+	# Intervall R1 = RUDELBISS_INTERVAL[0] (1,8 s): bis 1,5 s kein zweiter Biss, danach ja.
 	_run_for(forms, 1.0, targets, true)
-	_check(is_equal_approx(_lost(near), 16.0), "Zweiter Rudelbiss nach 2,2 s fehlt")
+	_check(is_equal_approx(_lost(near), bite), "Rudelbiss-Intervall zu kurz")
+	_run_for(forms, 1.0, targets, true)
+	_check(is_equal_approx(_lost(near), 2.0 * bite), "Zweiter Rudelbiss nach %s s fehlt" % FORMS_SCRIPT.RUDELBISS_INTERVAL[0])
 	forms.free()
 	var strong := _forms({"rudelbiss": 3})
 	var victim := _dummy(Vector3(-2, 0, 2))
 	_run_for(strong, 0.5, [victim], true, 2.0)
-	_check(is_equal_approx(_lost(victim), 32.0), "Rudelbiss R3 × enemy_scale 2 sollte 32 sein, war %s" % _lost(victim))
+	var r3: float = FORMS_SCRIPT.RUDELBISS_DAMAGE[2] * 2.0
+	_check(is_equal_approx(_lost(victim), r3), "Rudelbiss R3 × enemy_scale 2 sollte %s sein, war %s" % [r3, _lost(victim)])
 	strong.free()
 	_dispose([near, splash, far, victim])
 
@@ -356,7 +358,7 @@ func _test_modifiers_and_relics() -> void:
 	forms.set_modifiers({"cooldown": 0.5})
 	var near := _dummy(Vector3(3, 0, 0), true)
 	_run_for(forms, 1.5, [near], true)
-	_check(is_equal_approx(_lost(near), 16.0), "Angriffstempo halbiert das Intervall nicht (%s)" % _lost(near))
+	_check(is_equal_approx(_lost(near), 2.0 * FORMS_SCRIPT.RUDELBISS_DAMAGE[0]), "Angriffstempo halbiert das Intervall nicht (%s)" % _lost(near))
 	forms.free()
 	# Reichweite: Aura × area.
 	var aura := _forms({"sporenwolke": 1})

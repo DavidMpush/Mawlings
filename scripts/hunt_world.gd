@@ -15,9 +15,17 @@ const QUALITY = preload("res://scripts/quality.gd")
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
 const LOOT = preload("res://scripts/loot.gd")
 const LOOT_NODES = preload("res://scripts/loot_nodes.gd")
+# Etappe 17 Welle 2: Kokons, Power-ups und Schreine (je ein Knoten unter HuntWorld).
+const CHESTS = preload("res://scripts/chests.gd")
+const POWERUPS = preload("res://scripts/powerups.gd")
+const SHRINES = preload("res://scripts/shrines.gd")
+const HUD_LOOT_PATH := "res://scripts/ui/hud_loot.gd"
 const ERUPTIONS = preload("res://scripts/eruptions.gd")
 const APEX_BOSS = preload("res://scripts/apex_boss.gd")
 const APEX_TOAD = preload("res://scripts/apex_toad.gd")
+# Etappe 19: Sandwurm (Dürrschlund-Apex) und der Wüstenteil des Runs (Sandmaden, Sandsturm).
+const APEX_SANDWORM = preload("res://scripts/apex_sandworm.gd")
+const DESERT_RUN = preload("res://scripts/desert_run.gd")
 const MIGRATION_MAW = preload("res://scripts/migration_maw.gd")
 const BIOMES = preload("res://scripts/biomes.gd")
 const BROOD_NEST = preload("res://scripts/objectives/brood_nest.gd")
@@ -30,7 +38,7 @@ const CORPSE_BIOMASS := TUNING.CORPSE_BIOMASS
 # Etappe 16: DNA per kill kind (now dropped as crystals).
 const KILL_DNA := {"prey": 10, "hunter": 20, "skitter": 15, "leaper": TUNING.LEAPER_DNA, "boss": 50, "apex": TUNING.APEX_DNA}
 # Loot spread / remains life by rank.
-const KIND_RANK := {"prey": "normal", "hunter": "normal", "skitter": "normal", "horde": "normal", "elite": "mini", "leaper": "mini", "boss": "boss", "apex": "boss", "apex_toad": "boss", "nest": "boss", "mawling": "special"}
+const KIND_RANK := {"prey": "normal", "hunter": "normal", "skitter": "normal", "horde": "normal", "elite": "mini", "leaper": "mini", "boss": "boss", "apex": "boss", "apex_toad": "boss", "apex_sandworm": "boss", "nest": "boss", "mawling": "special"}
 # Written by parallel modules; loaded at runtime so a missing file never breaks a run.
 const ATTACK_FORMS_PATH := "res://scripts/attack_forms.gd"
 const SESSION_PATH := "res://scripts/meta/session.gd"
@@ -44,7 +52,7 @@ const ALPHA_PICKUP_RADIUS := 1.7
 const MELEE_REACH := 1.2
 const MELEE_FULL_SHARE := 0.6
 const MELEE_MIN_ENGAGE := 0.5
-const BODY_RADIUS := {"prey": 0.45, "hunter": 0.72, "elite": 1.05, "skitter": 0.55, "leaper": 0.7, "boss": 2.3, "apex": TUNING.APEX_BODY_RADIUS, "apex_toad": APEX_TOAD.BODY_RADIUS}
+const BODY_RADIUS := {"prey": 0.45, "hunter": 0.72, "elite": 1.05, "skitter": 0.55, "leaper": 0.7, "boss": 2.3, "apex": TUNING.APEX_BODY_RADIUS, "apex_toad": APEX_TOAD.BODY_RADIUS, "apex_sandworm": APEX_SANDWORM.BODY_RADIUS}
 const POPUP_SECONDS := 0.9
 const POPUP_MAX := 3
 # Etappe 16 (S5): collected crystals add up into ONE growing number at the swarm
@@ -93,6 +101,11 @@ var corpse_view: Node3D
 var loot: Node3D
 # Stage 18c: breakable amber nodes of the exploration map (scripts/loot_nodes.gd).
 var loot_nodes: Node3D
+var chests: Node3D
+var powerups: Node3D
+var shrines: Node3D
+## True once this biome cycle's Bog King left its golden boss cocoon.
+var king_cocoon_taken := false
 # Remains bookkeeping: id -> {"age", "life"}; remains_order oldest first.
 var remains := {}
 var remains_order: Array[int] = []
@@ -134,6 +147,7 @@ var unit_points_valid := false
 var kill_popups: Array[Dictionary] = []
 # Flood DNA waiting for a whole crystal (flush_flood_bundles).
 var flood_dna_pending := 0
+var flood_amber_pending := 0.0
 # Counts Bog King kills this run; HUD and Main react to changes (Königsmoment).
 var king_moments := 0
 var last_hit_share := 1.0
@@ -203,6 +217,9 @@ var apex_spawned := 0
 # Kind of the apex that rises / lives / fell last ("apex" or "apex_toad").
 var apex_kind := "apex"
 var toad_kills := 0
+var worm_kills := 0
+## Etappe 19: Wüstenteil des Runs (scripts/desert_run.gd), neben der Horde erzeugt.
+var desert: Node3D
 var apex_clock := 0.0
 var apex_spot := Vector3.ZERO
 var apex_pulse := 0.0
@@ -254,6 +271,7 @@ func _ready() -> void:
 	_seed_objectives()
 	_ensure_objective_hud()
 	_ensure_flood_hud()
+	_ensure_loot_hud()
 	# Etappe 17: also the config-less first run (F5, tests) gets its start weapon.
 	_configure_run()
 	_create_attack_forms()
@@ -276,9 +294,14 @@ func apply_config(value: Dictionary) -> void:
 
 
 func _starting_prey() -> void:
-	_spawn_prey(Vector3(-3.0, 0.0, -4.0))
-	_spawn_prey(Vector3(4.0, 0.0, -2.0))
-	_spawn_prey(Vector3(-2.0, 0.0, 5.0))
+	# Stage 18c: around the start (random on the exploration map), on open ground.
+	var home := Vector3(swarm.position.x, 0.0, swarm.position.z)
+	var arena: Node = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	for offset in [Vector3(-3.0, 0.0, -4.0), Vector3(4.0, 0.0, -2.0), Vector3(-2.0, 0.0, 5.0)]:
+		var spot: Vector3 = home + offset
+		if arena != null and arena.has_method("safe_spawn"):
+			spot = arena.safe_spawn(spot, 0.6)
+		_spawn_prey(spot)
 
 
 func reset_run() -> void:
@@ -301,6 +324,10 @@ func reset_run() -> void:
 	corpse_view = null
 	loot = null
 	loot_nodes = null
+	chests = null
+	powerups = null
+	shrines = null
+	king_cocoon_taken = false
 	eruptions = null
 	corpse_kinds.clear()
 	remains.clear()
@@ -334,6 +361,12 @@ func reset_run() -> void:
 	snap_gap = 0.0
 	kill_popups.clear()
 	flood_dna_pending = 0
+	flood_amber_pending = 0.0
+	melee_dealt = 0.0
+	_forms_dealt_seen = 0.0
+	_heal_pool = 0.0
+	leader_heal_shown = 0
+	leader_heal_at = -INF
 	unit_points_valid = false
 	result_stored = false
 	evolve_flash = 0.0
@@ -403,7 +436,7 @@ func _sync_attack_forms() -> void:
 	if _progression_model != model:
 		_progression_model = model
 		progression_hp = 0
-	var bonus: int = evolution.leader_hp_bonus()
+	var bonus: int = evolution.leader_hp_bonus(int(config.get("leader_hp", TUNING.LEADER_HP)))
 	if bonus != progression_hp and not model.extinct:
 		var change := bonus - progression_hp
 		progression_hp = bonus
@@ -429,6 +462,18 @@ func _create_horde() -> void:
 		horde.setup(self, swarm, get_parent().get_node_or_null("Arena"))
 	if attack_forms != null and attack_forms.has_method("set_horde"):
 		attack_forms.set_horde(horde)
+	_create_desert()
+
+
+# Etappe 19: Sandmaden, Sandsturm und ein gemeinsamer Brut-Stellvertreter
+# (Moorbrut + Sandmaden) für die Angriffsformen.
+func _create_desert() -> void:
+	desert = DESERT_RUN.new()
+	desert.name = "Desert"
+	add_child(desert)
+	desert.setup(self, swarm, get_parent().get_node_or_null("Arena"))
+	if attack_forms != null and attack_forms.has_method("set_horde"):
+		attack_forms.set_horde(desert.brood)
 
 
 func _ensure_flood_hud() -> void:
@@ -591,7 +636,7 @@ func _flood_bites(result: Dictionary, points: PackedVector3Array) -> bool:
 	# HORDE_FLASH_SECONDS (the loss, shove and ghosts stay unchanged).
 	var flash_before: float = float(swarm.get("flash")) if "flash" in swarm else 0.0
 	# No attacker: Stachelrücken answers the Moorbrut through the horde hook.
-	var ended := _apply_hit(maxi(0, loss), impact, 0.08, null, leader_struck)
+	var ended := _apply_hit(maxi(0, loss), impact, 0.08, null, leader_struck, false, "horde")
 	if not ended and "flash" in swarm:
 		var soft := flash_before
 		if model.elapsed >= horde_flash_at:
@@ -649,8 +694,12 @@ func flush_flood_bundles() -> bool:
 		if flood_dna_pending >= int(TUNING.LOOT_DNA_CHUNK):
 			dna = flood_dna_pending
 			flood_dna_pending = 0
+		# Bernstein of the Moorbrut adds up the same way (AMBER_HORDE per animal).
+		flood_amber_pending += TUNING.AMBER_HORDE * float(bundle.n)
+		var coins := int(floor(flood_amber_pending))
+		flood_amber_pending -= float(coins)
 		if loot != null:
-			loot.burst(location, amount, dna, "horde")
+			loot.burst(location, amount, dna, "horde", coins)
 	flood_bundles.clear()
 	_sfx("kill", 10)
 	return choosing()
@@ -731,7 +780,9 @@ func step(delta: float) -> void:
 	var attack_range := 1.15 if swarm.rally_pressed else 1.5
 	# Stage 09: a small swarm's bigger animals bite harder (bonus fades out at 25).
 	var small_bonus := TUNING.SMALL_SWARM_BITE * clampf(1.0 - float(model.population - 1) / 24.0, 0.0, 1.0)
-	var damage := minf(32.0, 1.0 + float(model.population) * 0.12 + small_bonus) * (1.55 if swarm.rally_pressed else 1.0)
+	# Etappe 17b: melee power grows linearly with the population (the old cap of
+	# 32 at ~260 animals is gone; the flood is the exponential counterweight).
+	var damage := (1.0 + float(model.population) * 0.12 + small_bonus) * (1.55 if swarm.rally_pressed else 1.0)
 	damage *= evolution.damage_multiplier(swarm.rally_pressed)
 	focus_mode = 0
 	focus_distance = INF
@@ -767,6 +818,7 @@ func step(delta: float) -> void:
 		_consider_focus(target.position, 3.2)
 		var bite := melee_factor(target.position, "prey", attack_range)
 		if bite > 0.0:
+			melee_dealt += damage * bite * delta
 			var health: float = target.get("health") - damage * bite * delta
 			target.set("health", health)
 			melee_contact = true
@@ -784,6 +836,7 @@ func step(delta: float) -> void:
 		var hunter_bite := 0.0 if hunter.get("state") == HUNTER.State.ARRIVING else melee_factor(hunter.position, "elite" if hunter.elite else "hunter", attack_range)
 		if hunter_bite > 0.0:
 			hunter.call("take_damage", damage * hunter_bite * delta)
+			melee_dealt += damage * hunter_bite * delta
 			melee_contact = true
 			message = "Jäger angreifen · vor dem Ring ausweichen"
 			if _resolve_death(hunter, "hunter"):
@@ -805,6 +858,7 @@ func step(delta: float) -> void:
 		var skitter_bite := 0.0 if skitter.get("state") == SKITTER.State.ARRIVING else melee_factor(skitter.position, "skitter", attack_range)
 		if skitter_bite > 0.0:
 			skitter.take_damage(damage * skitter_bite * delta)
+			melee_dealt += damage * skitter_bite * delta
 			melee_contact = true
 			message = "Skitter angreifen · seitlich ausweichen"
 			if _resolve_death(skitter, "skitter"):
@@ -826,6 +880,7 @@ func step(delta: float) -> void:
 			var leaper_bite := melee_factor(leaper.position, "leaper", attack_range)
 			if leaper_bite > 0.0:
 				leaper.take_damage(damage * leaper_bite * delta)
+				melee_dealt += damage * leaper_bite * delta
 				melee_contact = true
 				if leaper.state == MIRE_LEAPER.State.EXHAUSTED:
 					message = "Leaper erschöpft · jetzt angreifen!"
@@ -850,6 +905,7 @@ func step(delta: float) -> void:
 		var boss_bite := 0.0 if boss.state == BOG_KING.State.ARRIVING else melee_factor(boss.position, "boss", 3.5)
 		if boss_bite > 0.0:
 			boss.take_damage(damage * boss_bite * delta)
+			melee_dealt += damage * boss_bite * delta
 			melee_contact = true
 			message = "BOG KING · RALLY ZUM ANGRIFF"
 			if _resolve_death(boss, "boss") and choosing():
@@ -881,10 +937,20 @@ func step(delta: float) -> void:
 			message = "LAVA BRICHT AUS!"
 	if _step_flood(delta, damage):
 		return
+	if desert != null:
+		var desert_result: Dictionary = desert.step(delta, damage, message)
+		if desert_result.ended:
+			return
+		message = desert_result.message
 	_audio_threat()
 	message = _step_loot(delta, message)
+	_step_leader_heal(delta)
+	if _step_arsenal_world(delta):
+		return
 	_step_remains(delta)
 	_step_alpha_pickups(delta)
+	if attack_forms != null and attack_forms.has_method("contact_fx"):
+		attack_forms.contact_fx(melee_contact)  # VFX V1: gedrosselte Biss-Sprites
 	_audio_step(delta, population_before)
 	if focus_mode == 0:
 		swarm.clear_focus()
@@ -979,6 +1045,7 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 				_kill_burst(location, Color("f5c86a"), 4.0, 0.35)
 				_drop_rewards(location, "elite", TUNING.ELITE_BIOMASS, TUNING.ELITE_DNA)
 				_drop_alpha_core(location)
+				_drop_cocoon("elite", location)
 				drop_lure(location)
 			else:
 				_kill_burst(location, Color("c58be0"), 2.6, 0.25)
@@ -1015,27 +1082,40 @@ func _resolve_death(enemy: Node3D, kind: String) -> bool:
 			_drop_rewards(location, "boss", TUNING.BOSS_BIOMASS, KILL_DNA.boss)
 			boss_clock = TUNING.BOSS_RESPAWN_SECONDS
 			_drop_alpha_core(location)
+			# Etappe 17 Welle 2 (gegen den Schneeball): only the first Bog King of a
+			# biome cycle leaves the golden boss cocoon, later ones a small one.
+			_drop_cocoon("elite" if king_cocoon_taken else "boss", location)
+			king_cocoon_taken = true
 			drop_lure(location)
 		"apex":
 			if enemy != apex:
 				return false
 			apex = null
 			var toad: bool = str(enemy.get("corpse_kind")) == "apex_toad"
+			var worm: bool = str(enemy.get("corpse_kind")) == "apex_sandworm"
 			if toad:
 				_kill_burst(location, Color("ffb45a"), 9.0, 0.8)
 				_kill_burst(location, Color("ff6a2a"), 6.5, 0.0)
 				_drop_rewards(location, "apex_toad", TUNING.APEX_TOAD_BIOMASS, TUNING.APEX_TOAD_DNA)
+			elif worm:
+				_kill_burst(location, Color("ffe2a0"), 9.0, 0.8)
+				_kill_burst(location, Color("7fe7ff"), 6.5, 0.0)
+				_drop_rewards(location, "apex_sandworm", TUNING.APEX_SANDWORM_BIOMASS, TUNING.APEX_SANDWORM_DNA)
+				worm_kills += 1
 			else:
 				_kill_burst(location, Color("e8f59a"), 9.0, 0.8)
 				_kill_burst(location, Color("c8a0ff"), 6.5, 0.0)
 				_drop_rewards(location, "apex", TUNING.APEX_BIOMASS, KILL_DNA.apex)
-			for index in (TUNING.APEX_TOAD_ALPHA_CORES if toad else TUNING.APEX_ALPHA_CORES):
+			for index in (TUNING.APEX_TOAD_ALPHA_CORES if toad else (TUNING.APEX_SANDWORM_ALPHA_CORES if worm else TUNING.APEX_ALPHA_CORES)):
 				_drop_alpha_core(location)
+			_drop_cocoon("boss", location)
 			drop_lure(location)
 		_:
 			return false
 	model.record_kill(kind)
 	_note_kills(1, 1.0, location)
+	if powerups != null:
+		powerups.on_kill(kind, location, kind == "hunter" and bool(enemy.get("elite")), model.elapsed)
 	if kind == "apex":
 		# The body sinks into the ground (apex_boss DEAD pose) before it is freed.
 		apex_dying = enemy
@@ -1145,6 +1225,8 @@ func _kill_prey(target: Node3D) -> void:
 	_drop_rewards(target.position, "prey", CORPSE_BIOMASS, KILL_DNA.prey)
 	model.record_kill("prey")
 	_note_kills(1, 1.0, target.position)
+	if powerups != null:
+		powerups.on_kill("prey", target.position, false, model.elapsed)
 	target.queue_free()
 
 
@@ -1156,16 +1238,18 @@ func _drop_rewards(location: Vector3, kind: String, biomass: float, dna: int) ->
 	_add_remains(at, kind)
 	var amount := biomass * evolution.biomass_multiplier() * reward_multiplier()
 	var reward := _reward_dna(dna)
-	drop_loot(at, amount, reward, String(KIND_RANK.get(kind, "normal")))
+	# Etappe 17 Welle 2: every kill also drops Bernstein by kind (x curse).
+	var amber := int(round(float(TUNING.AMBER_KILL.get(kind, 0)) * reward_multiplier()))
+	drop_loot(at, amount, reward, String(KIND_RANK.get(kind, "normal")), amber)
 	return reward
 
 
 ## Bursts `biomass` and `dna` into crystals at `location` (public for tests,
 ## captures and the perf bench). Values are final (no multipliers applied).
-func drop_loot(location: Vector3, biomass: float, dna: int = 0, rank: String = "normal") -> void:
+func drop_loot(location: Vector3, biomass: float, dna: int = 0, rank: String = "normal", amber: int = 0) -> void:
 	if loot == null or model.extinct:
 		return
-	loot.burst(Vector3(location.x, 0.0, location.z), biomass, dna, rank)
+	loot.burst(Vector3(location.x, 0.0, location.z), biomass, dna, rank, amber)
 
 
 # Empty remains of `kind` (corpse_visuals design); they sink after their life.
@@ -1229,6 +1313,7 @@ func _create_world_views() -> void:
 	loot_nodes.name = "LootNodes"
 	add_child(loot_nodes)
 	loot_nodes.setup(self, get_parent().get_node_or_null("Arena") as Node3D)
+	_create_arsenal_world()
 	eruptions = ERUPTIONS.new()
 	eruptions.name = "Eruptions"
 	eruptions.arena = get_parent().get_node_or_null("Arena") as Node3D
@@ -1243,6 +1328,161 @@ func _piece(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(part)
 	return part
+
+
+# ---------------------------------------------------------------- Anführer-LP (Etappe 17c)
+
+## Melee damage the swarm dealt this step (Lebensraub counts it with the forms).
+var melee_dealt := 0.0
+var _forms_dealt_seen := 0.0
+var _heal_pool := 0.0
+## Last visible heal ("+N" over the leader) and when it happened.
+var leader_heal_shown := 0
+var leader_heal_at := -INF
+
+
+## LP a hit on the leader costs: TUNING.LEADER_HIT by attacker x
+## pressure^LEADER_HIT_PRESSURE x difficulty (grows gentler than the animal damage).
+func leader_damage(attacker: Node3D, source: String = "") -> int:
+	var key := source
+	if key == "":
+		if attacker == null:
+			key = "default"
+		elif attacker == eruptions:
+			key = "eruption"
+		elif attacker is PREY:
+			key = "prey"
+		elif attacker is HUNTER:
+			key = "elite" if bool(attacker.get("elite")) else "hunter"
+		elif attacker is SKITTER:
+			key = "skitter"
+		elif attacker is MIRE_LEAPER:
+			key = "leaper"
+		elif attacker is BOG_KING:
+			key = "boss"
+		elif attacker == apex:
+			key = "apex"
+		else:
+			key = "apex_puddle"
+	var base := float(TUNING.LEADER_HIT.get(key, TUNING.LEADER_HIT["default"]))
+	return maxi(1, int(round(base * pow(model.pressure(), TUNING.LEADER_HIT_PRESSURE) * difficulty_scale(enemy_damage))))
+
+
+# Heals the leader (Lebensraub, Regeneration, Königszahnkette) and remembers the
+# amount for the small green "+N" over the leader. Returns LP gained.
+func _heal_leader(amount: int) -> int:
+	var gained: int = model.heal_leader(amount)
+	if gained > 0:
+		if model.elapsed - leader_heal_at > 0.8:
+			leader_heal_shown = 0
+		leader_heal_shown += gained
+		leader_heal_at = model.elapsed
+		_sync_leader()
+	return gained
+
+
+# Lebensraub: a share of all damage the swarm dealt (melee + attack forms) heals
+# the leader; Regeneration heals LP per second. Fractions are pooled.
+func _step_leader_heal(delta: float) -> void:
+	var forms_total := 0.0
+	if attack_forms != null and "damage_dealt" in attack_forms:
+		for value in (attack_forms.damage_dealt as Dictionary).values():
+			forms_total += float(value)
+	var forms_now := maxf(0.0, forms_total - _forms_dealt_seen)
+	_forms_dealt_seen = forms_total
+	var dealt := melee_dealt + forms_now
+	melee_dealt = 0.0
+	if model.extinct or model.leader_hp >= model.leader_max_hp:
+		_heal_pool = 0.0
+		return
+	_heal_pool += dealt * evolution.lifesteal() + evolution.regen_rate() * delta
+	if _heal_pool >= 1.0:
+		var whole := int(floor(_heal_pool))
+		_heal_pool -= float(whole)
+		_heal_leader(whole)
+
+
+# ---------------------------------------------------------------- Kokons, Power-ups, Schreine (Etappe 17 Welle 2)
+
+func _create_arsenal_world() -> void:
+	var arena := get_parent().get_node_or_null("Arena") as Node3D
+	chests = CHESTS.new()
+	chests.name = "Chests"
+	add_child(chests)
+	chests.setup(self, arena)
+	powerups = POWERUPS.new()
+	powerups.name = "Powerups"
+	add_child(powerups)
+	powerups.setup(self, arena)
+	shrines = SHRINES.new()
+	shrines.name = "Shrines"
+	add_child(shrines)
+	shrines.setup(self, arena)
+
+
+
+# Holds/opens cocoons, picks up boosters, charges shrines. True when a choice
+# (boss cocoon, shrine) opened and step() must stop.
+func _step_arsenal_world(delta: float) -> bool:
+	if model.extinct:
+		return false
+	var centre: Vector3 = swarm.position
+	if chests != null:
+		chests.step(delta, centre)
+	if powerups != null:
+		powerups.step(delta, centre, _unit_points())
+	if shrines != null:
+		shrines.step(delta, centre)
+	if choosing():
+		hud.clear_pointers()
+		swarm.set_controls(Vector2.ZERO, false)
+		_update_hud("")
+		return true
+	return false
+
+
+## Drops a free cocoon ("elite" / "boss") at a death spot.
+func _drop_cocoon(kind: String, location: Vector3) -> void:
+	if chests != null and not model.extinct:
+		chests.drop(kind, location)
+
+
+func _ensure_loot_hud() -> void:
+	if hud == null or hud.get_node_or_null("hud_loot") != null or not ResourceLoader.exists(HUD_LOOT_PATH):
+		return
+	var component: Control = load(HUD_LOOT_PATH).new()
+	component.name = "hud_loot"
+	hud.add_child(component)
+
+
+func _arsenal_hud() -> Dictionary:
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	var state := {"tags": [], "card": {}, "active": [], "band": {}, "shrines": []}
+	if chests != null:
+		state.merge(chests.hud_state(camera, swarm.position), true)
+	if powerups != null:
+		state.merge(powerups.hud_state(), true)
+	if shrines != null:
+		state["shrines"] = shrines.hud_state(camera, swarm.position)
+	return state
+
+
+# Minimap marks of one module, only where the fog is lifted (dropped cocoons always).
+func _arsenal_marks(source: Node3D) -> Array:
+	if source == null:
+		return []
+	var arena := _map_arena()
+	var out: Array = []
+	for mark in source.map_marks():
+		var seen := true
+		if not bool(mark.get("dropped", false)) and arena != null:
+			if arena.has_method("is_discovered"):
+				seen = arena.is_discovered(mark.at)
+			elif arena.has_method("is_explored"):
+				seen = arena.is_explored(mark.at)
+		if seen:
+			out.append(mark)
+	return out
 
 
 # ---------------------------------------------------------------- Alpha-Kern
@@ -1364,6 +1604,7 @@ func _reset_apex() -> void:
 	apex_spawned = 0
 	apex_kind = "apex"
 	toad_kills = 0
+	worm_kills = 0
 	apex_victories = 0
 	apex_dying = null
 	apex_dying_clock = 0.0
@@ -1420,13 +1661,25 @@ func apex_due_seconds() -> float:
 	return apex_due if apex_due >= 0.0 else apex_spawn_seconds()
 
 
-# Apex of a biome: the Glutsumpf has the Aschenkröte, every other the Moosschlund.
+# Apex of a biome: the Glutsumpf has the Aschenkröte, the Dürrschlund the
+# Sandwurm (biomes.gd "apex_kind"), every other the Moosschlund.
 static func apex_kind_for(id: String) -> String:
-	return "apex_toad" if id == "glutsumpf" else "apex"
+	if id == "glutsumpf":
+		return "apex_toad"
+	return String(BIOMES.get_data(id).get("apex_kind", "apex")) if BIOMES.has(id) else "apex"
 
 
 static func apex_display_name(kind: String) -> String:
+	if kind == "apex_sandworm":
+		return APEX_SANDWORM.DISPLAY_NAME
 	return APEX_TOAD.DISPLAY_NAME if kind == "apex_toad" else "Moosschlund"
+
+
+# Etappe 19: rise radius of an apex kind (warning ring, spawn clearance).
+static func apex_body_radius(kind: String) -> float:
+	if kind == "apex_sandworm":
+		return APEX_SANDWORM.BODY_RADIUS
+	return APEX_TOAD.BODY_RADIUS if kind == "apex_toad" else TUNING.APEX_BODY_RADIUS
 
 
 # Completed loops through the biome circle before the next apex (0 for the first
@@ -1449,7 +1702,8 @@ func _apex_schedule(delta: float, message: String) -> String:
 		var due := apex_due_seconds()
 		if model.elapsed < due:
 			return message
-		var needed: int = TUNING.APEX_TOAD_MIN_POPULATION if apex_kind_for(biome_id) == "apex_toad" else TUNING.APEX_MIN_POPULATION
+		var next_kind := apex_kind_for(biome_id)
+		var needed: int = TUNING.APEX_TOAD_MIN_POPULATION if next_kind == "apex_toad" else (TUNING.APEX_SANDWORM_MIN_POPULATION if next_kind == "apex_sandworm" else TUNING.APEX_MIN_POPULATION)
 		var swarm_ready: bool = model.population >= needed or model.elapsed >= due + TUNING.APEX_LATEST_EXTRA
 		var king_clear: bool = boss == null or model.elapsed >= flood_start - TUNING.APEX_FLOOD_MARGIN
 		if swarm_ready and king_clear:
@@ -1458,17 +1712,20 @@ func _apex_schedule(delta: float, message: String) -> String:
 		apex_clock -= delta
 		apex_pulse -= delta
 		var toad := apex_kind == "apex_toad"
+		var worm := apex_kind == "apex_sandworm"
 		if apex_pulse <= 0.0:
 			apex_pulse = 0.5
-			var radius: float = APEX_TOAD.BODY_RADIUS if toad else TUNING.APEX_BODY_RADIUS
-			FX.ring(self, apex_spot, Color(1.0, 0.55, 0.18, 0.85) if toad else Color(0.62, 0.82, 0.32, 0.85), 1.0, radius + 3.5, 0.7)
-			FX.ring(self, apex_spot, Color(0.4, 0.36, 0.36, 0.7) if toad else Color(0.3, 0.22, 0.12, 0.7), 0.5, radius + 1.0, 0.9)
+			var radius: float = apex_body_radius(apex_kind)
+			var outer := Color(1.0, 0.55, 0.18, 0.85) if toad else (Color(0.98, 0.86, 0.6, 0.85) if worm else Color(0.62, 0.82, 0.32, 0.85))
+			var inner := Color(0.4, 0.36, 0.36, 0.7) if toad else (Color(0.55, 0.42, 0.26, 0.7) if worm else Color(0.3, 0.22, 0.12, 0.7))
+			FX.ring(self, apex_spot, outer, 1.0, radius + 3.5, 0.7)
+			FX.ring(self, apex_spot, inner, 0.5, radius + 1.0, 0.9)
 			_shake(0.14)
 		if apex_clock <= 0.0:
 			spawn_apex(apex_spot)
-			return "DIE ASCHENKRÖTE ERWACHT!" if toad else "DER MOOSSCHLUND ERWACHT!"
+			return "DIE ASCHENKRÖTE ERWACHT!" if toad else ("DER SANDWURM ERWACHT!" if worm else "DER MOOSSCHLUND ERWACHT!")
 		if _is_calm(message):
-			return "DER BODEN BEBT · DIE ASCHENKRÖTE ERWACHT" if toad else "DER BODEN BEBT · DER MOOSSCHLUND ERWACHT"
+			return "DER BODEN BEBT · DIE ASCHENKRÖTE ERWACHT" if toad else ("DER SAND BEBT · DER SANDWURM ERWACHT" if worm else "DER BODEN BEBT · DER MOOSSCHLUND ERWACHT")
 	return message
 
 
@@ -1480,7 +1737,7 @@ func begin_apex_warning() -> void:
 	apex_clock = TUNING.APEX_WARNING_SECONDS
 	apex_pulse = 0.0
 	apex_kind = apex_kind_for(biome_id)
-	var radius: float = APEX_TOAD.BODY_RADIUS if apex_kind == "apex_toad" else TUNING.APEX_BODY_RADIUS
+	var radius: float = apex_body_radius(apex_kind)
 	var arena: Node3D = get_parent().get_node("Arena")
 	# Stage 18: in front of the swarm, mirrored inwards at the map edge, with room
 	# for the fight between the apex and the wall.
@@ -1513,9 +1770,10 @@ func spawn_apex(location: Vector3, kind: String = "") -> Node3D:
 		return apex
 	apex_kind = kind if kind != "" else apex_kind_for(biome_id)
 	var toad := apex_kind == "apex_toad"
+	var worm := apex_kind == "apex_sandworm"
 	var arena: Node3D = get_parent().get_node("Arena")
-	var target = APEX_TOAD.new() if toad else APEX_BOSS.new()
-	target.name = APEX_TOAD.DISPLAY_NAME if toad else "Moosschlund"
+	var target = APEX_TOAD.new() if toad else (APEX_SANDWORM.new() if worm else APEX_BOSS.new())
+	target.name = apex_display_name(apex_kind)
 	target.arena = arena
 	target.position = arena.safe_spawn(Vector3(location.x, 0.0, location.z), float(target.body_radius) + 0.5)
 	var facing: Vector3 = swarm.position - target.position
@@ -1523,7 +1781,7 @@ func spawn_apex(location: Vector3, kind: String = "") -> Node3D:
 	# The difficulty already brings it earlier against a smaller swarm; only a
 	# return in a later loop through the biome circle is stronger.
 	var loop := apex_loop()
-	target.health = (TUNING.APEX_TOAD_HEALTH if toad else TUNING.APEX_HEALTH) * apex_health_scale() * pow(TUNING.APEX_LOOP_HEALTH, loop)
+	target.health = (TUNING.APEX_TOAD_HEALTH if toad else (TUNING.APEX_SANDWORM_HEALTH if worm else TUNING.APEX_HEALTH)) * apex_health_scale() * pow(TUNING.APEX_LOOP_HEALTH, loop)
 	target.max_health = target.health
 	target.set_meta("damage_scale", pow(TUNING.APEX_LOOP_DAMAGE, loop))
 	target.set_meta("loop", loop)
@@ -1562,6 +1820,7 @@ func _step_apex(delta: float, damage: float, pressure: float, message: String) -
 	var bite := melee_factor(apex.position, apex_kind, apex.melee_range, apex) if hittable else 0.0
 	if bite > 0.0:
 		apex.take_damage(damage * bite * delta)
+		melee_dealt += damage * bite * delta
 		melee_contact = true
 		if _resolve_death(apex, "apex"):
 			result.ended = choosing()
@@ -1628,7 +1887,7 @@ func open_portal(location: Vector3) -> Node3D:
 		return portal
 	portal = MIGRATION_MAW.new()
 	portal.name = "Migration maw"
-	portal.setup(BIOMES.next_biome(biome_id))
+	portal.setup(BIOMES.next_biome(biome_id), biome_id)
 	portal.position = Vector3(location.x, 0.0, location.z)
 	add_child(portal)
 	portal_point = portal.position
@@ -1721,6 +1980,9 @@ func _arrive() -> void:
 				objective.position = map.safe_spawn(objective.position, 3.0)
 	migrations += 1
 	arrivals += 1
+	# Etappe 17 Welle 2: a new biome cycle guarantees the next ready evolution again.
+	evolution.evolution_guarantee = true
+	king_cocoon_taken = false
 	# One apex per biome visit: the new biome's apex rises APEX_ARRIVAL_DELAY s
 	# after the arrival (a disabled apex, state 4, stays disabled).
 	if apex_state != 4:
@@ -2003,10 +2265,10 @@ func _objective_hud() -> Dictionary:
 		"nest_active": nest != null,
 		"nest_progress": nest.progress if nest != null else 0.0,
 		"nest_inside": nest != null and nest.inside_share > 0.0,
-		"nest_pointer": _edge_pointer(nest.position + Vector3.UP * 1.0) if nest != null else Vector2.INF,
+		"nest_pointer": _edge_pointer(nest.position + Vector3.UP * 1.0) if nest != null and _found(nest.position) else Vector2.INF,
 		"totem_active": totem != null,
 		"totem_hold": totem.hold if totem != null else 0.0,
-		"totem_pointer": _edge_pointer(totem.position + Vector3.UP * 1.5) if totem != null else Vector2.INF,
+		"totem_pointer": _edge_pointer(totem.position + Vector3.UP * 1.5) if totem != null and _found(totem.position) else Vector2.INF,
 		"totem_screen": _screen_point(totem.position + Vector3.UP * 1.2) if totem != null else Vector2.INF,
 		"curse": curse_state,
 		"reward_multiplier": reward_multiplier(),
@@ -2071,6 +2333,9 @@ func _update_hud(message: String) -> void:
 	_set_hud_value("leader_max_hp", model.leader_max_hp)
 	_set_hud_value("leader_invulnerable", model.leader_invulnerable > 0.0)
 	_set_hud_value("milestone", milestone_value)
+	_set_hud_value("amber", model.amber)
+	hud.set_meta("leader_heal", {"amount": leader_heal_shown, "age": model.elapsed - leader_heal_at})
+	_set_hud_value("strain_id", String(config.get("strain_id", META_DATA.STRAIN_ORDER[0])))
 	_set_hud_value("last_loss_fraction", last_loss_fraction)
 	hud.hint = message
 	_update_map_hud()
@@ -2083,6 +2348,7 @@ func _update_hud(message: String) -> void:
 		hud.set("objectives", objectives)
 	hud.set_meta("lure_flash", lure_flash)
 	hud.set_meta("magnet_radius", magnet_radius())
+	hud.set_meta("arsenal_world", _arsenal_hud())
 
 
 # Edge-of-screen position pointing at an off-screen Bog King, or INF when visible.
@@ -2101,6 +2367,15 @@ func _screen_point(point: Vector3) -> Vector2:
 
 
 # Edge-of-screen marker position for a world point, or INF when it is on screen.
+# Stage 18c: a place only gets an edge pointer once the swarm discovered it
+# (exploration map); the classic map and announced bosses always point.
+func _found(point: Vector3) -> bool:
+	var arena: Node = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	if arena == null or not arena.has_method("has_layout") or not arena.has_layout():
+		return true
+	return arena.is_discovered(point)
+
+
 func _edge_pointer(point: Vector3) -> Vector2:
 	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
 	if camera == null:
@@ -2167,6 +2442,8 @@ func _resolve_area_hit(enemy: Node3D, fallback_impact: Vector3, shake_amount: fl
 	var power: int = enemy.get("resolved_power")
 	if power <= 0:
 		return false
+	if attack_forms != null and (enemy == boss or enemy == apex) and attack_forms.has_method("impact_fx"):
+		attack_forms.impact_fx(fallback_impact, TUNING.BOSS_ATTACK_RADIUS if enemy == boss else float(enemy.get("body_radius")) * 1.5 if "body_radius" in enemy else 4.5)  # VFX V1: Schockwelle
 	if enemy == boss and enemy.has_meta("cursed"):
 		power = ceili(float(power) * TUNING.CURSE_BOSS_MULTIPLIER)
 	var points := _unit_points()
@@ -2209,8 +2486,8 @@ func _resolve_area_hit(enemy: Node3D, fallback_impact: Vector3, shake_amount: fl
 # Etappe 16 (S5): collected biomass/DNA add up into ONE number at the swarm
 # ("+36") while crystals keep arriving within POPUP_MERGE_SECONDS; every new
 # crystal restarts the little pop (hop) of the number. Afterwards it rises and fades.
-func _add_collect_popup(biomass: float, dna: int) -> void:
-	if biomass <= 0.0 and dna <= 0:
+func _add_collect_popup(biomass: float, dna: int, amber: int = 0) -> void:
+	if biomass <= 0.0 and dna <= 0 and amber <= 0:
 		return
 	var now: float = model.elapsed
 	if not kill_popups.is_empty():
@@ -2219,11 +2496,12 @@ func _add_collect_popup(biomass: float, dna: int) -> void:
 			last.sum = float(last.sum) + biomass
 			last.biomass = int(round(float(last.sum)))
 			last.dna = int(last.dna) + dna
+			last.amber = int(last.get("amber", 0)) + amber
 			last.last = now
 			last.age = minf(float(last.age), 0.03)
 			last.at = _popup_anchor()
 			return
-	kill_popups.append({"at": _popup_anchor(), "dna": dna, "biomass": int(round(biomass)), "sum": biomass, "age": 0.0, "last": now})
+	kill_popups.append({"at": _popup_anchor(), "dna": dna, "biomass": int(round(biomass)), "amber": amber, "sum": biomass, "age": 0.0, "last": now})
 	while kill_popups.size() > POPUP_MAX:
 		kill_popups.pop_front()
 
@@ -2256,7 +2534,7 @@ func _popup_screen() -> Array:
 		var point: Vector3 = popup.at + Vector3.UP * 1.4
 		if camera.is_position_behind(point):
 			continue
-		result.append({"screen": camera.unproject_position(point), "dna": popup.dna, "biomass": popup.biomass, "t": popup.age / POPUP_SECONDS})
+		result.append({"screen": camera.unproject_position(point), "dna": popup.dna, "biomass": popup.biomass, "amber": int(popup.get("amber", 0)), "t": popup.age / POPUP_SECONDS})
 	return result
 
 
@@ -2265,7 +2543,10 @@ func _popup_screen() -> Array:
 ## Magnet radius around the swarm centre: grows with the swarm, x Witterung
 ## (meta) x Lockduft (trait), x MAGNET_RALLY while Rally is held.
 func magnet_radius() -> float:
-	var radius := (TUNING.MAGNET_BASE + TUNING.MAGNET_PER_ROOT * sqrt(float(maxi(1, model.population)))) * evolution.magnet_multiplier()
+	# Etappe 17b: beyond 250 animals the radius only grows logarithmically.
+	var pop := float(maxi(1, model.population))
+	var base := TUNING.MAGNET_BASE + TUNING.MAGNET_PER_ROOT * sqrt(minf(pop, 250.0)) + TUNING.MAGNET_PER_DOUBLING * log(maxf(1.0, pop / 250.0)) / log(2.0)
+	var radius := base * evolution.magnet_multiplier()
 	if swarm != null and swarm.rally_pressed:
 		radius *= TUNING.MAGNET_RALLY
 	return radius
@@ -2326,8 +2607,14 @@ func _credit_loot(got: Dictionary) -> void:
 		if biomass - taken > 0.01:
 			loot.drop(LOOT.Kind.BIOMASS, biomass - taken, swarm.position, swarm.position + Vector3(drop_rng.randf_range(-1.0, 1.0), 0.0, drop_rng.randf_range(-1.0, 1.0)) * 1.5)
 	var dna: int = got.dna
-	_add_collect_popup(taken, dna)
-	_collect_sound(int(got.bio_crystals), int(got.dna_crystals))
+	var amber := int(got.get("amber", 0))
+	if amber > 0:
+		model.amber += amber
+		model.amber_collected += amber
+	_add_collect_popup(taken, dna, amber)
+	_collect_sound(int(got.bio_crystals) + int(got.get("coins", 0)), int(got.dna_crystals))
+	if attack_forms != null and attack_forms.has_method("pickup_fx"):
+		attack_forms.pickup_fx(int(got.bio_crystals), int(got.dna_crystals))  # VFX V1
 	if dna > 0:
 		_award_dna(dna)
 
@@ -2400,12 +2687,15 @@ func _king_moment(location: Vector3) -> void:
 # `loss` counts followers only (never the leader); `leader_struck` costs the
 # leader 1 LP under the rules in RunModel.apply_hit() (stage 09); a `nonlethal`
 # source never takes its last LP.
-func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3D = null, leader_struck: bool = false, nonlethal: bool = false) -> bool:
+func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3D = null, leader_struck: bool = false, nonlethal: bool = false, source: String = "") -> bool:
+	# Etappe 17 Welle 2 - Chitinschild: the leader cannot be struck while it lasts.
+	if leader_struck and bool(evolution.boosts.get("leader_immune", false)):
+		leader_struck = false
 	var damage_scale := difficulty_scale(enemy_damage)
 	if loss > 0 and damage_scale != 1.0:
 		loss = maxi(1, ceili(float(loss) * damage_scale))
 	var before: int = model.population
-	var outcome: Dictionary = model.apply_hit(evolution.loss_after_armor(loss, swarm.rally_pressed), leader_struck, nonlethal)
+	var outcome: Dictionary = model.apply_hit(evolution.loss_after_armor(loss, swarm.rally_pressed), leader_struck, nonlethal, leader_damage(attacker, source))
 	var leader_state: String = outcome.leader
 	var leader_lost_hp: bool = leader_state in ["hit", "swap", "extinct"]
 	if int(outcome.lost) <= 0 and not leader_lost_hp:
@@ -2490,10 +2780,7 @@ func _note_kills(count: int, weight: float = 1.0, at: Vector3 = Vector3.INF) -> 
 	var healed: int = evolution.note_kills(count, weight, model.elapsed)
 	if healed <= 0:
 		return
-	var before: int = model.leader_hp
-	model.leader_hp = mini(model.leader_max_hp, model.leader_hp + healed)
-	if model.leader_hp > before:
-		_sync_leader()
+	if _heal_leader(healed) > 0:
 		FX.ring(self, swarm.position, Color(0.6, 1.0, 0.55, 0.85), 0.4, 2.6, 0.5)
 		_sfx("regen", 15)
 
@@ -2578,10 +2865,13 @@ func run_stats() -> Dictionary:
 		"leader_swaps": model.leader_swaps,
 		# Etappe 16: loot crystals collected, Lockrufe taken.
 		"crystals": crystals_collected,
+		# Etappe 17 Welle 2: Bernstein collected this run (it expires with the run).
+		"amber": model.amber_collected,
 		"lures": lures_collected,
 		# Stage 10: apex and migration.
 		"apex_kills": apex_kills,
 		"toad_kills": toad_kills,
+		"worm_kills": worm_kills,
 		"biomes_visited": biomes_visited.size(),
 		"biome_list": Array(biomes_visited),
 		"migrations": migrations,
@@ -2692,7 +2982,7 @@ func _audio_step(delta: float, population_before: int) -> void:
 		if enemy == apex:
 			# WINDUP (2) warns through the shared branch below; the strike stomps.
 			if state == APEX_BOSS.State.WINDUP:
-				var heavy: bool = enemy.current_pattern == (APEX_TOAD.Pattern.LEAP if apex_kind == "apex_toad" else APEX_BOSS.Pattern.QUAKE)
+				var heavy: bool = enemy.current_pattern == (APEX_TOAD.Pattern.LEAP if apex_kind == "apex_toad" else (APEX_SANDWORM.Pattern.BREACH if apex_kind == "apex_sandworm" else APEX_BOSS.Pattern.QUAKE))
 				_sfx("quake" if heavy else "warn")
 			elif state == APEX_BOSS.State.STRIKE:
 				_sfx("stomp", 80)
@@ -2745,8 +3035,14 @@ func _award_dna(amount: int) -> void:
 func choose_mutation(slot: int) -> void:
 	# Etappe 17: während der Boss-Kokon-Wahl wählt dieselbe Karte die Beute.
 	if not evolution.chest_offers.is_empty():
-		if paused or model.extinct or evolution.choose_chest(slot).is_empty():
+		if paused or model.extinct:
 			return
+		var picked: Dictionary = evolution.choose_chest(slot)
+		if picked.is_empty():
+			return
+		# An evolution has its own moment (EVOLUTION banner); other loot shows its card.
+		if chests != null and String(picked.get("type", "")) != "evolution":
+			chests.show_card(picked)
 		_after_offer_change("Beute aktiv · weiter jagen!")
 		_sfx("mutate")
 		_try_evolve()
@@ -2915,4 +3211,8 @@ func _map_state() -> Dictionary:
 		"region_entries": region_entries,
 		"regions": regions_seen.size(),
 		"arrivals": arrivals,
+		# Etappe 17 Welle 2: only discovered ones (see _arsenal_marks()).
+		"chests": _arsenal_marks(chests),
+		"powerups": _arsenal_marks(powerups),
+		"shrines": _arsenal_marks(shrines),
 	}

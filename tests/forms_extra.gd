@@ -441,35 +441,19 @@ func _on_regen(amount: int) -> void:
 
 
 func _test_regeneration() -> void:
+	# Etappe 17c: Regeneration heals LP per second (HuntWorld._step_leader_heal),
+	# kills no longer count; the Königszahnkette heals 15 LP every 15th kill.
 	var evo := EVOLUTION.new()
-	_check(evo.regeneration_interval() == 0 and evo.note_kills(50) == 0, "Ohne Regeneration kein LP")
+	_check(is_zero_approx(evo.regen_rate()) and evo.note_kills(50) == 0, "Ohne Regeneration kein LP")
 	evo.leader_regenerated.connect(_on_regen)
-	evo.ranks["regen"] = 1
-	var n1: int = STATS.regen_kills(1.0)
-	_check(evo.regeneration_interval() == n1 and n1 == 14, "Regeneration R1: LP je 14 Kills")
-	_check(evo.note_kills(n1 - 1) == 0, "Regeneration heilt zu früh")
-	_check(evo.note_kills(1) == 1 and _regen_signal == 1 and evo.regen_kills == 0, "Regeneration heilt nach N Kills nicht (Signal/Rückgabe)")
-	evo.ranks["regen"] = 5
-	var n5: int = STATS.regen_kills(5.0)
-	_check(n5 == 8, "Regeneration R5: LP je 8 Kills (%d)" % n5)
-	_check(evo.note_kills(n5 * 2 + 1) == 2 and is_equal_approx(evo.regen_kills, 1.0), "Regeneration R5 zählt Mehrfach-Kills falsch")
-	# Seltenheit: legendärer Wert 3 heilt schneller als gewöhnlich.
-	_check(STATS.regen_kills(3.0) < STATS.regen_kills(1.0), "N muss mit dem Wert sinken")
-	# Moorbrut zählt nur REGEN_HORDE_WEIGHT, mit Spielzeit höchstens 1 LP je Abstand.
-	var timed := EVOLUTION.new()
-	timed.ranks["regen"] = 5
-	var gap: float = timed.regeneration_gap()
-	_check(is_equal_approx(gap, 20.0), "Regeneration R5: höchstens alle 20 s (%s)" % gap)
-	_check(timed.note_kills(n5 - 1, EVOLUTION.REGEN_HORDE_WEIGHT, 10.0) == 0, "Moorbrut-Kills zählen zu viel für Regeneration")
-	_check(timed.note_kills(n5 * 10, 1.0, 10.0) == 1, "Regeneration heilt mit Spielzeit mehr als 1 LP auf einmal")
-	_check(timed.regen_kills <= float(n5) + 0.001, "Regeneration spart Fortschritt über ein Intervall hinaus an")
-	_check(timed.note_kills(n5 * 5, 1.0, 10.0 + gap - 1.0) == 0, "Regeneration ignoriert den Zeitdeckel")
-	_check(timed.note_kills(1, 1.0, 10.0 + gap) == 1, "Regeneration heilt nach dem Zeitdeckel nicht wieder")
-	_check(EVOLUTION.REGEN_HORDE_WEIGHT > 0.0 and EVOLUTION.REGEN_HORDE_WEIGHT <= 0.25, "Moorbrut-Gewicht außerhalb 0-0,25")
-	# Relikt Königszahnkette: jeder 15. Kill heilt 1 LP (ohne Zeitdeckel).
+	evo.debug_grant("regen", "common")
+	_check(is_equal_approx(evo.regen_rate(), 0.5), "Regeneration R1: 0,5 LP/s (%s)" % evo.regen_rate())
+	evo.debug_grant("regen", "legendary")
+	_check(is_equal_approx(evo.regen_rate(), 2.0), "Regeneration legendär zählt dreifach (%s)" % evo.regen_rate())
+	_check(evo.note_kills(40) == 0, "Kills heilen ohne Königszahnkette nicht")
 	var chain := EVOLUTION.new()
 	chain.debug_grant("koenigszahnkette")
-	_check(chain.note_kills(14, 1.0, 5.0) == 0 and chain.note_kills(1, 1.0, 5.0) == 1, "Königszahnkette heilt nicht beim 15. Kill")
+	_check(chain.note_kills(14, 1.0, 5.0) == 0 and chain.note_kills(1, 1.0, 5.0) == EVOLUTION.CHAIN_HEAL_LP, "Königszahnkette heilt beim 15. Kill 15 LP")
 
 
 func _test_dornenhaut() -> void:

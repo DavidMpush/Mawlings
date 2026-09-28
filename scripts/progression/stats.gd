@@ -21,23 +21,23 @@ const RARITY_TONE := {"common": "neutral", "rare": "info", "epic": "special", "l
 const LUCK_STEP := 0.10
 
 ## id, Name, Kategorie (attack/protect/growth/special), Basis je Rang, Einheit.
-## Welle-1-Balance (ohne Kokons, Etappe 17): einige Basiswerte liegen über dem
-## Konzept, damit die Zielkurven ohne Waffen-Progression halten. Konzept: Biss 8,
-## Kritbiss 4, Angriffstempo 6, Reichweite 8, Rudelinstinkt 10, Knochenpanzer 6,
-## Fluchtreflex 6, Brutrate 6 (je %). Welle 2 balanciert mit Kokons neu.
-## Einheiten: "pct" (+x %), "neg" (−x %), "hp" (+1 LP bei Wert 1/3/5),
-## "regen" (1 LP je N Kills), "luck" (+x Glück).
+## Welle 2 (mit Kokons, Bernstein und Power-ups): die Basiswerte sind wieder auf
+## dem Konzept (Biss 8, Kritbiss 4, Angriffstempo 6, Reichweite 8, Rudelinstinkt
+## 10, Knochenpanzer 6, Fluchtreflex 6, Brutrate 6, je %).
+## Einheiten: "pct" (+x %), "neg" (−x %), "hp" (+x % Anführer-LP, Etappe 17c),
+## "lps" (LP je Sekunde), "luck" (+x Glück).
 const STATS := [
-	{"id": "bite", "name": "Biss", "cat": "attack", "step": 0.12, "unit": "pct", "label": "Schaden"},
-	{"id": "crit", "name": "Kritbiss", "cat": "attack", "step": 0.05, "unit": "pct", "label": "Chance auf doppelten Schaden"},
-	{"id": "haste", "name": "Angriffstempo", "cat": "attack", "step": 0.08, "unit": "neg", "label": "Abklingzeit der Waffen"},
-	{"id": "reach", "name": "Reichweite", "cat": "attack", "step": 0.1, "unit": "pct", "label": "Fläche und Reichweite der Waffen"},
-	{"id": "rally", "name": "Rudelinstinkt", "cat": "attack", "step": 0.12, "unit": "pct", "label": "Schaden während Rally"},
-	{"id": "armor", "name": "Knochenpanzer", "cat": "protect", "step": 0.08, "unit": "neg", "label": "Verluste"},
-	{"id": "evade", "name": "Fluchtreflex", "cat": "protect", "step": 0.08, "unit": "neg", "label": "Verluste ohne Rally"},
-	{"id": "vigor", "name": "Anführerherz", "cat": "protect", "step": 1.0, "unit": "hp", "label": "Anführer-LP (Rang 1/3/5)"},
-	{"id": "regen", "name": "Regeneration", "cat": "protect", "step": 1.0, "unit": "regen", "label": "Anführer +1 LP je N Kills"},
-	{"id": "brood", "name": "Brutrate", "cat": "growth", "step": 0.1, "unit": "pct", "label": "Biomasse je Kristall"},
+	{"id": "bite", "name": "Biss", "cat": "attack", "step": 0.08, "unit": "pct", "label": "Schaden"},
+	{"id": "crit", "name": "Kritbiss", "cat": "attack", "step": 0.04, "unit": "pct", "label": "Chance auf doppelten Schaden"},
+	{"id": "haste", "name": "Angriffstempo", "cat": "attack", "step": 0.06, "unit": "neg", "label": "Abklingzeit der Waffen"},
+	{"id": "reach", "name": "Reichweite", "cat": "attack", "step": 0.08, "unit": "pct", "label": "Fläche und Reichweite der Waffen"},
+	{"id": "rally", "name": "Rudelinstinkt", "cat": "attack", "step": 0.1, "unit": "pct", "label": "Schaden während Rally"},
+	{"id": "armor", "name": "Knochenpanzer", "cat": "protect", "step": 0.06, "unit": "neg", "label": "Verluste"},
+	{"id": "evade", "name": "Fluchtreflex", "cat": "protect", "step": 0.06, "unit": "neg", "label": "Verluste ohne Rally"},
+	{"id": "vigor", "name": "Anführerherz", "cat": "protect", "step": 0.15, "unit": "hp", "label": "Anführer-Max-LP"},
+	{"id": "regen", "name": "Regeneration", "cat": "protect", "step": 0.5, "unit": "lps", "label": "Anführer-LP je Sekunde"},
+	{"id": "lifesteal", "name": "Lebensraub", "cat": "protect", "step": 0.004, "unit": "pct", "label": "des Schwarm-Schadens heilt den Anführer"},
+	{"id": "brood", "name": "Brutrate", "cat": "growth", "step": 0.06, "unit": "pct", "label": "Biomasse je Kristall"},
 	{"id": "magnet", "name": "Lockduft", "cat": "growth", "step": 0.12, "unit": "pct", "label": "Sammelradius"},
 	{"id": "gene", "name": "Genfluss", "cat": "growth", "step": 0.08, "unit": "pct", "label": "DNA"},
 	{"id": "speed", "name": "Sprinter", "cat": "special", "step": 0.05, "unit": "pct", "label": "Tempo"},
@@ -102,15 +102,17 @@ static func describe_step(id: String) -> String:
 		"neg":
 			return "−%s %% %s pro Rang" % [_num(d.step * 100.0), d.label]
 		"hp":
-			return "+1 Anführer-LP auf Rang 1, 3 und 5"
-		"regen":
-			return "Anführer +1 LP je %d Kills (sinkt bis 8)" % int(REGEN_KILLS_START)
+			return "+%s %% Anführer-Max-LP pro Rang" % _num(d.step * 100.0)
+		"lps":
+			return "Anführer +%s LP je Sekunde pro Rang" % _num(d.step)
 		"luck":
 			return "+1 Glück pro Rang: seltenere Karten, Kokons 3 % billiger"
 	return ""
 
 
 static func _num(value: float) -> String:
+	if absf(value) < 10.0 and not is_equal_approx(value * 10.0, roundf(value * 10.0)):
+		return String.num(value, 2).replace(".", ",")
 	if is_equal_approx(value, roundf(value)):
 		return str(int(roundf(value)))
 	return String.num(value, 1).replace(".", ",")
@@ -200,7 +202,7 @@ func candidates(pool: Array, banished: Array) -> Array:
 
 ## Drei (oder weniger) verschiedene Werte mit gewürfelter Seltenheit:
 ## [id, Name, Beschreibung, Seltenheit]. `exclude` bevorzugt frische Karten.
-func roll_offers(rng: RandomNumberGenerator, luck: float, pool: Array = [], banished: Array = [], exclude: Array = [], count: int = 3) -> Array:
+func roll_offers(rng: RandomNumberGenerator, luck: float, pool: Array = [], banished: Array = [], exclude: Array = [], count: int = 3, minimum: String = "common") -> Array:
 	var source := candidates(pool if not pool.is_empty() else ids(), banished)
 	var fresh: Array = source.filter(func(id): return not exclude.has(id))
 	if fresh.size() >= mini(count, source.size()):
@@ -209,7 +211,7 @@ func roll_offers(rng: RandomNumberGenerator, luck: float, pool: Array = [], bani
 	while offers.size() < count and not source.is_empty():
 		var id: String = source.pop_at(rng.randi_range(0, source.size() - 1))
 		var entry := info(id)
-		entry.append(roll_rarity(rng, luck))
+		entry.append(roll_rarity(rng, luck, minimum))
 		offers.append(entry)
 	return offers
 
@@ -230,9 +232,9 @@ static func _label(id: String) -> String:
 	var d := definition(id)
 	match String(d.get("unit", "")):
 		"hp":
-			return "Anführer-LP"
-		"regen":
-			return "Kills je +1 LP für den Anführer"
+			return "Anführer-Max-LP"
+		"lps":
+			return "Anführer-LP je Sekunde"
 		"luck":
 			return "Glück: seltenere Karten und Kokon-Beute"
 	return String(d.get("label", ""))
@@ -246,9 +248,9 @@ static func format_value(id: String, value: float) -> String:
 		"neg":
 			return "0 %" if value <= 0.0 else "−%s %%" % _num(float(d.step) * value * 100.0)
 		"hp":
-			return "+%d" % vigor_hp(value)
-		"regen":
-			return "–" if value <= 0.0 else str(regen_kills(value))
+			return "0 %" if value <= 0.0 else "+%s %%" % _num(float(d.step) * value * 100.0)
+		"lps":
+			return "–" if value <= 0.0 else "+%s/s" % _num(float(d.step) * value)
 		"luck":
 			return "+%s" % _num(value)
 	return str(value)

@@ -96,20 +96,12 @@ const SKIN_TINT_RAGE := Color(0.95, 0.46, 0.18, 0.34)
 const SKIN_TINT_EXHAUSTED := Color(0.62, 0.86, 1.0, 0.36)
 const DUST := Color(0.4, 0.46, 0.26, 0.6)
 
-# Telegraph palettes: every pattern differs by shape AND pattern (crack + thorns,
-# spore dots, ripples + clean islands), so colour is never the only cue.
-const PALETTE := {
-	Pattern.ROOTS: {"fill": Color("241612"), "pattern": Color("ffd23f"), "edge": Color("fff4c0"), "fill_alpha": 0.42},
-	Pattern.SPORES: {"fill": Color("5b2a86"), "pattern": Color("f0dcff"), "edge": Color("ffffff"), "fill_alpha": 0.46},
-	Pattern.QUAKE: {"fill": Color("3a1408"), "pattern": Color("ff9a3c"), "edge": Color("ffe0b0"), "fill_alpha": 0.3},
-}
-const PALETTE_COLORBLIND := {
-	Pattern.ROOTS: {"fill": UI_STYLE.CB_BLACK, "pattern": UI_STYLE.CB_YELLOW, "edge": UI_STYLE.CB_WHITE, "fill_alpha": 0.42},
-	Pattern.SPORES: {"fill": UI_STYLE.CB_BLUE, "pattern": Color("bfe6ff"), "edge": UI_STYLE.CB_WHITE, "fill_alpha": 0.34},
-	Pattern.QUAKE: {"fill": UI_STYLE.CB_BLACK, "pattern": UI_STYLE.CB_ORANGE, "edge": UI_STYLE.CB_YELLOW, "fill_alpha": 0.38},
-}
-const SAFE_COLOR := Color("7fe7ff")
-const SAFE_COLOR_COLORBLIND := Color("56b4e9")
+# Stage 20: the telegraphs use the shared boss style (telegraph_style.gd:
+# danger ring exactly on the hit edge, dark contour, wind-up fill, pale marks).
+# Each pattern keeps its own shape - lanes with chevrons, a ring, a disc with
+# friendly cyan islands - so colour is never the only cue.
+const TG = preload("res://scripts/telegraph_style.gd")
+const PATTERN_SHAPE := {Pattern.ROOTS: TG.Shape.LANE, Pattern.SPORES: TG.Shape.RING, Pattern.QUAKE: TG.Shape.ISLANDS}
 
 var state := State.ARRIVING
 var remaining := ARRIVE_SECONDS
@@ -318,7 +310,7 @@ func _enter_phase_two() -> void:
 	remaining = PHASE_SHIFT_SECONDS
 	cycle_index = 0
 	_clear_telegraphs()
-	FX.ring(_fx_parent(), global_position, Color(1.0, 0.62, 0.24, 0.9), 1.0, 9.0, 0.8)
+	FX.ring(_fx_parent(), global_position, Color(1.0, 0.49, 0.76, 0.9), 1.0, 9.0, 0.8)
 	FX.ring(_fx_parent(), global_position, Color(0.8, 0.95, 0.5, 0.7), 0.5, 6.0, 1.2)
 	_shake(0.6)
 	phase_changed.emit(phase)
@@ -440,143 +432,11 @@ static func pattern_name(pattern: int) -> String:
 
 # --------------------------------------------------------------- telegraphs
 
-const TELEGRAPH_CODE := """
-shader_type spatial;
-render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
-// Moosschlund telegraphs: 0 root lane (zigzag crack + edge thorns, crack grows
-// from the boss outward), 1 spore ring (dot puffs drifting outward, contour on
-// both rims), 2 quake disc (outward ripples) with clean, bright safe islands.
-uniform int pattern = 0;
-uniform vec4 fill_color : source_color = vec4(0.2, 0.1, 0.1, 1.0);
-uniform vec4 pattern_color : source_color = vec4(1.0, 0.8, 0.2, 1.0);
-uniform vec4 edge_color : source_color = vec4(1.0, 1.0, 0.9, 1.0);
-uniform vec4 safe_color : source_color = vec4(0.5, 0.9, 1.0, 1.0);
-uniform vec4 dark_color : source_color = vec4(0.06, 0.04, 0.05, 1.0);
-uniform float fill_alpha = 0.35;
-uniform float progress = 0.0;
-uniform float time = -1.0;
-uniform float opacity = 1.0;
-uniform float inner_radius = 0.0;
-uniform vec4 islands[4];
-uniform int island_count = 0;
-varying vec2 local_m;
-varying vec2 half_m;
-
-void vertex() {
-	vec2 s = vec2(length(MODEL_MATRIX[0].xyz), length(MODEL_MATRIX[2].xyz));
-	local_m = VERTEX.xz * s;
-	half_m = abs(VERTEX.xz) * s;
-}
-
-float aa(float e, float v) {
-	float w = max(fwidth(v), 1e-4);
-	return smoothstep(e - w, e + w, v);
-}
-
-void fragment() {
-	float t = time >= 0.0 ? time : TIME;
-	vec2 p = local_m;
-	float r = length(p);
-	float ang = atan(p.y, p.x);
-	float pulse = 0.5 + 0.5 * sin(t * mix(3.0, 15.0, progress * progress));
-	float d = 0.0;
-	float mark = 0.0;
-	float mark_dark = 0.0;
-	float reached = 0.0;
-	float safe = 0.0;
-	float safe_line = 0.0;
-	if (pattern == 0) {
-		d = min(half_m.x - abs(p.x), half_m.y - abs(p.y));
-		float along = p.y + half_m.y;
-		reached = 1.0 - aa(2.0 * half_m.y * (0.15 + 0.85 * progress), along);
-		float zig = (abs(fract(along / 1.3) - 0.5) * 2.0 - 0.5) * 0.7 * half_m.x;
-		float gap = abs(p.x - zig);
-		float crack = 1.0 - aa(0.14 + 0.1 * progress, gap);
-		float saw = abs(fract(along / 0.95) - 0.5) * 2.0;
-		float edge_d = half_m.x - abs(p.x);
-		float thorn = (1.0 - aa(0.34 + 0.45 * saw, edge_d)) * aa(0.33, edge_d);
-		mark = max(crack * reached, thorn);
-		mark_dark = (1.0 - aa(0.32 + 0.1 * progress, gap)) * (1.0 - crack) * reached;
-	} else if (pattern == 1) {
-		d = min(half_m.x - r, r - inner_radius);
-		float band = max(half_m.x - inner_radius, 0.01);
-		reached = 1.0 - aa(inner_radius + band * progress, r);
-		float drift = t * 0.3;
-		float rr = (r - inner_radius) / 1.25 - drift;
-		float row = floor(rr);
-		float row_r = inner_radius + (row + 0.5 + drift) * 1.25;
-		float count = max(8.0, floor(6.2832 * max(row_r, 0.5) / 1.5));
-		float a = ang / 6.2832 * count + mod(row, 2.0) * 0.5;
-		vec2 c = vec2((fract(a) - 0.5) * 6.2832 * max(row_r, 0.5) / count, (fract(rr) - 0.5) * 1.25);
-		float size = mix(0.2, 0.32, progress);
-		float puff = 1.0 - aa(size, length(c));
-		float inner = aa(0.42, d);
-		mark = puff * inner;
-		mark_dark = (1.0 - aa(size + 0.08, length(c))) * (1.0 - puff) * inner;
-	} else {
-		d = half_m.x - r;
-		float island = 1e6;
-		for (int i = 0; i < 4; i++) {
-			if (i < island_count) {
-				island = min(island, length(p - islands[i].xy) - islands[i].z);
-			}
-		}
-		reached = 1.0 - aa(half_m.x * progress, r);
-		if (island < 0.0) {
-			safe = 1.0;
-			float inside = -island;
-			safe_line = max(1.0 - aa(0.3, inside), aa(0.52, inside) * (1.0 - aa(0.64, inside)));
-		} else {
-			d = min(d, island);
-			float w = fract(r / 2.0 - t * 0.5);
-			float ripple = (1.0 - aa(0.14, w)) * aa(0.42, d);
-			mark = ripple;
-			mark_dark = aa(0.14, w) * (1.0 - aa(0.22, w)) * aa(0.42, d);
-		}
-	}
-	if (d < 0.0) {
-		discard;
-	}
-	vec3 color = mix(fill_color.rgb, mix(fill_color.rgb, edge_color.rgb, 0.3), reached * 0.6);
-	float alpha = fill_alpha + reached * 0.2;
-	float strength = mix(0.8, 1.0, pulse * progress);
-	color = mix(color, dark_color.rgb, mark_dark * 0.8);
-	alpha = mix(alpha, 0.6, mark_dark * 0.8);
-	color = mix(color, pattern_color.rgb, mark);
-	alpha = mix(alpha, 1.0, mark * strength);
-	float outer_dark = 1.0 - aa(0.08, d);
-	float bright = aa(0.08, d) * (1.0 - aa(0.3, d));
-	float inner_dark = aa(0.3, d) * (1.0 - aa(0.37, d));
-	float glow = mix(1.0, 0.7 + 0.3 * pulse, smoothstep(0.4, 1.0, progress));
-	color = mix(color, dark_color.rgb, max(outer_dark, inner_dark));
-	color = mix(color, edge_color.rgb * glow, bright);
-	alpha = mix(alpha, 0.9, max(outer_dark, inner_dark));
-	alpha = mix(alpha, 1.0, bright);
-	if (safe > 0.5) {
-		color = mix(safe_color.rgb, vec3(1.0), safe_line);
-		alpha = mix(0.42 + 0.12 * pulse, 1.0, safe_line);
-	}
-	ALBEDO = color;
-	ALPHA = clamp(alpha * opacity, 0.0, 1.0);
-}
-"""
-static var _telegraph_shader: Shader
 
 
 static func telegraph_material(pattern: int, colorblind_on: bool) -> ShaderMaterial:
-	if _telegraph_shader == null:
-		_telegraph_shader = Shader.new()
-		_telegraph_shader.code = TELEGRAPH_CODE
-	var result := ShaderMaterial.new()
-	result.shader = _telegraph_shader
+	var result := TG.shape_material(int(PATTERN_SHAPE.get(pattern, TG.Shape.DISC)), "boss", colorblind_on)
 	result.set_shader_parameter("pattern", pattern)
-	var table: Dictionary = PALETTE_COLORBLIND if colorblind_on else PALETTE
-	var colors: Dictionary = table[pattern]
-	result.set_shader_parameter("fill_color", colors["fill"])
-	result.set_shader_parameter("pattern_color", colors["pattern"])
-	result.set_shader_parameter("edge_color", colors["edge"])
-	result.set_shader_parameter("fill_alpha", colors["fill_alpha"])
-	result.set_shader_parameter("safe_color", SAFE_COLOR_COLORBLIND if colorblind_on else SAFE_COLOR)
 	return result
 
 
@@ -591,43 +451,29 @@ func _build_telegraphs() -> void:
 	_clear_telegraphs()
 	warning.global_transform = Transform3D.IDENTITY
 	var height := 0.12
+	var blind := 1 if colorblind else 0
 	match current_pattern:
 		Pattern.ROOTS:
 			for direction in lane_directions:
-				var mesh := PlaneMesh.new()
-				mesh.size = Vector2(lane_width, ROOT_LENGTH)
-				var lane := _telegraph_part(mesh)
+				var lane := _telegraph_part(TG.build_boss_lane(lane_width, ROOT_LENGTH, blind))
 				lane.rotation.y = atan2(direction.x, direction.z)
 				lane.position = attack_center + direction * (ROOT_START + ROOT_LENGTH * 0.5) + Vector3(0, height, 0)
 				height += 0.004
 		Pattern.SPORES:
-			var mesh := PlaneMesh.new()
-			mesh.size = Vector2(ring_outer * 2.0, ring_outer * 2.0)
-			var ring := _telegraph_part(mesh)
+			var ring := _telegraph_part(TG.build_boss_ring(ring_inner, ring_outer, blind))
 			ring.position = attack_center + Vector3(0, height, 0)
-			(ring.material_override as ShaderMaterial).set_shader_parameter("inner_radius", ring_inner)
 		Pattern.QUAKE:
-			var mesh := PlaneMesh.new()
-			mesh.size = Vector2(quake_radius * 2.0, quake_radius * 2.0)
-			var disc := _telegraph_part(mesh)
-			disc.position = attack_center + Vector3(0, height, 0)
-			var local := PackedVector4Array()
+			var local: Array = []
 			for island in islands:
-				local.append(Vector4(island.x - attack_center.x, island.z - attack_center.z, island.w, 0.0))
-			while local.size() < 4:
-				local.append(Vector4(0, 0, -1, 0))
-			var material := disc.material_override as ShaderMaterial
-			material.set_shader_parameter("islands", local)
-			material.set_shader_parameter("island_count", islands.size())
+				local.append(Vector4(island.x - attack_center.x, 0.0, island.z - attack_center.z, island.w))
+			var disc := _telegraph_part(TG.build_boss_islands(quake_radius, local, blind))
+			disc.position = attack_center + Vector3(0, height, 0)
 	warning.visible = true
 
 
-func _telegraph_part(mesh: PlaneMesh) -> MeshInstance3D:
-	var part := MeshInstance3D.new()
+func _telegraph_part(part: MeshInstance3D) -> MeshInstance3D:
 	part.name = "Apex telegraph %s" % pattern_name(current_pattern)
-	part.mesh = mesh
-	part.material_override = telegraph_material(current_pattern, colorblind)
-	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	(part.material_override as ShaderMaterial).set_shader_parameter("pattern", current_pattern)
 	warning.add_child(part)
 	telegraphs.append(part)
 	return part
@@ -658,7 +504,7 @@ func _strike_fx() -> void:
 			FX.ring(parent, attack_center, Color(0.55, 0.3, 0.8, 0.7), ring_inner * 0.9, ring_outer * 1.05, 0.8)
 			_shake(0.3)
 		Pattern.QUAKE:
-			FX.ring(parent, attack_center, Color(1.0, 0.6, 0.24, 0.95), 1.0, quake_radius * 1.05, 0.55)
+			FX.ring(parent, attack_center, Color(1.0, 0.49, 0.76, 0.95), 1.0, quake_radius * 1.05, 0.55)
 			FX.ring(parent, attack_center, DUST, 0.8, quake_radius * 0.75, 0.9)
 			_shake(0.7)
 	_slam = STRIKE_SECONDS

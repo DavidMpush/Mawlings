@@ -16,6 +16,10 @@ const KITS := {
 		"prefix": ["Moos", "Wurzel", "Dornen", "Tümpel", "Farn", "Moor", "Ranken", "Laub", "Pilz", "Schilf", "Nebel", "Efeu", "Kraut", "Borken", "Sporen", "Wisper", "Grün", "Blatt", "Distel", "Kolben"],
 		"suffix": ["grund", "hain", "senke", "tal", "mulde", "wiese", "au", "bruch", "winkel", "furt", "hang", "pfad", "weiher", "dickicht", "lichtung", "flur"],
 	},
+	"duerrschlund": {
+		"prefix": ["Sand", "Dünen", "Knochen", "Staub", "Rippen", "Kaktus", "Dorn", "Ocker", "Glut", "Wind", "Schädel", "Salz", "Stein", "Durst", "Geier", "Bogen"],
+		"suffix": ["feld", "senke", "grat", "mulde", "rinne", "tal", "kamm", "becken", "hang", "furt", "grund", "kessel", "wall", "pfad", "schlucht"],
+	},
 	"glutsumpf": {
 		"prefix": ["Asche", "Glut", "Schlacken", "Rauch", "Funken", "Ruß", "Kohle", "Brand", "Schwefel", "Qualm", "Zunder", "Lava", "Essen", "Sud", "Glimm", "Dampf"],
 		"suffix": ["kessel", "furt", "grube", "feld", "senke", "pfuhl", "mulde", "rinne", "schlund", "becken", "tiegel", "grund", "hang", "moor", "bruch"],
@@ -25,6 +29,7 @@ const KITS := {
 # Landmark phrases per arena Landmark type (ROOT_ARCH, FALLEN_LOG, POND, MEADOW).
 const PHRASES := {
 	"verdant_maw": [["am Wurzelbogen", "unterm Wurzeltor"], ["am Moderstamm", "beim Faulholz"], ["am Weiher", "am Grünen Auge"], ["an der Blütenwiese", "im Blumenkreis"]],
+	"duerrschlund": [["am Felsbogen", "unterm Sandtor"], ["bei den Rippen", "am Knochenkamm"], ["an der Oase", "am Blauen Auge"], ["im Kaktushain", "am Dornkreis"]],
 	"glutsumpf": [["am Kohlebogen", "unterm Rußtor"], ["bei den Glutstümpfen", "am Stumpfkreis"], ["am Lavaauge", "am Glutbecken"], ["am Pilzfeuer", "im Glimmkreis"]],
 }
 
@@ -49,7 +54,7 @@ static func name_for(seed_value: int, region: Vector2i, biome_id: String) -> Str
 			return result
 	var kit := _kit(biome_id)
 	var prefixes: Array = kit.prefix
-	var salt := 17 if biome_id == "glutsumpf" else 3
+	var salt := 17 if biome_id == "glutsumpf" else (29 if biome_id == "duerrschlund" else 3)
 	return String(prefixes[_mix(seed_value, region, salt) % prefixes.size()]) + String(kit.suffix[0])
 
 
@@ -58,7 +63,7 @@ static func _candidate(seed_value: int, region: Vector2i, biome_id: String, atte
 	var kit := _kit(biome_id)
 	var prefixes: Array = kit.prefix
 	var suffixes: Array = kit.suffix
-	var salt := 17 if biome_id == "glutsumpf" else 3
+	var salt := 17 if biome_id == "glutsumpf" else (29 if biome_id == "duerrschlund" else 3)
 	var roll := _mix(seed_value, region, salt + attempt * 31)
 	var prefix: String = prefixes[roll % prefixes.size()]
 	var suffix: String = suffixes[(roll / prefixes.size()) % suffixes.size()]

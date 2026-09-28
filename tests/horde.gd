@@ -355,7 +355,9 @@ func _test_forms() -> void:
 	# Stachelrücken: Treffer am Schwarm (ohne Angreifer) trifft Brut am Rand, gedrosselt.
 	horde.clear()
 	var soft := STATS.duplicate()
-	soft.hp = 50.0
+	# Etappe 17 Welle 2: Stachelrücken Rang 1 trifft mit 44 (+5 je Verlust); ein
+	# Treffer darf die Brut nicht töten, zwei zugleich würden es.
+	soft.hp = 80.0
 	horde.spawn_ring(Vector3.ZERO, 6, 3.0, soft)
 	horde.spawn_ring(Vector3.ZERO, 3, 12.0, soft)
 	forms = _forms({"stachelruecken": 1})

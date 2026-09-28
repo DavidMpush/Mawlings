@@ -18,16 +18,17 @@ const ARSENAL = preload("res://scripts/progression/arsenal.gd")
 
 # Werte im alten Format [id, Name, Beschreibung] (Texte = Stats.describe_step).
 const TRAITS = [
-	["bite", "Biss", "+12 % Schaden pro Rang"],
-	["crit", "Kritbiss", "+5 % Chance auf doppelten Schaden pro Rang"],
-	["haste", "Angriffstempo", "−8 % Abklingzeit der Waffen pro Rang"],
-	["reach", "Reichweite", "+10 % Fläche und Reichweite der Waffen pro Rang"],
-	["rally", "Rudelinstinkt", "+12 % Schaden während Rally pro Rang"],
-	["armor", "Knochenpanzer", "−8 % Verluste pro Rang"],
-	["evade", "Fluchtreflex", "−8 % Verluste ohne Rally pro Rang"],
-	["vigor", "Anführerherz", "+1 Anführer-LP auf Rang 1, 3 und 5"],
-	["regen", "Regeneration", "Anführer +1 LP je 14 Kills (sinkt bis 8)"],
-	["brood", "Brutrate", "+10 % Biomasse je Kristall pro Rang"],
+	["bite", "Biss", "+8 % Schaden pro Rang"],
+	["crit", "Kritbiss", "+4 % Chance auf doppelten Schaden pro Rang"],
+	["haste", "Angriffstempo", "−6 % Abklingzeit der Waffen pro Rang"],
+	["reach", "Reichweite", "+8 % Fläche und Reichweite der Waffen pro Rang"],
+	["rally", "Rudelinstinkt", "+10 % Schaden während Rally pro Rang"],
+	["armor", "Knochenpanzer", "−6 % Verluste pro Rang"],
+	["evade", "Fluchtreflex", "−6 % Verluste ohne Rally pro Rang"],
+	["vigor", "Anführerherz", "+15 % Anführer-Max-LP pro Rang"],
+	["regen", "Regeneration", "Anführer +0,5 LP je Sekunde pro Rang"],
+	["lifesteal", "Lebensraub", "+0,4 % des Schwarm-Schadens heilt den Anführer pro Rang"],
+	["brood", "Brutrate", "+6 % Biomasse je Kristall pro Rang"],
 	["magnet", "Lockduft", "+12 % Sammelradius pro Rang"],
 	["gene", "Genfluss", "+8 % DNA pro Rang"],
 	["speed", "Sprinter", "+5 % Tempo pro Rang"],
@@ -41,6 +42,11 @@ const EVOLUTION_RULES = ARSENAL.EVOLUTION_RULES
 const UNLOCK_ONLY = ["regen", "saeurespucker", "stachelruecken", "graeber", "blitzbiss", "brutsack",
 	"dornenhaut", "urmutter", "blutmond", "schlundherz"]
 const MAX_RANK = 5
+## Etappe 17c: Königszahnkette heilt so viele LP, Blutmond kostet so viele Max-LP.
+const CHAIN_HEAL_LP := 15
+const BLOODMOON_LP := 25
+## Schrein-Karten: Mindest-Seltenheit.
+const SHRINE_MINIMUM := "rare"
 
 # Regeneration/Königszahnkette: Moorbrut zählt nur REGEN_HORDE_WEIGHT Kill.
 const REGEN_HORDE_WEIGHT = 0.15
@@ -54,31 +60,29 @@ const RELIC = {
 	"hungerstein_harvest": 0.20, "hungerstein_speed": -0.05, "zaehe_haut": 0.04, "scharfe_zaehne": 0.06,
 	"flinke_beine": 0.06, "witterungsnase": 0.15, "dna_splitter": 0.10, "sporenherz": 0.15,
 	"aetzdruese": 0.20, "rudelhorn": 0.15, "gewitterfell": 0.10, "grabkralle": 1.0, "gluecksknochen": 2.0,
-	"koenigszahnkette": 15, "zwillingsbrut": 4, "blutmond": 0.40,
+	"koenigszahnkette": 15, "zwillingsbrut": 4, "blutmond": 0.40, "blutzahn": 0.03,
 }
 # Waffen: Angriffstempo höchstens −60 % Abklingzeit.
 const HASTE_FLOOR = 0.4
 # Vorhandene Symbole (ui_icons.gd) für neue IDs, bis eigene Icons geliefert sind
 # (stages/ICON_REQUESTS.md). Fehlt ein Eintrag, zeichnet die Karte eine Plakette.
 const ICON_IDS = {
-	"bite": "jaws", "crit": "crown_tooth", "haste": "clock", "reach": "branch_attack", "rally": "pack",
-	"evade": "scatter", "vigor": "crown", "regen": "regeneration", "magnet": "branch_growth",
-	"gene": "dna", "speed": "instinct", "luck": "essence",
-	"pilzreich": "sporenwolke", "dornenwall": "dornenhaut",
+	"bite": "jaws", "crit": "crit", "haste": "haste", "reach": "reach", "rally": "pack",
+	"evade": "scatter", "vigor": "vigor", "regen": "regeneration", "magnet": "magnet",
+	"gene": "gene", "speed": "speed", "luck": "luck", "lifesteal": "regeneration", "blutzahn": "jaws",
+	"pilzreich": "pilzreich", "dornenwall": "dornenwall",
 	"hungerstein": "glutton", "zaehe_haut": "armor", "scharfe_zaehne": "jaws", "flinke_beine": "scatter",
 	"witterungsnase": "branch_growth", "dna_splitter": "dna", "sporenherz": "sporenwolke",
 	"aetzdruese": "saeurespucker", "rudelhorn": "pack", "gewitterfell": "blitzbiss", "grabkralle": "graeber",
 	"gluecksknochen": "crown_tooth", "koenigszahnkette": "crown", "zwillingsbrut": "brood",
 	"magnetkern": "alpha_core", "urmutter": "nest", "blutmond": "skull", "schlundherz": "biomass",
 	# Alt-IDs (Etappe 16) für alte Build-Anzeigen.
-	"lockduft": "branch_growth",
+	"lockduft": "magnet",
 }
 const DEFAULT_SLOTS = {"attack": ARSENAL.BASE_SLOTS, "trait": 14}
-## Welle-1-Ausgleich (Etappe 17): Ohne Kokons steigt keine Waffe mehr über Level.
-## Die Startwaffe des Stammes beginnt deshalb auf diesem Rang (vorher erreichte
-## der Bot Rang 3 nach zwei Level-Wahlen). Welle 2 (Kokons) balanciert neu und
-## setzt ihn voraussichtlich auf 1 zurück.
-const SIGNATURE_START_RANK = 4
+## Etappe 17 Welle 2: Die Startwaffe beginnt auf Rang 1; weitere Ränge kommen
+## nur aus Kokons (Welle 1 hatte sie ohne Kokons auf Rang 4 gesetzt).
+const SIGNATURE_START_RANK = 1
 
 signal leader_regenerated(amount: int)
 
@@ -100,9 +104,15 @@ var evolutions: Array[String] = []
 var dna := 0
 var level := 0
 var offers: Array = []
+## Herkunft der offenen Werte-Karten: "level" (DNA) oder "shrine" (Schrein,
+## kostenlos, zählt kein Level).
+var offer_source := "level"
 ## Boss-Kokon: 1 aus 3 (Welle 2 öffnet ihn; die Karten zeigt mutation_screen im
 ## Modus „chest“). Einträge [id, Name, Beschreibung, Seltenheit, item].
 var chest_offers: Array = []
+## Welle 2: der erste Boss-Kokon je Biom-Zyklus garantiert eine bereite
+## Evolution; HuntWorld setzt das bei jeder Ankunft in einem neuen Biom zurück.
+var evolution_guarantee := true
 var rng := RandomNumberGenerator.new()
 ## Eigener Zufall für Kokons und Relikt-Hooks (ändert die Level-Angebote nicht).
 var chest_rng := RandomNumberGenerator.new()
@@ -211,8 +221,10 @@ func configure(config: Dictionary) -> void:
 
 # ---------------------------------------------------------------- Level (Werte)
 
+## DNA for the next level. Welle 2: a small quadratic term makes late levels
+## dearer (the flood's DNA no longer maxes every stat), early ones stay cheap.
 func threshold() -> int:
-	return 20 + level * 10
+	return 20 + level * 10 + int(1.5 * level * level)
 
 
 # True when no further stat can ever be offered in this run.
@@ -234,18 +246,43 @@ func _stat_pool() -> Array:
 func _prepare(exclude: Array = []) -> void:
 	if not offers.is_empty() or dna < threshold():
 		return
+	offer_source = "level"
 	offers = stats.roll_offers(rng, luck(), _stat_pool(), banished, exclude)
+
+
+## Schrein (Etappe 17 Welle 2): 1 aus 3 Werten, mindestens selten, kostenlos.
+## Liefert false, wenn gerade eine andere Wahl offen ist oder kein Wert mehr steigt.
+func open_shrine() -> bool:
+	if not offers.is_empty() or not chest_offers.is_empty():
+		return false
+	offers = stats.roll_offers(rng, luck(), _stat_pool(), banished, [], 3, SHRINE_MINIMUM)
+	offer_source = "shrine" if not offers.is_empty() else "level"
+	return not offers.is_empty()
+
+
+# Refills after reroll/banish in the same mode (shrine cards stay shrine cards).
+func _refill(exclude: Array = []) -> void:
+	if offer_source == "shrine":
+		offers = stats.roll_offers(rng, luck(), _stat_pool(), banished, exclude, 3, SHRINE_MINIMUM)
+		if offers.is_empty():
+			offer_source = "level"
+			_prepare()
+		return
+	_prepare(exclude)
 
 
 func choose(slot: int) -> bool:
 	if slot < 0 or slot >= offers.size():
 		return false
 	var entry: Array = offers[slot]
-	dna -= threshold()
+	var shrine := offer_source == "shrine"
+	if not shrine:
+		dna -= threshold()
+		level += 1
 	stats.apply(str(entry[0]), str(entry[3]) if entry.size() > 3 else "common")
-	level += 1
 	revision += 1
 	offers.clear()
+	offer_source = "level"
 	_prepare()
 	return true
 
@@ -256,7 +293,7 @@ func reroll() -> bool:
 	rerolls -= 1
 	var previous: Array = offers.map(func(entry): return entry[0])
 	offers.clear()
-	_prepare(previous)
+	_refill(previous)
 	return true
 
 
@@ -269,7 +306,7 @@ func banish(slot: int) -> bool:
 	banished.append(id)
 	var kept: Array = offers.filter(func(entry): return entry[0] != id)
 	offers.clear()
-	_prepare()
+	_refill()
 	# Keep the other two cards (with their rarity) so a banish is not a free reroll.
 	var ordered: Array = kept.duplicate()
 	for entry in offers:
@@ -286,8 +323,10 @@ func skip() -> bool:
 	if skips <= 0 or offers.is_empty():
 		return false
 	skips -= 1
-	dna -= threshold()
+	if offer_source != "shrine":
+		dna -= threshold()
 	offers.clear()
+	offer_source = "level"
 	_prepare()
 	return true
 
@@ -302,8 +341,16 @@ func roll_chest(kind: String) -> Dictionary:
 ## Öffnet einen Kokon: Karte/Elite = Beute sofort anwenden, Boss = chest_offers
 ## füllen (1 aus 3, die Welt pausiert, bis choose_chest()). Rückgabe wie
 ## roll_chest() plus "granted" (angewandte Teile) bei sofortiger Beute.
-func open_chest(kind: String) -> Dictionary:
-	var result := roll_chest(kind)
+func open_chest(kind: String, minimum: String = "") -> Dictionary:
+	var result: Dictionary
+	if kind == "start":
+		var item: Dictionary = arsenal.roll_start(chest_rng, luck())
+		result = {"kind": "start", "pick": false, "items": [item] if not item.is_empty() else []}
+	else:
+		result = arsenal.roll_chest(chest_rng, luck(), kind, minimum, evolution_guarantee)
+	# Only the first boss cocoon of a biome cycle guarantees a ready evolution.
+	if kind == "boss" and result.items.any(func(item): return String(item.get("type", "")) == "evolution"):
+		evolution_guarantee = false
 	if kind == "map":
 		arsenal.chests_opened += 1
 	if bool(result.get("pick", false)):
@@ -343,6 +390,7 @@ func grant(item: Dictionary) -> Dictionary:
 
 func chest_price() -> int:
 	return arsenal.chest_price(luck())
+
 
 
 func evolution_ready() -> Array:
@@ -523,8 +571,20 @@ func lure_multiplier() -> float:
 
 
 ## Zusätzliche Anführer-LP: Anführerherz minus Blutmond.
-func leader_hp_bonus() -> int:
-	return STATS.vigor_hp(stats.units_of("vigor")) - stacks("blutmond")
+## Zusätzliche Anführer-LP (Etappe 17c): Anführerherz +15 % des Grund-Maximums je
+## Wert, Blutmond −BLOODMOON_LP je Stapel.
+func leader_hp_bonus(base: int = 100) -> int:
+	return int(round(float(base) * stats.amount("vigor"))) - BLOODMOON_LP * stacks("blutmond")
+
+
+## Anteil des ausgeteilten Schwarm-Schadens, der den Anführer heilt (Lebensraub + Blutzahn).
+func lifesteal() -> float:
+	return stats.amount("lifesteal") + RELIC.blutzahn * stacks("blutzahn")
+
+
+## Regeneration in LP je Sekunde.
+func regen_rate() -> float:
+	return stats.amount("regen")
 
 
 func loss_after_armor(amount: int, rally: bool) -> int:
@@ -571,14 +631,15 @@ func regeneration_gap() -> float:
 func note_kills(count: int = 1, weight: float = 1.0, now: float = -1.0) -> int:
 	if count <= 0 or weight <= 0.0:
 		return 0
-	var healed := _regen(count, weight, now)
+	# Etappe 17c: Regeneration heals LP per second (HuntWorld), not per kill.
+	var healed := 0
 	var chain := stacks("koenigszahnkette")
 	if chain > 0:
 		var every := maxf(1.0, ceilf(float(RELIC.koenigszahnkette) / float(chain)))
 		chain_kills += float(count) * weight
 		var chain_heal := int(floor((chain_kills + 0.00001) / every))
 		chain_kills -= float(chain_heal) * every
-		healed += chain_heal
+		healed += chain_heal * CHAIN_HEAL_LP
 	if healed > 0:
 		leader_regenerated.emit(healed)
 	return healed

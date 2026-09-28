@@ -7,9 +7,9 @@ extends SceneTree
 # medium / big), 1-3 shards on normal enemies, shrinking with the fill.
 
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
-# One batch per design (11 incl. the Aschenkröte) + pool, halo, 3 crystal sizes.
-const MAX_BATCHES := 16
-const KINDS := ["prey", "hunter", "elite", "skitter", "leaper", "boss", "apex", "apex_toad", "horde", "mawling", "nest"]
+# One batch per design (13 incl. the desert Sandwurm + Sandmade) + pool + halo + 3 crystal sizes.
+const MAX_BATCHES := 18
+const KINDS := ["prey", "hunter", "elite", "skitter", "leaper", "boss", "apex", "apex_toad", "apex_sandworm", "sandgrub", "horde", "mawling", "nest"]
 
 var failed := false
 
@@ -51,6 +51,7 @@ func _run() -> void:
 		"prey": "drop_small", "hunter": "drop_small", "skitter": "drop_small", "horde": "drop_small",
 		"elite": "drop_medium", "leaper": "drop_medium",
 		"boss": "drop_big", "apex": "drop_big", "apex_toad": "drop_big", "nest": "drop_big", "mawling": "",
+		"apex_sandworm": "drop_big", "sandgrub": "drop_small",
 	}
 	for kind in KINDS:
 		_check(CORPSE_VISUALS.drop_of(kind) == expected_drop[kind], "%s drop is %s" % [kind, expected_drop[kind]])
@@ -62,7 +63,7 @@ func _run() -> void:
 			_check(shards == 0, "%s has no crystal" % KINDS[index])
 			continue
 		shard_total[drop] += shards
-		if drop == "drop_small" and KINDS[index] != "horde":
+		if drop == "drop_small" and not KINDS[index] in ["horde", "sandgrub"]:
 			_check(shards >= 1 and shards <= 3, "%s has 1-3 shards (%d)" % [KINDS[index], shards])
 		else:
 			_check(shards == 1, "%s has one crystal" % KINDS[index])
@@ -144,8 +145,8 @@ func _run() -> void:
 	var per_kind := {}
 	for index in 300:
 		per_kind[KINDS[index % KINDS.size()]] = int(per_kind.get(KINDS[index % KINDS.size()], 0)) + 1
-	var big_total: int = per_kind.boss + per_kind.apex + per_kind.apex_toad + per_kind.nest
-	_check(visuals.instances("drop_big") == big_total, "%d big crystals (boss, apex, apex_toad, nest) in one batch" % big_total)
+	var big_total: int = per_kind.boss + per_kind.apex + per_kind.apex_toad + per_kind.apex_sandworm + per_kind.nest
+	_check(visuals.instances("drop_big") == big_total, "%d big crystals (boss, apex, apex_toad, apex_sandworm, nest) in one batch" % big_total)
 	_check(visuals.instances("boss") == per_kind.boss, "%d boss corpses in one batch" % per_kind.boss)
 	_check(visuals.instances("apex_toad") == per_kind.apex_toad, "%d Aschenkröten corpses in one batch" % per_kind.apex_toad)
 	# After growth every instance still has its own transform.

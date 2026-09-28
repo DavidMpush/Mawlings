@@ -51,6 +51,8 @@ PAINTED = {
     "blitzbiss": "assets/ui/v3/icons/sickle_slash.png",
     "graeber": "assets/ui/v3/icons/slam.png",
     "meute": "assets/ui/v3/icons/swarm_wave.png",
+    "stachelruecken": "assets/ui/v3/icons/spikeback.png",
+    "brutsack": "assets/ui/v3/icons/brood_sac.png",
     "nest": "assets/ui/v3/icons/brood_nest.png",
     "totem": "assets/ui/v3/icons/curse_totem.png",
     "dna": "assets/ui/v3/icons/dna.png",
@@ -61,15 +63,42 @@ PAINTED = {
     "branch_attack": "assets/ui/v3/icons/razor_offense.png",
     "branch_protect": "assets/ui/v3/icons/carapace_survival.png",
     "branch_special": "assets/ui/v3/icons/mutation_special.png",
+    # Stage 17 weapons without own art yet: closest painted motif (ICON_REQUESTS / UI_ASSET_REQUESTS).
+    "klauenwirbel": "assets/ui/v3/icons/razor_offense.png",   # three curved bone claw blades
+    "giftbiss": "assets/ui/v3/icons/bite.png",                 # snapping jaw, recoloured toxic green
+    # Swarm head: bust crops of the painted tribe portraits (assets/ui/v3/heads,
+    # built by assets/ui/v3/build_v3.py). mawling_head_color = Glutmaw (player colour),
+    # mawling_head = the same head in bone white for tinting (see HEAD_TINTABLE).
+    "mawling_head_color": "assets/ui/v3/heads/glutmaw.png",
+    "mawling_head": "assets/ui/v3/heads/glutmaw.png",
 }
+STRAINS = ["glutmaw", "sporling", "knochenkiefer", "flinkzahn", "aetzmaul", "nachtmaul"]
+for _strain in STRAINS:
+    PAINTED["mawling_head_" + _strain] = f"assets/ui/v3/heads/{_strain}.png"
+# Ids turned into a light bone-white monochrome (painted shading kept) so a tint colours them.
+HEAD_TINTABLE = ["mawling_head"]
 SVG_PAINTED = [
-    "stachelruecken", "aetzflut", "brutsack", "erdbeben", "sturmrudel", "regeneration", "dornenhaut",
-    "essence", "crown_tooth", "skull", "mawling_head", "mawling_head_color", "crown", "alpha_core",
+    "aetzflut", "erdbeben", "sturmrudel", "regeneration", "dornenhaut",
+    "essence", "crown_tooth", "skull", "crown", "alpha_core",
     "trophy", "biome_verdant", "biome_glutsumpf", "diff_wild", "diff_brutal", "diff_apex",
     "hunter", "skitter", "leaper", "nibbler", "bog_king", "instinct", "hub",
 ]
 for _id in SVG_PAINTED:
     PAINTED[_id] = "svg:" + _id
+
+# V5 originals from the UI asset request: each motif keeps its own meaning.
+# This deliberately overrides the earlier SVG and reused V3/V2 sources.
+V5_PAINTED = [
+    "schallbrueller", "glutdruese", "pilzreich", "dornenwall", "sturmrudel",
+    "crit", "haste", "reach", "vigor", "gene", "speed", "luck", "magnet",
+    "pack", "scatter", "pu_rausch", "pu_blutrausch", "pu_magnetsturm",
+    "pu_chitinschild", "pu_raserei", "pu_brutwelle", "cocoon", "shrine",
+    "essence", "crown_tooth", "flood", "pressure", "tab_brutkammer",
+    "trophy", "tab_instinct", "tab_chronicle", "hub", "alpha_core",
+    "crown", "evo_badge",
+]
+for _id in V5_PAINTED:
+    PAINTED[_id] = f"assets/ui/v5/icons/{_id}.png"
 
 # Category recolours for the look-alike teeth icons: (hue_lo, hue_hi, target_hue, sat_mul, val_mul).
 # Hue in degrees; only saturated pixels in the range change (teeth, tongue, swirl stay).
@@ -78,6 +107,7 @@ RECOLOUR = {
     "pack": [(6, 38, 352, 1.0, 0.92)],        # Rudelinstinkt -> Karmesin, darker than Reißzähne
     "meute": [(6, 38, 278, 0.85, 1.0)],       # Meute (Evolution) -> Violett, cyan wave stays
     "armor": [(285, 355, 128, 0.8, 0.95)],    # Knochenpanzer: violet base -> Schutz-Grün
+    "giftbiss": [(0, 45, 100, 1.0, 1.0)],     # Giftbiss: ember jaw -> toxic green, ivory fangs stay
 }
 
 GLYPHS = ["pause", "play", "clock", "lock", "reroll", "restart", "banish", "skip"]
@@ -98,6 +128,19 @@ def recolour(img, specs):
         hsv[..., 2] = np.where(mask, np.clip(hsv[..., 2] * val_mul, 0, 255), hsv[..., 2])
     rgb = np.array(Image.fromarray(hsv.astype(np.uint8), "HSV").convert("RGB"))
     return Image.fromarray(np.dstack([rgb, alpha.astype(np.uint8)]), "RGBA")
+
+
+def bone_white(img):
+    """Light warm monochrome of a painted image (shading kept, alpha kept), so
+    a tint colours it like the white glyphs while the painted form stays."""
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = arr[..., 0] * 0.3 + arr[..., 1] * 0.55 + arr[..., 2] * 0.15
+    lo, hi = np.percentile(lum[arr[..., 3] > 0.5], [3, 97])
+    v = np.clip((lum - lo) / max(hi - lo, 1e-3), 0.0, 1.0)
+    v = 0.42 + 0.58 * v ** 0.7     # dark lines and mouth stay readable, faces go light
+    tone = np.array([1.0, 0.97, 0.92], np.float32)
+    out = np.dstack([v[..., None] * tone, arr[..., 3:4]])
+    return Image.fromarray((np.clip(out, 0, 1) * 255).astype(np.uint8), "RGBA")
 
 
 def dilate(alpha, radius):
@@ -324,22 +367,30 @@ def rasterise_svgs(ids, tmp):
 
 
 def main():
+    """Optional arguments: only build these ids (e.g. mawling_head giftbiss)."""
+    only = set(sys.argv[1:])
     OUT.mkdir(parents=True, exist_ok=True)
-    svg_ids = [i for i, src in PAINTED.items() if src.startswith("svg:")]
+    painted = {i: s for i, s in PAINTED.items() if not only or i in only}
+    svg_ids = [i for i, src in painted.items() if src.startswith("svg:")]
     with tempfile.TemporaryDirectory() as tmp:
-        rasterise_svgs(svg_ids, tmp)
-        for gid, src in PAINTED.items():
+        if svg_ids:
+            rasterise_svgs(svg_ids, tmp)
+        for gid, src in painted.items():
             if src.startswith("svg:"):
                 img = Image.open(Path(tmp) / (src[4:] + ".png")).convert("RGBA")
             else:
                 img = Image.open(ROOT / src).convert("RGBA")
-                img = img.resize((img.size[0] * 2, img.size[1] * 2), Image.LANCZOS)
+                if max(img.size) < WORK:
+                    img = img.resize((img.size[0] * 2, img.size[1] * 2), Image.LANCZOS)
             if gid in RECOLOUR:
                 img = recolour(img, RECOLOUR[gid])
+            if gid in HEAD_TINTABLE:
+                img = bone_white(img)
             standardise(img).save(OUT / f"{gid}.png", optimize=True)
-    for gid in GLYPHS:
+    glyphs = [g for g in GLYPHS if not only or g in only]
+    for gid in glyphs:
         render_glyph(globals()["glyph_" + gid]).save(OUT / f"{gid}.png", optimize=True)
-    print(f"built {len(PAINTED)} painted icons and {len(GLYPHS)} glyphs into {OUT.relative_to(ROOT)}")
+    print(f"built {len(painted)} painted icons and {len(glyphs)} glyphs into {OUT.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

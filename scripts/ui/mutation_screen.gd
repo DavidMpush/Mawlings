@@ -253,6 +253,12 @@ func mode() -> String:
 	return "level"
 
 
+## True while the open stat cards come from a shrine (Etappe 17 Welle 2).
+func _shrine() -> bool:
+	var evo := _evolution()
+	return evo != null and "offer_source" in evo and String(evo.offer_source) == "shrine"
+
+
 ## Cards of the current mode (chest offers win over level offers).
 func entries() -> Array:
 	var evo := _evolution()
@@ -1316,7 +1322,7 @@ func _process_brawl(now: float, open: bool) -> void:
 		_ribbon.pivot_offset = rr.size * 0.5
 		_ribbon.scale = Vector2.ONE * lerpf(1.35, 1.0, _back(e))
 		_ribbon.modulate = Color(1, 1, 1, clampf(e * 3.0, 0.0, 1.0))
-		_ribbon.refresh([rr.size, int(evo.level), mode()])
+		_ribbon.refresh([rr.size, int(evo.level), mode(), _shrine()])
 		_footer.position = Vector2.ZERO
 		_footer.size = size
 		_footer.modulate = Color(1, 1, 1, clampf((t - 0.34) / 0.22, 0.0, 1.0))
@@ -1470,10 +1476,14 @@ func _paint_ribbon(c: CanvasItem) -> void:
 	var evo := _evolution()
 	var r := Rect2(Vector2.ZERO, B_RIBBON)
 	var chest := mode() == "chest"
-	Kit.ribbon(c, r, "loot" if chest else "special")
-	Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.size.y * 0.5 - 3.0), "BOSS-KOKON!" if chest else "MUTATION!", UI.T_HERO, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, r.size.x - 44.0)
+	# Etappe 17 Welle 2: a charged shrine opens the same stat choice (rare or better).
+	var shrine := not chest and _shrine()
+	Kit.ribbon(c, r, "loot" if chest else ("info" if shrine else "special"))
+	Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.size.y * 0.5 - 3.0), "BOSS-KOKON!" if chest else ("SCHREIN!" if shrine else "MUTATION!"), UI.T_HERO, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, r.size.x - 44.0)
 	if chest:
 		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.end.y + 36.0), "WÄHLE 1 AUS 3", UI.T_BODY, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	elif shrine:
+		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.end.y + 36.0), "MINDESTENS SELTEN", UI.T_BODY, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 	elif evo != null:
 		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.end.y + 36.0), "STUFE %d" % (int(evo.level) + 1), UI.T_BODY, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 

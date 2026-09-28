@@ -113,6 +113,17 @@ func _run() -> void:
 				hud._press(-2, ms.card_rect(1).get_center())
 				hud._release(-2)
 				_check(evo.rank(pick) == rank_before + 1, "Brawl: tap on card_rect(1) chooses card 1")
+		# Boss cocoon (1 of 3): a tap on a card must pick it (user got stuck here).
+		world.reset_run()
+		evo = world.evolution
+		evo.open_chest("boss")
+		_check(world.choosing() and evo.chest_offers.size() >= 1, "Boss cocoon opens a choice")
+		if not evo.chest_offers.is_empty():
+			var revision_before: int = evo.revision
+			hud._press(-2, ms.card_rect(0).get_center())
+			hud._release(-2)
+			_check(evo.chest_offers.is_empty() and not world.choosing(), "Brawl: tap on a boss-cocoon card closes the choice")
+			_check(evo.revision > revision_before, "Brawl: the tapped boss-cocoon loot is granted")
 
 	# Etappe 17: der Alpha-Kern entfällt; Evolution = Waffe Rang 5 + Relikt,
 	# angeboten im Boss-Kokon (1 aus 3).

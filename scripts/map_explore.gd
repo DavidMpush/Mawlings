@@ -29,7 +29,9 @@ const SAND_MIN := 1.1
 enum Land { MEADOW, FOREST, THICKET, RUINS, RIDGE, SWAMP, LABYRINTH }
 const LAND_NAMES := ["meadow", "forest", "thicket", "ruins", "ridge", "swamp", "labyrinth"]
 # Region weights (meadow and forest most common, labyrinth rare).
-const LAND_WEIGHTS := [18, 22, 14, 12, 10, 12, 8]
+const LAND_WEIGHTS := [18, 20, 12, 14, 12, 12, 10]
+# Blocked share each landscape aims for (before the map-wide 25-35 % scaling).
+const LAND_TARGET := [0.07, 0.26, 0.58, 0.3, 0.24, 0.36, 0.4]
 # Wall characters (arena_border.gd Wall enum; RUIN is new).
 const KIND_THICKET := 0
 const KIND_CLIFF := 1
@@ -37,7 +39,28 @@ const KIND_ROOTS := 2
 const KIND_WATER := 3
 const KIND_RUIN := 4
 const KIND_TREE := 5
-const BLOCKED_SHARE := Vector2(0.25, 0.35)
+const KIND_PILLAR := 6
+# Stage 19 (Dürrschlund): rib cages (one RibBones model per cage) and cactus groves.
+const KIND_RIB := 7
+const KIND_CACTUS := 8
+# Desert landscapes on the same Land slots: open dunes (sandstone outcrops),
+# cactus grove, sandstone cliff field, bone field (rib cages), sandstone ridge,
+# oasis (turquoise ponds), canyon labyrinth.
+const DESERT_LAND_NAMES := ["dunes", "cactus", "cliffs", "bones", "ridge", "oasis", "canyon"]
+const DESERT_LAND_WEIGHTS := [22, 16, 10, 16, 12, 12, 10]
+const DESERT_LAND_TARGET := [0.07, 0.24, 0.44, 0.3, 0.26, 0.2, 0.4]
+# Rib cages: one per RIB_PLOT plot (most plots), length RIB_LENGTH, width from
+# the model (0.366 of its length).
+const RIB_PLOT := 24.0
+const RIB_LENGTH := Vector2(10.0, 13.2)
+const RIB_RATIO := 0.366
+# Quicksand patches (radius range) per solo map (scaled by area).
+const QUICKSAND_COUNT := Vector2i(7, 10)
+const QUICKSAND_RADIUS := Vector2(4.2, 6.5)
+# Rock arch landmark: length (m) and its two feet (model: outer thirds).
+const ARCH_LENGTH := 13.0
+# Before the wide corridors (they open ~4-8 %), so the result lands in 25-35 %.
+const BLOCKED_SHARE := Vector2(0.3, 0.36)
 const EDGE_KEEP := 10.0
 # POI types: [count (solo 4 x 4, scaled by area), clear radius, min spacing].
 const POI := {
@@ -72,6 +95,16 @@ var stones: Array[Vector4] = []
 var eruption_points: Array[Vector4] = []
 var loot_points: Array[Vector4] = []
 var beacons: Array[Dictionary] = []
+## Stage 19: biome of this map ("duerrschlund" builds the desert variant).
+var biome_id := ""
+var desert := false
+## Desert rib cages [{center, yaw, length, width, cells}] (intact ones only).
+var ribs: Array[Dictionary] = []
+## Desert quicksand patches Vector4(x, 0, z, radius) on open ground.
+var quicksand: Array[Vector4] = []
+var _land_weights: Array = LAND_WEIGHTS
+var _land_target: Array = LAND_TARGET
+var _ribs_dropped := 0
 var region_lands: Dictionary = {}
 var attempts := 1
 var build_msec := 0.0
@@ -81,11 +114,18 @@ var _noise_b := FastNoiseLite.new()
 var _warp := FastNoiseLite.new()
 var _cells := FastNoiseLite.new()
 var _filled := 0
+var _ruin_cos := 1.0
+var _ruin_sin := 0.0
 var _joined := 0
 
 
-func _init(seed_value: int, playable_rect: Rect2, bounds_rect: Rect2, map_regions: int, starts: Array[Vector3], arrivals: Array[Vector3]) -> void:
+func _init(seed_value: int, playable_rect: Rect2, bounds_rect: Rect2, map_regions: int, starts: Array[Vector3], arrivals: Array[Vector3], biome := "") -> void:
 	var started := Time.get_ticks_usec()
+	biome_id = biome
+	desert = biome == "duerrschlund"
+	if desert:
+		_land_weights = DESERT_LAND_WEIGHTS
+		_land_target = DESERT_LAND_TARGET
 	playable = playable_rect
 	bounds = bounds_rect
 	regions = map_regions
@@ -103,23 +143,56 @@ func _init(seed_value: int, playable_rect: Rect2, bounds_rect: Rect2, map_region
 	_warp.frequency = 1.0 / 60.0
 	_warp.fractal_octaves = 1
 	_cells.noise_type = FastNoiseLite.TYPE_CELLULAR
-	_cells.frequency = 1.0 / 11.0
+	_cells.frequency = 1.0 / 17.0
 	_cells.cellular_return_type = FastNoiseLite.RETURN_DISTANCE
 	_cells.cellular_jitter = 0.9
 	_cells.fractal_type = FastNoiseLite.FRACTAL_NONE
 	grid = ceili(bounds.size.x / NAV)
 	grid_origin = bounds.position
+	var ruin_angle := rng.randf_range(-0.6, 0.6)
+	_ruin_cos = cos(ruin_angle)
+	_ruin_sin = sin(ruin_angle)
 	var start := _pick_start(starts)
 	_roll_regions(start)
+	_mark("init")
 	_build_mask()
+	_drop_specks()
+	_mask_share = _blocked_share()
+	_mark("mask")
 	_place_pois(start, starts, arrivals)
+	_mark("pois")
 	_carve_pois()
 	_join_open()
+	_settle_ribs()
+	_mark("join")
 	_bake_sdf()
+	# Two rounds: a corridor may reveal (or pass) another cut-off wide area.
+	for round_index in 2:
+		if _join_wide() == 0:
+			break
+		_settle_ribs()
+		_bake_sdf()
+	_mark("sdf")
 	_trails()
+	_mark("trails")
 	_place_loot()
 	_eruptions()
+	if desert:
+		_place_quicksand()
+	_mark("loot")
 	build_msec = float(Time.get_ticks_usec() - started) / 1000.0
+
+
+## Build time per phase (ms), for perf notes.
+var timings := {}
+var _mark_at := 0
+
+
+func _mark(label: String) -> void:
+	var now := Time.get_ticks_usec()
+	if _mark_at > 0:
+		timings[label] = float(now - _mark_at) / 1000.0
+	_mark_at = now
 
 
 # ------------------------------------------------------------------ helpers
@@ -162,7 +235,7 @@ func _pick_start(starts: Array[Vector3]) -> Vector3:
 
 func _roll_regions(start: Vector3) -> void:
 	var total := 0
-	for weight in LAND_WEIGHTS:
+	for weight in _land_weights:
 		total += weight
 	var size := _region_size()
 	var start_region := _region_of(start.x, start.z)
@@ -171,8 +244,8 @@ func _roll_regions(start: Vector3) -> void:
 			var key := Vector2i(rx, rz)
 			var roll := rng.randi() % total
 			var pick := 0
-			for index in LAND_WEIGHTS.size():
-				roll -= LAND_WEIGHTS[index]
+			for index in _land_weights.size():
+				roll -= _land_weights[index]
 				if roll < 0:
 					pick = index
 					break
@@ -189,66 +262,136 @@ func _roll_regions(start: Vector3) -> void:
 				for other in [Vector2i(rx - 1, rz), Vector2i(rx, rz - 1)]:
 					if region_lands.has(other) and region_lands[other] == here:
 						region_lands[Vector2i(rx, rz)] = Land.FOREST if rng.randf() < 0.5 else Land.MEADOW
-
-
-# Landscape of a point: nearest region seed after a domain warp (organic borders).
-func _land_at(x: float, z: float) -> int:
-	var wx := x + _warp.get_noise_2d(x, z) * 26.0
-	var wz := z + _warp.get_noise_2d(z + 500.0, x - 300.0) * 26.0
-	var home := _region_of(wx, wz)
-	var best := INF
-	var pick := 0
-	for dz in range(-1, 2):
-		for dx in range(-1, 2):
-			var key := home + Vector2i(dx, dz)
-			if not _region_seeds.has(key):
+	# Stage 19: every desert has its signature landscapes (bone field, oasis,
+	# cactus grove) at least once, taken from the open dunes.
+	if desert:
+		for wanted in [Land.RUINS, Land.SWAMP, Land.FOREST]:
+			if region_lands.values().has(wanted):
 				continue
-			var seed_point: Vector2 = _region_seeds[key]
-			var d := Vector2(wx - seed_point.x, wz - seed_point.y).length_squared()
-			if d < best:
-				best = d
-				pick = region_lands[key]
-	return pick
+			var spare: Array[Vector2i] = []
+			for key in region_lands:
+				if key != start_region and region_lands[key] == Land.MEADOW:
+					spare.append(key)
+			if spare.is_empty():
+				for key in region_lands:
+					if key != start_region and region_lands[key] != Land.RUINS and region_lands[key] != Land.SWAMP:
+						spare.append(key)
+			if not spare.is_empty():
+				region_lands[spare[rng.randi() % spare.size()]] = wanted
 
 
-# Density of a landscape at a point (> 0 = blocked) and its wall character.
-func _terrain(type: int, x: float, z: float) -> Vector2:
-	var a := _noise_a.get_noise_2d(x, z)
-	var b := _noise_b.get_noise_2d(x, z)
-	match type:
-		Land.MEADOW:
-			# Rare rock clusters on open grass.
-			return Vector2(b * 0.8 + a * 0.5 - 0.72, KIND_CLIFF)
-		Land.FOREST:
-			# Tree groups: blobs around cellular feature points, gaps between.
-			var cell := _cells.get_noise_2d(x, z)
-			return Vector2(0.18 - (cell + 1.0) * 0.5 + a * 0.12, KIND_TREE)
-		Land.THICKET:
-			# Mostly blocked mass with winding gaps.
-			return Vector2(a * 0.9 + b * 0.35 + 0.12, KIND_THICKET if b > -0.2 else KIND_ROOTS)
-		Land.RUINS:
-			# Broken walls on a skewed 12 m grid plus pillars.
-			var angle := 0.35 + a * 0.08
-			var u := x * cos(angle) + z * sin(angle)
-			var v := -x * sin(angle) + z * cos(angle)
-			var fu := absf(fposmod(u / 13.0, 1.0) - 0.5)
-			var fv := absf(fposmod(v / 13.0, 1.0) - 0.5)
-			var wall := (0.08 - minf(fu, fv)) * 6.0
-			var broken := b * 0.9
-			var pillar := 0.12 - Vector2(fu, fv).length() * 2.2
-			return Vector2(maxf(minf(wall, broken + 0.05), pillar) - 0.02, KIND_RUIN)
-		Land.RIDGE:
-			# Winding rock ridges along a noise contour with rare breaches.
-			var ridge := 0.11 - absf(a)
-			var breach := b - 0.55
-			return Vector2(ridge * 4.0 - maxf(0.0, breach) * 3.0 + (b * 0.5 - 0.62), KIND_CLIFF)
-		Land.SWAMP:
-			# Ponds (water walls) with reedy rims.
-			return Vector2(a * 0.75 + b * 0.25 - 0.1, KIND_WATER)
-		_:
-			# Labyrinth: rock seams along two noise contours.
-			var seam := 0.1 - minf(absf(a * 1.3), absf(b))
-			return Vector2(seam * 5.0, KIND_CLIFF)
+# One noise over the whole grid as bytes (native FastNoiseLite.get_image; one
+# pixel = one NAV cell, value 0..255 = noise -1..1). `scale` stretches space.
+func _noise_grid(noise: FastNoiseLite, scale := 1.0) -> PackedByteArray:
+	var base := noise.frequency
+	noise.frequency = base * NAV * scale
+	noise.offset = Vector3(grid_origin.x / NAV + 0.5, grid_origin.y / NAV + 0.5, 0.0)
+	var image := noise.get_image(grid, grid, false, false, false)
+	noise.frequency = base
+	noise.offset = Vector3.ZERO
+	if image.get_format() != Image.FORMAT_L8:
+		image.convert(Image.FORMAT_L8)
+	return image.get_data()
+
+
+const BYTE := 1.0 / 127.5
+
+
+static func _unit_byte(value: int) -> float:
+	return float(value) / 127.5 - 1.0
+
+
+# Landscape of every cell: nearest region seed after a domain warp (organic
+# borders), computed on a half-resolution grid and spread to the full one.
+func _land_grid(warp_x: PackedByteArray, warp_z: PackedByteArray) -> void:
+	var seeds := PackedVector2Array()
+	var lands := PackedInt32Array()
+	for rz in regions:
+		for rx in regions:
+			seeds.append(_region_seeds[Vector2i(rx, rz)])
+			lands.append(region_lands[Vector2i(rx, rz)])
+	var size := _region_size()
+	var half := (grid + 1) / 2
+	var w := grid
+	for hz in half:
+		var iz := mini(hz * 2, w - 1)
+		var cz := grid_origin.y + (float(iz) + 0.5) * NAV
+		for hx in half:
+			var ix := mini(hx * 2, w - 1)
+			var index := iz * w + ix
+			var wx := grid_origin.x + (float(ix) + 0.5) * NAV + (float(warp_x[index]) * BYTE - 1.0) * 34.0
+			var wz := cz + (float(warp_z[index]) * BYTE - 1.0) * 34.0
+			var rx := clampi(floori((wx - bounds.position.x) / size), 0, regions - 1)
+			var rz := clampi(floori((wz - bounds.position.y) / size), 0, regions - 1)
+			var best := INF
+			var pick := 0
+			for oz in range(maxi(0, rz - 1), mini(regions, rz + 2)):
+				for ox in range(maxi(0, rx - 1), mini(regions, rx + 2)):
+					var s := seeds[oz * regions + ox]
+					var d := (wx - s.x) * (wx - s.x) + (wz - s.y) * (wz - s.y)
+					if d < best:
+						best = d
+						pick = lands[oz * regions + ox]
+			var x := hx * 2
+			var z := hz * 2
+			land[z * w + x] = pick
+			if x + 1 < w:
+				land[z * w + x + 1] = pick
+			if z + 1 < w:
+				land[(z + 1) * w + x] = pick
+				if x + 1 < w:
+					land[(z + 1) * w + x + 1] = pick
+
+static func _hash2(x: int, z: int, salt: int) -> int:
+	var n := x * 374761393 + z * 668265263 + salt * 144269
+	n = (n ^ (n >> 13)) * 1274126177
+	return absi(n ^ (n >> 16))
+
+
+# Ruin field: building remains on a skewed 20 m grid - rooms with 2.4 m walls,
+# a doorway in most sides, broken wall stretches (corners always stand) and
+# loose pillars between the houses. Returns Vector2(density, kind): density
+# > 0 = blocked (absolute), kind KIND_RUIN or KIND_PILLAR.
+func _ruin(x: float, z: float, broken: float) -> Vector2:
+	var u := x * _ruin_cos + z * _ruin_sin
+	var v := -x * _ruin_sin + z * _ruin_cos
+	var iu := floori(u / 20.0)
+	var iv := floori(v / 20.0)
+	var lu := u - float(iu) * 20.0
+	var lv := v - float(iv) * 20.0
+	# Loose pillar where four house plots meet.
+	var pu := minf(lu, 20.0 - lu)
+	var pv := minf(lv, 20.0 - lv)
+	var corner_u := iu + (1 if lu > 10.0 else 0)
+	var corner_v := iv + (1 if lv > 10.0 else 0)
+	if pu < 1.8 and pv < 1.8 and _hash2(corner_u, corner_v, 51) % 10 < 6:
+		return Vector2(1.0, KIND_PILLAR)
+	var h := _hash2(iu, iv, 50)
+	if h % 10 < 2:
+		return Vector2(-1.0, KIND_RUIN)
+	var hw := 4.0 + float(h % 7) * 0.45
+	var hh := 4.0 + float((h >> 4) % 7) * 0.45
+	var cu := 10.0 + float((h >> 8) % 5 - 2) * 0.6
+	var cv := 10.0 + float((h >> 12) % 5 - 2) * 0.6
+	var du := absf(lu - cu) - hw
+	var dv := absf(lv - cv) - hh
+	var outline := maxf(du, dv)
+	if absf(outline) > 1.2:
+		return Vector2(-1.0, KIND_RUIN)
+	# Corners always stand (the L shape reads as a building).
+	var near_corner := du > -2.8 and dv > -2.8
+	if not near_corner:
+		# A doorway in most sides (3 m, position per side).
+		var on_u := du > dv
+		var along := (lv - cv) if on_u else (lu - cu)
+		var side := (1 if (lu > cu if on_u else lv > cv) else 0) + (2 if on_u else 0)
+		if (h >> (16 + side)) % 4 != 0:
+			var door := float((h >> (20 + side * 2)) % 5 - 2) * 1.2
+			if absf(along - door) < 1.5:
+				return Vector2(-1.0, KIND_RUIN)
+		if broken > 0.25:
+			return Vector2(-1.0, KIND_RUIN)
+	return Vector2(1.2 - absf(outline), KIND_RUIN)
 
 
 func _build_mask() -> void:
@@ -258,40 +401,280 @@ func _build_mask() -> void:
 	blocked.resize(count)
 	kind.resize(count)
 	land.resize(count)
+	var na := _noise_grid(_noise_a)
+	var nb := _noise_grid(_noise_b)
+	var nc := _noise_grid(_cells)
+	var warp_x := _noise_grid(_warp)
+	_warp.seed += 17
+	var warp_z := _noise_grid(_warp)
+	_warp.seed -= 17
+	_land_grid(warp_x, warp_z)
+	var fixed := PackedByteArray()
+	fixed.resize(count)
 	for iz in grid:
 		for ix in grid:
-			var p := _cell_center(ix, iz)
-			var type := _land_at(p.x, p.y)
-			var value := _terrain(type, p.x, p.y)
 			var index := iz * grid + ix
-			density[index] = value.x
-			kind[index] = int(value.y)
-			land[index] = type
-	# One global threshold keeps the blocked share in 25-35 %.
-	var inside := PackedFloat32Array()
+			var a := float(na[index]) * BYTE - 1.0
+			var b := float(nb[index]) * BYTE - 1.0
+			var type: int = land[index]
+			var value := 0.0
+			var wall := KIND_CLIFF
+			if desert:
+				var dv := _desert_value(type, a, b, float(nc[index]) * BYTE)
+				density[index] = dv.x
+				kind[index] = int(dv.y)
+				continue
+			match type:
+				Land.MEADOW:
+					value = b * 0.8 + a * 0.5 - 0.72
+				Land.FOREST:
+					value = 0.18 - float(nc[index]) * BYTE * 0.5 + a * 0.12
+					wall = KIND_TREE
+				Land.THICKET:
+					value = a * 0.9 + b * 0.35 + 0.12
+					wall = KIND_THICKET if b > -0.2 else KIND_ROOTS
+				Land.RUINS:
+					var ruin := _ruin(grid_origin.x + (float(ix) + 0.5) * NAV, grid_origin.y + (float(iz) + 0.5) * NAV, b)
+					value = ruin.x
+					wall = int(ruin.y)
+					fixed[index] = 1
+				Land.RIDGE:
+					value = (0.11 - absf(a)) * 4.0 - maxf(0.0, b - 0.55) * 3.0 + (b * 0.5 - 0.62)
+				Land.SWAMP:
+					value = a * 0.75 + b * 0.25 - 0.1
+					wall = KIND_WATER
+				_:
+					value = (0.1 - minf(absf(a * 1.3), absf(b))) * 5.0
+			density[index] = value
+			kind[index] = wall
+	# Every landscape gets its own threshold (its character: few rocks on a
+	# meadow, a dense thicket), scaled together so the map stays 25-35 %
+	# blocked; ruins keep their own absolute shape.
+	var samples: Array = []
+	for type in _land_target.size():
+		samples.append([])
+	var mix := 0.0
+	var total := 0
+	var inner := playable.grow(-EDGE_KEEP)
 	for iz in range(0, grid, 2):
 		for ix in range(0, grid, 2):
 			var p := _cell_center(ix, iz)
-			if playable.grow(-EDGE_KEEP).has_point(p):
-				inside.append(density[iz * grid + ix])
-	inside.sort()
-	var natural := 0
-	for value in inside:
-		if value > 0.0:
-			natural += 1
-	var share := clampf(float(natural) / float(maxi(1, inside.size())), BLOCKED_SHARE.x, BLOCKED_SHARE.y)
-	var threshold: float = inside[clampi(roundi((1.0 - share) * float(inside.size())), 0, inside.size() - 1)]
+			if inner.has_point(p):
+				var index := iz * grid + ix
+				(samples[land[index]] as Array).append(density[index])
+				mix += _land_target[land[index]]
+				total += 1
+	var natural := mix / float(maxi(1, total))
+	var factor := lerpf(BLOCKED_SHARE.x, BLOCKED_SHARE.y, 0.5) / maxf(0.01, natural)
+	var thresholds := PackedFloat32Array()
+	for type in LAND_TARGET.size():
+		var values: Array = samples[type]
+		values.sort()
+		if values.is_empty() or type == Land.RUINS:
+			thresholds.append(0.0)
+			continue
+		var share: float = clampf(_land_target[type] * factor, 0.0, 0.9)
+		thresholds.append(values[clampi(roundi((1.0 - share) * float(values.size())), 0, values.size() - 1)])
 	for iz in grid:
+		var z := grid_origin.y + (float(iz) + 0.5) * NAV
+		var dz := minf(z - playable.position.y, playable.end.y - z)
 		for ix in grid:
-			var p := _cell_center(ix, iz)
+			var x := grid_origin.x + (float(ix) + 0.5) * NAV
 			var index := iz * grid + ix
-			var edge := minf(minf(p.x - playable.position.x, playable.end.x - p.x), minf(p.y - playable.position.y, playable.end.y - p.y))
+			var edge := minf(minf(x - playable.position.x, playable.end.x - x), dz)
 			if edge < 1.0:
 				blocked[index] = 1
 			elif edge < EDGE_KEEP:
 				blocked[index] = 0
 			else:
-				blocked[index] = 1 if density[index] > threshold else 0
+				blocked[index] = 1 if density[index] > thresholds[land[index]] else 0
+	if desert:
+		_rib_cages()
+
+
+# Stage 18c follow-up: blocking pieces are big and clear - a blocked patch of
+# fewer than MIN_BLOCK cells (~3.5 m across) becomes open ground instead.
+const MIN_BLOCK := 4
+var _specks := 0
+
+func _drop_specks() -> void:
+	var count := grid * grid
+	var w := grid
+	var seen := PackedByteArray()
+	seen.resize(count)
+	for seed_cell in count:
+		if blocked[seed_cell] == 0 or seen[seed_cell] == 1:
+			continue
+		var members := PackedInt32Array([seed_cell])
+		seen[seed_cell] = 1
+		var head := 0
+		var touches_edge := false
+		while head < members.size():
+			var here := members[head]
+			head += 1
+			var x := here % w
+			if x == 0 or x == w - 1 or here < w or here >= count - w:
+				touches_edge = true
+			for next in [here + 1 if x + 1 < w else -1, here - 1 if x > 0 else -1, here + w if here + w < count else -1, here - w if here >= w else -1]:
+				if next >= 0 and blocked[next] == 1 and seen[next] == 0:
+					seen[next] = 1
+					members.append(next)
+		if members.size() < MIN_BLOCK and not touches_edge:
+			for cell in members:
+				blocked[cell] = 0
+			_specks += 1
+
+
+# ------------------------------------------------------------------ desert (stage 19)
+
+# Density and wall kind of a desert cell (same noise inputs as the green map).
+func _desert_value(type: int, a: float, b: float, cell: float) -> Vector2:
+	match type:
+		Land.MEADOW:
+			return Vector2(b * 0.8 + a * 0.5 - 0.72, KIND_CLIFF)
+		Land.FOREST:
+			return Vector2(0.18 - cell * 0.5 + a * 0.12, KIND_CACTUS)
+		Land.THICKET:
+			return Vector2(a * 0.9 + b * 0.35 + 0.12, KIND_CLIFF)
+		Land.RUINS:
+			# Bone field: open sand, the rib cages are stamped in afterwards.
+			return Vector2(-1.0, KIND_CLIFF)
+		Land.RIDGE:
+			return Vector2((0.11 - absf(a)) * 4.0 - maxf(0.0, b - 0.55) * 3.0 + (b * 0.5 - 0.62), KIND_CLIFF)
+		Land.SWAMP:
+			return Vector2(a * 0.75 + b * 0.25 - 0.1, KIND_WATER)
+	return Vector2((0.1 - minf(absf(a * 1.3), absf(b))) * 5.0, KIND_CLIFF)
+
+
+# Bone field: one big rib cage per RIB_PLOT plot (skewed grid like the ruins),
+# stamped into the mask as a solid block exactly under the RibBones model.
+func _rib_cages() -> void:
+	ribs.clear()
+	var inner := playable.grow(-(EDGE_KEEP + 4.0))
+	var corners := [bounds.position, Vector2(bounds.end.x, bounds.position.y), bounds.end, Vector2(bounds.position.x, bounds.end.y)]
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for corner in corners:
+		var u: float = corner.x * _ruin_cos + corner.y * _ruin_sin
+		var v: float = -corner.x * _ruin_sin + corner.y * _ruin_cos
+		lo = Vector2(minf(lo.x, u), minf(lo.y, v))
+		hi = Vector2(maxf(hi.x, u), maxf(hi.y, v))
+	var base_angle := atan2(_ruin_sin, _ruin_cos)
+	for iv in range(floori(lo.y / RIB_PLOT), ceili(hi.y / RIB_PLOT)):
+		for iu in range(floori(lo.x / RIB_PLOT), ceili(hi.x / RIB_PLOT)):
+			var h := _hash2(iu, iv, 61)
+			if h % 10 < 3:
+				continue
+			var u := (float(iu) + 0.5) * RIB_PLOT + float((h >> 4) % 7 - 3) * 0.9
+			var v := (float(iv) + 0.5) * RIB_PLOT + float((h >> 7) % 7 - 3) * 0.9
+			var center := Vector2(u * _ruin_cos - v * _ruin_sin, u * _ruin_sin + v * _ruin_cos)
+			if not inner.has_point(center):
+				continue
+			var cell := _cell_of(Vector3(center.x, 0.0, center.y))
+			if land[cell.y * grid + cell.x] != Land.RUINS:
+				continue
+			var length := lerpf(RIB_LENGTH.x, RIB_LENGTH.y, float((h >> 10) % 5) / 4.0)
+			var angle := base_angle + float((h >> 13) % 9 - 4) * 0.14 + (PI * 0.5 if (h >> 17) % 3 == 0 else 0.0)
+			var axis := Vector2(cos(angle), sin(angle))
+			var half_length := length * 0.5 + 0.3
+			var half_width := length * RIB_RATIO * 0.5 + 0.4
+			var reach := half_length + 2.0
+			var c0 := _cell_of(Vector3(center.x - reach, 0.0, center.y - reach))
+			var c1 := _cell_of(Vector3(center.x + reach, 0.0, center.y + reach))
+			var cells := PackedInt32Array()
+			for iz in range(c0.y, c1.y + 1):
+				for ix in range(c0.x, c1.x + 1):
+					var d := _cell_center(ix, iz) - center
+					if absf(d.dot(axis)) < half_length and absf(d.x * -axis.y + d.y * axis.x) < half_width:
+						cells.append(iz * grid + ix)
+			for index in cells:
+				blocked[index] = 1
+				kind[index] = KIND_RIB
+			# Model yaw: its long axis (+z) along the cage axis.
+			ribs.append({"center": Vector3(center.x, 0.0, center.y), "yaw": atan2(axis.x, axis.y), "length": length, "width": length * RIB_RATIO, "cells": cells})
+
+
+# A rib cage is one model: when a POI clearing, a joined pocket or a wide
+# corridor opened any of its cells, the whole cage goes (never half a skeleton).
+func _settle_ribs() -> void:
+	if not desert:
+		return
+	for index in range(ribs.size() - 1, -1, -1):
+		var cells: PackedInt32Array = ribs[index].cells
+		var intact := true
+		for cell in cells:
+			if blocked[cell] == 0:
+				intact = false
+				break
+		if intact:
+			continue
+		for cell in cells:
+			blocked[cell] = 0
+			kind[cell] = KIND_CLIFF
+		ribs.remove_at(index)
+		_ribs_dropped += 1
+
+
+# Rock arch landmark: walkable underneath, only its two feet block (two
+# circles per foot along its depth, inside the model's foot footprint).
+func _add_arch(point: Vector3, node: int) -> void:
+	# Span across the screen (feet west and east): the camera in the south sees
+	# the opening, the way under it runs north-south.
+	var yaw := (PI if rng.randf() < 0.5 else 0.0) + rng.randf_range(-0.3, 0.3)
+	var across := Vector3(cos(yaw), 0.0, -sin(yaw))
+	var depth := Vector3(sin(yaw), 0.0, cos(yaw))
+	var feet: Array[Vector3] = []
+	for side in [-1.0, 1.0]:
+		var foot: Vector3 = point + across * (side * ARCH_LENGTH * 0.335)
+		feet.append(foot)
+		for step in [-1.0, 1.0]:
+			var spot: Vector3 = foot + depth * (step * 1.45)
+			stones.append(Vector4(spot.x, 0.0, spot.z, 2.1))
+	beacons.append({"kind": "rock_arch", "center": point, "radius": ARCH_LENGTH * 0.5, "node": node, "yaw": yaw, "feet": feet})
+
+
+# Quicksand: round patches on open sand (dunes and bone fields first), away
+# from every place, the start and each other. Walkable, only slows.
+func _place_quicksand() -> void:
+	quicksand.clear()
+	var target := rng.randi_range(QUICKSAND_COUNT.x, QUICKSAND_COUNT.y) * regions * regions / 16
+	var start_point: Vector3 = nodes[hub].center
+	var tries := 0
+	while quicksand.size() < target and tries < target * 80:
+		tries += 1
+		var radius := rng.randf_range(QUICKSAND_RADIUS.x, QUICKSAND_RADIUS.y)
+		var point := _random_point(radius + 14.0)
+		if sample(point.x, point.z) < radius + 1.2:
+			continue
+		var cell := _cell_of(point)
+		var type: int = land[cell.y * grid + cell.x]
+		if not type in [Land.MEADOW, Land.RUINS, Land.FOREST] and rng.randf() < 0.7:
+			continue
+		if point.distance_to(start_point) < radius + 26.0:
+			continue
+		var clash := false
+		for other in nodes:
+			if point.distance_to(other.center) < float(other.radius) + radius + 3.0:
+				clash = true
+				break
+		if not clash:
+			for other in quicksand:
+				if Vector2(other.x - point.x, other.z - point.z).length() < other.w + radius + 10.0:
+					clash = true
+					break
+		if not clash:
+			for stone in stones:
+				if Vector2(stone.x - point.x, stone.z - point.z).length() < stone.w + radius + 2.0:
+					clash = true
+					break
+		if not clash:
+			for amber in loot_points:
+				if Vector2(amber.x - point.x, amber.z - point.z).length() < radius + 1.5:
+					clash = true
+					break
+		if clash:
+			continue
+		quicksand.append(Vector4(point.x, 0.0, point.z, radius))
 
 
 # ------------------------------------------------------------------ POIs
@@ -314,9 +697,9 @@ func _free(point: Vector3, radius: float, spacing: float) -> bool:
 func _openness(point: Vector3, radius: float) -> float:
 	var open := 0
 	var total := 0
-	for step in 12:
-		var angle := TAU * float(step) / 12.0
-		for reach in [0.0, radius * 0.5, radius]:
+	for step in 8:
+		var angle := TAU * float(step) / 8.0
+		for reach in [radius * 0.5, radius]:
 			var cell := _cell_of(point + Vector3(cos(angle), 0.0, sin(angle)) * reach)
 			total += 1
 			if blocked[cell.y * grid + cell.x] == 0:
@@ -371,8 +754,10 @@ func _place_pois(start: Vector3, starts: Array[Vector3], arrivals: Array[Vector3
 	var start_point: Vector3 = nodes[hub].center
 	var span := playable.size.x
 	# Boss arena: a wide open area somewhere far enough from the start.
-	var boss_point := _scatter(24.0, 30.0, 60, func(p: Vector3) -> float:
-		return minf(p.distance_to(start_point), span * 0.5) / span * 4.0)
+	# At least ~110 m from the start (the apex comes from there; stage 18b had >= 90 m).
+	var boss_point := _scatter(24.0, 30.0, 80, func(p: Vector3) -> float:
+		var far := p.distance_to(start_point)
+		return (minf(far, span * 0.5) / span * 4.0) - (20.0 if far < span * 0.33 else 0.0))
 	if boss_point.is_finite():
 		boss = _add_node(boss_point, 24.0, "boss")
 	# Migrationsschlund: far from the boss arena.
@@ -380,6 +765,27 @@ func _place_pois(start: Vector3, starts: Array[Vector3], arrivals: Array[Vector3
 		return (p.distance_to(nodes[boss].center) if boss >= 0 else p.distance_to(start_point)) / span * 4.0)
 	if maw_point.is_finite():
 		maw = _add_node(maw_point, 10.0, "maw")
+	# Tall landmarks: 4 (solo), spread far apart, never on a POI.
+	# Stage 18c follow-up: only forms whose base matches the collision circle.
+	var lure_kinds := ["giant_skull", "rock_arch"] if desert else ["giant_tree", "bone_pillar", "stone_needle"]
+	lure_kinds.shuffle()
+	for index in _poi_count(4):
+		var point := _scatter(10.0, 50.0, 60, func(p: Vector3) -> float:
+			var near := INF
+			for mark in beacons:
+				near = minf(near, p.distance_to(mark.center))
+			return minf(near, span) / span * 3.0)
+		if point.is_finite():
+			var node := _add_node(point, 10.0, "landmark")
+			var lure: String = lure_kinds[index % lure_kinds.size()]
+			if lure == "rock_arch":
+				_add_arch(point, node)
+			elif lure == "giant_skull":
+				beacons.append({"kind": lure, "center": point, "radius": 3.5, "node": node, "yaw": rng.randf() * TAU})
+				stones.append(Vector4(point.x, 0.0, point.z, 3.5))
+			else:
+				beacons.append({"kind": lure, "center": point, "radius": 2.6, "node": node})
+				stones.append(Vector4(point.x, 0.0, point.z, 2.6))
 	for type in ["elite", "shrine", "cocoon_gold", "nest", "totem", "grove", "cocoon"]:
 		var spec: Array = POI[type]
 		for index in _poi_count(int(spec[0])):
@@ -389,19 +795,6 @@ func _place_pois(start: Vector3, starts: Array[Vector3], arrivals: Array[Vector3
 				return (_danger(p) * 2.0 + away * 2.0) if golden else (-0.5 if p.distance_to(start_point) < 20.0 else 0.0))
 			if point.is_finite():
 				_add_node(point, float(spec[1]), type)
-	# Tall landmarks: 4 (solo), spread far apart, never on a POI.
-	var lure_kinds := ["giant_tree", "bone_pillar", "mushroom_tower", "stone_needle"]
-	lure_kinds.shuffle()
-	for index in _poi_count(4):
-		var point := _scatter(6.0, 70.0, 40, func(p: Vector3) -> float:
-			var near := INF
-			for mark in beacons:
-				near = minf(near, p.distance_to(mark.center))
-			return minf(near, span) / span * 3.0)
-		if point.is_finite():
-			var node := _add_node(point, 6.0, "landmark")
-			beacons.append({"kind": lure_kinds[index % lure_kinds.size()], "center": point, "radius": 2.6, "node": node})
-			stones.append(Vector4(point.x, 0.0, point.z, 2.6))
 
 
 # Clears an organic disc around every POI.
@@ -426,45 +819,47 @@ func _join_open() -> void:
 	component.resize(count)
 	component.fill(-1)
 	var start_cell := _cell_of(nodes[hub].center)
-	var sizes: Array[int] = []
+	var first := start_cell.y * grid + start_cell.x
+	var open := blocked
 	var cells_of: Array = []
-	var seeds: Array[int] = [start_cell.y * grid + start_cell.x]
+	var w := grid
+	var order := PackedInt32Array([first])
 	for index in count:
-		if blocked[index] == 0:
-			seeds.append(index)
-	for seed_cell in seeds:
-		if blocked[seed_cell] != 0 or component[seed_cell] >= 0:
+		if open[index] == 0:
+			order.append(index)
+	for seed_cell in order:
+		if open[seed_cell] != 0 or component[seed_cell] >= 0:
 			continue
-		var id := sizes.size()
+		var id := cells_of.size()
 		var members := PackedInt32Array([seed_cell])
 		component[seed_cell] = id
 		var head := 0
 		while head < members.size():
 			var here := members[head]
 			head += 1
-			var x := here % grid
-			var z := here / grid
-			for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-				var nx: int = x + offset.x
-				var nz: int = z + offset.y
-				if nx < 0 or nz < 0 or nx >= grid or nz >= grid:
-					continue
-				var next := nz * grid + nx
-				if blocked[next] == 0 and component[next] < 0:
-					component[next] = id
-					members.append(next)
-		sizes.append(members.size())
+			var x := here % w
+			if x + 1 < w and open[here + 1] == 0 and component[here + 1] < 0:
+				component[here + 1] = id
+				members.append(here + 1)
+			if x > 0 and open[here - 1] == 0 and component[here - 1] < 0:
+				component[here - 1] = id
+				members.append(here - 1)
+			if here + w < count and open[here + w] == 0 and component[here + w] < 0:
+				component[here + w] = id
+				members.append(here + w)
+			if here >= w and open[here - w] == 0 and component[here - w] < 0:
+				component[here - w] = id
+				members.append(here - w)
 		cells_of.append(members)
-	for id in range(1, sizes.size()):
+	for id in range(1, cells_of.size()):
 		var members: PackedInt32Array = cells_of[id]
-		if sizes[id] < 40:
+		if members.size() < 40:
 			for cell in members:
 				blocked[cell] = 1
 			_filled += 1
 			continue
 		_bridge(members, component)
 		_joined += 1
-
 
 # Multi-source BFS through the wall from a pocket to the main ground; the path
 # found is carved 3 cells wide.
@@ -515,68 +910,198 @@ func _bridge(members: PackedInt32Array, component: PackedInt32Array) -> void:
 
 # ------------------------------------------------------------------ distance field
 
-# Two-pass chamfer distance (cell units) to the nearest cell with mask == target.
-func _chamfer(target: int) -> PackedFloat32Array:
+# Signed distance in one two-pass chamfer: every cell on the boundary between
+# open and blocked ground starts at half a cell, the sign comes from the mask.
+func _bake_sdf() -> void:
 	var count := grid * grid
+	var w := grid
+	var mask := blocked
 	var dist := PackedFloat32Array()
 	dist.resize(count)
 	var far := float(grid * 2)
-	for index in count:
-		dist[index] = 0.0 if blocked[index] == target else far
+	for z in w:
+		for x in w:
+			var i := z * w + x
+			var own := mask[i]
+			var edge := (x > 0 and mask[i - 1] != own) or (x < w - 1 and mask[i + 1] != own) or (z > 0 and mask[i - w] != own) or (z < w - 1 and mask[i + w] != own)
+			dist[i] = 0.5 if edge else far
 	var diag := 1.4142
-	for z in grid:
-		for x in grid:
-			var i := z * grid + x
+	for z in w:
+		for x in w:
+			var i := z * w + x
 			var d := dist[i]
-			if d == 0.0:
+			if d <= 0.5:
 				continue
 			if x > 0:
 				d = minf(d, dist[i - 1] + 1.0)
 			if z > 0:
-				d = minf(d, dist[i - grid] + 1.0)
+				d = minf(d, dist[i - w] + 1.0)
 				if x > 0:
-					d = minf(d, dist[i - grid - 1] + diag)
-				if x < grid - 1:
-					d = minf(d, dist[i - grid + 1] + diag)
+					d = minf(d, dist[i - w - 1] + diag)
+				if x < w - 1:
+					d = minf(d, dist[i - w + 1] + diag)
 			dist[i] = d
-	for z in range(grid - 1, -1, -1):
-		for x in range(grid - 1, -1, -1):
-			var i := z * grid + x
+	for z in range(w - 1, -1, -1):
+		for x in range(w - 1, -1, -1):
+			var i := z * w + x
 			var d := dist[i]
-			if d == 0.0:
+			if d <= 0.5:
 				continue
-			if x < grid - 1:
+			if x < w - 1:
 				d = minf(d, dist[i + 1] + 1.0)
-			if z < grid - 1:
-				d = minf(d, dist[i + grid] + 1.0)
-				if x < grid - 1:
-					d = minf(d, dist[i + grid + 1] + diag)
+			if z < w - 1:
+				d = minf(d, dist[i + w] + 1.0)
+				if x < w - 1:
+					d = minf(d, dist[i + w + 1] + diag)
 				if x > 0:
-					d = minf(d, dist[i + grid - 1] + diag)
+					d = minf(d, dist[i + w - 1] + diag)
 			dist[i] = d
-	return dist
-
-
-func _bake_sdf() -> void:
-	var to_wall := _chamfer(1)
-	var to_open := _chamfer(0)
-	var count := grid * grid
-	var values := PackedFloat32Array()
-	values.resize(count)
-	for iz in grid:
+	for iz in w:
 		var z := grid_origin.y + (float(iz) + 0.5) * NAV
 		var dz := minf(z - playable.position.y, playable.end.y - z)
-		for ix in grid:
-			var index := iz * grid + ix
-			var value := 0.0
-			if blocked[index] == 0:
-				value = (to_wall[index] - 0.5) * NAV
-			else:
-				value = -(to_open[index] - 0.5) * NAV
+		for ix in w:
+			var i := iz * w + ix
+			var value := dist[i] * NAV if mask[i] == 0 else -dist[i] * NAV
 			var x := grid_origin.x + (float(ix) + 0.5) * NAV
 			var inside := minf(minf(x - playable.position.x, playable.end.x - x), dz)
-			values[index] = minf(value, inside)
-	sdf = values
+			dist[i] = minf(value, inside)
+	sdf = dist
+
+# Big bodies (Bog King, apex: radius up to 3.2 m) need wide ground: every
+# larger area with WIDE m of wall distance gets a carved corridor (~8 m) to
+# the main wide ground around the start. Returns the number of corridors.
+const WIDE := 3.6
+var _wide_joined := 0
+var _mask_share := 0.0
+
+func _blocked_share() -> float:
+	var inside := 0
+	var closed := 0
+	var inner := playable.grow(-EDGE_KEEP)
+	for iz in grid:
+		for ix in grid:
+			if inner.has_point(_cell_center(ix, iz)):
+				inside += 1
+				closed += blocked[iz * grid + ix]
+	return float(closed) / float(maxi(1, inside))
+
+func _join_wide() -> int:
+	var count := grid * grid
+	var w := grid
+	var wide := PackedByteArray()
+	wide.resize(count)
+	for index in count:
+		wide[index] = 1 if sdf[index] >= WIDE else 0
+	# Landmark stones block big bodies as well (as in the big-body flow field).
+	for stone in stones:
+		var reach := stone.w + WIDE
+		var lo := _cell_of(Vector3(stone.x - reach, 0.0, stone.z - reach))
+		var hi := _cell_of(Vector3(stone.x + reach, 0.0, stone.z + reach))
+		for iz in range(lo.y, hi.y + 1):
+			for ix in range(lo.x, hi.x + 1):
+				var c := _cell_center(ix, iz)
+				if Vector2(c.x - stone.x, c.y - stone.z).length() < reach:
+					wide[iz * w + ix] = 0
+	var component := PackedInt32Array()
+	component.resize(count)
+	component.fill(-1)
+	var groups: Array = []
+	for seed_cell in count:
+		if wide[seed_cell] == 0 or component[seed_cell] >= 0:
+			continue
+		var id := groups.size()
+		var members := PackedInt32Array([seed_cell])
+		component[seed_cell] = id
+		var head := 0
+		while head < members.size():
+			var here := members[head]
+			head += 1
+			var x := here % w
+			if x + 1 < w and wide[here + 1] == 1 and component[here + 1] < 0:
+				component[here + 1] = id
+				members.append(here + 1)
+			if x > 0 and wide[here - 1] == 1 and component[here - 1] < 0:
+				component[here - 1] = id
+				members.append(here - 1)
+			if here + w < count and wide[here + w] == 1 and component[here + w] < 0:
+				component[here + w] = id
+				members.append(here + w)
+			if here >= w and wide[here - w] == 1 and component[here - w] < 0:
+				component[here - w] = id
+				members.append(here - w)
+		groups.append(members)
+	if groups.size() < 2:
+		return 0
+	# Main wide ground: the group at the start, else the largest.
+	var start_cell := _cell_of(nodes[hub].center)
+	var main := component[start_cell.y * w + start_cell.x]
+	if main < 0:
+		var biggest := 0
+		for id in groups.size():
+			if (groups[id] as PackedInt32Array).size() > biggest:
+				biggest = (groups[id] as PackedInt32Array).size()
+				main = id
+	# One BFS from the main wide ground over every cell: each cell learns the
+	# way back to it; every other group follows that way from its nearest cell.
+	var parent := PackedInt32Array()
+	parent.resize(count)
+	parent.fill(-2)
+	var dist := PackedInt32Array()
+	dist.resize(count)
+	var queue := PackedInt32Array()
+	for cell in groups[main]:
+		parent[cell] = -1
+		queue.append(cell)
+	var head := 0
+	while head < queue.size():
+		var here := queue[head]
+		head += 1
+		var x := here % w
+		var d := dist[here] + 1
+		if x + 1 < w and parent[here + 1] == -2:
+			parent[here + 1] = here
+			dist[here + 1] = d
+			queue.append(here + 1)
+		if x > 0 and parent[here - 1] == -2:
+			parent[here - 1] = here
+			dist[here - 1] = d
+			queue.append(here - 1)
+		if here + w < count and parent[here + w] == -2:
+			parent[here + w] = here
+			dist[here + w] = d
+			queue.append(here + w)
+		if here >= w and parent[here - w] == -2:
+			parent[here - w] = here
+			dist[here - w] = d
+			queue.append(here - w)
+	# Groups holding a place (big bodies may start there) or of real size.
+	var holds := {}
+	for node in nodes:
+		var cell_of := _cell_of(node.center)
+		holds[component[cell_of.y * w + cell_of.x]] = true
+	var joined := 0
+	for id in groups.size():
+		var members: PackedInt32Array = groups[id]
+		if id == main or (members.size() < 70 and not holds.has(id)):
+			continue
+		var cell := members[0]
+		for member in members:
+			if dist[member] < dist[cell]:
+				cell = member
+		while cell >= 0 and parent[cell] >= 0 and component[cell] != main:
+			var cx := cell % w
+			var cz := cell / w
+			for dz in range(-2, 3):
+				for dx in range(-2, 3):
+					if dx * dx + dz * dz > 5:
+						continue
+					var nx := clampi(cx + dx, 1, w - 2)
+					var nz := clampi(cz + dz, 1, w - 2)
+					blocked[nz * w + nx] = 0
+			cell = parent[cell]
+		joined += 1
+	_wide_joined = joined
+	return joined
 
 
 # ------------------------------------------------------------------ trails
@@ -594,32 +1119,35 @@ func _trails() -> void:
 	for index in grid * grid:
 		if sdf[index] < 1.5:
 			astar.set_point_solid(Vector2i(index % grid, index / grid), true)
+	# Trails lead somewhere: from the start and between important places
+	# (boss arena, elite camps, shrines, landmarks, the Schlund) 45-120 m apart,
+	# each place joined at most twice; they wind with the land (A*).
 	var pairs: Array = []
-	var start_point: Vector3 = nodes[hub].center
-	var order: Array = []
+	var major: Array[int] = []
 	for index in nodes.size():
-		if index != hub and nodes[index].types[0] != "landmark":
-			order.append([start_point.distance_to(nodes[index].center), index])
-	order.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
-	for entry in order.slice(0, 3):
-		pairs.append([hub, entry[1]])
-	# A handful of links between neighbouring POIs, picked at random.
-	var wanted := _poi_count(7)
-	for attempt in 40:
-		if pairs.size() >= wanted + 3:
-			break
-		var a := rng.randi() % nodes.size()
-		var best := -1
-		var best_d := INF
-		for b in nodes.size():
-			if b == a or nodes[b].types[0] == "landmark":
-				continue
+		if String(nodes[index].types[0]) in ["start", "boss", "elite", "shrine", "landmark", "maw", "cocoon_gold"]:
+			major.append(index)
+	var links := {}
+	var candidates: Array = []
+	for i in major.size():
+		for j in range(i + 1, major.size()):
+			var a: int = major[i]
+			var b: int = major[j]
 			var d: float = (nodes[a].center as Vector3).distance_to(nodes[b].center)
-			if d > 25.0 and d < best_d and not _paired(pairs, a, b):
-				best_d = d
-				best = b
-		if best >= 0 and best_d < playable.size.x * 0.4:
-			pairs.append([a, best])
+			if d > 45.0 and d < 120.0:
+				candidates.append([d + rng.randf() * 30.0, a, b])
+	candidates.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
+	var wanted := _poi_count(9)
+	for entry in candidates:
+		if pairs.size() >= wanted:
+			break
+		var a: int = entry[1]
+		var b: int = entry[2]
+		if int(links.get(a, 0)) >= 2 or int(links.get(b, 0)) >= 2:
+			continue
+		pairs.append([a, b])
+		links[a] = int(links.get(a, 0)) + 1
+		links[b] = int(links.get(b, 0)) + 1
 	for pair in pairs:
 		var a_cell := _cell_of(nodes[pair[0]].center)
 		var b_cell := _cell_of(nodes[pair[1]].center)
@@ -776,10 +1304,19 @@ func kind_at(x: float, z: float) -> int:
 	return kind[cell.y * grid + cell.x]
 
 
-## Landscape name at a point ("meadow", "forest", ...).
+## Landscape name at a point ("meadow", "forest", ...; desert "dunes", "bones", ...).
 func land_at(x: float, z: float) -> String:
 	var cell := _cell_of(Vector3(x, 0.0, z))
-	return LAND_NAMES[land[cell.y * grid + cell.x]]
+	return (DESERT_LAND_NAMES if desert else LAND_NAMES)[land[cell.y * grid + cell.x]]
+
+
+## Quicksand patch index at a point (-1 = none).
+func quicksand_at(point: Vector3, margin := 0.0) -> int:
+	for index in quicksand.size():
+		var patch := quicksand[index]
+		if Vector2(point.x - patch.x, point.z - patch.z).length() < patch.w + margin:
+			return index
+	return -1
 
 
 func clearing_at(point: Vector3) -> int:
@@ -813,6 +1350,6 @@ func stats() -> Dictionary:
 		counts[type] = int(counts.get(type, 0)) + 1
 	var lands := {}
 	for key in region_lands:
-		var name: String = LAND_NAMES[region_lands[key]]
+		var name: String = (DESERT_LAND_NAMES if desert else LAND_NAMES)[region_lands[key]]
 		lands[name] = int(lands.get(name, 0)) + 1
-	return {"blocked": float(closed) / float(maxi(1, inside)), "pois": counts, "trails": edges.size(), "loot": loot_points.size(), "beacons": beacons.size(), "filled": _filled, "joined": _joined, "lands": lands, "msec": build_msec, "clearings": nodes.size(), "paths": edges.size(), "bridges": 0, "min_degree": 0, "loops": 0, "hub_degree": (nodes[hub].edges as Array).size(), "attempts": attempts, "narrow": 0}
+	return {"timings": timings, "blocked": float(closed) / float(maxi(1, inside)), "pois": counts, "trails": edges.size(), "loot": loot_points.size(), "beacons": beacons.size(), "filled": _filled, "joined": _joined, "wide_joined": _wide_joined, "mask_share": _mask_share, "lands": lands, "ribs": ribs.size(), "ribs_dropped": _ribs_dropped, "quicksand": quicksand.size(), "msec": build_msec, "clearings": nodes.size(), "paths": edges.size(), "bridges": 0, "min_degree": 0, "loops": 0, "hub_degree": (nodes[hub].edges as Array).size(), "attempts": attempts, "narrow": 0}

@@ -31,13 +31,14 @@ func _run() -> void:
 	_check_death_and_pause()
 	_check_colorblind()
 	_check_body()
+	_check_look()
 	var lengths := _check_fight_length()
 	if not failures.is_empty():
 		for failure in failures:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS apex_toad: telegraph before damage, leap/spit/tongue/combo dodgeable (both phases), partial hits, puddles, phase 2 chain, exhaustion, defeated once, pause, colour-blind, body rim, fight %.0f s @30 / %.0f s @40 / %.0f s @55 DPS" % lengths)
+	print("PASS apex_toad: telegraph before damage, leap/spit/tongue/combo dodgeable (both phases), partial hits, puddles, phase 2 chain, exhaustion, defeated once, pause, colour-blind, body rim, Ash Toad model + whole-body animation, fight %.0f s @30 / %.0f s @40 / %.0f s @55 DPS" % lengths)
 	quit(0)
 
 
@@ -51,6 +52,40 @@ func _spawn() -> Variant:
 	var toad: Variant = TOAD.new()
 	world.add_child(toad)
 	return toad
+
+
+# Whole-body animation of the Ash Toad model: crouch squashes, take-off stretches,
+# the veins flare before a spit and go dim while exhausted, feet stay on the ground.
+func _check_look() -> void:
+	var toad: Variant = _ready_toad()
+	var rest_glow: float = toad.skin.get_shader_parameter("ember_glow")
+	var rest_height: float = toad.body.scale.y
+	toad.begin_attack(TOAD.Pattern.LEAP, toad.position + Vector3(-10, 0, 0), 1.0)
+	while toad.windup_progress() < TOAD.LEAP_CROUCH * 0.95:
+		toad.step(DT, Vector3(-10, 0, 0), 1.0)
+	var crouch: float = toad.body.scale.y
+	while toad.windup_progress() < TOAD.LEAP_CROUCH + 0.12:
+		toad.step(DT, Vector3(-10, 0, 0), 1.0)
+	var takeoff: float = toad.body.scale.y
+	var air: float = toad.body.position.y
+	_check(crouch < rest_height - 0.12 and takeoff > rest_height + 0.08 and air > 1.0, "Leap: crouch squash %.2f, take-off stretch %.2f, airborne %.1f m" % [crouch, takeoff, air])
+	toad.state = TOAD.State.CHASE
+	toad.position = Vector3.ZERO
+	toad.begin_attack(TOAD.Pattern.SPIT, Vector3(-10, 0, 0), 1.0)
+	while toad.windup_progress() < 0.8:
+		toad.step(DT, Vector3(-10, 0, 0), 1.0)
+	var spit_glow: float = toad.skin.get_shader_parameter("ember_glow")
+	# Rearing up for the spit lifts the nose; the pivot compensation keeps the rump from
+	# digging in (AABB of the tilted mesh, so a little below 0 is expected).
+	var bounds: AABB = TOAD._bounds(toad.model, toad)
+	_check(spit_glow > rest_glow + 0.15 and bounds.position.y > -0.9, "Spit: veins flare %.2f -> %.2f, lowest point %.2f m" % [rest_glow, spit_glow, bounds.position.y])
+	toad.state = TOAD.State.EXHAUSTED
+	toad.remaining = 99.0
+	for i in 60:
+		toad.step(DT, Vector3(-10, 0, 0), 1.0)
+	var tired_glow: float = toad.skin.get_shader_parameter("ember_glow")
+	_check(tired_glow < rest_glow - 0.3, "Exhausted: veins dim %.2f" % tired_glow)
+	_free(toad)
 
 
 func _free(toad: Variant) -> void:
@@ -80,8 +115,15 @@ func _check_flow() -> void:
 	var toad: Variant = _spawn()
 	# Standalone HEALTH (1500) is only for the fixed-DPS fight below; in a run HuntWorld
 	# sets TUNING.APEX_TOAD_HEALTH (stage 10 part 3), which must stay well above the Moosschlund.
-	_check(toad.state == TOAD.State.ARRIVING and toad.max_health > APEX.HEALTH and preload("res://scripts/tuning.gd").APEX_TOAD_HEALTH > 2.0 * APEX.HEALTH, "Toad arrives with more health than the Moosschlund")
-	_check(toad.bubbles.size() >= 5 and toad.hull.scale.y < 0.8 and toad.hull.scale.z > 1.2, "Squat body with ember bubbles")
+	# Orchestrator 28.09.2026: in a run the toad has 2000 LP vs the Moosschlund's 1700
+	# (fights 25-35 s); the standalone HEALTH stays the fixed-DPS test value.
+	_check(toad.state == TOAD.State.ARRIVING and preload("res://scripts/tuning.gd").APEX_TOAD_HEALTH > preload("res://scripts/tuning.gd").APEX_HEALTH, "Toad arrives with more health than the Moosschlund")
+	# Own model (AshToad_game.glb) in its real colours, ember veins glow via the skin shader.
+	var mesh_path: String = (toad.model.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh.resource_path
+	var bounds: AABB = TOAD._bounds(toad.model, toad.body)
+	_check(TOAD.MODEL.resource_path.ends_with("AshToad_game.glb") and toad.skin.shader.code.contains("ember_glow"), "Ash Toad model with ember-vein glow (%s)" % mesh_path)
+	_check(absf(bounds.position.y) < 0.3 and bounds.size.x > 10.0 and bounds.size.x < 14.0 and bounds.size.z > 10.0 and bounds.size.y < bounds.size.x * 0.6, "Squat footprint %.1f x %.1f m, %.1f m high, feet at %.2f" % [bounds.size.x, bounds.size.z, bounds.size.y, bounds.position.y])
+	_check(Color(toad.skin.get_shader_parameter("body_tint")).a < 0.01, "No recolour in phase 1")
 	_check(toad.corpse_kind == "apex_toad", "Corpse kind flag")
 	# Same enum values as apex_boss, so HuntWorld's state checks work for both apexes.
 	for key in ["ARRIVING", "CHASE", "WINDUP", "STRIKE", "EXHAUSTED", "PHASE_SHIFT", "DEAD"]:
@@ -321,8 +363,10 @@ func _check_colorblind() -> void:
 		var blind: ShaderMaterial = TOAD.telegraph_material(shape, true)
 		_check(normal.get_shader_parameter("pattern") == shape and blind.get_shader_parameter("pattern") == shape, "Shape %d keeps its pattern in colour-blind mode" % shape)
 		_check(blind.get_shader_parameter("fill_color") == TOAD.PALETTE_COLORBLIND[shape].fill and normal.get_shader_parameter("fill_color") == TOAD.PALETTE[shape].fill, "Shape %d palettes applied" % shape)
-		looks[shape] = blind.get_shader_parameter("fill_color")
-	_check(looks[TOAD.SHAPE_SPIT] != looks[TOAD.SHAPE_TONGUE] and looks[TOAD.SHAPE_LEAP] != looks[TOAD.SHAPE_PUDDLE], "Colour-blind fills differ between neighbouring shapes")
+		# Stage 20: one boss style; neighbouring shapes differ by form (circle,
+		# lane, filled area), not by colour.
+		looks[shape] = "%s/%s" % [blind.shader.resource_path, blind.get_shader_parameter("shape")]
+	_check(looks[TOAD.SHAPE_SPIT] != looks[TOAD.SHAPE_TONGUE] and looks[TOAD.SHAPE_LEAP] != looks[TOAD.SHAPE_PUDDLE], "Neighbouring shapes differ in form (%s)" % [looks])
 	# Restyle swaps a live telegraph and the puddles.
 	var toad: Variant = _ready_toad()
 	toad.begin_attack(TOAD.Pattern.SPIT, Vector3(8, 0, 0), 1.0)

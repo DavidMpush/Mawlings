@@ -48,11 +48,14 @@ func _run() -> void:
 	boss.state = BOG_KING.State.RECOVERY
 	boss.remaining = 10.0
 	boss.health = 0.01
+	var consumed_before: float = world.model.consumed_biomass
 	world.step(0.1)
 	world.collect_loot_now()
 	world.collect_loot_now()
 	_check(world.boss == null and world.evolution.dna == 50, "Boss defeat grants DNA exactly once")
-	_check(world.loot.total(0) >= TUNING.BOSS_BIOMASS - 0.01 and world.boss_clock > TUNING.BOSS_RESPAWN_SECONDS - 0.2, "Defeat leaves persistent biomass crystals and schedules next boss (%.1f, clock %.1f)" % [world.loot.total(0), world.boss_clock])
+	# Etappe 17b: no full swarm any more - the boss biomass is collected.
+	var boss_bio: float = world.loot.total(0) + world.model.consumed_biomass - consumed_before
+	_check(boss_bio >= TUNING.BOSS_BIOMASS - 0.01 and world.boss_clock > TUNING.BOSS_RESPAWN_SECONDS - 0.2, "Defeat leaves biomass crystals and schedules next boss (%.1f, clock %.1f)" % [boss_bio, world.boss_clock])
 	_check(world.loot.lures.size() == 1, "The Bog King drops a Lockruf")
 	if not failures.is_empty():
 		for failure in failures:

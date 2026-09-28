@@ -9,6 +9,7 @@ extends SceneTree
 
 const APEX = preload("res://scripts/apex_boss.gd")
 const TOAD = preload("res://scripts/apex_toad.gd")
+const SANDWORM = preload("res://scripts/apex_sandworm.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const PROFILE = preload("res://scripts/meta/profile.gd")
 const DATA = preload("res://scripts/meta/meta_data.gd")
@@ -113,6 +114,8 @@ func _migrate() -> void:
 # Moosschlund beaten -> maw -> Glutsumpf: the toad is due APEX_ARRIVAL_DELAY later.
 func _arrive_in_glutsumpf(population: int) -> void:
 	_fresh(population, 300.0)
+	# Stage 19: the Glutsumpf lies behind the Dürrschlund (Verdant -> Dürrschlund -> Glutsumpf).
+	world._set_world_biome("duerrschlund", false)
 	world.apex_state = 3
 	world.open_portal(Vector3(0, 0, 40))
 	_migrate()
@@ -249,8 +252,8 @@ func _check_rim() -> void:
 
 func _check_kill_and_circle() -> void:
 	_arrive_in_glutsumpf(70)
-	# The Moosschlund of the first visit counts as spawned (a real run).
-	world.apex_spawned = 1
+	# Moosschlund and Sandwurm of the first loop count as spawned (a real run).
+	world.apex_spawned = 2
 	world.apex_kills = 1
 	world.model.elapsed = world.apex_due
 	_steps(TUNING.APEX_WARNING_SECONDS + 0.3)
@@ -319,12 +322,12 @@ func _check_kill_and_circle() -> void:
 				moss_corpses += 1
 		_check(moss_corpses >= 1 and world.corpse_kinds[world.remains_order[-1]] == "apex", "Moosschlund leaves its own corpse design")
 		_steps(TUNING.APEX_PORTAL_DELAY + 0.2)
-		_check(world.portal != null and String(world.portal.target_biome) == "glutsumpf", "... and the circle goes on to the Glutsumpf")
+		_check(world.portal != null and String(world.portal.target_biome) == "duerrschlund", "... and the circle goes on to the Dürrschlund")
 		_migrate()
 		world.model.elapsed = world.apex_due
 		_steps(TUNING.APEX_WARNING_SECONDS + 0.3)
 		var second: Variant = world.apex
-		_check(second is TOAD and is_equal_approx(second.max_health, TUNING.APEX_TOAD_HEALTH * TUNING.APEX_LOOP_HEALTH), "Loop 2 toad: HP x%.1f (biome %s, state %d, pop %d, hp %.0f)" % [TUNING.APEX_LOOP_HEALTH, world.biome_id, world.apex_state, world.model.population, second.max_health if second != null else -1.0])
+		_check(second is SANDWORM and is_equal_approx(second.max_health, TUNING.APEX_SANDWORM_HEALTH * TUNING.APEX_LOOP_HEALTH), "Loop 2 Sandwurm: HP x%.1f (biome %s, state %d, pop %d, hp %.0f)" % [TUNING.APEX_LOOP_HEALTH, world.biome_id, world.apex_state, world.model.population, second.max_health if second != null else -1.0])
 
 
 func _check(condition: bool, message: String) -> void:

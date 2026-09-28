@@ -58,10 +58,12 @@ extends RefCounted
 const PRESSURE_DOUBLING_SECONDS := 85.0
 # Etappe 09 (Einzelstart, Anführer): jeder Run beginnt mit START_POPULATION Tier(en);
 # units[0] ist der Anführer mit LEADER_HP Lebenspunkten (Config-Feld leader_hp
-# überschreibt). Flächen-/Biss-Treffer auf ihn kosten 1 LP statt Tod, danach
+# überschreibt). Etappe 17c: echte LP - Flächen-/Biss-Treffer auf ihn kosten
+# LEADER_HIT[Angreifer] × Druck^LEADER_HIT_PRESSURE × Schwierigkeit LP statt Tod, danach
 # LEADER_INVULNERABLE_SECONDS Unverwundbarkeit. LP 0: er stirbt, das nächste Tier
-# übernimmt mit max(1, altes Max - 1) LP. +1 LP (bis Max) bei jedem erstmals
-# erreichten Vielfachen von LEADER_HEAL_STEP. Meilensteine (Banner/Sound) je Run einmal.
+# übernimmt mit LEADER_SUCCESSOR_SHARE des alten Maximums, voll geheilt.
+# +LEADER_HEAL_AMOUNT LP (bis Max) bei jedem erstmals erreichten Vielfachen von
+# LEADER_HEAL_STEP. Meilensteine (Banner/Sound) je Run einmal.
 const START_POPULATION := 1
 # Biomasse je neuem Mawling (vorher 2,0 in run_model.gd).
 const BIOMASS_PER_MAWLING := 3.5
@@ -69,10 +71,17 @@ const BIOMASS_PER_MAWLING := 3.5
 # FORM_MIN_SHARE, 1) – ein einzelner Mawling spuckt/sport nicht wie ein Rudel.
 const FORM_FULL_POPULATION := 25.0
 const FORM_MIN_SHARE := 0.1
-const LEADER_HP := 3
+const LEADER_HP := 100
 const LEADER_INVULNERABLE_SECONDS := 1.2
 const LEADER_HEAL_STEP := 25
-const MILESTONES := [5, 10, 25, 50, 100, 250]
+const LEADER_HEAL_AMOUNT := 15
+const LEADER_SUCCESSOR_SHARE := 0.8
+## LP je Treffer auf den Anführer nach Angreifer (× Druck^LEADER_HIT_PRESSURE × Schwierigkeit).
+const LEADER_HIT_PRESSURE := 0.35
+const LEADER_HIT := {"prey": 10, "hunter": 20, "elite": 28, "skitter": 16, "leaper": 22, "boss": 35,
+	"eruption": 15, "apex": 30, "apex_puddle": 10, "horde": 4, "default": 20}
+## Etappe 17b: kein Populationslimit mehr; Meilensteine bis 10.000.
+const MILESTONES := [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
 # Rückeroberung: jeder gefallene Mawling lässt so viel Biomasse liegen (gebündelt in
 # nahe Kadaver wie Horde-Kills, Ressourcenregel); 1,0 von 3,5 = ~30 % zurückholbar.
 const FALLEN_BIOMASS := 1.0
@@ -284,7 +293,7 @@ const APEX_SPAWN_DISTANCE := 12.0
 # treffen den großen Körper viel öfter. Mit 650 LP dauerte der Kampf im Bot-Median nur
 # noch ~13 s (9–15 s bei starken Builds); 1400 LP geben auf Wild ~28 s (Median der
 # gewonnenen Kämpfe, Zielkorridor 25–35 s).
-const APEX_HEALTH := 1400.0
+const APEX_HEALTH := 1700.0   # Orchestrator 28.09.2026: Kampfdauer 25-35 s (tests/apex_duration.gd)
 const APEX_HEALTH_DIFFICULTY := [1.0, 0.75, 0.6]
 const APEX_BIOMASS := 70.0
 const APEX_DNA := 120
@@ -346,7 +355,7 @@ const APEX_TOAD_MIN_POPULATION := 40
 # ohne Flut (balance_sim noflood, Obergrenze der Schwarm-DPS) brauchten mit 1500 LP
 # ~11 s, mit 3000 LP ~18 s (≈ 4 s Immun-/Ausweichzeit + LP / ~210 DPS). In der Flut
 # ist der Schwarm etwa halb so stark; 3600 LP zielen dort auf ~35–45 s.
-const APEX_TOAD_HEALTH := 3600.0
+const APEX_TOAD_HEALTH := 2000.0   # Orchestrator 28.09.2026: Kampfdauer 25-35 s
 const APEX_TOAD_BIOMASS := 80.0
 const APEX_TOAD_DNA := 150
 const APEX_TOAD_ALPHA_CORES := 2
@@ -382,6 +391,8 @@ const LOOT_FLOOD_SOFT_CAP := 150
 const MAGNET_BASE := 3.0
 const MAGNET_PER_ROOT := 0.3
 const MAGNET_RALLY := 1.35
+## Etappe 17b: über 250 Tiere wächst der Radius je Verdopplung nur noch um so viel (m).
+const MAGNET_PER_DOUBLING := 0.8
 const LOOT_FLY_KICK := 2.5
 const LOOT_FLY_ACCEL := 45.0
 const LOOT_FLY_MAX_SPEED := 26.0
@@ -399,7 +410,58 @@ const LOOT_VACUUM_FLIGHT := 0.8
 # Kadaver sind nur noch Deko (corpse_visuals.gd): sie liegen CORPSE_LIFE Sekunden je
 # Rang und versinken in den letzten CORPSE_SINK_SECONDS; höchstens CORPSE_MAX
 # gleichzeitig (die ältesten gehen zuerst).
-const CORPSE_LIFE := {"normal": 25.0, "mini": 35.0, "boss": 60.0, "special": 14.0}
-const CORPSE_HORDE_LIFE := 12.0
-const CORPSE_SINK_SECONDS := 3.0
-const CORPSE_MAX := 40
+# Nutzer 27.09.2026: „zu viel liegt herum“ -> deutlich kürzer, weniger gleichzeitig.
+const CORPSE_LIFE := {"normal": 8.0, "mini": 14.0, "boss": 30.0, "special": 8.0}
+const CORPSE_HORDE_LIFE := 4.0
+const CORPSE_SINK_SECONDS := 1.5
+const CORPSE_MAX := 20
+
+# Etappe 17 Welle 2 - Bernstein (In-Run-Währung, nur für Kokons; verfällt am Run-Ende).
+# Jede Tötung wirft Bernstein-Münzen nach Art ab (AMBER_CHUNK Bernstein je Münze,
+# gedeckelt je Rang), Bernsteinknollen je Stufe AMBER_NODE (dazu DNA, keine
+# Biomasse). Biomasse (nur aus Kills) lässt den Schwarm wachsen, DNA gibt Erfahrung.
+const AMBER_CHUNK := 5.0
+const AMBER_KILL := {"prey": 1, "hunter": 2, "skitter": 1, "leaper": 2, "elite": 12, "boss": 25, "apex": 40, "apex_toad": 40, "apex_sandworm": 40, "horde": 0}
+## Moorbrut-Bündel: je getöteter Moorbrut so viel Bernstein (abgerundet je Bündel).
+const AMBER_HORDE := 0.25
+const AMBER_NODE := [3, 6, 12]
+## Bernstein-Schatz in den Hain-Plätzen (poi_slots("grove")): je Knolle.
+const AMBER_GROVE := 6
+
+# Etappe 19 Phase 2 - Dürrschlund (Wüste). Eigener Block, nur Wüstenwerte.
+# Sandwurm (scripts/apex_sandworm.gd): Etappe 20 im Run gemessen
+# (tests/apex_duration.gd, ausweichender Bot, Mindestpopulation, Build wie nach
+# ~3 min): 1.075 LP ergeben 33 s auf Brutal und 26 s auf Apex (Ziel 25–35 s).
+const APEX_SANDWORM_HEALTH := 1075.0
+const APEX_SANDWORM_MIN_POPULATION := 35
+const APEX_SANDWORM_BIOMASS := 75.0
+const APEX_SANDWORM_DNA := 130
+const APEX_SANDWORM_ALPHA_CORES := 2
+# Sandmaden (scripts/sandgrub.gd): aus dem Wurm (Phase 2, Durchbruch) und als
+# kleiner, seltener Hinterhalt in der Wüste (ab SANDGRUB_FIRST_SECONDS, dann alle
+# SANDGRUB_AMBUSH_SECONDS / sqrt(Druck), höchstens SANDGRUB_AMBUSH_MAX Tiere je Gruppe).
+const SANDGRUB_HP := 8.0
+const SANDGRUB_SPEED := 5.6
+const SANDGRUB_BITE := 1.0
+const SANDGRUB_BITE_COOLDOWN := 0.9
+const SANDGRUB_BIOMASS := 0.6
+const SANDGRUB_DNA := 1
+const SANDGRUB_FIRST_SECONDS := 50.0
+const SANDGRUB_AMBUSH_SECONDS := 38.0
+const SANDGRUB_AMBUSH_MIN := 3
+const SANDGRUB_AMBUSH_MAX := 6
+const SANDGRUB_AMBUSH_DISTANCE := 9.0
+const SANDGRUB_MIN_POPULATION := 8
+# Maden-LP und -Biss wachsen mit dem Druck (wie die Moorbrut, aber gedämpft).
+const SANDGRUB_PRESSURE_EXPONENT := 0.5
+# Treibsand: bremst alles, was ihn durchquert (Schwarm und Gegner), nie tödlich.
+const QUICKSAND_SLOW := 0.5
+const QUICKSAND_RIM := 1.2
+# Sandsturm: kurze Wellen, angekündigt, heller Schleier nur am Bildrand;
+# Gegner in der Zeit etwas schneller.
+const SANDSTORM_FIRST_SECONDS := 45.0
+const SANDSTORM_INTERVAL := Vector2(60.0, 90.0)
+const SANDSTORM_WARNING := 4.0
+const SANDSTORM_SECONDS := 12.0
+const SANDSTORM_FADE := 2.0
+const SANDSTORM_ENEMY_HASTE := 1.18

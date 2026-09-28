@@ -25,13 +25,13 @@ func _run() -> void:
 		check(evo.kind_of(offer[0]) == "trait", "Level offer is a stat (%s)" % offer[0])
 		check(offer.size() >= 4 and ["common", "rare", "epic", "legendary"].has(offer[3]), "Offer has a rarity")
 	check(not evo.choose(-1) and not evo.choose(3), "Reject invalid selection")
-	evo.earn(100000)
-	# Etappe 17: 13 Standard-Werte (ohne Regeneration) mit je 5 Rängen = 65 Wahlen.
+	evo.earn(1000000)
+	# Etappe 17c: 14 Standard-Werte (ohne Regeneration, mit Lebensraub) mit je 5 Rängen = 70 Wahlen.
 	var picks := 0
 	while not evo.offers.is_empty() and picks < 200:
 		check(evo.choose(0), "Queued level remains selectable")
 		picks += 1
-	check(picks == 65, "65 stat picks until complete (%d)" % picks)
+	check(picks == 70, "70 stat picks until complete (%d)" % picks)
 	check(evo.complete() and evo.offers.is_empty(), "All stats complete without deadlock")
 	check(evo.slots_used("attack") == 0, "Levels never give weapons")
 	for id in evo.ranks:
@@ -87,7 +87,7 @@ func _run() -> void:
 	world._kill_prey(world.prey[0])
 	check(is_equal_approx(world.loot.total(0) - biomass, TUNING.CORPSE_BIOMASS), "Prey biomass without multiplier")
 	world.collect_loot_now()
-	world._award_dna(20)
+	world._award_dna(world.evolution.threshold())
 	var key := InputEventKey.new()
 	key.keycode = KEY_1
 	key.pressed = true

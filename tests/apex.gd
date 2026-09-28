@@ -237,7 +237,7 @@ func _check_colorblind() -> void:
 
 
 func _check_biomes() -> void:
-	_check(BIOMES.ORDER.size() >= 2 and BIOMES.display_name("glutsumpf") == "Glutsumpf" and BIOMES.next_biome("verdant_maw") == "glutsumpf", "Biome data and migration order")
+	_check(BIOMES.ORDER.size() >= 2 and BIOMES.display_name("glutsumpf") == "Glutsumpf" and BIOMES.next_biome("verdant_maw") == "duerrschlund" and BIOMES.next_biome("duerrschlund") == "glutsumpf" and BIOMES.next_biome("glutsumpf") == "verdant_maw", "Biome data and migration order (Verdant -> Dürrschlund -> Glutsumpf)")
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
 	await process_frame

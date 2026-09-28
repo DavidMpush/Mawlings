@@ -81,7 +81,7 @@ func _check_hunt_world() -> void:
 	var hp_before: int = world.model.leader_hp
 	world.step(STEP)
 	_check(world.model.population < 25, "Eruption kills Mawlings inside (population %d)" % world.model.population)
-	_check(world.model.leader_hp == hp_before - 1, "Leader inside loses 1 LP (hp %d -> %d)" % [hp_before, world.model.leader_hp])
+	_check(world.model.leader_hp == hp_before - world.leader_damage(world.eruptions), "Leader inside loses the eruption hit in LP (hp %d -> %d)" % [hp_before, world.model.leader_hp])
 	world.eruptions.erupt_soon()
 	world.step(STEP)
 	var old: Variant = world.eruptions

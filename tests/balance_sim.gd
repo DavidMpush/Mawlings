@@ -49,6 +49,17 @@ const APEX_MARGIN := 1.4
 const APEX_CORPSE_REACH := 8.0
 # Etappe 16: crystals farther than this are not worth a detour.
 const LOOT_REACH := 30.0
+# Etappe 17 Welle 2: power-ups/knolls taken on the way, map cocoons bought as
+# soon as the Bernstein suffices (no threat announced), free cocoons far away
+# only with a real swarm, shrines charged when no threat is within SHRINE_SAFE m.
+const POWERUP_REACH := 14.0
+const KNOLL_REACH := 9.0
+const COCOON_REACH := 90.0
+const CHEST_MIN_POP := 20
+const SHRINE_REACH := 70.0
+const SHRINE_SAFE := 12.0
+const SHRINE_MIN_POP := 15
+const FREE_NEAR := 25.0
 var low_hp := false
 
 # Quick regression (~40 s): three seeded runs with wide tolerances. They catch a
@@ -61,6 +72,9 @@ var low_hp := false
 # Etappe 16: median of five seeds (was three) - the added Lockduft trait reshuffled the
 # seeded mutation offers, and seeds 1 and 2 now start glutmaw/Apex with weak early
 # picks; with three seeds two such starts decided the median (runtime ~105 s).
+# Etappe 17 Welle 2 / 17c: Apex runs reach the flood (min_flood) but end in its
+# first seconds by the Moosschlund (now 1700 LP) or hunters, before the Moorbrut
+# bites (median 0 Moorbrut losses), so min_flood_lost is no longer required.
 const REGRESS_SEEDS := 5
 const REGRESS_RUNS := [
 	{"strain": "glutmaw", "diff": 0, "seed": 1, "strategy": "greedy", "limit": 150.0,
@@ -68,7 +82,7 @@ const REGRESS_RUNS := [
 	{"strain": "sporling", "diff": 2, "seed": 2, "strategy": "attack_first", "limit": 180.0,
 		"min_seconds": 150.0, "min_peak": 25, "min_kills": 25, "min_lost": 20},
 	{"strain": "glutmaw", "diff": 2, "seed": 1, "strategy": "attack_first", "limit": 420.0,
-		"min_seconds": 150.0, "max_seconds": 330.0, "min_peak": 30, "min_kills": 40, "min_flood": 1.0, "min_flood_lost": 5},
+		"min_seconds": 150.0, "max_seconds": 330.0, "min_peak": 30, "min_kills": 40, "min_flood": 1.0, "min_flood_lost": 0},
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -226,6 +240,12 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		# Main resets time_scale when a scene leaves the tree (Königsmoment safety).
 		Engine.time_scale = TIME_SCALE
 		if world.choosing():
+			# Etappe 17 Welle 2: a boss cocoon offers weapons/relics/evolutions.
+			if not world.evolution.chest_offers.is_empty():
+				var chest_slot := _pick_chest(world.evolution)
+				picks.append("chest:" + String(world.evolution.chest_offers[chest_slot][0]))
+				world.choose_mutation(chest_slot)
+				continue
 			var slot := _pick(world.evolution, strategy)
 			picks.append(String(world.evolution.offers[slot][0]))
 			world.choose_mutation(slot)
@@ -306,11 +326,11 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"migrated": migrated,
 		"fights": fights,
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d wall=%.1f" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d wall=%.1f" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
 		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop60, pop120, pop_flood, stats.swaps, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
-		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), (Time.get_ticks_msec() - wall) / 1000.0])
+		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, (Time.get_ticks_msec() - wall) / 1000.0])
 	root.remove_child(scene)
 	scene.free()
 	await process_frame
@@ -362,6 +382,44 @@ func _pick(evolution: Variant, strategy: String) -> int:
 	return best
 
 
+# Opened cocoons per kind "map/gold/elite/boss/start" (Etappe 17 Welle 2).
+func _cocoon_text(world: Variant) -> String:
+	var chests: Variant = world.get("chests")
+	if chests == null:
+		return "-"
+	var counts: Dictionary = chests.opened_by_kind
+	return "%d/%d/%d/%d/%d" % [int(counts.get("map", 0)), int(counts.get("gold", 0)), int(counts.get("elite", 0)), int(counts.get("boss", 0)), int(counts.get("start", 0))]
+
+
+# Boss cocoon: an evolution first, then raising an owned weapon, a new weapon, a relic.
+func _pick_chest(evolution: Variant) -> int:
+	var best := 0
+	var best_score := -INF
+	for slot in evolution.chest_offers.size():
+		var entry: Array = evolution.chest_offers[slot]
+		var item: Dictionary = entry[4] if entry.size() > 4 else {}
+		var score := rng.randf() * 0.1
+		match String(item.get("type", "")):
+			"evolution":
+				score += 100.0
+			"weapon":
+				score += 20.0 + (10.0 if int(item.get("from", 0)) > 0 else 0.0)
+			"relic":
+				score += 10.0
+		if score > best_score:
+			best_score = score
+			best = slot
+	return best
+
+
+# Distance to the nearest living enemy (not the Moorbrut).
+func _threat_distance(world: Variant, here: Vector3) -> float:
+	var nearest := INF
+	for enemy in _enemies(world):
+		nearest = minf(nearest, enemy.position.distance_to(here))
+	return nearest
+
+
 # --------------------------------------------------------------- bot
 
 # Same priorities as a careful player: never stand in an announced zone, collect
@@ -386,7 +444,7 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	# swarm has room) until it is inside the magnet; Lockrufe like Alpha-Kerne.
 	var loot: Variant = world.get("loot")
 	if loot != null:
-		var crystal: Vector3 = loot.nearest_lying(here, LOOT_REACH, -1 if world.model.population < 250 else 1)
+		var crystal: Vector3 = loot.nearest_lying(here, LOOT_REACH, -1)
 		if crystal.is_finite():
 			var distance: float = Vector2(crystal.x - here.x, crystal.z - here.z).length()
 			if distance < best:
@@ -399,12 +457,73 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 				best = distance
 				target = lure.at
 				harvesting = false
+	# Stage 18c: amber nodes close by are broken on the way (like a player).
+	var amber: Variant = world.get("loot_nodes")
+	if amber != null and amber.get("points") != null:
+		for index in amber.points.size():
+			if amber.alive[index] == 0:
+				continue
+			var node: Vector4 = amber.points[index]
+			var distance: float = Vector2(node.x - here.x, node.z - here.z).length()
+			if distance < minf(best, 12.0):
+				best = distance
+				target = Vector3(node.x, 0.0, node.z)
+				harvesting = false
 	for pickup in world.alpha_pickups:
 		var distance: float = pickup.position.distance_to(here)
 		if distance < minf(best, 14.0):
 			best = distance
 			target = pickup.position
 			harvesting = false
+	# Etappe 17 Welle 2: power-ups and mushroom knolls on the way (walk-in only).
+	var holding := false
+	var boosters: Variant = world.get("powerups")
+	if boosters != null:
+		for entry in boosters.pickups:
+			var distance: float = Vector2(entry.at.x - here.x, entry.at.z - here.z).length()
+			if distance < minf(best + 4.0, POWERUP_REACH):
+				best = distance
+				target = entry.at
+				harvesting = false
+		for knoll in boosters.knolls:
+			if not knoll.alive:
+				continue
+			var distance: float = Vector2(knoll.at.x - here.x, knoll.at.z - here.z).length()
+			if distance < minf(best, KNOLL_REACH):
+				best = distance
+				target = knoll.at
+				harvesting = false
+	# Cocoons: free ones always, map cocoons when biomass > 2 x price and pop >= 20;
+	# shrines when nothing threatens. The bot stands still inside until it opens.
+	var calm: bool = not _any_armed(world) and world.get("apex") == null
+	var cocoons: Variant = world.get("chests")
+	if cocoons != null and calm and (best == INF or best > 6.0):
+		for entry in cocoons.cocoons:
+			if int(entry.state) != 0 or bool(entry.denied):
+				continue
+			var price: int = cocoons.price_of(entry)
+			# Welle 2 economy: a map cocoon is bought as soon as the Bernstein suffices.
+			if price > 0 and cocoons.available_amber() < price:
+				continue
+			var distance: float = Vector2(entry.at.x - here.x, entry.at.z - here.z).length()
+			# A small swarm only takes free cocoons close by (no long trips into guarded zones).
+			var reach: float = COCOON_REACH if world.model.population >= CHEST_MIN_POP or entry.kind in ["start", "map"] else FREE_NEAR
+			if distance < minf(best, reach):
+				best = distance
+				target = entry.at
+				harvesting = false
+				holding = true
+	var altars: Variant = world.get("shrines")
+	if altars != null and calm and world.model.population >= SHRINE_MIN_POP and _threat_distance(world, here) > SHRINE_SAFE and (best == INF or best > 6.0):
+		for entry in altars.shrines:
+			if entry.done:
+				continue
+			var distance: float = Vector2(entry.at.x - here.x, entry.at.z - here.z).length()
+			if distance < minf(best, SHRINE_REACH):
+				best = distance
+				target = entry.at
+				harvesting = false
+				holding = true
 	# Brutnest (stage 06): walk into it when no enemy is announcing an attack and
 	# no crystal lies close by; stay until it hatches.
 	var nest: Variant = world.get("nest")
@@ -441,6 +560,8 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	var direction: Vector3 = target - here
 	direction.y = 0.0
 	if harvesting and direction.length() < world.magnet_radius() * 0.5:
+		direction = Vector3.ZERO
+	elif holding and direction.length() < 0.8:
 		direction = Vector3.ZERO
 	elif direction.length() > 0.5:
 		# Stage 18b: walk the paths (A* over the flow grid) instead of into walls.
@@ -495,8 +616,9 @@ func _dodge(world: Variant, here: Vector3, now: float) -> Vector3:
 	# Stage 09: protect the leader (units[0]) - with 1 LP left the bot keeps a
 	# wider berth around every warning zone. A careful player with only a handful
 	# of Mawlings also keeps running until the stragglers are out (SMALL_SWARM).
+	# Etappe 17c: real LP - "low" is a quarter of the maximum or less.
 	var hp: Variant = world.model.get("leader_hp")
-	low_hp = hp != null and int(hp) <= 1
+	low_hp = hp != null and int(hp) * 4 <= int(world.model.get("leader_max_hp"))
 	var extra := LOW_HP_MARGIN if low_hp else 0.0
 	var swarm: Variant = world.swarm
 	var points: PackedVector3Array = swarm.unit_world_points() if swarm.units.size() <= SMALL_SWARM else PackedVector3Array()

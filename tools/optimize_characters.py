@@ -43,11 +43,22 @@ CHARACTERS = {
     "bog_king_new": ("BogKingNew", 8000, "characters", "Bog King new"),
     "elite_crown": ("EliteCrown", 800, "props", "Elite Crown"),
     "nest": ("BroodNest", 2500, "props", "nest"),
+    # Aschenkröte apex (scripts/apex_toad.gd), delivered 27.09.2026.
+    "ash_toad": ("AshToad", 8000, "characters", "Ash Toad"),
+    # Wüstenwelt "Dürrschlund" (stage 19), delivered 27.09.2026.
+    "sandwurm": ("Sandwurm", 8000, "characters", "sandwurm"),
+    "sandgrub": ("Sandgrub", 1200, "characters", "sandgrub"),
+    "sandportal": ("SandPortal", 3000, "props", "sandportal"),
+    "ribbones": ("RibBones", 2500, "props", "ribbones"),
+    "rockarch": ("RockArch", 2500, "props", "rockarch"),
+    "sandstone": ("SandstoneCliff", 2000, "props", "sandstone"),
+    "cactus": ("Cactus", 1500, "props", "cactus"),
+    "skull": ("GiantSkull", 3000, "props", "skull"),
 }
 # Hunyuan meshes split ~30 % of their vertices along UV seams. Unwelded, the
 # simplifier treats every seam as a border and leaves splinter-like shards, so
 # these models are welded by position first (colours averaged per point).
-WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower", "small_drop", "medium_drop", "big_drop", "totem", "alpha_core", "migration_pit", "hunter_beetle", "skitter", "moorbrut", "moosschlund", "bog_king_new", "elite_crown", "nest"}
+WELD = {"mire_reaper", "root_arch", "fallen_log", "pond_seeds", "flower", "small_drop", "medium_drop", "big_drop", "totem", "alpha_core", "migration_pit", "hunter_beetle", "skitter", "moorbrut", "moosschlund", "bog_king_new", "elite_crown", "nest", "ash_toad", "sandwurm", "sandgrub", "sandportal", "ribbones", "rockarch", "sandstone", "cactus", "skull"}
 
 
 def read_glb(path):

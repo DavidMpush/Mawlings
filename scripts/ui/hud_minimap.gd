@@ -405,6 +405,30 @@ func _palette(biome: int) -> Dictionary:
 		p.wall = Color("140d10")
 		p.site = Color("8a7478")
 		p.ember = true
+	elif data.has("desert"):
+		# Stage 19: pale sand, rust-brown walls (darker than the sand), turquoise
+		# oases, darker quicksand discs.
+		var sand: Dictionary = data.desert
+		p.ground = (sand.dune_light as Color).lerp(sand.dune_shadow, 0.35)
+		p.edge = data.path_edge
+		p.path = (data.path as Color).lightened(0.05)
+		p.core = Color(0, 0, 0, 0)
+		p.shore = data.shore
+		p.pool = data.pool
+		p.pool_core = (data.pool as Color).lightened(0.3)
+		p.rock_line = Color("3a281c")
+		p.rock = Color("8a6a52")
+		p.rock_light = Color("c9a57e")
+		p.wood = Color("8a6a52")
+		p.wood_light = Color("c9a57e")
+		p.plinth = data.plinth
+		p.meadow = (sand.dune_light as Color).lightened(0.1)
+		p.flower = data.flower_light
+		p.fog = Color("17120c")
+		p.wall = Color("5b3f2c")
+		p.site = Color("f2dca0")
+		p.quicksand = sand.quicksand_swirl
+		p.ember = false
 	else:
 		p.ground = (data.ground as Color).darkened(0.1)
 		p.edge = data.path_edge
@@ -549,6 +573,12 @@ func bake_chunk(key: Vector2i, biome: int) -> Image:
 		_stamp(image, pal.shore, at, pool.z * 1.35 * TEXEL, pool.w * 1.35 * TEXEL)
 		_stamp(image, pal.pool, at, pool.z * TEXEL, pool.w * TEXEL)
 		_stamp(image, pal.pool_core, at + Vector2(-0.25, -0.25) * pool.w * TEXEL, pool.z * 0.45 * TEXEL, pool.w * 0.4 * TEXEL)
+	# Stage 19: quicksand patches (darker discs) reaching into this chunk.
+	if pal.has("quicksand") and _arena.has_method("quicksand_patches"):
+		var area := Rect2(origin, Vector2(CELL, CELL))
+		for patch: Vector4 in _arena.quicksand_patches():
+			if area.grow(patch.w).has_point(Vector2(patch.x, patch.z)):
+				_stamp(image, Color(pal.quicksand, 0.85), (Vector2(patch.x, patch.z) - origin) * TEXEL, patch.w * TEXEL)
 	for mark: Dictionary in features.marks:
 		_bake_mark(image, pal, mark, origin)
 	for stone: Vector4 in features.stones:
@@ -665,6 +695,24 @@ func _draw_map(cv: CanvasItem, rect: Rect2, band: float, fog: float) -> void:
 	_draw_edge(cv, rect, band)
 
 
+# Stage 18c: a place counts as seen once the arena discovered it (fog cell on
+# the classic map).
+func _hidden_ok(point: Vector3) -> bool:
+	if _arena == null:
+		return false
+	if _arena.has_method("is_discovered"):
+		return _arena.is_discovered(point)
+	return _arena.has_method("is_explored") and _arena.is_explored(point)
+
+
+# Stage 18c: nest and totem show only once found; boss, apex and the Schlund
+# (announced) always.
+func _poi_visible(key: String, point: Vector3) -> bool:
+	if key == "nest" or key == "totem":
+		return _hidden_ok(point)
+	return true
+
+
 # Stage 18b/18c: every discovered place as a quiet site symbol (pale disc plus
 # the marker of its POI type); undiscovered places stay hidden in the fog.
 func _draw_sites(cv: CanvasItem, rect: Rect2) -> void:
@@ -677,7 +725,7 @@ func _draw_sites(cv: CanvasItem, rect: Rect2) -> void:
 	for site: Dictionary in sites:
 		var center: Vector2 = site.center
 		var p := rect.position + (center - _bounds.position) * scale
-		var seen: bool = _arena != null and _arena.has_method("is_explored") and _arena.is_explored(Vector3(center.x, 0.0, center.y))
+		var seen: bool = _hidden_ok(Vector3(center.x, 0.0, center.y))
 		# Stage 18c: a place shows up only once it was discovered.
 		if not seen:
 			continue
@@ -738,7 +786,7 @@ func _collect_markers() -> void:
 			_add(pair[1], world_to_minimap(point), false)
 	for pair in POI_KEYS:
 		var point: Vector3 = _state.get(pair[0], Vector3.INF)
-		if point.is_finite():
+		if point.is_finite() and _poi_visible(pair[0], point):
 			_add(pair[1], world_to_minimap(point), false)
 
 
@@ -1205,9 +1253,12 @@ func _paint_big_static(cv: CanvasItem) -> void:
 	UiStyle.text(cv, counter, Vector2(close.position.x - 18.0 - counter_w, panel.position.y + 52.0), UiStyle.SIZE_LABEL, UiStyle.color("text_dim"), false, 5, UiStyle.body_font())
 	UiFrames.button(cv, close.grow(-8.0), "round", false, FRAME_ACCENT)
 	var cc := close.get_center()
-	for pass_index in 2:
-		for sign_x in [-1.0, 1.0]:
-			cv.draw_line(cc + Vector2(-12.0 * sign_x, -12.0), cc + Vector2(12.0 * sign_x, 12.0), UiStyle.color("outline") if pass_index == 0 else UiStyle.color("bone"), 9.0 if pass_index == 0 else 5.0, true)
+	if UiStyle.is_brawl() and UiIcons.has("g_close"):
+		UiIcons.draw(cv, "g_close", Rect2(cc - Vector2(23, 23), Vector2(46, 46)))
+	else:
+		for pass_index in 2:
+			for sign_x in [-1.0, 1.0]:
+				cv.draw_line(cc + Vector2(-12.0 * sign_x, -12.0), cc + Vector2(12.0 * sign_x, 12.0), UiStyle.color("outline") if pass_index == 0 else UiStyle.color("bone"), 9.0 if pass_index == 0 else 5.0, true)
 	cv.draw_rect(square.grow(EDGE_BAND_BIG + 3.0), UiStyle.color("outline"), false, 4.0)
 	_paint_legend(cv, Rect2(area.position.x, area.end.y + 14.0, area.size.x, panel.end.y - area.end.y - 30.0))
 
@@ -1239,7 +1290,7 @@ func _paint_big_dots(cv: CanvasItem) -> void:
 			_marker(cv, pair[1], world_to_bigmap(point), 1.1)
 	for pair in POI_KEYS:
 		var point: Vector3 = _state.get(pair[0], Vector3.INF)
-		if point.is_finite():
+		if point.is_finite() and _poi_visible(pair[0], point):
 			_marker(cv, pair[1], world_to_bigmap(point), 1.1)
 
 

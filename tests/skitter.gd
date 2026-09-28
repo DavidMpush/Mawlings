@@ -65,10 +65,11 @@ func _run() -> void:
 	skitter = world._spawn_skitter(Vector3(0.5, 0, 0))
 	skitter.state = SKITTER.State.CHASE
 	skitter.health = 0.01
+	var consumed_before: float = world.model.consumed_biomass
 	world.step(0.01)
 	world.collect_loot_now()
 	check(world.skitters.is_empty() and world.evolution.dna == 15, "Kill awards DNA once")
-	check(is_equal_approx(world.loot.total(0), TUNING.SKITTER_BIOMASS), "Skitter leaves persistent biomass crystals at cap")
+	check(is_equal_approx(world.loot.total(0) + world.model.consumed_biomass - consumed_before, TUNING.SKITTER_BIOMASS), "Skitter leaves its biomass (no cap, Etappe 17b)")
 	check(not is_instance_valid(skitter.warning) or skitter.warning.is_queued_for_deletion(), "Warning removed on kill")
 	world.reset_run()
 	# Stage 09 lone start: the hit check uses a 25-strong swarm.

@@ -1,0 +1,44 @@
+# Etappe 17d – Stammes-Fähigkeiten
+
+Konzept und Werte: `stages/BACKLOG.md` Punkt 3b2 (Nutzer bestätigt 28.09.2026). Genau eine aktive Fähigkeit pro Stamm, eigener runder Knopf schräg über Rally, Cooldown 20–40 s als Ring, kein Zielen (Laufrichtung, stehend die letzte). Klar getrennt von Power-ups (passiv, vom Mini-Boss).
+
+## Abnahmekriterien
+1. `scripts/abilities.gd`: sechs Fähigkeiten, Cooldowns, Wirkung über eine kleine Host-Schnittstelle (Welt, Schwarm, Gegner), Relikt-Hooks.
+2. Knopf mit Cooldown-Ring in `scripts/ui/hud_controls.gd`, Eingabe in `scripts/touch_controls.gd` (schräg über Rally, Touch ≥ 96 px, Q/Shift).
+3. Eigene Farben Glut/Orange, nie Gefahren-Pink; Effekte über `vfx_sprites.gd` und den Telegraph-/Kit-Stil.
+4. `tests/abilities.gd` in `tools/test.ps1`; Captures jeder Fähigkeit und des Knopfs, selbst angesehen.
+5. Anbindung an HuntWorld, Schwarm, Bot und Balance erst nach Freigabe (17b/17c läuft).
+
+## Ergebnis Schicht 1 (eigene Dateien, 28.09.2026)
+
+### Fähigkeiten (`scripts/abilities.gd`)
+| Stamm | Fähigkeit | Wirkung | Cooldown |
+|---|---|---|---|
+| Glutmaw | Glutsprung | 8 m in 0,35 s nach vorn (Wände beenden den Sprung), beißt alles in 2,2 m um die Bahn (30 × Skalierung) und die Brut, unverwundbar im Sprung + 0,4 s | 25 s |
+| Sporling | Sporenbombe | Wolke 6,5 m am Schwarm, 5 s: Gegner ×0,45 Tempo, Gift 12/s, Brut mit | 30 s |
+| Knochenkiefer | Panzerstoß | Schockwelle 7 m: 15 Schaden, leichte Gegner fliegen bis 4 m zurück (Bosse stehen), 2 s Verluste ×0,4 | 30 s |
+| Flinkzahn | Hetzjagd | 4 s Tempo ×1,7, Schwarm als Linie | 20 s |
+| Ätzmaul | Säureschwall | Kegel 9 m / ±29° nach vorn 25 Schaden, drei Pfützen (1,8 m, 10/s, 5 s) auf der Achse | 30 s |
+| Nachtmaul | Schattenschleier | 3 s: Warnflächen verfehlen, Gegner laufen zu einem Köder 6 m hinter dem Schwarm | 40 s |
+
+- **Host-Schnittstelle** (alle optional): `ability_swarm_position`, `ability_set_swarm_position`, `ability_targets`, `ability_brood`, `ability_arena`, `ability_damage_scale`.
+- **Was der Run beachten muss** (Abfragen für die Anbindung): `damage_taken_multiplier()`, `invulnerable()`, `speed_multiplier()`, `line_formation()`, `warnings_miss()`, `decoy_position()`. Aufrufreihenfolge: nach `attack_forms.step()` (setzt `slow_factor` zurück), vor den Gegnern.
+- **Zeit:** `step(delta, bewegung)` zählt Cooldown und Effekte; ohne Schritt (Pause, Auswahl, Migration) steht alles.
+- **Relikt-Hooks:** `apply_relic(id)` bzw. `set_modifier(key, value)` mit `cooldown`, `duration`, `radius`, `power`, `fire_trail`. Vorbereitete Einträge: `glutkern` (−20 % Cooldown), `feuerspur` (Glutsprung hinterlässt 3 s brennenden Boden), `sporenhall` (+40 % Dauer), `weiter_schlund` (+25 % Radius). Die Relikte selbst trägt die Anbindungsrunde in `arsenal.gd` ein.
+- **Optik:** eigene Flächen (Wolke, Pfützen, Feuerspur) als Fläche im neuen Palettenstil `own` (Glut, warmer dunkler Rand; `telegraph_style.build_hazard(r, -1, "own")`), Ringe in Glut, Sprites aus `vfx_sprites.gd` (shock, bite, spore, acid).
+
+### Knopf und Eingabe
+- `touch_controls.gd`: `ability_state` (von `abilities.sync_hud(hud)`), Signal `ability_requested`, Zähler `ability_requests`, `_ability_center()` = Rally + (178, −62), Touch-Radius 70 px (140 px), Tasten **Q/Shift**. Der Knopf hat Vorrang vor Rally in seinem Kreis; ohne Zustand gibt es keinen Knopf.
+- `hud_controls.gd`: runder Kit-Knopf (58 px), bereit in Glut mit sanftem Glühen und Stammeskopf-Icon, im Cooldown neutral mit Sekunden und sich füllendem Glut-Ring, aktiver Effekt als heller Ring, Name darunter.
+
+### Tests
+`tests/abilities.gd` (in `tools/test.ps1`) grün: Stamm → Fähigkeit, Cooldown 20–40 s, Ring-Anteil, Pause friert (kein Schritt), Relikt-Hooks, jede Wirkung (Sprung: Bahnbiss, Unverwundbarkeit, Wand, Feuerspur in Glut; Wolke: Verlangsamung und Gift nur innen, 5 s; Stoß: Rückstoß, Bosse fest, −60 %; Hetzjagd ×1,7 und Linie, 4 s; Säure: Kegel nur vorn, Pfützen brennen; Schleier: Köder, Warnflächen verfehlen, 3 s), Knopf-Treffer, Rally bleibt Rally, Q/Shift.
+
+### Bilder (`tests/capture_abilities.gd`)
+`preview_ability_<id>.png` (sechs), `preview_ability_button_ready.png`, `_button_cooldown.png`, `preview_ability_sheet.png`.
+Iterationen: (1) Sporenwolke mit weinrotem Rand (Gefahrenkontur) und ohne Sporen nach dem Start. (2) Eigener, warmer Rand für Glut-Flächen, die Wolke puffert fortlaufend.
+
+**Ehrliche Bewertung:** Panzerstoß und Sprung lesen sich stark, der Knopf ist klar (Kopf-Icon bereit, Sekunden im Cooldown). Die Sporen- und Säure-Sprites sind die gelieferten Violett-/Grün-Bilder – sie weichen von „eigen = Glut“ ab; das Wolken-/Pfützen-Feld ist Glut. Hetzjagd zeigt ohne Schwarm-Anbindung nur Ringe (die Linienformation kommt mit `swarm.gd`). Der Knopf ist mit 58 px eher klein neben Rally; im Handtest prüfen.
+
+### Offen für die Anbindungsrunde
+HuntWorld: Host-Methoden, `step()` im Lauf, `ability_requested`/Q, Verlustfaktor, Unverwundbarkeit, Köder und `warnings_miss` in `_resolve_area_hit`, Tempo in `swarm.speed_multiplier`, Linienformation in `swarm.gd`, Relikt-Einträge, Bot-Nutzung (vor Warnflächen, bei Einkesselung), Balance, Sounds.

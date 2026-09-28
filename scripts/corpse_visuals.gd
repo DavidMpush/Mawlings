@@ -17,7 +17,7 @@ extends Node3D
 # Performance: ONE MultiMesh per design (+ one for all amber pools, + one for
 # all glow halos, + one per crystal size) with shared meshes/materials. Per
 # corpse only instance data (transform + INSTANCE_CUSTOM: fill, glow, phase,
-# pulse speed) is written; no node per corpse. 60 mixed corpses = at most 16
+# pulse speed) is written; no node per corpse. 60 mixed corpses = at most 18
 # draw calls.
 
 const NIBBLER_SCENE = preload("res://assets/gameplay/characters/Nibbler_game.glb")
@@ -29,9 +29,13 @@ const SKITTER_SCENE = preload("res://assets/gameplay/characters/Skitter_game.glb
 const MOORBRUT_SCENE = preload("res://assets/gameplay/characters/Moorbrut_game.glb")
 const MOOSSCHLUND_SCENE = preload("res://assets/gameplay/characters/Moosschlund_game.glb")
 const BOG_KING_SCENE = preload("res://assets/gameplay/characters/BogKingNew_game.glb")
+const ASH_TOAD_SCENE = preload("res://assets/gameplay/characters/AshToad_game.glb")
+# Stage 19 desert: Sandwurm apex and Sandmade.
+const SANDWORM_SCENE = preload("res://assets/gameplay/characters/Sandwurm_game.glb")
+const SANDGRUB_SCENE = preload("res://assets/gameplay/characters/Sandgrub_game.glb")
 # Triangle budget per remains model (the import LOD closest below it is baked;
 # 0 = full mesh). Moorbrut corpses can number in the hundreds, so they are tiny.
-const MODEL_TRIS := {"hunter": 1500, "elite": 1500, "skitter": 1300, "horde": 300, "boss": 4000, "apex": 4000}
+const MODEL_TRIS := {"hunter": 1500, "elite": 1500, "skitter": 1300, "horde": 300, "boss": 4000, "apex": 4000, "apex_toad": 3600, "apex_sandworm": 3600, "sandgrub": 400}
 const DROP_SCENES := {
 	"drop_small": preload("res://assets/gameplay/props/SmallDrop_game.glb"),
 	"drop_medium": preload("res://assets/gameplay/props/MediumDrop_game.glb"),
@@ -57,6 +61,7 @@ const KIND_DESIGN := {
 	"prey": "prey", "hunter": "hunter", "skitter": "skitter", "horde": "horde",
 	"elite": "elite", "leaper": "leaper",
 	"boss": "boss", "apex": "apex", "apex_toad": "apex_toad",
+	"apex_sandworm": "apex_sandworm", "sandgrub": "sandgrub",
 	"mawling": "mawling", "nest": "nest",
 }
 
@@ -78,13 +83,16 @@ const DESIGNS := {
 	"apex": {"rank": "boss", "pool": 3.1, "glow": 1.0, "halo": 11.0, "halo_color": Color(0.95, 0.8, 0.32), "halo_strength": 0.9, "pulse": 1.1, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(-3.3, 0.0, 0.9), "drop_lift": 0.35},
 	# Aschenkröte (second apex, Glutsumpf): as big as the Moosschlund, orange halo.
 	"apex_toad": {"rank": "boss", "pool": 3.3, "glow": 1.0, "halo": 11.5, "halo_color": Color(1.0, 0.56, 0.2), "halo_strength": 0.95, "pulse": 1.0, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(2.6, 0.0, -0.8), "drop_lift": 0.35},
+	# Sandwurm (desert apex): long body on its side, pale gold halo.
+	"apex_sandworm": {"rank": "boss", "pool": 3.2, "glow": 1.0, "halo": 11.5, "halo_color": Color(1.0, 0.8, 0.42), "halo_strength": 0.9, "pulse": 1.0, "ref": 60.0, "remains_min": 0.93, "drop": "drop_big", "drop_size": 2.1, "drop_count": 1, "drop_at": Vector3(-2.8, 0.0, 1.6), "drop_lift": 0.35},
+	# Sandmade: tiny, comes in bursts (like the Moorbrut).
+	"sandgrub": {"rank": "normal", "pool": 0.45, "glow": 0.3, "halo": 0.0, "pulse": 3.0, "ref": 1.5, "remains_min": 0.5, "drop": "drop_small", "drop_size": 0.5, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.2},
 	"mawling": {"rank": "special", "pool": 0.0, "glow": 1.0, "halo": 1.6, "halo_color": Color(1.0, 0.5, 0.18), "halo_strength": 0.9, "pulse": 4.0, "ref": 1.0, "remains_min": 0.6, "drop": ""},
 	"nest": {"rank": "special", "pool": 1.1, "glow": 0.6, "halo": 0.0, "pulse": 2.0, "ref": 18.0, "remains_min": 0.7, "drop": "drop_big", "drop_size": 0.95, "drop_count": 1, "drop_at": Vector3(0.0, 0.0, 0.0), "drop_lift": 0.3},
 }
 
 # Palette (living colours, the shader darkens and desaturates the remains).
 const BONE := Color("efe2c0")
-const ASH_BONE := Color("c9c0b8")
 const AMBER_EDGE := Color("c0650f")
 const AMBER_MID := Color("f7a62a")
 const AMBER_CORE := Color("ffe189")
@@ -575,6 +583,8 @@ static func _mesh(layer_name: String) -> Mesh:
 			"boss": _build_boss(b)
 			"apex": _build_apex(b)
 			"apex_toad": _build_apex_toad(b)
+			"apex_sandworm": _build_apex_sandworm(b)
+			"sandgrub": _build_sandgrub(b)
 			"mawling": _build_mawling(b)
 			"nest": _build_nest(b)
 		mesh = b.commit()
@@ -656,47 +666,6 @@ static func _build_leaper(b: Builder) -> void:
 	b.bone_splinter(Vector3(-0.4, 0.0, 1.15), Vector3(-0.55, 0.5, 1.5), 0.07, BONE)
 
 
-# Big carcass: spine arching over broken rib hoops, a horned skull, pelvis and
-# tail. Scale 1 ~ 7 m long. The amber pool core glows between the ribs.
-static func _skeleton(b: Builder, bone: Color) -> void:
-	var spine := [Vector3(0.0, 0.12, -3.4), Vector3(0.0, 0.55, -2.6), Vector3(0.0, 1.2, -1.8), Vector3(0.0, 1.5, -0.4), Vector3(0.0, 1.5, 1.0), Vector3(0.0, 1.25, 2.0), Vector3(0.0, 0.85, 2.5)]
-	b.tube(spine, 0.2, 0.2, bone, 7)
-	for index in range(1, 11):
-		var t := float(index) / 11.0
-		var point := _along(spine, t)
-		b.blob(point + Vector3(0.0, 0.13, 0.0), Vector3(0.28, 0.34, 0.22), bone.darkened(0.06))
-	# Ribs: hoops from the spine down to the ground on both sides, some broken.
-	var rib_z := [-1.3, -0.7, -0.1, 0.5, 1.1, 1.6]
-	var rib_r := [1.15, 1.42, 1.55, 1.55, 1.42, 1.15]
-	for index in rib_z.size():
-		for side in [-1.0, 1.0]:
-			var end := 1.0
-			if (index == 1 and side > 0.0) or (index == 4 and side < 0.0):
-				end = 0.55
-			var points := []
-			for step in 8:
-				var angle := lerpf(PI * 0.5, PI * 0.5 - 1.45 * end, float(step) / 7.0)
-				var radius: float = rib_r[index]
-				points.append(Vector3(side * cos(angle) * radius * 1.05, sin(angle) * 1.45, float(rib_z[index]) - 0.4 * (1.0 - sin(angle))))
-			b.tube(points, 0.11, 0.065, bone, 6)
-	# Pelvis.
-	b.blob(Vector3(0.0, 0.6, -2.3), Vector3(1.4, 0.45, 0.7), bone)
-	# Skull: cranium, snout, dark eye sockets, tusks, dropped jaw.
-	b.blob(Vector3(0.0, 0.72, 3.0), Vector3(1.55, 1.15, 1.4), bone)
-	b.blob(Vector3(0.0, 0.45, 3.75), Vector3(1.05, 0.62, 1.05), bone)
-	for side in [-1.0, 1.0]:
-		b.blob(Vector3(side * 0.42, 0.95, 3.5), Vector3(0.4, 0.38, 0.34), Color("1c1216"))
-		b.tube([Vector3(side * 0.4, 0.35, 4.1), Vector3(side * 0.72, 0.6, 4.5), Vector3(side * 0.78, 1.1, 4.62)], 0.16, 0.02, bone.lightened(0.1), 7)
-	b.blob(Vector3(0.0, 0.3, 4.2), Vector3(0.26, 0.14, 0.12), Color("1c1216"))
-	b.tube([Vector3(-0.55, 0.08, 3.4), Vector3(-0.1, 0.1, 4.6), Vector3(0.6, 0.08, 4.35)], 0.13, 0.1, bone.darkened(0.08))
-
-
-static func _along(points: Array, t: float) -> Vector3:
-	var span := t * float(points.size() - 1)
-	var index := mini(int(span), points.size() - 2)
-	return (points[index] as Vector3).lerp(points[index + 1], span - float(index))
-
-
 # Bog King fallen on its side (squashed flat), a few bone splinters around it.
 static func _build_boss(b: Builder) -> void:
 	var lying := Basis(Vector3(0, 0, 1), PI * 0.5)
@@ -712,31 +681,29 @@ static func _build_apex(b: Builder) -> void:
 	b.glb(MOOSSCHLUND_SCENE, 7.2, lying, Vector3(0.0, -0.1, 0.0), Color(1.2, 1.15, 1.15), true, 0.0, false, int(MODEL_TRIS.apex), 2.6)
 
 
-# Aschenkröte (apex_toad): a squat, wide skeleton of ash-grey bones, charred
-# hide scraps, burnt-out ember bubbles on the back (dark crust, only a few
-# embers still glowing) and a cracked lava tongue.
+# Aschenkröte (apex_toad): the real Ash Toad model on its back, legs curled up,
+# squashed flat; a few embers still glow on the belly.
 static func _build_apex_toad(b: Builder) -> void:
-	b.frame = Transform3D(Basis.from_scale(Vector3(1.3, 0.72, 1.02)), Vector3.ZERO)
-	_skeleton(b, ASH_BONE)
-	b.frame = Transform3D.IDENTITY
-	var hide := Color("3a3032")
-	for spec in [[Vector3(1.5, 0.08, -0.8), 0.95], [Vector3(-1.6, 0.08, 0.5), 0.9], [Vector3(0.6, 0.07, 2.1), 0.75], [Vector3(-0.5, 0.08, -2.4), 0.85], [Vector3(2.0, 0.06, 1.3), 0.6]]:
-		var size: float = spec[1]
-		b.blob(spec[0], Vector3(size * 1.1, 0.24, size * 0.8), hide, Basis(Vector3.UP, size * 5.0))
-	# Burnt-out ember bubbles along the back: dark crust, cracked grey caps.
-	var crust := Color("2a2224")
-	var cap := Color("6a6060")
-	var bubbles := [Vector3(0.0, 1.22, -1.3), Vector3(0.7, 1.1, -0.2), Vector3(-0.75, 1.12, 0.3), Vector3(0.0, 1.25, 0.9), Vector3(0.9, 0.95, 1.5), Vector3(-0.95, 0.9, -1.2), Vector3(0.45, 1.0, -2.1)]
-	for index in bubbles.size():
-		var size := 0.32 + 0.1 * float(index % 3)
-		b.blob(bubbles[index], Vector3(size, size * 0.8, size), crust, Basis(Vector3.UP, float(index)))
-		b.blob(bubbles[index] + Vector3(0.0, size * 0.55, 0.0), Vector3(size * 0.72, size * 0.28, size * 0.72), cap, Basis(Vector3.UP, float(index) * 1.7))
-	# A few embers still glowing in the cracks.
-	for spot in [Vector3(0.7, 1.32, -0.2), Vector3(0.0, 1.5, 0.9), Vector3(-0.95, 1.05, -1.2)]:
-		b.blob(spot, Vector3.ONE * 0.16, Color("ff8a1e"), Basis.IDENTITY, true)
-	# Cracked lava tongue lolling from the skull.
-	b.tube([Vector3(0.0, 0.2, 3.6), Vector3(0.35, 0.08, 4.6), Vector3(0.1, 0.05, 5.5), Vector3(-0.4, 0.04, 6.0)], 0.28, 0.14, Color("7a2a30"), 7)
-	b.blob(Vector3(-0.42, 0.06, 6.05), Vector3(0.24, 0.08, 0.2), Color("ff9a3a"), Basis.IDENTITY, true)
+	var lying := Basis(Vector3(0, 0, 1), PI + 0.25)
+	b.glb(ASH_TOAD_SCENE, 7.6, lying, Vector3(0.0, -0.1, 0.0), Color(1.3, 1.2, 1.2), true, 0.0, false, int(MODEL_TRIS.apex_toad), 2.6, LEG_CURL * 0.6)
+	for spot in [Vector3(0.6, 2.1, -0.4), Vector3(-0.8, 2.0, 0.7), Vector3(-0.1, 2.25, -1.3)]:
+		b.blob(spot, Vector3.ONE * 0.26, Color("ff8a1e"), Basis.IDENTITY, true)
+
+
+# Sandwurm (apex_sandworm): the real model toppled onto its side, squashed flat,
+# maw towards the viewer; a few bone-white teeth broke off and lie beside it.
+static func _build_apex_sandworm(b: Builder) -> void:
+	var lying := Basis(Vector3(0, 0, 1), PI * 0.5 - 0.15).rotated(Vector3.UP, 0.35)
+	b.glb(SANDWORM_SCENE, 10.5, lying, Vector3(0.0, -0.1, 0.0), Color(1.2, 1.15, 1.1), true, 0.0, false, int(MODEL_TRIS.apex_sandworm), 2.8)
+	b.bone_splinter(Vector3(4.6, 0.0, 1.9), Vector3(5.1, 0.9, 2.3), 0.16, BONE)
+	b.bone_splinter(Vector3(3.8, 0.0, -2.4), Vector3(4.3, 0.8, -2.9), 0.14, BONE)
+	b.bone_splinter(Vector3(-1.2, 0.0, 2.6), Vector3(-1.5, 0.7, 3.1), 0.12, BONE)
+
+
+# Sandmade on its back, stubby legs folded up, low-poly LOD (they come in bursts).
+static func _build_sandgrub(b: Builder) -> void:
+	var lying := Basis(Vector3(0, 0, 1), PI - 0.35)
+	b.glb(SANDGRUB_SCENE, 0.8, lying, Vector3(0.0, -0.03, 0.0), Color(1.3, 1.25, 1.2), true, 0.0, false, int(MODEL_TRIS.sandgrub), 0.0, LEG_CURL * 0.8)
 
 
 # Fallen Mawling: a small dark stain, a scrap and hovering orange sparks.

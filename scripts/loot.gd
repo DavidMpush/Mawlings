@@ -1,14 +1,18 @@
 extends Node3D
 
 # Etappe 16 - Beute-Kristalle und Magnet. Ersetzt die Kadaver-Ernte: jeder Tod
-# platzt in 1-6 Kristalle auf (Biomasse Bernstein/Gold, DNA Türkis), die im
+# platzt in 1-6 Kristalle auf (Biomasse grün/lime, DNA Türkis), die im
 # Bogen herausspringen und liegen bleiben, bis sie eingesammelt sind (kein
 # Verfall, Ressourcenregel). Kristalle im Magnetradius des Schwarms fliegen
 # beschleunigend zu einem Tier und werden beim Ankommen gutgeschrieben; ein
 # Lockruf-Drop holt alle Kristalle der Karte als Kette heran.
 #
 #   loot.setup(arena)
-#   loot.burst(at, biomass, dna, rank)            # Tod: 1-6 Kristalle im Bogen
+#   loot.burst(at, biomass, dna, rank, amber)     # Tod: 1-6 Kristalle + Bernstein-Münzen
+#
+# Etappe 17 Welle 2 - Bernstein: die In-Run-Währung für Kokons. Münzen (Kind.AMBER,
+# goldene aufrechte Scheiben, eigene MultiMesh) springen wie Kristalle heraus und
+# kommen über denselben Magneten; ein voller Schwarm nimmt Bernstein und DNA weiter.
 #   loot.drop(kind, value, at, from, hop)         # ein einzelner Kristall
 #   loot.step(delta, centre, radius, points, take_biomass) -> {"biomass", "dna", "crystals"}
 #   loot.vacuum(centre)                           # Lockruf: alle Kristalle fliegen
@@ -23,8 +27,9 @@ extends Node3D
 
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
 const TUNING = preload("res://scripts/tuning.gd")
+const FX_BATCH = preload("res://scripts/fx_batch.gd")
 
-enum Kind { BIOMASS, DNA }
+enum Kind { BIOMASS, DNA, AMBER }
 enum State { FREE, HOP, LYING, WAIT, FLY }
 const TIER_LAYERS := ["small", "medium", "big"]
 # Crystal model per tier (corpse_visuals drop meshes: the chunky medium gem reads
@@ -34,13 +39,18 @@ const TIER_MESH := ["drop_medium", "drop_medium", "drop_big"]
 const MESH_HEIGHT := [1.0, 1.0, 1.2]
 # Handtest (Polier-Runde): 55 % (small) .. 72 % (big) of the first sizes, so
 # the flood does not look like confetti; big ones stay recognisable.
-const DRAW_HEIGHT := [[0.34, 0.53, 0.86], [0.31, 0.48, 0.78]]
+const DRAW_HEIGHT := [[0.34, 0.53, 0.86], [0.31, 0.48, 0.78], [0.62, 0.76, 0.95]]
 # Soft billboard glow behind every crystal (one more MultiMesh): radius x height.
 const GLOW_SIZE := 1.1
 # Value thresholds per sort: below [0] small, below [1] medium, else big.
-const TIER_VALUE := [[3.0, 9.0], [12.0, 36.0]]
-const BIO_COLOR := Color("ffb13b")
-const BIO_GLOW := Color("ffe07a")
+const TIER_VALUE := [[3.0, 9.0], [12.0, 36.0], [4.0, 12.0]]
+# Welle 2: Biomasse ist grün/lime (Wachstum, Kit-Ton action), Gold heißt Geld (Bernstein).
+const BIO_COLOR := Color("8ef03a")
+const BIO_GLOW := Color("e6ffb0")
+const AMBER_COLOR := Color("e0901a")
+const AMBER_GLOW := Color("ffd24a")
+## The coin layer comes after the three crystal tiers.
+const COIN_LAYER := 3
 const DNA_COLOR := Color("35e6d4")
 const DNA_GLOW := Color("aefcff")
 const LURE_COLOR := Color("ff7ad9")
@@ -103,6 +113,7 @@ func _ready() -> void:
 	rng.seed = 16016
 	for index in TIER_LAYERS.size():
 		_layers.append(_make_layer(index))
+	_layers.append(_make_layer(COIN_LAYER))
 	_glow = _make_glow_layer()
 
 
@@ -133,7 +144,7 @@ func clear() -> void:
 ## A kill bursts into crystals: biomass split into 1..cap crystals (cap by rank:
 ## normal 3, mini 4, boss 4), DNA into 1 (normal) or 2 (mini/boss); never more
 ## than LOOT_MAX_PER_KILL. They hop out in a ring around `at`.
-func burst(at: Vector3, biomass: float, dna: int, rank := "normal") -> void:
+func burst(at: Vector3, biomass: float, dna: int, rank := "normal", amber := 0) -> void:
 	# "horde" (Moorbrut bundles of the flood): one biomass crystal at most.
 	var bio_cap: int = {"normal": 3, "mini": 4, "boss": 4, "horde": 1}.get(rank, 3)
 	var dna_cap: int = 1 if rank == "normal" or rank == "horde" else 2
@@ -141,7 +152,9 @@ func burst(at: Vector3, biomass: float, dna: int, rank := "normal") -> void:
 	var dna_count := clampi(ceili(float(dna) / TUNING.LOOT_DNA_CHUNK - 0.001), 1, dna_cap) if dna > 0 else 0
 	while bio_count + dna_count > TUNING.LOOT_MAX_PER_KILL:
 		bio_count -= 1
-	var total := bio_count + dna_count
+	var coin_cap: int = {"normal": 2, "mini": 3, "boss": 5, "horde": 1}.get(rank, 2)
+	var coin_count := clampi(ceili(float(amber) / TUNING.AMBER_CHUNK - 0.001), 1, coin_cap) if amber > 0 else 0
+	var total := bio_count + dna_count + coin_count
 	var reach: float = {"normal": 1.3, "mini": 1.9, "boss": 3.2, "horde": 0.9}.get(rank, 1.3)
 	var turn := rng.randf() * TAU
 	var slot := 0
@@ -152,6 +165,10 @@ func burst(at: Vector3, biomass: float, dna: int, rank := "normal") -> void:
 		# DNA whole numbers: the last crystal takes the rest.
 		var share := dna / dna_count + (dna % dna_count if index == dna_count - 1 else 0)
 		drop(Kind.DNA, float(share), at, _ring(at, turn, slot, total, reach))
+		slot += 1
+	for index in coin_count:
+		var coins := amber / coin_count + (amber % coin_count if index == coin_count - 1 else 0)
+		drop(Kind.AMBER, float(coins), at, _ring(at, turn, slot, total, reach))
 		slot += 1
 
 
@@ -205,8 +222,13 @@ func _alloc() -> int:
 	return id
 
 
+# Crystal tier layer, or the coin layer for Bernstein.
+func _layer(id: int) -> Object:
+	return _layers[COIN_LAYER if kind[id] == Kind.AMBER else tier[id]]
+
+
 func _release(id: int) -> void:
-	_layers[tier[id]].erase(id)
+	_layer(id).erase(id)
 	_glow.erase(id)
 	state[id] = State.FREE
 	value[id] = 0.0
@@ -269,7 +291,7 @@ func _absorb_into(host: int, amount: float) -> void:
 	value[host] += amount
 	var grown := _tier_for(kind[host], value[host])
 	if grown != tier[host]:
-		_layers[tier[host]].erase(host)
+		_layer(host).erase(host)
 		tier[host] = grown
 	_draw(host)
 
@@ -282,7 +304,7 @@ func _absorb_into(host: int, amount: float) -> void:
 ## leaves them lying). Returns what arrived this step.
 func step(delta: float, centre: Vector3, radius: float, points: PackedVector3Array, take_biomass := true) -> Dictionary:
 	_clock += delta
-	var result := {"biomass": 0.0, "dna": 0, "crystals": 0, "bio_crystals": 0, "dna_crystals": 0}
+	var result := {"biomass": 0.0, "dna": 0, "amber": 0, "crystals": 0, "bio_crystals": 0, "dna_crystals": 0, "coins": 0}
 	_grab(centre, radius, points, take_biomass)
 	var index := moving.size() - 1
 	while index >= 0:
@@ -314,12 +336,7 @@ func step(delta: float, centre: Vector3, radius: float, points: PackedVector3Arr
 				elif _fly(id, delta, centre, points):
 					done = true
 					result.crystals += 1
-					if kind[id] == Kind.BIOMASS:
-						result.biomass += value[id]
-						result.bio_crystals += 1
-					else:
-						result.dna += int(round(value[id]))
-						result.dna_crystals += 1
+					_credit(result, id)
 					collected += 1
 					_release(id)
 			_:
@@ -329,6 +346,20 @@ func step(delta: float, centre: Vector3, radius: float, points: PackedVector3Arr
 		index -= 1
 	_step_lures(delta, centre, radius)
 	return result
+
+
+# Adds an arrived crystal/coin to a step() result.
+func _credit(result: Dictionary, id: int) -> void:
+	match kind[id]:
+		Kind.BIOMASS:
+			result.biomass += value[id]
+			result.bio_crystals += 1
+		Kind.DNA:
+			result.dna += int(round(value[id]))
+			result.dna_crystals += 1
+		_:
+			result.amber += int(round(value[id]))
+			result.coins += 1
 
 
 # Lying crystals inside the radius start their flight (grid cells only).
@@ -349,7 +380,7 @@ func _grab(centre: Vector3, radius: float, points: PackedVector3Array, take_biom
 				var id: int = list[index]
 				var dx: float = pos[id].x - centre.x
 				var dz: float = pos[id].z - centre.z
-				if dx * dx + dz * dz <= reach and (take_biomass or kind[id] == Kind.DNA):
+				if dx * dx + dz * dz <= reach and (take_biomass or kind[id] != Kind.BIOMASS):
 					list.remove_at(index)
 					lying -= 1
 					_launch(id, points, 0.0, TUNING.LOOT_FLY_MAX_SPEED, TUNING.LOOT_FLY_ACCEL)
@@ -432,7 +463,7 @@ func vacuum(centre: Vector3, points: PackedVector3Array, take_biomass := true) -
 		var index := list.size() - 1
 		while index >= 0:
 			var id: int = list[index]
-			if take_biomass or kind[id] == Kind.DNA:
+			if take_biomass or kind[id] != Kind.BIOMASS:
 				var distance := Vector2(pos[id].x - centre.x, pos[id].z - centre.z).length()
 				var delay: float = TUNING.LOOT_VACUUM_SPREAD * pow(distance / far, 0.75) * rng.randf_range(0.85, 1.0)
 				list.remove_at(index)
@@ -450,7 +481,7 @@ func vacuum(centre: Vector3, points: PackedVector3Array, take_biomass := true) -
 ## Credits every crystal at once (tests, captures): returns the step() result
 ## shape; biomass stays when `take_biomass` is false. Lockrufe stay.
 func take_all(take_biomass := true) -> Dictionary:
-	var result := {"biomass": 0.0, "dna": 0, "crystals": 0, "bio_crystals": 0, "dna_crystals": 0}
+	var result := {"biomass": 0.0, "dna": 0, "amber": 0, "crystals": 0, "bio_crystals": 0, "dna_crystals": 0, "coins": 0}
 	for id in pos.size():
 		if state[id] == State.FREE or (kind[id] == Kind.BIOMASS and not take_biomass):
 			continue
@@ -462,12 +493,7 @@ func take_all(take_biomass := true) -> Dictionary:
 		else:
 			moving.erase(id)
 		result.crystals += 1
-		if kind[id] == Kind.BIOMASS:
-			result.biomass += value[id]
-			result.bio_crystals += 1
-		else:
-			result.dna += int(round(value[id]))
-			result.dna_crystals += 1
+		_credit(result, id)
 		collected += 1
 		_release(id)
 	if not take_biomass:
@@ -484,6 +510,15 @@ func take_all(take_biomass := true) -> Dictionary:
 ## Crystals alive (lying, hopping, flying).
 func count() -> int:
 	return pos.size() - _free.size()
+
+
+## Crystals/coins alive of one sort.
+func count_of(sort: int) -> int:
+	var result := 0
+	for id in pos.size():
+		if state[id] != State.FREE and kind[id] == sort:
+			result += 1
+	return result
 
 
 func lying_count() -> int:
@@ -554,7 +589,7 @@ func map_marks(cell := 8.0) -> PackedFloat32Array:
 		for id: int in grid[key]:
 			var big := Vector2i(floori(pos[id].x / cell), floori(pos[id].z / cell))
 			var entry: Vector3 = cells.get(big, Vector3.ZERO)
-			var weight := value[id] if kind[id] == Kind.BIOMASS else value[id] * 0.25
+			var weight := value[id] if kind[id] != Kind.DNA else value[id] * 0.25
 			cells[big] = Vector3(entry.x + pos[id].x * weight, entry.y + pos[id].z * weight, entry.z + weight)
 	var result := PackedFloat32Array()
 	for big in cells:
@@ -718,11 +753,11 @@ func _make_layer(index: int) -> Object:
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
 	multimesh.use_custom_data = true
 	multimesh.use_colors = true
-	multimesh.mesh = _crystal_mesh(TIER_MESH[index])
+	multimesh.mesh = _coin_mesh() if index == COIN_LAYER else _crystal_mesh(TIER_MESH[index])
 	multimesh.instance_count = CORPSE_VISUALS.BATCH_STEP
 	multimesh.visible_instance_count = 0
 	var node := MultiMeshInstance3D.new()
-	node.name = "Loot " + String(TIER_LAYERS[index])
+	node.name = "Loot coins" if index == COIN_LAYER else "Loot " + String(TIER_LAYERS[index])
 	node.multimesh = multimesh
 	node.material_override = _crystal_material()
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -733,6 +768,28 @@ func _make_layer(index: int) -> Object:
 	node.top_level = true
 	node.transform = Transform3D.IDENTITY
 	return CORPSE_VISUALS.Layer.new(node)
+
+
+# Bernstein coin: an upright thick disc with a raised rim (face towards +Z, height 1).
+static func _coin_mesh() -> Mesh:
+	if _meshes.has("coin"):
+		return _meshes["coin"]
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.5
+	disc.bottom_radius = 0.5
+	disc.height = 0.16
+	disc.radial_segments = 16
+	disc.rings = 1
+	var rim := TorusMesh.new()
+	rim.inner_radius = 0.4
+	rim.outer_radius = 0.52
+	rim.rings = 16
+	rim.ring_segments = 5
+	# Tilted back towards the steep game camera so the face reads as a coin.
+	var upright := Basis(Vector3.RIGHT, PI * 0.5 - 0.85)
+	var merged := FX_BATCH.merge([[disc, Transform3D(upright, Vector3(0, 0.5, 0))], [rim, Transform3D(upright * Basis.from_scale(Vector3(1.0, 1.6, 1.0)), Vector3(0, 0.5, 0))]])
+	_meshes["coin"] = merged
+	return merged
 
 
 # Low-poly crystal mesh (same model as the corpse drops, import LOD baked).
@@ -757,6 +814,8 @@ func _draw(id: int) -> void:
 	var moving_now := state[id] == State.FLY or state[id] == State.WAIT or state[id] == State.HOP
 	var flight := 1.0 if state[id] == State.FLY else (0.5 if moving_now else 0.0)
 	var scale := height / float(MESH_HEIGHT[level])
+	if sort == Kind.AMBER:
+		scale = height
 	var basis := Basis(Vector3.UP, phase[id] * TAU).scaled(Vector3.ONE * scale)
 	if state[id] == State.FLY:
 		# Stretched a little along the flight (reads as speed).
@@ -765,7 +824,7 @@ func _draw(id: int) -> void:
 	if state[id] == State.LYING:
 		at.y = LIFT
 	var custom := Color(float(sort), phase[id], 1.0, flight)
-	_layers[level].put(id, Transform3D(basis, at), custom)
+	_layer(id).put(id, Transform3D(basis, at), custom)
 	var glow := height * GLOW_SIZE * (1.25 if state[id] == State.FLY else 1.0)
 	_glow.put(id, Transform3D(Basis.from_scale(Vector3(glow, glow, glow)), at + Vector3(0.0, height * 0.45, 0.0)), custom)
 
@@ -789,6 +848,7 @@ func _make_glow_layer() -> Object:
 	material.shader = shader
 	material.set_shader_parameter("bio_glow", BIO_COLOR)
 	material.set_shader_parameter("dna_glow", DNA_COLOR)
+	material.set_shader_parameter("amber_glow", AMBER_COLOR)
 	node.material_override = material
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.visible = false
@@ -810,6 +870,8 @@ static func _crystal_material() -> ShaderMaterial:
 	_material.set_shader_parameter("bio_glow", BIO_GLOW)
 	_material.set_shader_parameter("dna_color", DNA_COLOR)
 	_material.set_shader_parameter("dna_glow", DNA_GLOW)
+	_material.set_shader_parameter("amber_color", AMBER_COLOR)
+	_material.set_shader_parameter("amber_glow", AMBER_GLOW)
 	return _material
 
 
@@ -821,6 +883,8 @@ uniform vec3 bio_color : source_color;
 uniform vec3 bio_glow : source_color;
 uniform vec3 dna_color : source_color;
 uniform vec3 dna_glow : source_color;
+uniform vec3 amber_color : source_color;
+uniform vec3 amber_glow : source_color;
 uniform float bob = 0.07;
 uniform float spin = 1.1;
 varying vec4 loot;
@@ -836,8 +900,9 @@ void vertex() {
 }
 void fragment() {
 	float dna = step(0.5, loot.x);
-	vec3 tint = mix(bio_color, dna_color, dna);
-	vec3 glow = mix(bio_glow, dna_glow, dna);
+	float amber = step(1.5, loot.x);
+	vec3 tint = mix(mix(bio_color, dna_color, dna), amber_color, amber);
+	vec3 glow = mix(mix(bio_glow, dna_glow, dna), amber_glow, amber);
 	float grey = dot(COLOR.rgb, vec3(0.3, 0.55, 0.15));
 	float facing = clamp(dot(normalize(NORMAL), VIEW), 0.0, 1.0);
 	float pulse = 0.5 + 0.5 * sin(TIME * 3.0 + loot.y * 6.2832);
@@ -855,6 +920,7 @@ shader_type spatial;
 render_mode blend_add, unshaded, depth_draw_never, cull_disabled, shadows_disabled;
 uniform vec3 bio_glow : source_color;
 uniform vec3 dna_glow : source_color;
+uniform vec3 amber_glow : source_color;
 varying vec4 loot;
 void vertex() {
 	loot = INSTANCE_CUSTOM;
@@ -865,7 +931,7 @@ void fragment() {
 	float d = length(UV - vec2(0.5)) * 2.0;
 	float fall = pow(clamp(1.0 - d, 0.0, 1.0), 2.2);
 	float pulse = 0.8 + 0.2 * sin(TIME * 3.0 + loot.y * 6.2832);
-	ALBEDO = mix(bio_glow, dna_glow, step(0.5, loot.x));
+	ALBEDO = mix(mix(bio_glow, dna_glow, step(0.5, loot.x)), amber_glow, step(1.5, loot.x));
 	ALPHA = clamp(fall * pulse * (0.2 + 0.4 * loot.w), 0.0, 1.0);
 }
 """

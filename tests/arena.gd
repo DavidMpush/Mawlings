@@ -133,22 +133,20 @@ func _check_seeds(arena: Variant) -> void:
 	var landmarks := 0
 	for seed_value in SEEDS:
 		arena.set_seed(seed_value)
-		# Free start zone: nothing blocks or stands within 22 m of the origin.
-		for x in range(-2, 2):
-			for z in range(-2, 2):
-				var key := Vector2i(x, z)
-				for circle in arena.obstacles(key):
-					check(Vector2(circle.x, circle.z).length() - circle.w >= arena.START_CLEARANCE - 0.001, "Start zone free of collision (seed %d)" % seed_value)
-				var mark: Dictionary = arena.landmark(key)
-				if not mark.is_empty():
-					check(Vector2(mark.center.x, mark.center.z).length() >= arena.START_CLEARANCE, "Start zone free of landmarks (seed %d)" % seed_value)
-		check(arena.is_open(Vector3.ZERO, 3.0), "Start position open (seed %d)" % seed_value)
-		# Stage 18b: stones are cover inside clearings, landmarks stand in theirs.
+		# Free start zone (stage 18c: the start is a random open place).
+		var start: Vector3 = arena.spawn_points(1)[0]
+		var home: Vector2i = arena.chunk_at(start)
+		for x in range(home.x - 1, home.x + 2):
+			for z in range(home.y - 1, home.y + 2):
+				for circle in arena.obstacles(Vector2i(x, z)):
+					check(Vector2(circle.x - start.x, circle.z - start.z).length() - circle.w >= 10.0, "Start zone free of collision (seed %d)" % seed_value)
+		check(arena.is_open(start, 3.0), "Start position open (seed %d)" % seed_value)
+		# Stage 18c: the collision circles are the tall landmarks, each in its own place.
 		clearings += arena.clearings().size()
 		stones += arena.layout.stones.size()
-		landmarks += arena.layout.landmarks.size()
+		landmarks += (arena.layout.beacons as Array).size()
 		for stone in arena.layout.stones:
-			check(arena.clearing_at(Vector3(stone.x, 0.0, stone.z)) >= 0 and arena.wall_distance(Vector3(stone.x, 0.0, stone.z)) >= stone.w + 3.0, "Stone inside a clearing with a passage to the wall (seed %d)" % seed_value)
+			check(arena.clearing_at(Vector3(stone.x, 0.0, stone.z)) >= 0 and arena.wall_distance(Vector3(stone.x, 0.0, stone.z)) >= stone.w + 3.0, "Landmark with a passage to the wall (seed %d)" % seed_value)
 		for sample in 200:
 			var key := Vector2i(rng.randi_range(-6, 5), rng.randi_range(-6, 5))
 			var own: Array[Vector4] = arena.obstacles(key)
@@ -179,7 +177,7 @@ func _check_seeds(arena: Variant) -> void:
 					check(false, "Collision on trail at %s (seed %d)" % [Vector2(point.x, point.z), seed_value])
 					break
 	var mean := float(stones) / float(clearings)
-	check(mean > 0.3 and mean < 2.0, "Cover stones per clearing %.2f" % mean)
+	check(stones >= 3 * SEEDS.size(), "Landmark stones on every map (%d)" % stones)
 	print("Seeds: %d clearings, stones/clearing %.2f, landmarks %d, worst passage %.2f m, worst collision share %.1f %%" % [clearings, mean, landmarks, worst_gap, 100.0 * worst_share])
 	# Movement helpers follow the seeded obstacles.
 	arena.set_seed(SEEDS[2])
@@ -278,9 +276,12 @@ func _check_decor_density(arena: Variant) -> void:
 # Fingerprint of the Verdant Maw chunks as built before the Glutsumpf work (stage
 # 09 prep): every part's name, transform, mesh shape and material values for the
 # classic map and one seeded map. Any drift here would change the Verdant image.
-# Stage 18b: re-baselined (seed 4242 is now a clearing/path map with inner walls,
-# low camera-side wall fronts; the seed-0 classic map is unchanged).
-const VERDANT_FINGERPRINT := "21f9c51d8a52303df6feb319034f0282"
+# Stage 18c: re-baselined - seed 4242 is an exploration map; every prop (also on
+# the classic seed-0 map, whose layout is unchanged) uses the see-through prop
+# shader (prop_fade.gdshader) instead of creature.gdshader; stage 18c follow-up:
+# no pebbles, leaf clumps, flowers, reeds or loose leaves on walkable ground,
+# walls built per grid cell (big, continuous, collision = look).
+const VERDANT_FINGERPRINT := "6f615839655c6aedc2f912601f88fe82"
 const FINGERPRINT_SPOTS := [Vector3.ZERO, Vector3(57, 0, -85), Vector3(-88, 0, 56)]
 
 
@@ -319,7 +320,13 @@ func _verdant_text(arena: Variant) -> String:
 func _describe(node: Node, lines: PackedStringArray) -> void:
 	for child in node.get_children():
 		if not child is MeshInstance3D:
-			lines.append("other %s" % child.name)
+			# Stage 19: wall group names carry material instance ids ("trunk <id>"),
+			# which shift whenever another script preloads more resources; drop them.
+			var label := String(child.name)
+			var cut := label.rfind(" ")
+			if cut > 0 and label.substr(cut + 1).lstrip("-").is_valid_int() and label.substr(cut + 1).length() > 6:
+				label = label.substr(0, cut)
+			lines.append("other %s" % label)
 			continue
 		var part := child as MeshInstance3D
 		var t := part.transform

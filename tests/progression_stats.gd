@@ -31,17 +31,18 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS progression_stats: 14 stats, 5 ranks, rarity 70/22/7/1 + luck, offers, values, effects")
+	print("PASS progression_stats: 15 stats, 5 ranks, rarity 70/22/7/1 + luck, offers, values, effects")
 	quit(0)
 
 
 func _test_catalog() -> void:
-	_check(STATS.STATS.size() == 14, "14 Werte (%d)" % STATS.STATS.size())
+	# Etappe 17c: + Lebensraub = 15 Werte.
+	_check(STATS.STATS.size() == 15, "15 Werte (%d)" % STATS.STATS.size())
 	var ids := STATS.ids()
-	for id in ["bite", "crit", "haste", "reach", "rally", "armor", "evade", "vigor", "regen", "brood", "magnet", "gene", "speed", "luck"]:
+	for id in ["bite", "crit", "haste", "reach", "rally", "armor", "evade", "vigor", "regen", "lifesteal", "brood", "magnet", "gene", "speed", "luck"]:
 		_check(ids.has(id), "Wert fehlt: " + id)
 	# Die TRAITS-Liste der Fassade spiegelt die Werte (alte Aufrufer, HUD).
-	_check(EVOLUTION.TRAITS.size() == 14, "evolution.TRAITS hat 14 Einträge")
+	_check(EVOLUTION.TRAITS.size() == 15, "evolution.TRAITS hat 15 Einträge")
 	for entry in EVOLUTION.TRAITS:
 		_check(STATS.has(entry[0]) and STATS.info(entry[0])[1] == entry[1], "TRAITS-Name passt nicht: " + str(entry[0]))
 		_check(STATS.describe_step(entry[0]) == entry[2], "TRAITS-Text passt nicht zu describe_step: %s (%s)" % [entry[0], STATS.describe_step(entry[0])])
@@ -118,8 +119,9 @@ func _test_ranks_and_values() -> void:
 	stats.apply("armor", "common")
 	preview = stats.preview("armor", "common")
 	_check(preview.before == "−%d %%" % int(roundf(step)) and preview.after == "−%d %%" % int(roundf(step * 2.0)), "Vorschau vorher/nachher: %s" % str(preview))
-	_check(STATS.vigor_hp(1.0) == 1 and STATS.vigor_hp(2.0) == 1 and STATS.vigor_hp(3.0) == 2 and STATS.vigor_hp(5.0) == 3, "Anführerherz +1 LP auf 1/3/5")
-	_check(STATS.format_value("regen", 0.0) == "–" and STATS.format_value("regen", 1.0) == "14", "Regeneration-Anzeige")
+	_check(STATS.format_value("vigor", 1.0) == "+15 %" and STATS.format_value("vigor", 3.0) == "+45 %", "Anführerherz +15 %% Max-LP je Wert (%s)" % STATS.format_value("vigor", 1.0))
+	_check(STATS.format_value("regen", 0.0) == "–" and STATS.format_value("regen", 2.0) == "+1/s", "Regeneration-Anzeige in LP/s (%s)" % STATS.format_value("regen", 2.0))
+	_check(STATS.format_value("lifesteal", 1.0) == "+0,4 %", "Lebensraub-Anzeige (%s)" % STATS.format_value("lifesteal", 1.0))
 	_check(STATS.format_value("luck", 1.5) == "+1,5", "Glück-Anzeige (%s)" % STATS.format_value("luck", 1.5))
 
 
@@ -143,11 +145,15 @@ func _test_effects() -> void:
 	evo.earn(100)
 	_check(evo.dna == int(round(100.0 * (1.0 + float(STATS.definition("gene").step)))), "Genfluss mehr DNA (%d)" % evo.dna)
 	evo.debug_grant("vigor", "legendary")
-	_check(evo.leader_hp_bonus() == 2, "Anführerherz legendär (Wert 3) = +2 LP")
+	_check(evo.leader_hp_bonus(100) == 45, "Anführerherz legendär (Wert 3) = +45 %% Max-LP (%d)" % evo.leader_hp_bonus(100))
+	evo.debug_grant("lifesteal", "common")
+	_check(is_equal_approx(evo.lifesteal(), 0.004), "Lebensraub +0,4 %")
+	evo.debug_grant("blutzahn")
+	_check(is_equal_approx(evo.lifesteal(), 0.034), "Blutzahn +3 %")
 	evo.debug_grant("luck", "rare")
 	_check(is_equal_approx(evo.luck(), 1.5), "Glück selten = 1,5")
 	evo.debug_grant("magnet", "common")
-	_check(is_equal_approx(evo.magnet_multiplier(), 1.12), "Lockduft +12 %")
+	_check(is_equal_approx(evo.magnet_multiplier(), 1.0 + float(STATS.definition("magnet").step)), "Lockduft")
 	# Level-Offers der Fassade haben die Seltenheit und wirken beim Wählen.
 	var level = EVOLUTION.new()
 	level.rng.seed = 5

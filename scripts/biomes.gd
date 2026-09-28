@@ -39,7 +39,7 @@ const DEFAULT := "verdant_maw"
 # Biome circle of a run: every Migrationsschlund leads to the next entry and the
 # last one back to the first (Glutsumpf -> Verdant Maw), so a run can loop forever;
 # each visit brings its apex ("apex" in DATA) once, stronger on every loop (HuntWorld).
-const ORDER := ["verdant_maw", "glutsumpf"]
+const ORDER := ["verdant_maw", "duerrschlund", "glutsumpf"]
 
 const DATA := {
 	"verdant_maw": {
@@ -144,6 +144,96 @@ const DATA := {
 			"leaper": Color(0.3, 0.26, 0.3, 0.5),
 			"bog_king": Color(0.34, 0.26, 0.26, 0.6),
 			"prey": Color(0.55, 0.9, 0.88, 0.35),
+		},
+	},
+	# Stage 19 (phase 1, data only): the desert "Dürrschlund" between Verdant Maw
+	# and Glutsumpf. Not in ORDER yet – the map integration (arena, border, spawns,
+	# migration order Verdant -> Dürrschlund -> Glutsumpf) is stage 19 phase 2.
+	# Readability: the swarm is ember red, so the sand is pale ochre/beige with
+	# cool (blue-grey) shadows instead of orange; paths are packed, greyer sand;
+	# oases are turquoise with a green rim; cactus flowers pink (never orange).
+	"duerrschlund": {
+		"name": "Dürrschlund",
+		"title": "DÜRRSCHLUND",
+		"description": "Dünen, Knochenfelder und der Sandwurm.",
+		"apex": "Sandwurm",
+		# HuntWorld kind of the apex (scripts/apex_sandworm.gd).
+		"apex_kind": "apex_sandworm",
+		"ground": Color("dcc89e"),
+		"path": Color("bcac8a"),
+		"path_edge": Color("9f8f6e"),
+		"path_emission": Color(0, 0, 0),
+		"path_edge_emission": Color(0, 0, 0),
+		"moss": [Color("d4bf92"), Color("c9b489"), Color("e3d1a8")],
+		"sand": Color("e9d9b2"),
+		"earth": Color("b5a07a"),
+		"plinth": Color("a8936e"),
+		"pool": Color("35c4bd"),
+		"pool_roughness": 0.3,
+		"pool_emission": Color(0, 0, 0),
+		"shore": Color("86b25e"),
+		"flower_dark": Color("b04c78"),
+		"flower_light": Color("f3a8c6"),
+		"prop_rim": Color("fff2d2"),
+		"rock_tint": Color(0.9, 0.72, 0.52, 0.5),
+		"leaf_tint": Color(0.62, 0.66, 0.42, 0.45),
+		"wood_tint": Color(0.86, 0.8, 0.68, 0.65),
+		"reed_tint": Color(0.84, 0.76, 0.54, 0.6),
+		# Desert props (phase 2): walls a muted rust-brown so they stay darker than
+		# the pale sand (rule "klare, dunkle Wände"), bones only slightly warmed.
+		"wall_tint": Color(0.56, 0.42, 0.34, 0.68),
+		"bone_tint": Color(1.0, 0.95, 0.85, 0.15),
+		# Stage 19: no light ground patches (from above they read as pebbles);
+		# the dune shader carries the variation.
+		"moss_patches": 0,
+		"sand_patches": 0,
+		"pebbles": 4,
+		"leaf_clumps_min": 1,
+		"pond_one_in": 7,
+		"flower_one_in": 5,
+		"eruptions": false,
+		# Phase-2 hazards (flags only, nothing reads them yet): quicksand patches
+		# slow the swarm (walkable, announced by their look), sandstorms are short,
+		# telegraphed waves that cut the view.
+		"quicksand": true,
+		"sandstorm": true,
+		# Map edge (arena_border.gd): high dune ridges and sandstone, fading into a
+		# dusty haze; "water" is the dune sea / quicksand ring of the edge.
+		"border": {"floor": Color("bda77e"), "fog": Color(0.6, 0.55, 0.47), "water": Color("cfb07a"), "shore": Color("a78f66")},
+		"light": {"color": Color(1.0, 0.96, 0.88), "energy": 1.15},
+		# Shader look for the phase-2 ground (like the Glutsumpf "ember" block):
+		# dune ripples, cool shadow side, bone-white flecks, turquoise oasis water.
+		"desert": {
+			"dune_light": Color("e6d4aa"),
+			"dune_shadow": Color("b3a590"),
+			"shadow_cool": Color("8e93a6"),
+			"ripple": Color("cdb68a"),
+			"ripple_amount": 0.4,
+			"bone_fleck": Color("f4ecd8"),
+			"quicksand": Color("b89a64"),
+			"quicksand_swirl": Color("8f7446"),
+			"oasis_core": Color("2fb8b8"),
+			"oasis_shallow": Color("7fe0d0"),
+			"oasis_rim": Color("6aa04a"),
+		},
+		# Props (assets/gameplay/props/*_game.glb) by role for the map generator.
+		# wall: impassable, forms paths and choke points (cliff blocks, rib rows);
+		# deco: small, walkable around; landmark: one per region at most;
+		# portal: the desert Migrationsschlund (the worm's breakthrough maw).
+		"props": {
+			"wall": ["SandstoneCliff", "RibBones"],
+			"deco": ["Cactus"],
+			"landmark": ["GiantSkull", "RockArch"],
+			"portal": "SandPortal",
+			# Still missing (stages/ASSET_REQUESTS.md): oasis palm for the clearings.
+			"missing": ["OasisPalm"],
+		},
+		"enemy_tints": {
+			"hunter": Color(0.86, 0.72, 0.52, 0.4),
+			"skitter": Color(0.92, 0.78, 0.5, 0.35),
+			"leaper": Color(0.72, 0.58, 0.42, 0.4),
+			"bog_king": Color(0.78, 0.64, 0.46, 0.45),
+			"prey": Color(0.55, 0.9, 0.88, 0.3),
 		},
 	},
 }

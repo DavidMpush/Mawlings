@@ -216,7 +216,7 @@ func _paint_chip(canvas: CanvasItem) -> void:
 	canvas.draw_polyline(points, FLOOD.lerp(Color.WHITE, 0.3 * pulse), 3.0, true)
 	var icon_c := rect.position + Vector2(27, 24)
 	canvas.draw_circle(icon_c, 19, Color(FLOOD, 0.25 + 0.2 * pulse))
-	UiIcons.draw(canvas, "skull", Rect2(icon_c - Vector2(17, 17), Vector2(34, 34)), UiStyle.tone(Color("ffd3dc")))
+	UiIcons.draw(canvas, "flood", Rect2(icon_c - Vector2(17, 17), Vector2(34, 34)), UiStyle.tone(Color("ffd3dc")))
 	UiStyle.text(canvas, text, rect.position + Vector2(50, 33), UiStyle.SIZE_LABEL + 2, UiStyle.tone(Color("ffe3e8")), false, 5, font)
 
 
@@ -335,7 +335,7 @@ func _draw_badge(canvas: CanvasItem, state: Dictionary, mode: int) -> void:
 	var rect := _pill_rect
 	Kit.veil_pill(canvas, rect, "danger", 0.5)
 	var icon := rect.size.y - 8.0
-	UiIcons.draw(canvas, "skull", Rect2(rect.position + Vector2(8.0, 4.0), Vector2(icon, icon)), Color.WHITE)
+	UiIcons.draw(canvas, "flood", Rect2(rect.position + Vector2(8.0, 4.0), Vector2(icon, icon)), Color.WHITE)
 	Kit.number(canvas, Vector2(rect.position.x + icon + 14.0, rect.get_center().y), _badge_text(state, mode), UiStyle.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
 
 
@@ -362,7 +362,7 @@ func _draw_pill(canvas: CanvasItem) -> void:
 	var plate_c := Vector2(rect.position.x + plate * 0.5 - 6.0, rect.get_center().y)
 	Kit.icon_plate(canvas, plate_c, plate, "dark")
 	var icon := roundf(plate * 0.66)
-	UiIcons.draw(canvas, "skull", Rect2(Kit.plate_center(plate_c, plate) - Vector2(icon, icon) * 0.5, Vector2(icon, icon)), Color.WHITE)
+	UiIcons.draw(canvas, "flood", Rect2(Kit.plate_center(plate_c, plate) - Vector2(icon, icon) * 0.5, Vector2(icon, icon)), Color.WHITE)
 	var cy := rect.get_center().y - 2.0
 	var well_w := _well_width(state, mode)
 	var well := Rect2(rect.end.x - 8.0 - well_w, rect.position.y + 8.0, well_w, h - 18.0)

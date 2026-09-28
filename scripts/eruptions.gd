@@ -52,7 +52,9 @@ const START_CLEARANCE := 22.0
 const BURST_SECONDS := 1.1
 const TELEGRAPH_HEIGHT := 0.12
 # Palette per mode: fill (dark smoke), pattern (rings/core), edge (contour).
-const PALETTE := {"fill": Color("2b0d06"), "pattern": Color("ffcf4a"), "edge": Color("fff3cf"), "fill_alpha": 0.45}
+# Stage 20 (S1/S3): the warning is a danger contour (magenta band, pale pink
+# rings); only the hot core keeps the lava colours (it is the lava itself).
+const PALETTE := {"fill": Color("2b0d16"), "pattern": Color("ffd6ea"), "edge": UI_STYLE.BRAWL_DANGER_LIGHT, "fill_alpha": 0.45}
 const PALETTE_COLORBLIND := {"fill": UI_STYLE.CB_BLACK, "pattern": UI_STYLE.CB_YELLOW, "edge": UI_STYLE.CB_WHITE, "fill_alpha": 0.5}
 const DARK := Color("0f0a0c")
 const LAVA := {"core": Color("ffe27a"), "mid": Color("ff9a2e"), "crust": Color("5a2014")}

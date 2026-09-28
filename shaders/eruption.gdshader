@@ -80,7 +80,8 @@ void fragment() {
 		color = mix(color, pattern_color.rgb, ring * (1.0 - core));
 		alpha = mix(alpha, 0.95, ring * (1.0 - core));
 		float boil = ember_noise(world_pos.xz * 2.2 + vec2(t * 0.8, -t * 0.6));
-		vec3 core_rgb = mix(pattern_color.rgb, edge_color.rgb, boil * 0.6);
+		// Stage 20: the core is lava (not a warning colour); rings and contour carry the danger hue.
+		vec3 core_rgb = mix(lava_mid.rgb, lava_core.rgb, boil * 0.6);
 		color = mix(color, core_rgb, core * 0.9);
 		alpha = mix(alpha, 0.72 + 0.2 * boil, core);
 		color = mix(color, dark_color.rgb, core_rim);

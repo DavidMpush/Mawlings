@@ -21,7 +21,7 @@ Priorität: **A** = ersetzt heute sichtbare Platzhalter, **B** = macht Menü/Mar
 | ~~Skitter~~ ✅ geliefert | Primitiv | `Original small blue-magenta sprinting insect-lizard, very long thin legs, flat streamlined body, two sickle-shaped front claws, pink glowing back stripe.` |
 | ~~Moorbrut (Horde)~~ ✅ geliefert | umgefärbter Mawling | `Original tiny swamp brood creature, almost black olive body, round head that is mostly jaw, toxic yellow eyes and a thin yellow ridge along the back, crouched, four stubby legs.` |
 | ~~Moosschlund (Apex 1)~~ ✅ geliefert | umgefärbter Bog King | `Original colossal moss-covered swamp beast boss, huge wide maw with wooden-looking teeth, two tangled root antlers, back covered in moss and small glowing green spore bulbs, heavy low body, thick short legs.` |
-| Aschenkröte (Apex 2) | Platzhalter (in Arbeit) | `Original giant lava toad boss, cracked charcoal-black skin with glowing orange magma seams, wide mouth, huge hind legs folded for jumping, three bubbling ember blisters on its back.` |
+| ~~Aschenkröte (Apex 2)~~ ✅ geliefert | umgefärbter Bog King | `Original giant lava toad boss, cracked charcoal-black skin with glowing orange magma seams, wide mouth, huge hind legs folded for jumping, three bubbling ember blisters on its back.` |
 | ~~Brutnest~~ ✅ geliefert | Primitive | `One organic nest of woven dark roots and moss holding five turquoise speckled eggs, one egg slightly cracked with warm light inside, low and wide.` |
 | ~~Fluch-Totem~~ ✅ geliefert | Primitive | `One carved swamp totem pole of bone and dark wood, a snarling maw face on top, pink glowing runes, small skulls tied with vines, slightly leaning.` |
 | ~~Alpha-Kern~~ ✅ geliefert | Primitive | `One floating organic amber core crystal cradled inside a violet bony shell like a half-open claw, glowing warm center.` |
@@ -71,21 +71,36 @@ Gemeinsamer Zusatz: `Original tiny alien pack predator leader, compact low body,
 
 Jeweils an die 3D-Vorlage oben anhängen. Referenzbild zuerst erzeugen, dann Hunyuan3D, GLB nach `assets/`.
 
+**Stand 27.09.2026 (Etappe 19, Phase 1): geliefert und aufbereitet** – Sandwurm (`sandwurm.glb`), Durchbruch-Maul (`sandportal.glb`, wird der Migrationsschlund der Wüste), Sandmade (`sandgrub.glb`), Riesenrippen (`ribbones.glb`), Sandstein-Klippe (`sandstone.glb`), Felsbogen (`rockarch.glb`), Dornbusch/Kaktus (`cactus.glb`), Knochenschädel (`skull.glb`); Spielversionen siehe `assets/README.md`. **Es fehlt noch: die Oasen-Palme** (Lichtungen/Oasen) sowie die beiden 2D-Bilder unten. Hinweis zur Sandstein-Klippe: das Modell ist eine sehr flache Platte (Höhe ≈ 15 % der Länge); als Wand wird sie vorerst in der Höhe gestreckt, ein höherer Block wäre besser.
+
 | Asset | Motivzusatz |
 |---|---|
-| **Sandwurm (Endboss)** | `Original colossal desert sandworm boss, segmented armored body in sandstone and bone-white plates, huge round maw at the front with rings of inward-pointing teeth, small glowing amber eyes around the maw, rough sand clinging to the segments, body rising in an S-curve out of a mound of sand, only the front half visible.` |
-| Sandwurm-Maul (Durchbruch) | `One huge round worm maw bursting vertically out of cracked desert ground, rings of teeth, sand and rocks flying, seen from slightly above.` |
-| Sandmade (kleiner Gegner) | `Original tiny desert grub creature, pale sand-colored segmented body, small round mouth with teeth, four stubby legs, amber eyes.` |
-| Riesenrippen (Wand/Engpass) | `Group of giant bleached rib bones arching out of desert sand like a fence, partly buried, cracked and weathered.` |
-| Sandstein-Klippe | `One chunky sandstone cliff block with layered stripes in ochre and rust, flat top, a few cracks, low and wide.` |
-| Felsbogen | `One natural sandstone rock arch, wide enough to walk under, weathered layers, small desert shrubs at the base.` |
-| Dornbusch/Kaktus | `One stylized desert thorn bush with a few round cactus pads and small pink flowers, compact silhouette.` |
-| Oasen-Palme | `One small stylized oasis palm with a curved trunk and a round crown of broad leaves, a few rocks at the base.` |
-| Knochenschädel (Landmarke) | `One giant half-buried beast skull in desert sand, horned, bleached bone, sand spilling from the eye sockets.` |
+| **Sandwurm (Endboss)** ✅ geliefert | `Original colossal desert sandworm boss, segmented armored body in sandstone and bone-white plates, huge round maw at the front with rings of inward-pointing teeth, small glowing amber eyes around the maw, rough sand clinging to the segments, body rising in an S-curve out of a mound of sand, only the front half visible.` |
+| Sandwurm-Maul (Durchbruch) ✅ geliefert | `One huge round worm maw bursting vertically out of cracked desert ground, rings of teeth, sand and rocks flying, seen from slightly above.` |
+| Sandmade (kleiner Gegner) ✅ geliefert | `Original tiny desert grub creature, pale sand-colored segmented body, small round mouth with teeth, four stubby legs, amber eyes.` |
+| Riesenrippen (Wand/Engpass) ✅ geliefert | `Group of giant bleached rib bones arching out of desert sand like a fence, partly buried, cracked and weathered.` |
+| Sandstein-Klippe ✅ geliefert (flach) | `One chunky sandstone cliff block with layered stripes in ochre and rust, flat top, a few cracks, low and wide.` |
+| Felsbogen ✅ geliefert | `One natural sandstone rock arch, wide enough to walk under, weathered layers, small desert shrubs at the base.` |
+| Dornbusch/Kaktus ✅ geliefert | `One stylized desert thorn bush with a few round cactus pads and small pink flowers, compact silhouette.` |
+| **Oasen-Palme – fehlt noch** | `One small stylized oasis palm with a curved trunk and a round crown of broad leaves, a few rocks at the base.` |
+| Knochenschädel (Landmarke) ✅ geliefert | `One giant half-buried beast skull in desert sand, horned, bleached bone, sand spilling from the eye sockets.` |
 
 2D:
 - Biom-Karte „Dürrschlund“ (1024×512, 2D-Illustration + `Wide landscape vignette of a stylized desert canyon with ochre dunes, giant bleached rib bones, a turquoise oasis and a sand trail of a buried worm.`)
 - Boss-Porträt Sandwurm (512×512, Stil siehe `stages/ICON_REQUESTS.md`).
+
+## A – Ruinen & Wald für die Erkundungskarte (Etappe 18c)
+
+Die Ruinen sind heute aus dem Felsmodell gebaut und wirken aus der Spielkamera wie Geröll. Für echte Gebäudereste:
+
+| Asset | Motivzusatz |
+|---|---|
+| Mauerstück gerade | `One straight section of an ancient overgrown jungle ruin wall, carved mossy stone blocks, about three times as long as high, broken top edge, vines.` |
+| Mauerecke | `One L-shaped corner of an ancient jungle ruin wall, carved stone blocks with moss, broken uneven top, small roots.` |
+| Säule stehend | `One ancient carved stone pillar with a cracked top and moss, simple tribal maw carvings, standing upright.` |
+| Säule liegend | `One fallen broken ancient stone pillar lying on its side, cracked into two drums, moss and small plants.` |
+| Tor/Türsturz | `One ancient ruin doorway made of two stone posts and a heavy lintel with a carved maw face, overgrown with vines.` |
+| Dschungelbaum | `One stylized jungle tree with a thick curved trunk, buttress roots and a broad round leafy crown, readable from above.` |
 
 ## C – später
 - Store-Screenshots-Hintergründe, Trailer-Endkarte, Trophäen-Abzeichen-Rahmen (Bronze/Silber/Gold), Ladebildschirm.
@@ -94,3 +109,14 @@ Jeweils an die 3D-Vorlage oben anhängen. Referenzbild zuerst erzeugen, dann Hun
 - 3D: GLB direkt in `assets/` legen (Originale werden nicht verändert; Spielversion erzeugt `tools/optimize_characters.py`).
 - 2D: PNG in `C:\Users\vrxby\Documents\Codex\Swarm\Design\UI_Assets_V3\` (oder neuer Ordner deiner Wahl) und kurz Bescheid geben.
 - Für Hunyuan zuerst das Referenzbild erzeugen, dann das 3D-Modell; das Referenzbild bitte mit ablegen.
+
+## Etappe 17 Welle 2 – Kokons, Schrein, Pilzknolle (heute Primitive in `scripts/chests.gd`, `shrines.gd`, `powerups.gd`)
+
+Jeweils an die 3D-Vorlage oben anhängen. Die Spielversion färbt/skaliert nach Art (Karten-Kokon cremeweiß, goldener und Boss-Kokon gold), deshalb reicht je ein neutrales Modell.
+
+| Asset | heute | Motivzusatz (an 3D-Vorlage anhängen) |
+|---|---|---|
+| **Brutkokon** (Karten-/Elite-Kokon) | Ei-Primitiv mit Bändern | `One upright organic silk cocoon, egg-shaped and slightly lumpy, wrapped in thick cream-colored silk bands, one vertical glowing ember-orange slit on the front as if something bright is inside, sitting on a low mound of tangled silk and roots.` |
+| **Boss-Kokon** (golden) | goldenes Primitiv mit Knochenzacken | `One large golden silk cocoon wrapped in heavy golden threads, crowned with five bone spikes at the top, warm light glowing through a vertical slit, on a mound of golden silk.` |
+| **Schrein** | Steinkreis aus Boxen | `One small ancient stone circle of four weathered standing stones with lintel caps around a low round plinth, a violet crystal floating above the plinth, moss on the stones.` |
+| **Pilzknolle** | Pilz-Primitiv | `One fat round mushroom knoll with a violet cap covered in glowing pale spots, short thick cream stem, a few tiny mushrooms at its base.` |

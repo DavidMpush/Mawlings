@@ -25,11 +25,11 @@ const ARSENAL = preload("res://scripts/progression/arsenal.gd")
 
 ## Etappe 17: Start-Pools der beiden Spuren. Werte: alle außer Regeneration
 ## (Trophäe „Zähes Herz“). Waffen/Relikte wie Arsenal.START_WEAPONS/UNLOCK_*.
-const TRAIT_IDS := ["bite", "crit", "haste", "reach", "rally", "armor", "evade", "vigor", "brood", "magnet", "gene", "speed", "luck"]
+const TRAIT_IDS := ["bite", "crit", "haste", "reach", "rally", "armor", "evade", "vigor", "lifesteal", "brood", "magnet", "gene", "speed", "luck"]
 const START_WEAPONS := ["rudelbiss", "sporenwolke", "klauenwirbel", "giftbiss", "schallbrueller"]
 const START_RELICS := ["hungerstein", "zaehe_haut", "scharfe_zaehne", "flinke_beine", "witterungsnase", "dna_splitter",
 	"sporenherz", "aetzdruese", "rudelhorn", "gewitterfell", "grabkralle", "gluecksknochen",
-	"koenigszahnkette", "glutdruese", "zwillingsbrut", "magnetkern"]
+	"blutzahn", "koenigszahnkette", "glutdruese", "zwillingsbrut", "magnetkern"]
 ## Alt-Name (Etappe 03–16); gleich START_WEAPONS.
 const START_ATTACKS := START_WEAPONS
 ## attack = Waffenplätze (Arsenal); trait = Werte haben kein Platzlimit (14).
@@ -44,6 +44,7 @@ const MUTATION_NAMES := {"rudelbiss": "Rudelbiss", "sporenwolke": "Sporenwolke",
 	"regen": "Regeneration", "dornenhaut": "Dornenhaut", "urmutter": "Urmutter", "blutmond": "Blutmond", "schlundherz": "Schlundherz"}
 ## Alt-IDs der Anlagen -> neue Werte (dornenhaut bleibt als Relikt-ID gleich).
 const LEGACY_IDS := {"jaws": "bite", "pack": "rally", "scatter": "evade", "glutton": "brood", "lockduft": "magnet", "regeneration": "regen"}
+## Etappe 17b: kein Populationslimit mehr; nur noch Deckel der Start-Population.
 const MAX_POPULATION := 250
 const META_ARMOR_CAP := 0.3
 const ARMOR_CAP := 0.6
@@ -84,17 +85,18 @@ const STRAIN_ORDER := ["glutmaw", "sporling", "knochenkiefer", "flinkzahn", "aet
 
 const BIOMES := {
 	"verdant_maw": {"name": "Verdant Maw", "description": "Offene, grüne Jagdgründe.", "locked": false, "status": ""},
+	"duerrschlund": {"name": "Dürrschlund", "description": "Dünen, Knochenfelder und Treibsand.", "locked": true, "status": "Moosschlund", "unlock_hint": "Besiege den Moosschlund", "unlock_stat": "total_moss"},
 	"glutsumpf": {"name": "Glutsumpf", "description": "Glühender Sumpf voller Gase.", "locked": true, "status": "bald"},
 }
-const BIOME_ORDER := ["verdant_maw", "glutsumpf"]
+const BIOME_ORDER := ["verdant_maw", "duerrschlund", "glutsumpf"]
 
 ## flood_start: Sekunden bis "Die Flut" (Etappe 08); die Ankündigung kommt 10 s vorher.
 const DIFFICULTIES := [
 	{"name": "Wild", "description": "Der normale Kreislauf der Jagd.", "enemy_hp": 1.0, "enemy_damage": 1.0,
-		"pressure_doubling": 85.0, "flood_start": 300.0, "reward": 1.0, "crowns": 1, "unlock_quest": ""},
-	{"name": "Brutal", "description": "Zähere, härter zuschlagende Gegner.", "enemy_hp": 1.3, "enemy_damage": 1.05,
+		"pressure_doubling": 80.0, "flood_start": 270.0, "reward": 1.0, "crowns": 1, "unlock_quest": ""},
+	{"name": "Brutal", "description": "Zähere, härter zuschlagende Gegner.", "enemy_hp": 1.15, "enemy_damage": 1.05,
 		"pressure_doubling": 80.0, "flood_start": 240.0, "reward": 2.0, "crowns": 2, "unlock_quest": "survive_5"},
-	{"name": "Apex", "description": "Nur für die stärksten Schwärme.", "enemy_hp": 1.3, "enemy_damage": 1.15,
+	{"name": "Apex", "description": "Nur für die stärksten Schwärme.", "enemy_hp": 1.2, "enemy_damage": 1.15,
 		"pressure_doubling": 60.0, "flood_start": 180.0, "reward": 3.5, "crowns": 3, "unlock_quest": "brutal_3"},
 ]
 
@@ -130,7 +132,10 @@ const QUESTS := [
 	{"id": "peak_50", "name": "Rudel", "description": "Erreiche 50 Mawlings gleichzeitig.", "stat": "best_peak", "target": 50, "reward": {"essence": 80}},
 	{"id": "peak_100", "name": "Horde", "description": "Erreiche 100 Mawlings gleichzeitig.", "stat": "best_peak", "target": 100, "reward": {"unlock": ["weapon:stachelruecken"]}},
 	{"id": "peak_200", "name": "Flut", "description": "Erreiche 200 Mawlings gleichzeitig.", "stat": "best_peak", "target": 200, "reward": {"crowns": 2}},
-	{"id": "peak_250", "name": "Die volle Brut", "description": "Erreiche das Limit von 250 Mawlings.", "stat": "best_peak", "target": 250, "reward": {"crowns": 3}},
+	# Etappe 17b: kein Limit mehr - "Die volle Brut" in Stufen.
+	{"id": "peak_250", "name": "Die volle Brut I", "description": "Erreiche 250 Mawlings gleichzeitig.", "stat": "best_peak", "target": 250, "reward": {"crowns": 3}},
+	{"id": "peak_500", "name": "Die volle Brut II", "description": "Erreiche 500 Mawlings gleichzeitig.", "stat": "best_peak", "target": 500, "reward": {"crowns": 3, "essence": 200}},
+	{"id": "peak_1000", "name": "Die volle Brut III", "description": "Erreiche 1.000 Mawlings gleichzeitig.", "stat": "best_peak", "target": 1000, "reward": {"crowns": 5}},
 	{"id": "kills_100", "name": "Erste Beute", "description": "Erlege insgesamt 100 Tiere.", "stat": "total_kills", "target": 100, "reward": {"essence": 100}},
 	{"id": "kills_500", "name": "Jagdrausch", "description": "Erlege insgesamt 500 Tiere.", "stat": "total_kills", "target": 500, "reward": {"unlock": ["weapon:saeurespucker", "reroll"]}},
 	{"id": "kills_2000", "name": "Schlächter", "description": "Erlege insgesamt 2000 Tiere.", "stat": "total_kills", "target": 2000, "reward": {"crowns": 2, "unlock": ["relic:blutmond"]}},
@@ -172,6 +177,7 @@ const QUESTS := [
 	{"id": "apex_moosschlund", "name": "Moosschlund bezwungen", "description": "Besiege den Moosschlund.", "stat": "total_moss", "target": 1, "reward": {"crowns": 2, "essence": 200, "unlock": ["relic:schlundherz"]}},
 	{"id": "migration_1", "name": "Migration", "description": "Wandere durch den Migrationsschlund in ein neues Biom.", "stat": "total_migrations", "target": 1, "reward": {"crowns": 1, "essence": 150}},
 	{"id": "glutsumpf_2", "name": "Glutherz", "description": "Überlebe 2 Minuten im Glutsumpf.", "stat": "biome_time:glutsumpf", "target": 120, "reward": {"crowns": 2}},
+	{"id": "apex_sandwurm", "name": "Sandwurm bezwungen", "description": "Besiege den Sandwurm im Dürrschlund.", "stat": "total_worms", "target": 1, "reward": {"crowns": 3, "essence": 250}},
 	{"id": "apex_aschenkroete", "name": "Aschenkröte bezwungen", "description": "Besiege die Aschenkröte im Glutsumpf.", "stat": "total_toads", "target": 1, "reward": {"crowns": 3, "essence": 300}},
 ]
 

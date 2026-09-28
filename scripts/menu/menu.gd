@@ -161,7 +161,7 @@ func _load_meta() -> void:
 				strain_index = i
 				break
 	biome_id = last_choice.get("biome", "verdant_maw")
-	if meta.BIOMES.get(biome_id, {}).get("locked", false):
+	if not biome_unlocked(biome_id):
 		biome_id = meta.BIOME_ORDER[0]
 	difficulty = int(last_choice.get("difficulty", 0))
 	if not _difficulty_unlocked(difficulty):
@@ -242,6 +242,15 @@ func _strain_unlocked(id: String) -> bool:
 	return profile != null and (id in profile.unlocked_strains or id in profile.owned_strains)
 
 
+## Etappe 19: Biome können über einen Rekord freigeschaltet werden (Dürrschlund nach dem Moosschlund).
+func biome_unlocked(id: String) -> bool:
+	if not meta.BIOMES.has(id):
+		return false
+	if profile != null and profile.has_method("is_biome_unlocked"):
+		return profile.is_biome_unlocked(id)
+	return not bool(meta.BIOMES[id].get("locked", false))
+
+
 func _difficulty_unlocked(index: int) -> bool:
 	if profile == null or meta == null or index < 0 or index >= meta.DIFFICULTIES.size():
 		return false
@@ -317,8 +326,9 @@ func select_difficulty(index: int) -> bool:
 
 func select_biome(id: String) -> bool:
 	var biome: Dictionary = meta.BIOMES.get(id, {})
-	if biome.is_empty() or biome.get("locked", false):
-		_toast("%s kommt bald" % biome.get("name", id))
+	if biome.is_empty() or not biome_unlocked(id):
+		var hint := String(biome.get("unlock_hint", biome.get("status", "")))
+		_toast("%s · %s" % [biome.get("name", id), hint if hint != "" else "kommt bald"])
 		return false
 	biome_id = id
 	_remember()
@@ -841,7 +851,8 @@ func strain_buy_rect() -> Rect2:
 
 
 func biome_rect(i: int) -> Rect2:
-	var w := (size.x - 80 - 16) * 0.5
+	var count := maxi(2, meta.BIOME_ORDER.size() if meta != null else 3)
+	var w := (size.x - 80 - 16 * (count - 1)) / float(count)
 	return Rect2(40 + i * (w + 16), 822, w, 116)
 
 

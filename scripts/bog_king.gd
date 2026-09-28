@@ -291,7 +291,7 @@ func _setup_limbs() -> void:
 
 func _stomp() -> void:
 	var parent := _fx_parent()
-	FX.ring(parent, attack_center, Color(1.0, 0.56, 0.24, 0.95), 0.8, TUNING.BOSS_ATTACK_RADIUS * 1.15, 0.45)
+	FX.ring(parent, attack_center, Color(1.0, 0.49, 0.76, 0.95), 0.8, TUNING.BOSS_ATTACK_RADIUS * 1.15, 0.45)
 	FX.ring(parent, attack_center, DUST, 0.6, TUNING.BOSS_ATTACK_RADIUS * 0.8, 0.7)
 	_shake(0.5)
 	_slam = SLAM_SECONDS

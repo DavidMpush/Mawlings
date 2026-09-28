@@ -91,9 +91,10 @@ func _check_hooks() -> void:
 	_expect("quake", "apex QUAKE wind-up")
 
 	_fresh()
-	world.evolution.ranks["regen"] = 3
-	world.model.leader_hp = maxi(1, world.model.leader_max_hp - 1)
-	world._note_kills(40)
+	# Etappe 17c: Regeneration heals per second; the kill heal comes from the Königszahnkette.
+	world.evolution.debug_grant("koenigszahnkette")
+	world.model.leader_hp = maxi(1, world.model.leader_max_hp - 20)
+	world._note_kills(15)
 	_expect("regen", "regeneration heal")
 
 	_fresh()

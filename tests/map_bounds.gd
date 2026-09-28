@@ -245,8 +245,9 @@ func _check_layout_spawns() -> void:
 
 func _check_spawn_points() -> void:
 	arena.set_seed(SEED)
+	# Stage 18c: solo starts on a random open place well inside the map.
 	var solo: Array = arena.spawn_points(1)
-	_check(solo.size() == 1 and solo[0].length() < 0.01, "Solo starts in the map centre (%s)" % [solo])
+	_check(solo.size() == 1 and arena.is_open(solo[0], 3.0) and arena.is_inside(solo[0], 60.0), "Solo starts on open ground well inside the map (%s)" % [solo])
 	for count in [2, 3, 4]:
 		# Stage 18b: start clearings exist for the configured player count.
 		arena.configure_map(arena.regions_for_players(count), count)
@@ -303,7 +304,7 @@ func _check_migration() -> void:
 		arena.sync(swarm.position)
 		if world.migration_state == 2:
 			break
-	_check(world.migration_state == 2 and world.biome_id == "glutsumpf", "Migration completed (state %d, %s)" % [world.migration_state, world.biome_id])
+	_check(world.migration_state == 2 and world.biome_id == "duerrschlund", "Migration completed into the Dürrschlund (state %d, %s)" % [world.migration_state, world.biome_id])
 	_check(arena.world_seed != before_seed and _layout_snapshot() != before_layout, "Migration builds a new map (seed %d -> %d)" % [before_seed, arena.world_seed])
 	_check(is_equal_approx(arena.bounds().size.x, 336.0), "New map has the same size")
 	_check(arena.is_inside(swarm.position, 0.75) and arena.is_open(swarm.position, 1.0), "Migration lands inside on open ground (%s)" % swarm.position)

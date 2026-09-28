@@ -158,7 +158,8 @@ func _check_area_hit() -> void:
 	var lost: int = population_before - world.model.population
 	var expected := ceili(float(apex.attack_power) * float(points.size() - 1) / float(points.size()) - 0.0001)
 	_check(lost == mini(expected, population_before - 1), "Followers inside fall like any area hit (lost %d, expected %d)" % [lost, expected])
-	_check(world.model.leader_hp == hp_before - 1 and world.model.population > 0, "Leader inside loses 1 LP instead of dying (%d -> %d)" % [hp_before, world.model.leader_hp])
+	# Etappe 17c: the leader loses the apex hit in LP (LEADER_HIT.apex x pressure^k).
+	_check(world.model.leader_hp == hp_before - world.leader_damage(apex) and world.model.population > 0, "Leader inside loses the apex hit instead of dying (%d -> %d)" % [hp_before, world.model.leader_hp])
 	_check(world.model.leader_invulnerable > 0.0, "Leader grace after the hit")
 	# Outside the locked area: nothing happens.
 	apex = _ready_apex(Vector3(0, 0, -6.5))
@@ -250,7 +251,7 @@ func _check_kill() -> void:
 	_steps(TUNING.APEX_SINK_SECONDS + 0.5)
 	_check(again == world.portal and _maws() == 1 and world.apex_dying == null, "No second maw; the body is gone after sinking")
 	var objectives: Dictionary = world.hud.get_meta("objectives")
-	_check(bool(objectives.portal_active) and String(objectives.portal_target) == "GLUTSUMPF", "HUD: MIGRATION pointer data")
+	_check(bool(objectives.portal_active) and String(objectives.portal_target) == "DÜRRSCHLUND", "HUD: MIGRATION pointer data (next biome Dürrschlund)")
 	var stats: Dictionary = world.run_stats()
 	_check(int(stats.apex_kills) == 1 and int(stats.biomes_visited) == 1, "RunStats apex_kills / biomes_visited")
 	# The apex never returns in this run.

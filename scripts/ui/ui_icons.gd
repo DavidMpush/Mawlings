@@ -34,6 +34,10 @@ const V3_ICONS := {
 	"branch_protect": "icons/carapace_survival", "branch_special": "icons/mutation_special",
 	# Boss portrait (bust) for bars and result rows.
 	"portrait_bog_king": "bosses/bog_king",
+	"portrait_apex": "bosses/moosschlund",
+	"portrait_apex_toad": "bosses/ash_toad",
+	"portrait_apex_sandworm": "bosses/apex_sandworm",
+	"stachelruecken": "icons/spikeback", "brutsack": "icons/brood_sac",
 }
 # Icon standard V4 (Supercell style, ART_UI_PLAN.md "Icon-Standard"): the
 # painted icons above with one common crop, contour and category recolours,
@@ -50,12 +54,35 @@ const V4_ICONS := [
 	"trophy", "biome_verdant", "biome_glutsumpf", "diff_wild", "diff_brutal", "diff_apex",
 	"hunter", "skitter", "leaper", "nibbler", "bog_king", "instinct", "hub",
 	"pause", "play", "clock", "lock", "reroll", "restart", "banish", "skip",
+	"klauenwirbel", "giftbiss",
+	"mawling_head_glutmaw", "mawling_head_sporling", "mawling_head_knochenkiefer",
+	"mawling_head_flinkzahn", "mawling_head_aetzmaul", "mawling_head_nachtmaul",
+	"schallbrueller", "glutdruese", "pilzreich", "dornenwall", "crit", "haste", "reach",
+	"vigor", "gene", "speed", "luck", "magnet", "pu_rausch", "pu_blutrausch",
+	"pu_magnetsturm", "pu_chitinschild", "pu_raserei", "pu_brutwelle", "cocoon",
+	"shrine", "flood", "pressure", "tab_brutkammer", "tab_instinct",
+	"tab_chronicle", "evo_badge",
 ]
+const V5_DIR := "res://assets/ui/v5/icons/"
+const V5_GLYPHS := ["g_settings", "g_close", "g_share", "g_check", "g_arrow_left",
+	"g_arrow_right", "g_map", "g_sound", "g_vibration", "g_eye", "g_music",
+	"g_warning", "g_daily"]
+# Swarm head per strain (painted bust crops of the tribe portraits, V4). Use
+# UiIcons.strain_head(strain) to get the id; unknown strains fall back to the
+# Glutmaw head "mawling_head_color".
+const STRAIN_HEADS := ["glutmaw", "sporling", "knochenkiefer", "flinkzahn", "aetzmaul", "nachtmaul"]
 # White V4 control glyphs with dark contour: a tint colours them (like text).
 const V4_GLYPHS := ["pause", "play", "clock", "lock", "reroll", "restart", "banish", "skip"]
 # Painted currency icons with a fixed palette: a tint only fades or dims them
 # (callers still pass the old cyan/amber tints of the flat glyphs).
-const FIXED_COLOUR := ["dna", "biomass", "currency_dna", "currency_biomass"]
+const FIXED_COLOUR := ["dna", "biomass", "currency_dna", "currency_biomass",
+	"schallbrueller", "glutdruese", "pilzreich", "dornenwall", "sturmrudel",
+	"crit", "haste", "reach", "vigor", "gene", "speed", "luck", "magnet",
+	"pack", "scatter", "pu_rausch", "pu_blutrausch", "pu_magnetsturm",
+	"pu_chitinschild", "pu_raserei", "pu_brutwelle", "cocoon", "shrine",
+	"essence", "crown_tooth", "flood", "pressure", "tab_brutkammer",
+	"trophy", "tab_instinct", "tab_chronicle", "hub", "alpha_core", "crown",
+	"evo_badge"]
 # Ids with a painted V2 icon (the six base traits / Anlagen).
 const PAINTED := ["jaws", "brood", "glutton", "pack", "scatter", "armor"]
 const IDS := [
@@ -69,7 +96,15 @@ const IDS := [
 	"up_brood_size", "up_bite", "up_chitin", "up_sprint", "up_digest", "up_gene",
 	"up_attack_slot", "up_trait_slot", "instinct", "restart", "hub",
 	"nest", "totem", "currency_dna", "currency_biomass",
-	"branch_growth", "branch_attack", "branch_protect", "branch_special", "portrait_bog_king", "play",
+	"branch_growth", "branch_attack", "branch_protect", "branch_special", "portrait_bog_king", "portrait_apex", "portrait_apex_toad", "portrait_apex_sandworm", "play",
+	"schallbrueller", "glutdruese", "pilzreich", "dornenwall", "crit", "haste", "reach",
+	"vigor", "gene", "speed", "luck", "magnet", "pu_rausch", "pu_blutrausch",
+	"pu_magnetsturm", "pu_chitinschild", "pu_raserei", "pu_brutwelle", "cocoon",
+	"shrine", "flood", "pressure", "tab_brutkammer", "tab_instinct",
+	"tab_chronicle", "evo_badge",
+	"klauenwirbel", "giftbiss",
+	"mawling_head_glutmaw", "mawling_head_sporling", "mawling_head_knochenkiefer",
+	"mawling_head_flinkzahn", "mawling_head_aetzmaul", "mawling_head_nachtmaul",
 ]
 # Alternative names resolved by has()/texture()/draw().
 const ALIASES := {"prey": "nibbler", "boss": "bog_king"}
@@ -88,6 +123,8 @@ static func path(id: String) -> String:
 		return KIT_DIR + KIT_IDS[id] + ".svg"
 	if UiStyle.skin == "calm" and CALM_GLYPHS.has(id):
 		return KIT_DIR + CALM_GLYPHS[id] + ".svg"
+	if V5_GLYPHS.has(id) and ResourceLoader.exists(V5_DIR + id + ".png"):
+		return V5_DIR + id + ".png"
 	if use_v4 and use_painted and V4_ICONS.has(id) and ResourceLoader.exists(V4_DIR + id + ".png"):
 		return V4_DIR + id + ".png"
 	if V3_ICONS.has(id) and (use_painted or not ResourceLoader.exists(DIR + id + ".svg")):
@@ -99,7 +136,7 @@ static func path(id: String) -> String:
 
 ## True when `id` is drawn as a fixed-colour V2 kit glyph (tint only with alpha).
 static func is_glyph(id: String) -> bool:
-	return path(id).begins_with(KIT_DIR)
+	return path(id).begins_with(KIT_DIR) or V5_GLYPHS.has(id)
 
 
 ## True when `id` is drawn from a painted PNG with its own colours (V2/V3/V4,
@@ -112,7 +149,7 @@ static func is_painted(id: String) -> bool:
 ## True when `id` is a white V4 control glyph: the tint colours it.
 static func is_tint_glyph(id: String) -> bool:
 	id = ALIASES.get(id, id)
-	return V4_GLYPHS.has(id) and path(id).begins_with(V4_DIR)
+	return (V4_GLYPHS.has(id) and path(id).begins_with(V4_DIR)) or V5_GLYPHS.has(id)
 
 
 ## Switches the V4 icon standard on or off (before/after sheets). The caches
@@ -128,6 +165,15 @@ static func set_painted(enabled: bool) -> void:
 	use_painted = enabled
 	_full.clear()
 	_small.clear()
+
+
+## Icon id of the swarm head for `strain` (painted bust of its portrait);
+## "mawling_head_color" (Glutmaw) for unknown strains or a missing file.
+static func strain_head(strain: String) -> String:
+	var id := "mawling_head_" + strain
+	if STRAIN_HEADS.has(strain) and ResourceLoader.exists(V4_DIR + id + ".png"):
+		return id
+	return "mawling_head_color"
 
 
 static func has(id: String) -> bool:

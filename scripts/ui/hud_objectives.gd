@@ -269,6 +269,9 @@ func _apex_name(state: Dictionary) -> String:
 
 ## Base colour of the current apex (moss green or glut orange).
 func _apex_color(state: Dictionary) -> Color:
+	# Etappe 19: the Sandwurm in warm sand gold.
+	if String(state.get("apex_kind", "apex")) == "apex_sandworm":
+		return Color("e8c27a")
 	return UiStyle.color("ember") if _is_toad(state) else _apex_green()
 
 

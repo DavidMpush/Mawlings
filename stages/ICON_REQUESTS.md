@@ -1,5 +1,7 @@
 # Icon-Nachlieferung und Bewertung (Stand 27.09.2026)
 
+> **Ab 28.09.2026 gilt `stages/UI_ASSET_REQUESTS.md`** für alle Nachlieferungen (konsolidiert, mit Prioritäten und Inventur). Diese Datei bleibt als Bewertungsverlauf; die Motivzusätze der Relikte werden dort referenziert.
+
 Grundlage: „Icon-Standard (Supercell-Stil)“ in `ART_UI_PLAN.md`. Prüfbilder: `preview_ui_icons_before.png` (vorher), `preview_ui_icons.png` (nachher, V4), `preview_ui_icons_compare.png` (Zahn-Gruppe, Glyphen, Tints), erzeugt mit `tests/capture_ui_icons.gd` (ohne `--headless`).
 
 Noten: **A** bleibt · **B** bleibt, nachbearbeitet (V4: Beschnitt, Zentrierung, einheitliche Kontur, ggf. Kategoriefarbe) · **C** ersetzen. „intern“ = durch V4 bereits ersetzt, keine Lieferung nötig.
@@ -33,8 +35,8 @@ Zusammenfassung: 66 IDs – **23 A**, **19 B**, **16 C** (davon 10 intern ersetz
 | crown_tooth | SVG | Menü (Königszähne) | gemalt | B | Heller Zahn wenig Kontrast; V4-Kontur. |
 | dna | SVG → **V3 dna** | HUD, Popups, Menü | gemalt | C (intern) | Flache Glyphe ersetzt durch gemalte Währung; fremde Tints werden ignoriert. |
 | skull | SVG | Bedrohung, Flut, Totem-Fallback, Trophäen | gemalt | B | Solide; V4-Kontur. |
-| mawling_head | SVG | HUD/Menü (wird eingefärbt) | gemalt | B | Neutraler Kopf zum Tönen, bleibt. |
-| mawling_head_color | SVG | HUD, Menü, Tipp, Teilen-Karte | gemalt | A | Spielerfarbe, klar. |
+| mawling_head | SVG → **Porträt-Ausschnitt** | HUD/Menü (wird eingefärbt) | gemalt | C (intern) | 28.09.: Glutmaw-Kopf aus dem Porträt in Knochenweiß, tönbar. |
+| mawling_head_color | SVG → **Porträt-Ausschnitt** | HUD, Menü, Tipp, Teilen-Karte | gemalt | C (intern) | 28.09.: SVG vom Nutzer als „schrecklich“ bewertet, ersetzt durch Kopf-Ausschnitt des Glutmaw-Porträts; je Stamm `mawling_head_<stamm>`. |
 | crown | SVG | Boss, Trophäen, Objectives | gemalt | A | |
 | alpha_core | SVG | HUD, Overlays, Trophäen | gemalt | A | |
 | pause | SVG | HUD, Pause-Overlay | Glyphe | C (intern) | V4-Glyphe. |
@@ -142,3 +144,18 @@ Bis zur Lieferung zeigen die Karten vorhandene Symbole (`evolution.gd` → `ICON
 | `urmutter.png` | **Urmutter** (Relikt, legendär): +1 Waffenplatz | `nest` | `Motif: a large ancient mother creature silhouette curled protectively around a glowing golden egg. Main colors deep violet and gold.` |
 | `blutmond.png` | **Blutmond** (Relikt, legendär) | `skull` | `Motif: a big blood-red crescent moon with a small snarling jaw silhouette in front of it. Main colors blood red and dark violet.` |
 | `schlundherz.png` | **Schlundherz** (Relikt, legendär): Kokons billiger | `biomass` | `Motif: a heart-shaped maw with golden teeth swallowing a small cocoon. Main colors crimson and gold.` |
+
+## Etappe 17 Welle 2 – Power-ups, Kokon, Schrein
+
+Bis zur Lieferung zeigen HUD-Reihe, Band und Welt-Plakette vorhandene Symbole (in Klammern). Gleicher Stil-Block wie oben; die Plakette trägt die Power-up-Farbe, das Icon bleibt hell und kontrastreich.
+
+| Datei | Wofür (deutsch) | heute | Motivzusatz (englisch, an Stil-Block hängen) |
+|---|---|---|---|
+| `pu_rausch.png` | **Rausch** (Power-up, +45 % Tempo, grün) | `instinct` | `Motif: a lime-green creature paw mid-leap with three bold white speed streaks behind it. Main colors lime green and white.` |
+| `pu_blutrausch.png` | **Blutrausch** (Power-up, Waffen schneller, Glut) | `clock` | `Motif: a small bone stopwatch whose hand is a red claw, cracked glass with ember sparks flying out. Main colors ember orange, blood red, cream.` |
+| `pu_magnetsturm.png` | **Magnetsturm** (Power-up, Sammelradius ×3, Gold) | `branch_growth` | `Motif: a bone horseshoe magnet pulling a swirl of small gold crystals into its arc. Main colors gold and bone white.` |
+| `pu_chitinschild.png` | **Chitinschild** (Power-up, Anführer unverwundbar, Blau) | `armor` | `Motif: a round domed chitin shield plate with segmented edges and a bright cyan shine, a tiny crown shape embossed in the middle. Main colors sky blue and white.` |
+| `pu_raserei.png` | **Raserei** (Power-up, doppelter Schaden, Magenta) | `jaws` | `Motif: an open snarling jaw with glowing magenta eyes and two small red anger marks. Main colors magenta and blood red.` |
+| `pu_brutwelle.png` | **Brutwelle** (Power-up, sofort +3 Tiere, Violett) | `brood` | `Motif: three small violet eggs bursting on a rising wave, tiny creature heads popping out. Main colors violet and turquoise.` |
+| `cocoon.png` | **Kokon** (Preis-Pille, Minimap, Beute) | `nest` | `Motif: an upright silk cocoon wrapped in cream threads with a glowing ember slit on the front, sitting on a small silk mound. Main colors cream and ember orange.` |
+| `shrine.png` | **Schrein** (Lade-Pille, Minimap) | `essence` | `Motif: a small ring of four standing stones around a floating violet crystal. Main colors stone grey and violet.` |

@@ -15,7 +15,11 @@ const CELL := 28.0
 const VISIBLE_RADIUS := 1
 const OBSTACLE_RADIUS := 1.85
 const CREATURE_SHADER = preload("res://shaders/creature.gdshader")
+# Stage 18c: props see-through between camera and swarm (fade window).
+const PROP_SHADER = preload("res://shaders/prop_fade.gdshader")
+const FADE_RADIUS := 6.5
 const BIOMES = preload("res://scripts/biomes.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 const ROCK_SCENE = preload("res://assets/gameplay/props/Rock_game.glb")
 const LEAF_SCENE = preload("res://assets/gameplay/props/Leaf_game.glb")
 const ROOT_ARCH_SCENE = preload("res://assets/gameplay/props/RootArch_game.glb")
@@ -28,6 +32,21 @@ const REGION_NAMES = preload("res://scripts/region_names.gd")
 const EMBER_GROUND_SHADER = preload("res://shaders/ember_ground.gdshader")
 const EMBER_CHANNEL_SHADER = preload("res://shaders/ember_channel.gdshader")
 const LAVA_SHADER = preload("res://shaders/lava.gdshader")
+# Dürrschlund look (stage 19; biomes with a "desert" block). Models load lazily.
+const DESERT_GROUND_SHADER = preload("res://shaders/desert_ground.gdshader")
+const QUICKSAND_SHADER = preload("res://shaders/quicksand.gdshader")
+const DESERT_MODELS := {
+	"sandstone": "res://assets/gameplay/props/SandstoneCliff_game.glb",
+	"ribs": "res://assets/gameplay/props/RibBones_game.glb",
+	"cactus": "res://assets/gameplay/props/Cactus_game.glb",
+	"skull": "res://assets/gameplay/props/GiantSkull_game.glb",
+	"rock_arch": "res://assets/gameplay/props/RockArch_game.glb",
+}
+# Layout seed salt per biome (kept stable when the biome order changes).
+const LAYOUT_SALT := {"glutsumpf": 2, "duerrschlund": 3}
+# Movement radius of the swarm in resolve_motion (everything else counts as a
+# creature that a sandstorm hastens).
+const SWARM_MOTION_RADIUS := 0.75
 # Half width of the glowing core of a glow channel (metres).
 const CHANNEL_CORE := 1.0
 # Extinct stumps standing on the three collision knots of a fallen-log landmark.
@@ -92,6 +111,12 @@ const MAP_LAYOUT = preload("res://scripts/map_layout.gd")
 const MAP_EXPLORE = preload("res://scripts/map_explore.gd")
 const BEACONS = preload("res://scripts/map_beacons.gd")
 var layout_style := "explore"
+## Prop materials with the see-through window (fed with the swarm position in sync()).
+var fade_materials: Array[ShaderMaterial] = []
+# Stage 18c: 1 per layout place (POI node) once the swarm has seen it.
+var _discovered := PackedByteArray()
+## Off for top-down review shots (the window would cut into the overview).
+var fade_enabled := true
 var _beacons: Node3D
 const FLOW_FIELD = preload("res://scripts/flow_field.gd")
 # Flow field cell (m) and cells expanded per sync() (one frame, ~0.3 ms):
@@ -110,6 +135,12 @@ const WALL_SAMPLES := 12
 var layout: RefCounted
 ## Shared enemy navigation field (null on the classic map).
 var flow: RefCounted
+## Stage 18c: the same for big bodies (Bog King, apex): only ground with
+## BIG_CLEARANCE of wall distance, so they never aim into gaps too narrow.
+var flow_big: RefCounted
+const BIG_CLEARANCE := 3.4
+const BIG_RADIUS := 1.5
+var _flow_turn := 0
 # Layout data per chunk key: stones (Vector4), landmark, path samples, eruptions.
 var _chunk_stones: Dictionary = {}
 var _chunk_marks: Dictionary = {}
@@ -191,6 +222,21 @@ var basalt_material: ShaderMaterial
 var char_material: ShaderMaterial
 var stump_material: ShaderMaterial
 var mushroom_material: ShaderMaterial
+# Dürrschlund-only materials and meshes (created on the first switch to a desert biome).
+var desert_ground_material: ShaderMaterial
+var desert_ground_tint_material: ShaderMaterial
+var quicksand_material: ShaderMaterial
+var sandstone_material: ShaderMaterial
+var bone_material: ShaderMaterial
+var cactus_material: ShaderMaterial
+var dune_material: ShaderMaterial
+## Desert model parts {name: [mesh, base transform]} (DESERT_MODELS).
+var desert_parts: Dictionary = {}
+var quicksand_mesh: PlaneMesh
+## Stage 19: creature speed factor during a sandstorm (1 = calm); the swarm never.
+var enemy_haste := 1.0
+# Quicksand patches per chunk key (Vector4 x, 0, z, radius).
+var _chunk_sands: Dictionary = {}
 # Shared geometry: every chunk only adds instances of these.
 var rock_mesh: Mesh
 var rock_base: Transform3D
@@ -275,6 +321,7 @@ func sync(position: Vector3) -> void:
 	_last_sync = position
 	_explore(position)
 	_step_flow(position)
+	_update_fade(position)
 	var center := _cell(position)
 	var wanted: Dictionary = {}
 	# Only map chunks plus the border ring exist; beyond it lies the fog skirt.
@@ -334,7 +381,7 @@ func set_seed(value: int) -> void:
 static func layout_seed(seed_value: int, id: String) -> int:
 	if seed_value == 0 or id == BIOMES.DEFAULT or not BIOMES.has(id):
 		return seed_value
-	var mixed := _scramble(seed_value ^ (BIOMES.ORDER.find(id) + 1) * 0x9E3779B9) & 0x3FFFFFFF
+	var mixed := _scramble(seed_value ^ int(LAYOUT_SALT.get(id, BIOMES.ORDER.find(id) + 1)) * 0x9E3779B9) & 0x3FFFFFFF
 	return mixed if mixed != 0 else 1
 
 ## Map size for a player count (1 solo .. 4 quad): 4, 5 or 6 regions per side.
@@ -452,9 +499,54 @@ func _apply_biome_colors() -> void:
 		target.set_shader_parameter("body_tint", biome[pair[1]] if pair[1] != "" else Color(1, 1, 1, 0))
 	if biome.has("ember"):
 		_apply_ember(biome.ember)
+	if biome.has("desert"):
+		_apply_desert(biome.desert)
 
 func _ember_look() -> bool:
 	return biome.has("ember")
+
+## Stage 19: the Dürrschlund look (shader sand, sandstone, bones, cacti, quicksand).
+func _desert_look() -> bool:
+	return biome.has("desert")
+
+# Creates (once) and restyles the Dürrschlund-only materials and meshes.
+func _apply_desert(look: Dictionary) -> void:
+	if desert_ground_material == null:
+		desert_ground_material = _shader_material(DESERT_GROUND_SHADER)
+		desert_ground_tint_material = _shader_material(DESERT_GROUND_SHADER)
+		desert_ground_tint_material.set_shader_parameter("use_vertex_tint", true)
+		quicksand_material = _shader_material(QUICKSAND_SHADER)
+		sandstone_material = _prop_material(1.05, 0.8, 0.5, 0.18)
+		bone_material = _prop_material(1.05, 0.95, 0.55, 0.3)
+		cactus_material = _prop_material(1.1, 1.15, 0.45, 0.15)
+		dune_material = _prop_material(1.0, 0.9, 0.35, 0.06)
+		quicksand_mesh = PlaneMesh.new()
+		quicksand_mesh.size = Vector2(2.0, 2.0)
+		for key in DESERT_MODELS:
+			desert_parts[key] = _extract_mesh(load(DESERT_MODELS[key]))
+	for target in [desert_ground_material, desert_ground_tint_material]:
+		target.set_shader_parameter("dune_light", look.dune_light)
+		target.set_shader_parameter("dune_shadow", look.dune_shadow)
+		target.set_shader_parameter("shadow_cool", look.shadow_cool)
+		target.set_shader_parameter("ripple", look.ripple)
+		target.set_shader_parameter("ripple_amount", look.ripple_amount)
+		target.set_shader_parameter("bone_fleck", look.bone_fleck)
+		target.set_shader_parameter("reference_color", ground_color)
+	quicksand_material.set_shader_parameter("sand_color", look.quicksand)
+	quicksand_material.set_shader_parameter("swirl_color", look.quicksand_swirl)
+	quicksand_material.set_shader_parameter("rim_color", look.dune_light)
+	for target in [sandstone_material, bone_material, cactus_material, dune_material]:
+		target.set_shader_parameter("rim_color", biome.prop_rim)
+	sandstone_material.set_shader_parameter("body_tint", biome.get("wall_tint", Color(1, 1, 1, 0)))
+	bone_material.set_shader_parameter("body_tint", biome.get("bone_tint", Color(1, 1, 1, 0)))
+	cactus_material.set_shader_parameter("body_tint", Color(0.5, 0.7, 0.36, 0.3))
+	# Dunes: the rock model coloured almost fully in shadowed sand.
+	var dune: Color = look.dune_shadow
+	dune_material.set_shader_parameter("body_tint", Color(dune.r, dune.g, dune.b, 0.85))
+
+## Mesh and base transform of a desert model ("sandstone", "ribs", "cactus", "skull", "rock_arch").
+func desert_part(key: String) -> Array:
+	return desert_parts.get(key, [rock_mesh, rock_base])
 
 # Creates (once) and restyles the Glutsumpf-only materials.
 func _apply_ember(look: Dictionary) -> void:
@@ -682,21 +774,23 @@ func trail_samples(key: Vector2i) -> Array[Vector4]:
 
 # Builds the clearing/path layout of a seeded map and buckets its parts per chunk.
 func _build_layout() -> void:
+	_discovered = PackedByteArray()
 	_astar = null
 	_route_key = Vector4i(-1, -1, -1, -1)
 	_route = PackedVector3Array()
-	for cache in [_chunk_stones, _chunk_marks, _chunk_trails, _chunk_eruptions, _chunk_caps]:
+	for cache in [_chunk_stones, _chunk_marks, _chunk_trails, _chunk_eruptions, _chunk_caps, _chunk_sands]:
 		cache.clear()
 	if world_seed == 0:
 		layout = null
 		flow = null
+		flow_big = null
 		_refresh_beacons()
 		return
 	var starts := _raw_spawn_points(player_count)
 	if layout_style == "graph":
 		layout = MAP_LAYOUT.new(world_seed, _playable, _bounds, map_regions, starts, _arrival)
 	else:
-		layout = MAP_EXPLORE.new(world_seed, _playable, _bounds, map_regions, starts, _arrival)
+		layout = MAP_EXPLORE.new(world_seed, _playable, _bounds, map_regions, starts, _arrival, biome_id)
 	for stone in layout.stones:
 		_bucket(_chunk_stones, Vector3(stone.x, 0.0, stone.z), stone)
 	for mark in layout.landmarks:
@@ -736,7 +830,21 @@ func _build_layout() -> void:
 			_bucket(_chunk_trails, center, Vector4(center.x, 0.0, center.z, _plaza_radius(node)))
 	for point in layout.eruption_points:
 		_bucket(_chunk_eruptions, Vector3(point.x, 0.0, point.z), point)
+	# Stage 19: quicksand patches, in every chunk they reach (motion lookup).
+	var sands: Variant = layout.get("quicksand")
+	if sands is Array:
+		for patch in sands:
+			var lo := _cell(Vector3(patch.x - patch.w, 0.0, patch.z - patch.w))
+			var hi := _cell(Vector3(patch.x + patch.w, 0.0, patch.z + patch.w))
+			for cx in range(lo.x, hi.x + 1):
+				for cz in range(lo.y, hi.y + 1):
+					var key := Vector2i(cx, cz)
+					if not _chunk_sands.has(key):
+						_chunk_sands[key] = []
+					_chunk_sands[key].append(patch)
 	flow = FLOW_FIELD.new(layout, FLOW_CELL)
+	flow_big = FLOW_FIELD.new(layout, FLOW_CELL, BIG_CLEARANCE)
+	_discovered.resize(layout.nodes.size())
 	_refresh_beacons()
 
 # Stage 18c: the tall landmarks (outside the chunks, always in the picture).
@@ -755,27 +863,37 @@ func _bucket(target: Dictionary, point: Vector3, value: Variant) -> void:
 		target[key] = []
 	target[key].append(value)
 
-# Advances the shared flow field towards the swarm (a few hundred cells per frame).
+# Tells every prop material where the swarm stands (see-through window).
+func _update_fade(position: Vector3) -> void:
+	for material in fade_materials:
+		material.set_shader_parameter("fade_center", Vector3(position.x, 0.0, position.z))
+		material.set_shader_parameter("fade_radius", FADE_RADIUS if fade_enabled else 0.0)
+
+
+# Advances the shared flow fields towards the swarm (a few hundred cells per
+# frame; the normal and the big-body field take turns).
 func _step_flow(position: Vector3) -> void:
 	if flow == null:
 		return
 	var started := Time.get_ticks_usec()
-	if not flow.is_running():
-		var source: Vector3 = flow.source
+	_flow_turn += 1
+	var field: RefCounted = flow if flow_big == null or _flow_turn % 2 == 0 else flow_big
+	if not field.is_running():
+		var source: Vector3 = field.source
 		if not source.is_finite() or Vector2(source.x - position.x, source.z - position.z).length() >= FLOW_MOVE:
-			flow.begin(position)
-	if flow.is_running():
-		flow.step(FLOW_BUDGET)
+			field.begin(position)
+	if field.is_running():
+		field.step(FLOW_BUDGET)
 	flow_step_ms = float(Time.get_ticks_usec() - started) / 1000.0
 
-## Runs the flow field to completion from `position` (tests, map start).
+## Runs the flow fields to completion from `position` (tests, map start).
 func finish_flow(position: Vector3) -> void:
-	if flow == null:
-		return
-	flow.begin(position)
-	while not flow.step(100000):
-		pass
-
+	for field in [flow, flow_big]:
+		if field == null:
+			continue
+		field.begin(position)
+		while not field.step(100000):
+			pass
 ## True on a seeded map with clearings, paths and walls.
 func has_layout() -> bool:
 	return layout != null
@@ -849,7 +967,7 @@ func _wall_line_clear(start: Vector3, end: Vector3, radius: float) -> bool:
 
 # Moves a point out of the walls along the distance gradient (slides along them).
 func _push_walls(point: Vector3, radius: float) -> Vector3:
-	for attempt in 3:
+	for attempt in 5:
 		var value: float = layout.sample(point.x, point.z)
 		if value >= radius:
 			break
@@ -1155,6 +1273,12 @@ func near_landmark(location: Vector3, margin: float) -> bool:
 	return false
 
 func resolve_motion(start: Vector3, motion: Vector3, radius: float) -> Vector3:
+	# Stage 19: quicksand slows everything crossing it; a sandstorm hastens every
+	# creature except the swarm.
+	if not _chunk_sands.is_empty():
+		motion *= quicksand_factor(start)
+	if enemy_haste != 1.0 and radius != SWARM_MOTION_RADIUS:
+		motion *= enemy_haste
 	var result := start + motion
 	# Resolve X and Z separately so the joystick naturally slides along stone.
 	result.x = _push_out(Vector3(result.x, 0, start.z), radius).x
@@ -1174,6 +1298,28 @@ func resolve_motion(start: Vector3, motion: Vector3, radius: float) -> Vector3:
 				result = start
 	# The map edge is an obstacle too: clamping per axis slides along the wall.
 	return clamp_inside(result, radius)
+
+## Stage 19: speed factor of the ground at a point (1 = firm, TUNING.QUICKSAND_SLOW
+## inside a quicksand patch, eased over QUICKSAND_RIM at its edge).
+func quicksand_factor(point: Vector3) -> float:
+	var patches: Array = _chunk_sands.get(_cell(point), [])
+	if patches.is_empty():
+		return 1.0
+	var factor := 1.0
+	for patch in patches:
+		var distance := Vector2(point.x - patch.x, point.z - patch.z).length()
+		if distance < patch.w:
+			var depth := smoothstep(0.0, TUNING.QUICKSAND_RIM, patch.w - distance)
+			factor = minf(factor, lerpf(1.0, TUNING.QUICKSAND_SLOW, depth))
+	return factor
+
+## Stage 19: quicksand patches of the map (empty outside the desert).
+func quicksand_patches() -> Array[Vector4]:
+	var result: Array[Vector4] = []
+	if layout != null and layout.get("quicksand") is Array:
+		for patch in layout.quicksand:
+			result.append(patch)
+	return result
 
 func _push_out(point: Vector3, radius: float) -> Vector3:
 	var middle := _cell(point)
@@ -1234,8 +1380,12 @@ func steer_direction(start: Vector3, target: Vector3, radius: float) -> Vector3:
 		var distance := desired.length()
 		if distance > LOS_RANGE or not _wall_line_clear(start, target, radius):
 			var guided := Vector3.ZERO
-			if flow != null and flow.ready and Vector2(flow.source.x - target.x, flow.source.z - target.z).length() < 8.0:
-				guided = flow.direction(start)
+			var field: RefCounted = flow_big if radius >= BIG_RADIUS and flow_big != null else flow
+			if field != null and field.ready and Vector2(field.source.x - target.x, field.source.z - target.z).length() < 8.0:
+				guided = field.direction(start)
+				# A big body outside the wide ground follows the normal field out.
+				if guided == Vector3.ZERO and field == flow_big and flow.ready:
+					guided = flow.direction(start)
 			if guided != Vector3.ZERO:
 				forward = guided
 			else:
@@ -1437,11 +1587,11 @@ func _make_chunk(key: Vector2i) -> Node3D:
 			_part(chunk, "Open ground", ground_mesh, ember_ground_material, Vector3(CELL * 0.5, -0.02, CELL * 0.5))
 		_part(chunk, "Glow channel", _channel_mesh(key), channel_material, Vector3.ZERO)
 	elif seeded:
-		_part(chunk, "Open ground", _ground_mesh(key), ground_tint_material, Vector3(0, -0.02, 0))
+		_part(chunk, "Open ground", _ground_mesh(key), desert_ground_tint_material if _desert_look() else ground_tint_material, Vector3(0, -0.02, 0))
 		_part(chunk, "Trail edge", _path_mesh(key, TRAIL_EDGE_WIDTH - TRAIL_HALF_WIDTH, 0.003), path_edge_material, Vector3.ZERO)
 		_part(chunk, "Broad trail", _path_mesh(key, 0.0, 0.007), path_material, Vector3.ZERO)
 	else:
-		_part(chunk, "Open ground", ground_mesh, ground_material, Vector3(CELL * 0.5, -0.02, CELL * 0.5))
+		_part(chunk, "Open ground", ground_mesh, desert_ground_material if _desert_look() else ground_material, Vector3(CELL * 0.5, -0.02, CELL * 0.5))
 		_part(chunk, "Trail edge", _trail_mesh(key, TRAIL_EDGE_WIDTH, 0.003), path_edge_material, Vector3.ZERO)
 		_part(chunk, "Broad trail", _trail_mesh(key, TRAIL_HALF_WIDTH, 0.007), path_material, Vector3.ZERO)
 	if seeded:
@@ -1466,54 +1616,35 @@ func _make_chunk(key: Vector2i) -> Node3D:
 		var size := 1.2 + float(_hash(key.x, key.y, index + 240) % 4) * 0.3
 		dirt.scale = Vector3(size * 1.4, 1, size)
 		dirt.rotation.y = float(_hash(key.x, key.y, index + 270) % 628) * 0.01
-	for index in QUALITY.scaled_count(int(biome.pebbles), decor_density):
-		var spot := Vector3(1.0 + float(_hash(key.x, key.y, index + 300) % 26), 0, 1.0 + float(_hash(key.x, key.y, index + 330) % 26))
-		var size := 0.32 + float(_hash(key.x, key.y, index + 360) % 4) * 0.07
-		if _in_wall(chunk.position + spot, 0.6):
-			continue
-		_prop(chunk, "Pebble", rock_mesh, rock_base, rock_material, spot, Vector3(size, size * 0.8, size), float(_hash(key.x, key.y, index + 390) % 628) * 0.01)
+	# Stage 18c follow-up: no pebbles, leaf clumps or single flowers on walkable
+	# ground any more - small 3D bits read like obstacles. Only flat patches stay.
 	if seeded:
+		var desert := _desert_look()
 		for stone in _chunk_stones.get(key, []):
+			# Desert landmark feet (skull, rock arch) carry their own model.
+			if desert and _beacon_stone(stone):
+				continue
 			if ember:
 				_basalt(chunk, Vector3(stone.x, 0.0, stone.z), stone.w)
 			else:
 				_boulder(chunk, Vector3(stone.x, 0.0, stone.z), stone.w)
+		# Stage 19: quicksand patches (flat, walkable, animated swirl).
+		if desert and quicksand_material != null:
+			for patch in _chunk_sands.get(key, []):
+				if _cell(Vector3(patch.x, 0.0, patch.z)) != key:
+					continue
+				var sand := _part(chunk, "Quicksand", quicksand_mesh, quicksand_material, Vector3(patch.x, 0.011, patch.z) - chunk.position)
+				sand.scale = Vector3(patch.w, 1.0, patch.w)
 	else:
 		for center in obstacle_centers(key):
 			if ember:
 				_basalt(chunk, center, OBSTACLE_RADIUS)
 			else:
 				_boulder(chunk, center, OBSTACLE_RADIUS)
-	# Scattered leaf clumps at the edges of the open ground: never on the trail,
-	# never in the middle of the chunk, never inside a stone footprint.
-	var placed := 0
-	var wanted := QUALITY.scaled_count(int(biome.leaf_clumps_min) + _hash(key.x, key.y, 400) % 3, decor_density)
-	for index in 14:
-		if placed >= wanted:
-			break
-		var local := Vector3(1.0 + float(_hash(key.x, key.y, index + 410) % 26), 0, 1.0 + float(_hash(key.x, key.y, index + 440) % 26))
-		var world := chunk.position + local
-		if local.distance_to(Vector3(CELL * 0.5, 0, CELL * 0.5)) < 7.0 or _near_trail(world, 1.2) or not is_open(world, 0.6) or near_landmark(world, 0.5):
-			continue
-		var size := 1.05 + float(_hash(key.x, key.y, index + 470) % 5) * 0.1
-		_prop(chunk, "Leaf clump", leaf_mesh, leaf_base, leaf_material, local, Vector3.ONE * size, float(_hash(key.x, key.y, index + 500) % 628) * 0.01)
-		placed += 1
-	if seeded:
-		_layout_decor(chunk, key)
-	# A rare water landmark is flat and traversable; the route stays open.
-	elif _hash(key.x, key.y, 13) % int(biome.pond_one_in) == 0 and not near_landmark(chunk.position + Vector3(4, 0, 22), 3.0) and is_inside(chunk.position + Vector3(4, 0, 22), 3.0):
+	# A rare flat, walkable puddle on the classic map (no reeds: nothing that
+	# looks solid without a collision).
+	if not seeded and _hash(key.x, key.y, 13) % int(biome.pond_one_in) == 0 and not near_landmark(chunk.position + Vector3(4, 0, 22), 3.0) and is_inside(chunk.position + Vector3(4, 0, 22), 3.0):
 		_pool(chunk, Vector3(4, 0, 22), Vector3(1.8, 1, 1.1))
-		# A single reed clump on the far shore (Glutsumpf: a cold-glowing Glutpilz).
-		if ember:
-			_prop(chunk, "Glutpilz", flower_mesh, flower_base, mushroom_material, Vector3(6.4, 0, 21.0), Vector3.ONE * 1.6, float(_hash(key.x, key.y, 14) % 628) * 0.01)
-		else:
-			_prop(chunk, "Pond reeds", reed_mesh, reed_base, reed_material, Vector3(6.3, 0, 21.1), Vector3.ONE * 1.5, float(_hash(key.x, key.y, 14) % 628) * 0.01)
-	# Rare single flowers as colour accents on the open ground.
-	if not seeded and _hash(key.x, key.y, 800) % int(biome.flower_one_in) == 0 and _decor_kept(key, 845):
-		var local := Vector3(2.0 + float(_hash(key.x, key.y, 810) % 24), 0, 2.0 + float(_hash(key.x, key.y, 820) % 24))
-		var world := chunk.position + local
-		if not _near_trail(world, 1.2) and is_open(world, 1.0) and not near_landmark(world, 1.0):
-			_prop(chunk, "Wild flower", flower_mesh, flower_base, mushroom_material if ember else flower_material, local, Vector3.ONE * 2.1, float(_hash(key.x, key.y, 830) % 628) * 0.01)
 	var mark := landmark(key)
 	if not mark.is_empty():
 		_landmark(chunk, key, mark)
@@ -1549,27 +1680,15 @@ func _landmark(chunk: Node3D, key: Vector2i, mark: Dictionary) -> void:
 			moss.rotation.y = yaw
 			_prop(chunk, "Fallen log", log_mesh, log_base, log_material, local, LOG_SIZE, yaw)
 		Landmark.POND:
-			# Walkable water with reeds and seed pods along the shore; no collision.
-			var size := Vector3(3.2, 1, 2.3)
-			_pool(chunk, local, size)
-			var count := 3 + _hash(key.x, key.y, 740) % 2
-			for index in count:
-				var angle := yaw + float(index) * TAU / float(count) + float(_hash(key.x, key.y, 750 + index) % 5) * 0.1
-				var spot := local + Vector3(cos(angle) * 1.3 * size.x, 0, sin(angle) * 1.3 * size.z)
-				var reed_size := 1.6 + float(_hash(key.x, key.y, 760 + index) % 4) * 0.15
-				_prop(chunk, "Pond reeds", reed_mesh, reed_base, reed_material, spot, Vector3.ONE * reed_size, angle)
+			# Walkable flat water (stage 18c follow-up: no reeds, nothing tall).
+			_pool(chunk, local, Vector3(3.2, 1, 2.3))
 		Landmark.MEADOW:
 			# A calm clearing dotted with 5-9 flowers: pure colour, no collision.
 			var ground := _part(chunk, "Meadow", meadow_mesh, moss_materials[0], local + Vector3(0, 0.003, 0))
 			ground.scale = Vector3(4.6, 1, 3.8)
 			ground.rotation.y = yaw
-			var count := 5 + _hash(key.x, key.y, 740) % 5
-			for index in count:
-				var angle := float(index) * 2.39996 + yaw
-				var distance := 1.0 + 3.8 * sqrt((float(index) + 0.5) / float(count))
-				var spot := local + Vector3(cos(angle) * distance, 0, sin(angle) * distance * 0.85)
-				var flower_size := 1.7 + float(_hash(key.x, key.y, 760 + index) % 5) * 0.15
-				_prop(chunk, "Meadow flower", flower_mesh, flower_base, flower_material, spot, Vector3.ONE * flower_size, float(_hash(key.x, key.y, 780 + index) % 628) * 0.01)
+
+
 
 # Glutsumpf landmarks: same footprint and collision circles as Verdant, other look.
 func _ember_landmark(chunk: Node3D, key: Vector2i, mark: Dictionary, local: Vector3, yaw: float) -> void:
@@ -1592,30 +1711,15 @@ func _ember_landmark(chunk: Node3D, key: Vector2i, mark: Dictionary, local: Vect
 				var turn := yaw + float(_hash(key.x, key.y, 732 + index) % 628) * 0.01
 				_stump(chunk, spot, LOG_RADIUS * (2.3 if index == 1 else 2.0), STUMP_HEIGHTS[index], turn)
 		Landmark.POND:
-			# Lava pool ringed by low slag lumps and cold Glutpilze; no collision.
-			var size := Vector3(3.2, 1, 2.3)
-			_pool(chunk, local, size)
-			var count := 3 + _hash(key.x, key.y, 740) % 2
-			for index in count:
-				var angle := yaw + float(index) * TAU / float(count) + float(_hash(key.x, key.y, 750 + index) % 5) * 0.1
-				var spot := local + Vector3(cos(angle) * 1.3 * size.x, 0, sin(angle) * 1.3 * size.z)
-				if index % 2 == 0:
-					var lump := 0.55 + float(_hash(key.x, key.y, 760 + index) % 4) * 0.08
-					_prop(chunk, "Slag lump", rock_mesh, rock_base, basalt_material, spot, Vector3(lump * 1.3, lump, lump * 1.2), angle)
-				else:
-					_prop(chunk, "Glutpilz", flower_mesh, flower_base, mushroom_material, spot, Vector3.ONE * 1.7, angle)
+			# Flat lava pool (stage 18c follow-up: nothing tall around it).
+			_pool(chunk, local, Vector3(3.2, 1, 2.3))
 		Landmark.MEADOW:
 			# A clearing of pale ash dotted with 5-9 Glutpilze.
 			var ground := _part(chunk, "Ash clearing", meadow_mesh, moss_materials[2], local + Vector3(0, 0.003, 0))
 			ground.scale = Vector3(4.6, 1, 3.8)
 			ground.rotation.y = yaw
-			var count := 5 + _hash(key.x, key.y, 740) % 5
-			for index in count:
-				var angle := float(index) * 2.39996 + yaw
-				var distance := 1.0 + 3.8 * sqrt((float(index) + 0.5) / float(count))
-				var spot := local + Vector3(cos(angle) * distance, 0, sin(angle) * distance * 0.85)
-				var cap := 1.7 + float(_hash(key.x, key.y, 760 + index) % 5) * 0.15
-				_prop(chunk, "Glutpilz", flower_mesh, flower_base, mushroom_material, spot, Vector3.ONE * cap, float(_hash(key.x, key.y, 780 + index) % 628) * 0.01)
+
+
 
 # An upright piece of the fallen-log model: the extinct stump of a burnt tree.
 func _stump(chunk: Node3D, location: Vector3, diameter: float, height: float, yaw: float) -> void:
@@ -1632,16 +1736,11 @@ func _basalt(chunk: Node3D, center: Vector3, radius: float) -> void:
 	var plinth := _part(chunk, "Basalt footprint", plinth_mesh, plinth_material, location + Vector3(0, 0.02, 0))
 	plinth.scale = Vector3(stone_scale, 1.0, stone_scale)
 	var yaw := float((roll >> 4) % 628) * 0.01
-	var heights := [3.8, 2.8, 2.0]
-	var widths := [1.25, 1.05, 0.95]
-	for index in 3:
-		var angle := yaw + float(index) * TAU / 3.0
-		var offset := Vector3(cos(angle), 0, sin(angle)) * radius * (0.0 if index == 0 else 0.5)
-		if index == 0:
-			offset = Vector3(cos(yaw + PI), 0, sin(yaw + PI)) * radius * 0.18
-		var width: float = widths[index] * stone_scale * (0.94 + float((roll >> (8 + index * 3)) % 5) * 0.03)
-		var height: float = heights[index] * stone_scale * (0.9 + float((roll >> (12 + index * 2)) % 5) * 0.05)
-		_prop(chunk, "Basalt column", rock_mesh, rock_base, basalt_material, location + offset, Vector3(width, height, width), angle * 1.7)
+	# Stage 18c follow-up: one big column cluster instead of three small shafts
+	# (one clear obstacle, no loose parts); it covers the collision circle.
+	var width := 2.1 * stone_scale
+	var height := 3.6 * stone_scale * (0.9 + float((roll >> 12) % 5) * 0.05)
+	_prop(chunk, "Basalt column", rock_mesh, rock_base, basalt_material, location, Vector3(width, height, width), yaw)
 
 func _trail_center(key: Vector2i, local_z: float) -> float:
 	return 14.0 + 3.2 * sin((key.y * CELL + local_z) * 0.09 + key.x * 0.7)
@@ -1800,20 +1899,19 @@ func eruption_sites(key: Vector2i) -> Array[Vector4]:
 	return result
 
 # True if the point lies within `margin` of a wall (seeded map).
+# True for a stone that belongs to a tall landmark of the exploration map.
+func _beacon_stone(stone: Vector4) -> bool:
+	if layout == null or layout.get("beacons") == null:
+		return false
+	for mark in layout.beacons:
+		var center: Vector3 = mark.center
+		if Vector2(stone.x - center.x, stone.z - center.z).length() <= float(mark.radius) + 0.5:
+			return true
+	return false
+
 func _in_wall(world: Vector3, margin: float) -> bool:
 	return layout != null and layout.sample(world.x, world.z) < margin
 
-# Single wild flowers as colour accents on the open ground of a seeded map.
-func _layout_decor(chunk: Node3D, key: Vector2i) -> void:
-	var ember := _ember_look()
-	var flowers := 1 + _hash(key.x, key.y, 800) % 2
-	for index in flowers:
-		if not _decor_kept(key, 845 + index):
-			continue
-		var local := Vector3(2.0 + float(_hash(key.x, key.y, 810 + index * 3) % 24), 0, 2.0 + float(_hash(key.x, key.y, 820 + index * 3) % 24))
-		var world := chunk.position + local
-		if not _near_trail(world, 1.2) and is_open(world, 1.5) and not near_landmark(world, 1.0):
-			_prop(chunk, "Wild flower", flower_mesh, flower_base, mushroom_material if ember else flower_material, local, Vector3.ONE * 2.1, float(_hash(key.x, key.y, 830 + index) % 628) * 0.01)
 
 func _boulder(chunk: Node3D, center: Vector3, radius: float) -> void:
 	var location := center - chunk.position
@@ -1824,14 +1922,9 @@ func _boulder(chunk: Node3D, center: Vector3, radius: float) -> void:
 	var size := (0.92 + float(roll % 9) * 0.02) * stone_scale
 	var yaw := float((roll >> 4) % 628) * 0.01
 	_prop(chunk, "Low stone", rock_mesh, rock_base, rock_material, location, Vector3(3.9, 3.2, 3.6) * size, yaw)
-	var count := 2 + (roll >> 8) % 2
-	for index in QUALITY.scaled_count(count, decor_density):
-		var angle := yaw + float(index) * TAU / float(count) + float((roll >> (10 + index * 3)) % 7) * 0.12
-		var foot := location + Vector3(cos(angle), 0, sin(angle)) * (radius + 0.1)
-		if _near_trail(chunk.position + foot, 0.3):
-			continue
-		var leaf_size := 1.15 + float((roll >> (14 + index)) % 4) * 0.1
-		_prop(chunk, "Broad leaf", leaf_mesh, leaf_base, leaf_material, foot, Vector3.ONE * leaf_size, angle)
+	# Stage 18c follow-up: no loose leaves around the stone (they stuck out past
+	# the collision circle).
+
 
 func _prop(parent: Node3D, label: String, mesh: Mesh, base: Transform3D, material: Material, location: Vector3, size: Vector3, yaw: float) -> MeshInstance3D:
 	return _prop_shape(parent, label, mesh, material, location, Basis(Vector3.UP, yaw) * Basis.from_scale(size) * base.basis)
@@ -1866,7 +1959,8 @@ func _disc(top: float, bottom: float, height: float) -> CylinderMesh:
 
 func _prop_material(brightness: float, saturation: float, shape_light: float, rim: float) -> ShaderMaterial:
 	var material := ShaderMaterial.new()
-	material.shader = CREATURE_SHADER
+	material.shader = PROP_SHADER
+	fade_materials.append(material)
 	material.set_shader_parameter("brightness", brightness)
 	material.set_shader_parameter("saturation", saturation)
 	material.set_shader_parameter("shape_light", shape_light)
@@ -1979,7 +2073,7 @@ func map_overview() -> Dictionary:
 func _overview_clearings() -> Array:
 	var result := []
 	for node in clearings():
-		result.append({"center": Vector2(node.center.x, node.center.z), "radius": node.radius, "types": node.types})
+		result.append({"center": Vector2(node.center.x, node.center.z), "radius": node.radius, "types": node.types, "id": node.id})
 	return result
 
 func _overview_paths() -> Array:
@@ -1989,6 +2083,48 @@ func _overview_paths() -> Array:
 		for point in path.points:
 			flat.append(Vector2(point.x, point.z))
 		result.append({"points": flat, "kind": path.kind})
+	return result
+
+# --- Discovery (stage 18c) ---------------------------------------------------------
+
+## Marks every place (POI) within `radius` of `point` as discovered; returns
+## how many were new. Runs with the exploration fog (radius EXPLORE_RADIUS).
+func discover_around(point: Vector3, radius: float) -> int:
+	if layout == null or _discovered.size() != layout.nodes.size():
+		return 0
+	var found := 0
+	for index in layout.nodes.size():
+		if _discovered[index] != 0:
+			continue
+		var node: Dictionary = layout.nodes[index]
+		var center: Vector3 = node.center
+		if Vector2(center.x - point.x, center.z - point.z).length() <= radius + float(node.radius) * 0.5:
+			_discovered[index] = 1
+			found += 1
+	if found > 0:
+		explore_version += 1
+	return found
+
+## True if the place at `point` was discovered (a POI within 4 m of it), else
+## whether its fog cell was seen. The classic map knows only the fog.
+func is_discovered(point: Vector3) -> bool:
+	if layout != null and _discovered.size() == layout.nodes.size():
+		for index in layout.nodes.size():
+			var node: Dictionary = layout.nodes[index]
+			var center: Vector3 = node.center
+			if Vector2(center.x - point.x, center.z - point.z).length() <= maxf(4.0, float(node.radius) * 0.6):
+				return _discovered[index] != 0
+	return is_explored(point)
+
+## Slots of `type` in places the swarm has discovered.
+func discovered(type: String) -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	if layout == null:
+		return result
+	for index in layout.nodes.size():
+		if index < _discovered.size() and _discovered[index] != 0 and layout.nodes[index].slots.has(type):
+			for spot in layout.nodes[index].slots[type]:
+				result.append(spot)
 	return result
 
 # --- Exploration fog (stage 18) ----------------------------------------------------
@@ -2024,6 +2160,8 @@ func explore(point: Vector3, radius: float) -> void:
 			if near.distance_squared_to(local) <= radius * radius:
 				_explored[index] = 1
 				changed = true
+	if discover_around(point, radius) > 0:
+		changed = true
 	if is_inside(point):
 		var region := region_at(point)
 		if not _explored_regions.has(region):

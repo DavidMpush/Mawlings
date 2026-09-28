@@ -59,7 +59,7 @@ const PARTS := [
 	# name, cached
 	["hint", true], ["rally_glow", false], ["rally_base", true], ["rally_rim", false],
 	["rally_core", false], ["rally_heads", true], ["rally_rings", false], ["rally_text", true],
-	["joy", true],
+	["joy", true], ["ability", true],
 ]
 
 
@@ -100,6 +100,9 @@ func _painter(part: String) -> Callable:
 				_draw_hint(hud.hint, minf(rally_c.y, move_c.y) - FRAME_R - 30.0 - BANNER_GAP)
 		elif part == "joy":
 			_draw_joystick(move_c, hud.movement_vector)
+		elif part == "ability":
+			if "ability_state" in hud and not (hud.ability_state as Dictionary).is_empty():
+				_draw_ability(hud._ability_center(), hud.ability_state, _ability_pressed(hud))
 		else:
 			_draw_rally(rally_c, hud.rally_pressed)
 		_paint = ""
@@ -128,6 +131,13 @@ func _refresh_layers(hud: Control) -> void:
 		_layers[part].refresh([pressed, rally_c, charge, _rally_count(hud)])
 	_region("joy", Rect2(move_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0))
 	_layers.joy.refresh([hud.movement_vector, move_c])
+	# Stage 17d: ability button (repaints only when its state changes).
+	var ability: Dictionary = hud.ability_state if "ability_state" in hud else {}
+	_layers.ability.visible = not ability.is_empty()
+	if not ability.is_empty():
+		var ac: Vector2 = hud._ability_center()
+		_region("ability", Rect2(ac - Vector2.ONE * 110.0, Vector2.ONE * 220.0))
+		_layers.ability.refresh([ac, String(ability.get("id", "")), bool(ability.get("ready", false)), roundf(float(ability.get("share", 0.0)) * 60.0), int(ability.get("seconds", 0)), roundf(float(ability.get("active", 0.0)) * 30.0), _ability_pressed(hud), int(_t() * 6.0) if bool(ability.get("ready", false)) else 0])
 	# Breathing without repainting: glow radius/alpha, rim and core light.
 	var breathe := _pulse(2.4)
 	var glow: Control = _layers.rally_glow
@@ -807,6 +817,43 @@ func _draw_rally_brawl(c: Vector2, pressed: bool) -> void:
 			var rr := lerpf(r + 48.0, r + 16.0, phase)
 			var fade := sin(phase * PI)
 			Kit.circle_ring(_cv, c, rr, 4.0, Color(light, 0.7 * fade))
+
+
+# ---------------------------------------------------------------- ability (stage 17d)
+
+func _ability_pressed(hud: Control) -> bool:
+	return "ability_pressed_at" in hud and Time.get_ticks_msec() - int(hud.ability_pressed_at) < 160
+
+
+## Round tribe-ability button up-right of Rally: strain icon, cooldown ring
+## (fills clockwise in ember light, seconds in the middle while cooling), a
+## soft ember glow when ready, a bright ring while the effect runs. The own
+## colour is ember - never the danger pink.
+func _draw_ability(c: Vector2, state: Dictionary, pressed: bool) -> void:
+	var r: float = 58.0
+	var ready := bool(state.get("ready", false))
+	var share := clampf(float(state.get("share", 0.0)), 0.0, 1.0)
+	var active := float(state.get("active", 0.0))
+	var light: Color = UiStyle.brawl_tone("ember")["light"]
+	if ready:
+		Kit.glow(_cv, c, r + 30.0, light, 0.35 + 0.15 * _pulse(3.0))
+	# Cooldown track and ring.
+	Kit.circle_ring(_cv, c, r + 11.0, 11.0, Color(UiStyle.BRAWL_WELL, 0.9))
+	if share > 0.0:
+		_cv.draw_arc(c, r + 11.0, -PI * 0.5, -PI * 0.5 + TAU * share, 64, light if ready else Color(light, 0.75), 7.0, true)
+	Kit.circle_ring(_cv, c, r + 17.0, 3.0, UiStyle.BRAWL_INK)
+	Kit.round_button(_cv, c, r, "ember" if ready else "neutral", pressed)
+	var lc := Kit.round_label_center(c, r, pressed)
+	var icon := String(state.get("icon", ""))
+	var icon_rect := Rect2(lc - Vector2.ONE * r * 0.62, Vector2.ONE * r * 1.24)
+	if icon != "":
+		UiIcons.draw(_cv, icon, icon_rect, Color.WHITE if ready else Color(1, 1, 1, 0.45))
+	if not ready:
+		Kit.text_outlined(_cv, lc + Vector2(0, 4), str(int(state.get("seconds", 0))), UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	if active > 0.0:
+		Kit.circle_ring(_cv, c, r + 24.0, 5.0, Color(light, 0.5 + 0.5 * active))
+	# Name under the button (short, in the kit label size).
+	Kit.text_outlined(_cv, c + Vector2(0, r + 34.0), String(state.get("name", "")).to_upper(), UiStyle.T_LABEL, Color.WHITE if ready else UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 
 
 func _draw_joystick_brawl(c: Vector2, move: Vector2) -> void:

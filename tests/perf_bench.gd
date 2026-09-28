@@ -6,7 +6,7 @@ extends SceneTree
 #
 # Aufruf (einzeln):
 #   Godot_console.exe --path <projekt> --script res://tests/perf_bench.gd -- scene=worst secs=20
-#   Weitere Schalter: off=units,shadows,decor,arena,enemies,corpses,loot,fx,forms,popups,hud,swarmcpu
+#   Weitere Schalter: off=units,shadows,decor,arena,enemies,corpses,loot,fx,forms,popups,hud,swarmcpu,vfx
 #                     (off=units blendet das Schwarm-MultiMesh "Mawlings" samt Geistern aus)
 #                     cap=60 (nur die ersten N Mawling-Instanzen sichtbar), scale3d=0.7
 #                     (3D-Renderskalierung), msaa=0|2|4, trace=1 (Speicher alle 5 s), res=540x1170 (Fenstergröße), warm=3
@@ -127,9 +127,11 @@ func _build_game() -> void:
 
 
 func _build_worst_case() -> void:
-	world.model.population = 250
-	world.model.peak_population = 250
-	swarm.set_population(250, false)
+	# Etappe 17b: no population limit - "pop=5000" benches a huge swarm.
+	var pop := int(args.get("pop", "250"))
+	world.model.population = pop
+	world.model.peak_population = pop
+	swarm.set_population(pop, false)
 	# All four attack forms at their top: both evolutions replace their base form.
 	var evo = world.evolution
 	evo.slots = {"attack": 4, "trait": 3}
@@ -308,6 +310,9 @@ func _apply_switches_to_tree(node: Node) -> void:
 		swarm.shadows.visible = false
 	if _is_off("fx") and world.attack_forms != null:
 		world.attack_forms.visible = false
+	# VFX-Paket V1 (A/B-Messung): keine Effekt-Sprites erzeugen.
+	if _is_off("vfx"):
+		load("res://scripts/vfx_sprites.gd").enabled = false
 	if _is_off("corpses") and world.get("corpse_view") != null:
 		world.corpse_view.visible = false
 	if _is_off("loot") and world.get("loot") != null:

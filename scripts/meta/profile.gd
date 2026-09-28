@@ -75,6 +75,7 @@ static func _default_records() -> Dictionary:
 		"total_apex": 0, "total_migrations": 0, "biome_time": {},
 		# Etappe 10 Teil 3: Aschenkröten-Siege (total_apex zählt beide Apex).
 		"total_toads": 0,
+		"total_worms": 0,
 		# Moosschlund-Siege allein (Trophäe „Moosschlund bezwungen“).
 		"total_moss": 0,
 	}
@@ -279,7 +280,14 @@ func is_difficulty_unlocked(difficulty: int) -> bool:
 	return unlocked_difficulties.has(difficulty)
 
 func is_biome_unlocked(biome_id: String) -> bool:
-	return DATA.BIOMES.has(biome_id) and not bool(DATA.BIOMES[biome_id].locked)
+	if not DATA.BIOMES.has(biome_id):
+		return false
+	var entry: Dictionary = DATA.BIOMES[biome_id]
+	# Etappe 19: Biome mit unlock_stat öffnen sich über einen Rekord (Dürrschlund: Moosschlund besiegt).
+	var stat := String(entry.get("unlock_stat", ""))
+	if stat != "" and int(records.get(stat, 0)) > 0:
+		return true
+	return not bool(entry.locked)
 
 # --- Karten-Seed ----------------------------------------------------------------
 
@@ -526,8 +534,10 @@ func _update_records(stats: Dictionary) -> void:
 	records.total_apex += maxi(0, _int(stats.get("apex_kills"), 0))
 	var toad_kills := maxi(0, _int(stats.get("toad_kills"), 0))
 	records.total_toads += toad_kills
+	var worm_kills := maxi(0, _int(stats.get("worm_kills"), 0))
+	records.total_worms += worm_kills
 	# RunStats liefert apex_kills (beide Apex) und toad_kills; moss_kills optional.
-	var moss_kills := _int(stats.get("moss_kills"), _int(stats.get("apex_kills"), 0) - toad_kills)
+	var moss_kills := _int(stats.get("moss_kills"), _int(stats.get("apex_kills"), 0) - toad_kills - worm_kills)
 	records.total_moss += maxi(0, moss_kills)
 	records.total_migrations += maxi(0, _int(stats.get("migrations"), 0))
 	var biome_seconds: Variant = stats.get("biome_seconds", {})

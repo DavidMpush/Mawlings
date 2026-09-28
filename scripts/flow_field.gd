@@ -23,6 +23,8 @@ const OPEN_THRESHOLD := 1.0
 const DIRECTIONS := [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1), Vector2(0.7071, 0.7071), Vector2(-0.7071, 0.7071), Vector2(0.7071, -0.7071), Vector2(-0.7071, -0.7071)]
 
 var cell := 4.0
+## Wall distance a cell centre needs to be passable (big bodies need more).
+var open_threshold := OPEN_THRESHOLD
 var size := 0
 var origin := Vector2.ZERO
 var passable := PackedByteArray()
@@ -53,8 +55,9 @@ var _count := 0
 var _offsets := PackedInt32Array()
 
 
-func _init(layout: RefCounted, cell_size: float) -> void:
+func _init(layout: RefCounted, cell_size: float, threshold := OPEN_THRESHOLD) -> void:
 	cell = cell_size
+	open_threshold = threshold
 	var bounds: Rect2 = layout.bounds
 	size = ceili(bounds.size.x / cell) + 2
 	origin = bounds.position - Vector2(cell, cell)
@@ -72,12 +75,27 @@ func _init(layout: RefCounted, cell_size: float) -> void:
 				var cx := origin.x + (float(x) + 0.5) * cell
 				var cz := origin.y + (float(z) + 0.5) * cell
 				best = layout.sample(cx, cz)
-				if best < OPEN_THRESHOLD:
+				if best < open_threshold:
 					for offset in [Vector2(-quarter, -quarter), Vector2(quarter, -quarter), Vector2(-quarter, quarter), Vector2(quarter, quarter)]:
 						best = maxf(best, layout.sample(cx + offset.x, cz + offset.y))
-			if best >= OPEN_THRESHOLD:
+			if best >= open_threshold:
 				passable[z * size + x] = 1
 				open_cells += 1
+	# Stage 18c: the layout's collision circles (landmarks, cover stones) are no
+	# ground to route through either.
+	var circles: Variant = layout.get("stones")
+	if circles != null:
+		for stone in circles:
+			var reach: float = stone.w + open_threshold
+			var lo := Vector2i(floori((stone.x - reach - origin.x) / cell), floori((stone.z - reach - origin.y) / cell))
+			var hi := Vector2i(floori((stone.x + reach - origin.x) / cell), floori((stone.z + reach - origin.y) / cell))
+			for z in range(maxi(1, lo.y), mini(size - 1, hi.y + 1)):
+				for x in range(maxi(1, lo.x), mini(size - 1, hi.x + 1)):
+					var cx := origin.x + (float(x) + 0.5) * cell
+					var cz := origin.y + (float(z) + 0.5) * cell
+					if Vector2(cx - stone.x, cz - stone.z).length() < reach and passable[z * size + x] == 1:
+						passable[z * size + x] = 0
+						open_cells -= 1
 	_offsets = PackedInt32Array([1, -1, size, -size, size + 1, size - 1, -size + 1, -size - 1])
 	dist.resize(size * size)
 	dist.fill(UNREACHED)

@@ -34,6 +34,13 @@ const PIT_CREST_OUT := 1.15       # crest radius in units of the maw radius
 const PIT_CREST_HEIGHT := 0.6    # metres
 const PIT_MODEL_HEIGHT := 0.383
 const PIT_SLOPE_PULL := 0.5       # outer slope width factor (smaller footprint)
+# Stage 19: the desert maw (SandPortal model), outer radius in maw radii and height.
+const SAND_PORTAL_MODEL = preload("res://assets/gameplay/props/SandPortal_game.glb")
+const SAND_LIP_OUT := 1.05       # tooth ring radius in maw radii
+const SAND_LIP_HEIGHT := 1.2      # metres (teeth tips)
+const SAND_TEETH := 0.27          # tooth ring radius of the model (units)
+const SAND_THROAT := 0.2          # inside this the model is pressed flat
+static var _sand_cache: ArrayMesh
 
 const OPEN_SECONDS := 1.2
 const LIP_RIM := Color("ffb8d8")
@@ -94,6 +101,8 @@ static var _pit_mesh: Array = []
 
 var radius := TUNING.MIGRATION_RADIUS
 var target_biome := "glutsumpf"
+## Stage 19: biome the maw opens in ("duerrschlund" = the SandPortal toothed maw).
+var source_biome := ""
 var hold := 0.0
 var inside_share := 0.0
 var entered := false
@@ -107,8 +116,9 @@ var beam: MeshInstance3D
 var _time := 0.0
 
 
-func setup(target: String) -> void:
+func setup(target: String, source := "") -> void:
 	target_biome = target
+	source_biome = source
 
 
 func _ready() -> void:
@@ -138,8 +148,13 @@ func _ready() -> void:
 	lip_material.set_shader_parameter("rim_color", LIP_RIM)
 	lip_material.set_shader_parameter("rim_strength", 0.35)
 	var k := radius * PIT_CREST_OUT / PIT_CREST
-	lip = _part(rim, "Lip", pit[0], lip_material, Vector3.ZERO)
-	lip.transform = Transform3D(Basis.from_scale(Vector3(k, PIT_CREST_HEIGHT / PIT_MODEL_HEIGHT, k)), Vector3.ZERO) * pit[1]
+	var portal := String(BIOMES.get_data(source_biome).get("props", {}).get("portal", "")) if BIOMES.has(source_biome) else ""
+	if portal == "SandPortal":
+		# Dürrschlund: the worm's toothed breakthrough maw in cracked crust.
+		lip = _sand_lip(lip_material)
+	else:
+		lip = _part(rim, "Lip", pit[0], lip_material, Vector3.ZERO)
+		lip.transform = Transform3D(Basis.from_scale(Vector3(k, PIT_CREST_HEIGHT / PIT_MODEL_HEIGHT, k)), Vector3.ZERO) * pit[1]
 	teeth = lip
 	var column := CylinderMesh.new()
 	column.top_radius = radius * 0.25
@@ -152,6 +167,65 @@ func _ready() -> void:
 	var core: Color = vortex_material.get_shader_parameter("core_color")
 	beam = _part(self, "Beam", column, FX_BATCH.shared_material(Color(core, 0.22), true, true, 1.0, true), Vector3(0, BEAM_HEIGHT * 0.5, 0))
 	_animate(0.0)
+
+
+# SandPortal model (flattened, its throat around the vortex) as the lip.
+func _sand_lip(material: ShaderMaterial) -> MeshInstance3D:
+	var root: Node = SAND_PORTAL_MODEL.instantiate()
+	var model: MeshInstance3D = root.find_children("*", "MeshInstance3D", true, false)[0]
+	var base := Transform3D.IDENTITY
+	var node: Node = model
+	while node != root and node is Node3D:
+		base = (node as Node3D).transform * base
+		node = node.get_parent()
+	var mesh: Mesh = _sand_mesh(model.mesh, base)
+	root.free()
+	material.set_shader_parameter("body_tint", Color(0.9, 0.78, 0.6, 0.2))
+	material.set_shader_parameter("saturation", 0.95)
+	material.set_shader_parameter("brightness", 1.15)
+	material.set_shader_parameter("rim_color", Color("ffe0a8"))
+	# The mesh is already in node space (base applied); its tooth ring sits at
+	# SAND_TEETH model units: scale that to the maw radius.
+	var box: AABB = mesh.get_aabb()
+	var k := radius * SAND_LIP_OUT / SAND_TEETH
+	var shape := Basis.from_scale(Vector3(k, SAND_LIP_HEIGHT / maxf(0.01, box.size.y), k))
+	var placed := Transform3D(shape, Vector3.ZERO)
+	var bounds: AABB = placed * mesh.get_aabb()
+	placed.origin -= Vector3(bounds.get_center().x, bounds.position.y, bounds.get_center().z)
+	var part := _part(rim, "Sand lip", mesh, material, Vector3.ZERO)
+	part.transform = placed
+	return part
+
+
+# SandPortal in node space with its throat opened: everything inside the tooth
+# ring is pressed flat to the ground, so the vortex shows inside the teeth.
+static func _sand_mesh(source: Mesh, base: Transform3D) -> ArrayMesh:
+	if _sand_cache != null:
+		return _sand_cache
+	var arrays := source.surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var box: AABB = base * source.get_aabb()
+	var center := box.get_center()
+	for i in points.size():
+		var v: Vector3 = base * points[i]
+		v -= Vector3(center.x, box.position.y, center.z)
+		var r := Vector2(v.x, v.z).length()
+		if r < SAND_THROAT:
+			v.y = minf(v.y, 0.004) * 0.2
+		points[i] = v
+	arrays[Mesh.ARRAY_VERTEX] = points
+	var normals: Variant = arrays[Mesh.ARRAY_NORMAL]
+	if normals is PackedVector3Array:
+		var turned: PackedVector3Array = normals
+		var inverse := base.basis.inverse().transposed()
+		for i in turned.size():
+			turned[i] = (inverse * turned[i]).normalized()
+		arrays[Mesh.ARRAY_NORMAL] = turned
+	arrays[Mesh.ARRAY_TANGENT] = null
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	_sand_cache = mesh
+	return mesh
 
 
 func _apply_target_colors() -> void:

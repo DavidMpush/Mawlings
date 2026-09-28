@@ -20,9 +20,10 @@ const BASE_SLOTS := 4
 const RANK_GAIN := {"common": 1, "rare": 1, "epic": 2, "legendary": 3}
 ## Karten-/Elite-Kokon: Anteil Relikt (Rest Waffe).
 const RELIC_SHARE := 0.55
-## Karten-Kokon-Preis: 25 · 1,35^n, Glück −3 % je Punkt, Schlundherz −40 % je Stapel.
+## Karten-Kokon-Preis in Bernstein: 25 · 1,85^n, Glück −3 % je Punkt, Schlundherz −40 % je Stapel.
 const CHEST_BASE := 25.0
-const CHEST_GROWTH := 1.35
+## Welle 2: 1,35 -> 1,85; Preis in Bernstein (In-Run-Währung); ~5-7 Karten-Kokons je langem Run.
+const CHEST_GROWTH := 1.85
 const CHEST_LUCK_DISCOUNT := 0.03
 const CHEST_MIN_FACTOR := 0.25
 const BOSS_CHOICES := 3
@@ -72,12 +73,13 @@ const RELICS := [
 	["dornenhaut", "Dornenhaut", "+40 % Rückschaden, wenn der Schwarm getroffen wird", "rare"],
 	["grabkralle", "Grabkralle", "Gräber-Stöße +1 m Radius", "rare"],
 	["gluecksknochen", "Glücksknochen", "+2 Glück", "rare"],
-	["koenigszahnkette", "Königszahnkette", "Jeder 15. Kill heilt den Anführer um 1 LP", "epic"],
+	["blutzahn", "Blutzahn", "+3 % des Schwarm-Schadens heilt den Anführer", "rare"],
+	["koenigszahnkette", "Königszahnkette", "Jeder 15. Kill heilt den Anführer um 15 LP", "epic"],
 	["glutdruese", "Glutdrüse", "Bisse setzen Gegner in Brand", "epic"],
 	["zwillingsbrut", "Zwillingsbrut", "Jede 4. Zellteilung ergibt 2 Tiere", "epic"],
 	["magnetkern", "Magnetkern", "Lockrufe erscheinen doppelt so oft", "epic"],
 	["urmutter", "Urmutter", "+1 Waffenplatz", "legendary"],
-	["blutmond", "Blutmond", "+40 % Schaden, Anführer −1 LP maximal", "legendary"],
+	["blutmond", "Blutmond", "+40 % Schaden, Anführer −25 Max-LP", "legendary"],
 	["schlundherz", "Schlundherz", "Kokons 40 % billiger", "legendary"],
 ]
 ## Standard-Pools; weitere IDs kommen über Trophäen (meta_data „weapon:“/„relic:“).
@@ -219,26 +221,51 @@ func chest_price(luck: float = 0.0) -> int:
 ## Würfelt einen Kokon. kind: "map" (1 Teil sofort), "elite" (1 Teil, mind. selten),
 ## "boss" (3 Angebote, mind. episch, Evolution garantiert, wenn eine bereitsteht).
 ## Rückgabe: {"kind", "pick": bool (true = 1 aus N wählen), "items": Array}.
-func roll_chest(rng: RandomNumberGenerator, luck: float, kind: String) -> Dictionary:
+## `minimum` hebt die Mindest-Seltenheit an (Welle 2: goldene Karten-Kokons).
+## `guarantee` = false: der Boss-Kokon bietet keine garantierte Evolution
+## (Welle 2: nur der erste Boss-Kokon je Biom-Zyklus garantiert sie).
+func roll_chest(rng: RandomNumberGenerator, luck: float, kind: String, minimum: String = "", guarantee: bool = true) -> Dictionary:
 	match kind:
 		"boss":
 			var items: Array = []
-			var ready := evolution_ready()
+			var ready := evolution_ready() if guarantee else []
 			if not ready.is_empty():
 				items.append(evolution_item(String(ready[rng.randi_range(0, ready.size() - 1)])))
 			var guard := 24
 			while items.size() < BOSS_CHOICES and guard > 0:
 				guard -= 1
-				var item := roll_item(rng, luck, "epic", items)
+				var item := roll_item(rng, luck, _higher("epic", minimum), items)
 				if item.is_empty():
 					break
 				items.append(item)
 			return {"kind": kind, "pick": true, "items": items}
 		"elite":
-			var elite := roll_item(rng, luck, "rare")
+			var elite := roll_item(rng, luck, _higher("rare", minimum))
 			return {"kind": kind, "pick": false, "items": [elite] if not elite.is_empty() else []}
-	var found := roll_item(rng, luck, "common")
+	var found := roll_item(rng, luck, _higher("common", minimum))
 	return {"kind": "map", "pick": false, "items": [found] if not found.is_empty() else []}
+
+
+static func _higher(a: String, b: String) -> String:
+	return b if STATS.RARITIES.find(b) > STATS.RARITIES.find(a) else a
+
+
+## Start-Kokon (Welle 2): gewöhnlich oder selten; eine Waffe, solange
+## weniger als zwei Waffen im Arsenal sind, sonst wie ein Karten-Kokon.
+func roll_start(rng: RandomNumberGenerator, luck: float) -> Dictionary:
+	var rarity := "rare" if STATS.roll_rarity(rng, luck) != "common" else "common"
+	var weapon_ids := _weapon_candidates([])
+	if weapons().size() < 2:
+		var fresh: Array = weapon_ids.filter(func(id): return rank(String(id)) == 0)
+		if not fresh.is_empty():
+			return weapon_item(String(fresh[rng.randi_range(0, fresh.size() - 1)]), rarity)
+	if rng.randf() < RELIC_SHARE or weapon_ids.is_empty():
+		var relic := _pick_relic(rng, rarity, [])
+		if not relic.is_empty():
+			return relic
+	if weapon_ids.is_empty():
+		return {}
+	return weapon_item(String(weapon_ids[rng.randi_range(0, weapon_ids.size() - 1)]), rarity)
 
 
 ## Ein zufälliges Teil: 55 % Relikt, 45 % Waffe (neu oder Rang +1). Bei vollen

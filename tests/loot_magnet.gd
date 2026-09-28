@@ -56,9 +56,9 @@ func _run() -> void:
 
 	# ---- No decay; empty remains sink and vanish.
 	var remains_id: int = world.remains_order[0]
-	_steps(float(TUNING.CORPSE_LIFE.normal) - 2.0)
+	_steps(float(TUNING.CORPSE_LIFE.normal) - TUNING.CORPSE_SINK_SECONDS * 0.5)
 	_check(world.remains.has(remains_id) and float(world.corpse_view.corpses[remains_id].decay) > 0.2, "Remains sink at the end of their life (%.2f)" % float(world.corpse_view.corpses[remains_id].decay) if world.corpse_view.corpses.has(remains_id) else "Remains sink at the end of their life (gone)")
-	_steps(3.0)
+	_steps(TUNING.CORPSE_SINK_SECONDS + 1.0)
 	_check(not world.remains.has(remains_id) and not world.corpse_view.has(remains_id), "Remains vanish after %.0f s" % float(TUNING.CORPSE_LIFE.normal))
 	_steps(90.0)
 	_check(loot.lying_count() == dropped and absf(loot.total(LOOT.Kind.BIOMASS) - TUNING.CORPSE_BIOMASS * world.evolution.biomass_multiplier()) < 0.01, "Crystals never decay (%d after 2 min)" % loot.lying_count())
@@ -112,7 +112,7 @@ func _run() -> void:
 		biggest = maxi(biggest, loot.tier[id])
 	_check(absf(bundled_value - 40.0) < 0.01 and biggest == 2, "Bundled value kept (%.1f), the host grew to a big crystal" % bundled_value)
 
-	# ---- A full swarm leaves biomass lying (DNA still flies).
+	# ---- Etappe 17b: no population limit - a swarm of 250 keeps taking biomass.
 	world.model.population = 250
 	world.model.biomass_bank = 0.0
 	swarm.set_population(250, false)
@@ -120,21 +120,11 @@ func _run() -> void:
 	swarm.position = spot
 	var dna_now: int = world.evolution.dna
 	loot.drop(LOOT.Kind.DNA, 5.0, spot, spot + Vector3(0.6, 0.0, 0.0), false)
-	_steps(1.5)
-	_check(loot.lying_near(spot, 2.0).size() == TUNING.LOOT_CELL_CROWD, "Full swarm: biomass stays on the ground")
-	_check(world.evolution.dna >= dna_now + 5 or world.choosing(), "Full swarm still collects DNA")
+	_steps(2.5)
 	_clear_offers()
-
-	# ---- Overflow: arriving biomass beyond the cap drops back as a crystal.
-	world.model.population = 249
-	world.model.biomass_bank = 0.0
-	swarm.set_population(249, false)
-	world.unit_points_valid = false
-	swarm.position = Vector3(60.0, 0.0, 60.0)
-	loot.drop(LOOT.Kind.BIOMASS, 10.0, swarm.position, swarm.position + Vector3(0.8, 0.0, 0.0), false)
-	_steps(1.5)
-	_check(world.model.population == 250, "Overflow fills the swarm")
-	_check(absf(loot.total(LOOT.Kind.BIOMASS) - 40.0 - (10.0 * world.evolution.harvest_multiplier() - TUNING.BIOMASS_PER_MAWLING)) < 0.05, "The rest lies again as a crystal (%.2f)" % (loot.total(LOOT.Kind.BIOMASS) - 40.0))
+	_check(world.model.population > 250, "A swarm of 250 keeps growing (%d)" % world.model.population)
+	_check(world.evolution.dna >= dna_now + 5 or world.evolution.level > 0, "DNA still flies")
+	_clear_offers()
 
 	# ---- Lockruf: every crystal of the map flies in as a chain.
 	world.model.population = 20
@@ -177,7 +167,9 @@ func _run() -> void:
 	elite.health = 0.0
 	world._resolve_death(elite, "hunter")
 	_check(loot.lures.size() == 1, "Elite hunter drops a Lockruf")
-	_check(loot.count() >= 2 and loot.count() <= TUNING.LOOT_MAX_PER_KILL, "Elite bursts into %d crystals" % loot.count())
+	var elite_crystals: int = loot.count() - loot.count_of(LOOT.Kind.AMBER)
+	_check(elite_crystals >= 2 and elite_crystals <= TUNING.LOOT_MAX_PER_KILL, "Elite bursts into %d crystals" % elite_crystals)
+	_check(loot.count_of(LOOT.Kind.AMBER) >= 1, "... plus Bernstein coins (%d)" % loot.count_of(LOOT.Kind.AMBER))
 
 	# ---- Performance: 1000 lying crystals cost little per step.
 	for lure_entry in loot.lures:
@@ -207,7 +199,7 @@ func _run() -> void:
 	_check(world.loot != null and world.loot.count() == 0 and world.remains.is_empty() and world.crystals_collected == 0, "Reset clears crystals and remains")
 
 	if failures.is_empty():
-		print("PASS loot_magnet: burst 1-6 crystals, hop + ring, no decay, remains sink after %.0f s, magnet flight + credit + one popup, radius %.1f-%.1f m (Lockduft/Witterung/Rally), bundling, full swarm keeps biomass, overflow drops back, Lockruf chain over the map, elite Lockruf, 1000 crystals %.3f ms" % [float(TUNING.CORPSE_LIFE.normal), r1, r250, per_step / 1000.0])
+		print("PASS loot_magnet: burst 1-6 crystals, hop + ring, no decay, remains sink after %.0f s, magnet flight + credit + one popup, radius %.1f-%.1f m (Lockduft/Witterung/Rally), bundling, no population limit, Lockruf chain over the map, elite Lockruf, 1000 crystals %.3f ms" % [float(TUNING.CORPSE_LIFE.normal), r1, r250, per_step / 1000.0])
 		quit(0)
 	else:
 		for failure in failures:

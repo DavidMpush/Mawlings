@@ -89,7 +89,7 @@ func _move_swarm(to: Vector3) -> void:
 func _check_hold_rule() -> void:
 	_fresh(40)
 	var maw: Variant = world.open_portal(Vector3(0, 0, 44))
-	_check(maw != null and maw.target_biome == "glutsumpf", "Verdant leads to the Glutsumpf")
+	_check(maw != null and maw.target_biome == "duerrschlund", "Verdant leads to the Dürrschlund (stage 19 order)")
 	_steps(1.5)
 	_check(maw.opened >= 1.0 and maw.hold == 0.0 and world.migration_state == 0, "Opens and waits while nobody enters")
 	# Only the edge of the swarm touches it: less than 60 % inside.
@@ -111,6 +111,11 @@ func _check_hold_rule() -> void:
 
 func _check_transition() -> void:
 	_fresh(40)
+	# Stage 19: the Glutsumpf now lies behind the Dürrschlund.
+	world._set_world_biome("duerrschlund", false)
+	arena.finish_rebuild()
+	_move_swarm(Vector3(0, 0, 30))
+	var desert_maw_ok := false
 	world.evolution.ranks["bite"] = 2
 	world.flood_state = 2
 	world.flood_start = 300.0
@@ -122,6 +127,8 @@ func _check_transition() -> void:
 	world._spawn_prey(Vector3(4, 0, 36))
 	prey_before = world.prey[-1]
 	var maw: Variant = world.open_portal(Vector3(0, 0, 40))
+	desert_maw_ok = maw.target_biome == "glutsumpf" and maw.source_biome == "duerrschlund" and maw.lip != null and String(maw.lip.name) == "Sand lip"
+	_check(desert_maw_ok, "The Dürrschlund maw is the SandPortal and leads to the Glutsumpf")
 	_steps(1.3)
 	_move_swarm(maw.position)
 	var elapsed_before: float = world.model.elapsed
@@ -131,7 +138,7 @@ func _check_transition() -> void:
 	var timer_before: float = world.migration_timer
 	world.toggle_pause()
 	_steps(1.0)
-	_check(world.migration_timer == timer_before and arena.biome_id == "verdant_maw", "Pause freezes the swirl")
+	_check(world.migration_timer == timer_before and arena.biome_id == "duerrschlund", "Pause freezes the swirl")
 	world.toggle_pause()
 	var objectives: Dictionary = world.hud.get_meta("objectives")
 	_check(float(objectives.migration) >= 0.0 and String(objectives.migration_to) == "glutsumpf", "HUD gets the swirl progress")
@@ -184,7 +191,7 @@ func _check_transition() -> void:
 				near = true
 	_check(not near, "No eruption inside the arrival zone")
 	var stats: Dictionary = world.run_stats()
-	_check(int(stats.biomes_visited) == 2 and int(stats.migrations) == 1 and float(stats.biome_seconds.get("glutsumpf", 0.0)) > 5.0, "RunStats: biomes_visited 2, migrations 1, Glutsumpf seconds")
+	_check(int(stats.biomes_visited) == 3 and int(stats.migrations) == 1 and float(stats.biome_seconds.get("glutsumpf", 0.0)) > 5.0, "RunStats: biomes_visited 3, migrations 1, Glutsumpf seconds")
 	# Trophies: the profile books migrations, apex kills and seconds per biome.
 	var path := "user://migration_test_profile.json"
 	var profile: Variant = PROFILE.load_or_create(path)
@@ -211,7 +218,7 @@ func _check_reset_mid_transition() -> void:
 	_steps(1.3)
 	_move_swarm(maw.position)
 	_steps(TUNING.MIGRATION_HOLD_SECONDS + 0.05 + TUNING.MIGRATION_SWITCH_AT + 0.05)
-	_check(world.migrating() and arena.biome_id == "glutsumpf", "Mid-swirl state reached")
+	_check(world.migrating() and arena.biome_id == "duerrschlund", "Mid-swirl state reached")
 	world.reset_run()
 	_steps(0.2)
 	_check(not world.migrating() and arena.biome_id == "verdant_maw" and world.portal == null and world.model.elapsed < 1.0, "Reset in the middle of the swirl is clean")
