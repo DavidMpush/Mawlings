@@ -24,6 +24,7 @@ func _run() -> void:
 	_test_catalog()
 	_test_slots_and_ranks()
 	_test_relics()
+	_test_relic_limits()
 	_test_chests()
 	_test_evolution()
 	_test_hooks()
@@ -96,6 +97,55 @@ func _test_relics() -> void:
 	_check(arsenal.chest_price(5.0) < arsenal.chest_price(0.0), "Glück macht Kokons billiger")
 	arsenal.grant(arsenal.relic_item("schlundherz"))
 	_check(arsenal.chest_price() == int(round(25.0 * ARSENAL.CHEST_GROWTH * ARSENAL.CHEST_GROWTH * 0.6)), "Schlundherz −40 %")
+
+
+## User decision 28.09.2026: 6 distinct relics, each stacks up to its max
+## (RELIC_MAX_STACK, Urmutter 1); full slots only offer stacks of owned relics.
+func _test_relic_limits() -> void:
+	var arsenal = ARSENAL.new()
+	_check(arsenal.relic_slot_limit() == 6 and ARSENAL.RELIC_MAX_STACK == 5 and ARSENAL.max_stacks("urmutter") == 1, "6 Relikt-Plätze, Stapel bis 5, Urmutter 1")
+	var owned := ["hungerstein", "zaehe_haut", "scharfe_zaehne", "flinke_beine", "witterungsnase", "koenigszahnkette"]
+	for id in owned:
+		_check(arsenal.grant(arsenal.relic_item(id)).applied, "Relikt %s passt in einen Platz" % id)
+	_check(arsenal.relics_owned() == 6 and arsenal.relic_slots_free() == 0, "Relikt-Plätze voll")
+	var seventh: Dictionary = arsenal.grant(arsenal.relic_item("gluecksknochen"))
+	_check(not seventh.applied and arsenal.stacks("gluecksknochen") == 0, "Siebtes Relikt ohne Platz wird abgelehnt")
+	for i in 4:
+		arsenal.grant(arsenal.relic_item("hungerstein"))
+	_check(arsenal.stacks("hungerstein") == 5 and not arsenal.grant(arsenal.relic_item("hungerstein")).applied, "Stapel endet bei 5")
+	# Full relic and weapon slots: only stacks of owned relics and rank-ups.
+	for id in ["rudelbiss", "sporenwolke", "klauenwirbel", "giftbiss"]:
+		arsenal.grant(arsenal.weapon_item(id, "common"))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 31
+	for i in 300:
+		for kind in ["map", "gold", "boss", "start", "elite"]:
+			var chest: Dictionary = arsenal.roll_chest(rng, 0.0, kind)
+			_check(_distinct(chest.items), "Volle Plätze: Angebote verschieden")
+			for item in chest.items:
+				if item.type == "relic":
+					_check(owned.has(item.id) and item.id != "hungerstein", "Volle Relikt-Plätze: nur Stapel eigener Relikte unter 5 (%s)" % item.id)
+				elif item.type == "weapon":
+					_check(arsenal.rank(item.id) > 0 and arsenal.rank(item.id) < 5, "Volle Waffenplätze: nur Rang-Aufstiege (%s)" % item.id)
+	# Urmutter: one stack only.
+	var mother = ARSENAL.new()
+	mother.relic_pool = ["urmutter"]
+	mother.weapon_pool = []
+	_check(mother.grant(mother.relic_item("urmutter")).applied and not mother.grant(mother.relic_item("urmutter")).applied and mother.slot_limit() == 5, "Urmutter stapelt nicht (ein Zusatzplatz)")
+	_check(mother.roll_chest(rng, 0.0, "gold").items.is_empty(), "Urmutter maximal: kein Angebot mehr")
+	# Everything owned is maxed: no offer (the caller refunds Bernstein).
+	var maxed = EVOLUTION.new()
+	for id in ["rudelbiss", "sporenwolke", "klauenwirbel", "giftbiss"]:
+		maxed.debug_grant(id, "legendary")
+		maxed.debug_grant(id, "legendary")
+	for id in owned:
+		for i in ARSENAL.max_stacks(id):
+			maxed.arsenal.grant(maxed.arsenal.relic_item(id))
+	_check(maxed.slots_used("relic") == 6 and maxed.slot_limit("relic") == 6, "Fassade zählt Relikt-Plätze")
+	var price: int = maxed.chest_price()
+	for kind in ["map", "elite", "gold", "boss"]:
+		var result: Dictionary = maxed.open_chest(kind)
+		_check(result.items.is_empty() and int(result.refund) == price and maxed.chest_offers.is_empty(), "Alles belegt und maximal: %s-Kokon erstattet Bernstein" % kind)
 
 
 func _test_chests() -> void:

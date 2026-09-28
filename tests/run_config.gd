@@ -61,7 +61,7 @@ func _run() -> void:
 	evo = world.evolution
 	_check(world.model.population == 40 and evo.rank("saeurespucker") == evo.SIGNATURE_START_RANK, "Restart keeps the run config")
 	evo.rng.seed = 7
-	world._award_dna(20)
+	world._award_dna(evo.threshold())
 	_check(world.choosing(), "Offer opens at threshold")
 	for offer in evo.offers:
 		_check(evo.pool.has(offer[0]), "Offer comes from the pool")
@@ -81,14 +81,16 @@ func _run() -> void:
 	world._award_dna(30)
 	var dna_before: int = evo.dna
 	world.skip_mutation()
-	_check(evo.skips == 0 and evo.dna == dna_before - 20 and evo.level == 0, "Skip spends the level-up")
+	_check(evo.skips == 0 and evo.dna == dna_before - evo.threshold() and evo.level == 0, "Skip spends the level-up")
 	if not world.choosing():
-		world._award_dna(20)
+		world._award_dna(evo.threshold())
 	var stat_id: String = evo.offers[0][0]
 	var rarity: String = evo.offers[0][3]
 	world.choose_mutation(0)
 	_check(evo.rank(stat_id) == 1 and is_equal_approx(evo.stats.units_of(stat_id), float(STATS.RARITY_FACTOR[rarity])), "Stat rank and rarity value (%s %s)" % [stat_id, rarity])
 	_check(evo.slots_used("attack") == 1 and evo.slot_limit("attack") == 1, "Weapon slots come from the config")
+	# User decision 28.09.2026: stat and relic slots are fixed (old configs with "trait": 14 or 1 load).
+	_check(evo.slot_limit("trait") == 6 and evo.slot_limit("relic") == 6, "6 stat / 6 relic slots regardless of old config values")
 	_check(evo.arsenal.weapon_pool.has("rudelbiss") and not evo.arsenal.weapon_pool.has("klauenwirbel"), "Weapon pool comes from the config")
 
 	# Stage 15: in the brawl skin taps hit the cards mutation_screen draws
@@ -100,7 +102,7 @@ func _run() -> void:
 		world.reset_run()
 		evo = world.evolution
 		evo.rng.seed = 11
-		world._award_dna(20)
+		world._award_dna(evo.threshold())
 		_check(world.choosing() and evo.offers.size() >= 2, "Brawl tap test has two offers")
 		if evo.offers.size() >= 2:
 			var target: String = evo.offers[1][0]

@@ -233,7 +233,9 @@ func _check_layout_spawns() -> void:
 	_check(world.apex_spot.distance_to(boss_spot) < 3.0 and arena.is_open(world.apex_spot, 3.0), "Path map: apex rises in the boss arena (%s)" % world.apex_spot)
 	world.apex_state = 4
 	world._apex_defeated(boss_spot)
-	_check(world.portal_point.distance_to(maw_spot) < 3.0 and arena.is_open(world.portal_point, TUNING.MIGRATION_RADIUS), "Path map: the Schlund opens in its clearing (%s)" % world.portal_point)
+	# Etappe 30: the Schlund is the sealed gate beside the boss arena.
+	var gate_at: Vector3 = world.gate.position if world.gate != null else Vector3.INF
+	_check(world.portal_point.distance_to(gate_at) < 0.5 and arena.is_open(world.portal_point, TUNING.MIGRATION_RADIUS), "Path map: the Schlund opens at the gate beside the boss arena (%s)" % world.portal_point)
 	world.portal_clock = -1.0
 	for kind in ["nest", "totem"]:
 		var spot: Vector3 = world._objective_position(4.0, [], kind)
@@ -287,9 +289,8 @@ func _check_migration() -> void:
 	var playable: Rect2 = arena.playable_rect()
 	var before_seed: int = arena.world_seed
 	var before_layout := _layout_snapshot()
-	# The maw stands in its clearing near the edge (stage 18b).
-	var maw_spot: Vector3 = arena.poi_slots("maw")[0]
-	_check(arena.edge_distance(maw_spot) > -70.0, "Schlund clearing near the edge (%.0f m)" % arena.edge_distance(maw_spot))
+	# Etappe 30: the maw is the sealed gate beside the boss arena.
+	var maw_spot: Vector3 = world.gate.position
 	swarm.position = maw_spot
 	arena.sync(swarm.position)
 	world.apex_state = 3

@@ -158,7 +158,7 @@ func _check_worm_arrival() -> void:
 	_check(worm != null and worm is WORM and world.apex_state == 2, "The Sandwurm rises in the Dürrschlund")
 	if worm == null:
 		return
-	_check(is_equal_approx(worm.max_health, TUNING.APEX_SANDWORM_HEALTH * world.world_scale()), "APEX_SANDWORM_HEALTH x world bonus (%.0f)" % worm.max_health)
+	_check(_apex_hp_ok(worm.max_health, TUNING.APEX_SANDWORM_HEALTH * world.world_scale()), "APEX_SANDWORM_HEALTH x world bonus (%.0f)" % worm.max_health)
 	var objectives: Dictionary = world.hud.get_meta("objectives")
 	_check(String(objectives.apex_name) == "SANDWURM", "HUD names the Sandwurm")
 	var music: Variant = scene.get_node_or_null("Music")
@@ -391,3 +391,9 @@ func _check_meta() -> void:
 func _check(condition: bool, message: String) -> void:
 	if not condition:
 		failures.append(message)
+
+# Etappe 30: apex HP = max(base formula, APEX_KING_RATIO x a Bog King now) (2 % slack:
+# the pressure moved a little since the spawn).
+func _apex_hp_ok(value: float, base: float) -> bool:
+	var expected := maxf(base, TUNING.APEX_KING_RATIO * float(world.bog_king_health()))
+	return absf(value - expected) <= expected * 0.02 or (value >= base - 0.5 and value <= expected * 1.02 and value >= expected * 0.9)

@@ -163,7 +163,7 @@ func _test_effects() -> void:
 	# Level-Offers der Fassade haben die Seltenheit und wirken beim Wählen.
 	var level = EVOLUTION.new()
 	level.rng.seed = 5
-	level.earn(20)
+	level.earn(level.threshold())
 	var id: String = level.offers[0][0]
 	var rarity: String = level.offers[0][3]
 	level.choose(0)

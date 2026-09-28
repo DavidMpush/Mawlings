@@ -253,6 +253,10 @@ var apex_dying_clock := 0.0
 var portal: Node3D
 var portal_clock := -1.0
 var portal_point := Vector3.ZERO
+# Etappe 30 (user request): one boss arena per world where the apex rises, and
+# next to it the sealed gate (Migrationsschlund) that unseals after the kill.
+var boss_site := Vector3.INF
+var gate: Node3D
 # 0 none, 1 transition running (the world holds still), 2 done.
 var migration_state := 0
 var migration_timer := 0.0
@@ -303,6 +307,7 @@ func _ready() -> void:
 	_set_world_biome(_start_biome(), false)
 	_starting_prey()
 	_reset_map()
+	_place_gate()
 	_update_hud("")
 
 
@@ -407,6 +412,7 @@ func reset_run() -> void:
 	_set_world_biome(_start_biome(), false)
 	_starting_prey()
 	_reset_map()
+	_place_gate()
 	_update_hud("")
 
 
@@ -1287,6 +1293,7 @@ func step(delta: float) -> void:
 	message = _flood_message(message)
 	message = _step_surges(delta, message)
 	message = _apex_schedule(delta, message)
+	message = _max_heal_message(message, delta)
 	_update_hud(message)
 
 
@@ -1493,7 +1500,7 @@ func _spawn_boss(location: Vector3) -> Node3D:
 	var target = BOG_KING.new()
 	target.name = "Bog King"
 	target.position = get_parent().get_node("Arena").safe_spawn(location, 2.5)
-	target.health = TUNING.BOSS_HEALTH * sqrt(model.pressure()) * difficulty_scale(enemy_hp)
+	target.health = bog_king_health()
 	target.max_health = target.health
 	add_child(target)
 	boss = target
@@ -1720,6 +1727,8 @@ func _step_arsenal_world(delta: float) -> bool:
 		powerups.step(delta, centre, _unit_points())
 	if shrines != null:
 		shrines.step(delta, centre)
+		# A shrine with every stat maxed heals the leader instead (evolution.max_heals).
+		_apply_max_heals()
 	if choosing():
 		hud.clear_pointers()
 		swarm.set_controls(Vector2.ZERO, false)
@@ -1898,6 +1907,8 @@ func _reset_apex() -> void:
 	portal = null
 	portal_clock = -1.0
 	portal_point = Vector3.ZERO
+	boss_site = Vector3.INF
+	gate = null
 	migration_state = 0
 	migration_timer = 0.0
 	migration_switched = false
@@ -2040,6 +2051,9 @@ func begin_apex_warning() -> void:
 		for spot in arenas:
 			if swarm.position.distance_to(spot) < swarm.position.distance_to(ahead):
 				ahead = spot
+		# Etappe 30: always the world's own boss arena (the gate stands next to it).
+		if boss_site.is_finite():
+			ahead = boss_site
 		var off: Vector3 = ahead - swarm.position
 		off.y = 0.0
 		if off.length() < TUNING.APEX_SPAWN_DISTANCE:
@@ -2069,6 +2083,10 @@ func spawn_apex(location: Vector3, kind: String = "") -> Node3D:
 	# return in a later loop through the biome circle is stronger.
 	var loop := apex_loop()
 	target.health = (TUNING.APEX_TOAD_HEALTH if toad else (TUNING.APEX_SANDWORM_HEALTH if worm else TUNING.APEX_HEALTH)) * apex_health_scale() * pow(TUNING.APEX_LOOP_HEALTH, loop) * world_scale()
+	# Etappe 30 (user request): the endboss always has clearly more HP than a
+	# Bog King at the same moment (that one grows with sqrt(pressure), the fixed
+	# apex values fell behind): at least APEX_KING_RATIO x the current king HP.
+	target.health = maxf(target.health, TUNING.APEX_KING_RATIO * bog_king_health())
 	target.max_health = target.health
 	# The world bonus reaches its losses through difficulty_scale() like every enemy.
 	target.set_meta("damage_scale", pow(TUNING.APEX_LOOP_DAMAGE, loop) * TUNING.APEX_DAMAGE_MULTIPLIER)
@@ -2160,6 +2178,9 @@ func _apex_defeated(location: Vector3, toad: bool = false) -> void:
 		var maw_spot: Vector3 = maws[0]
 		if maw_spot.distance_to(location) > TUNING.MIGRATION_RADIUS + 8.0:
 			behind = maw_spot
+	# Etappe 30: the sealed gate next to the boss arena unseals instead.
+	if gate != null and is_instance_valid(gate):
+		behind = gate.position
 	portal_point = arena.safe_spawn(behind, TUNING.MIGRATION_RADIUS + 0.5)
 	portal_point.y = 0.0
 	portal_clock = TUNING.APEX_PORTAL_DELAY
@@ -2172,15 +2193,61 @@ func _apex_defeated(location: Vector3, toad: bool = false) -> void:
 		main.king_moment(location)
 
 
+# Etappe 30: picks this world's boss arena (the boss slot farthest from the
+# swarm, so the way there is the journey through the biome) and places the
+# sealed gate next to it, on open ground outside the fight. The classic map
+# (no boss slots) keeps the old rule: the maw opens behind the corpse.
+func _place_gate() -> void:
+	if gate != null and is_instance_valid(gate):
+		gate.queue_free()
+	gate = null
+	boss_site = Vector3.INF
+	var arena: Node3D = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	if arena == null or not arena.has_method("poi_slots"):
+		return
+	var arenas: Array = arena.poi_slots("boss")
+	if arenas.is_empty():
+		return
+	var site: Vector3 = arenas[0]
+	for spot in arenas:
+		if swarm.position.distance_to(spot) > swarm.position.distance_to(site):
+			site = spot
+	boss_site = Vector3(site.x, 0.0, site.z)
+	# Beside the arena, on the side towards the map centre (never into the edge).
+	var inward: Vector3 = arena.map_center() - boss_site if arena.has_method("map_center") else Vector3(0, 0, 1)
+	inward.y = 0.0
+	inward = inward.normalized() if inward.length() > 0.5 else Vector3(0, 0, 1)
+	var side := Vector3(-inward.z, 0.0, inward.x)
+	var spot_at: Vector3 = boss_site + (inward * 0.6 + side * 0.8).normalized() * TUNING.GATE_OFFSET
+	spot_at = arena.safe_spawn(spot_at, TUNING.MIGRATION_RADIUS + 1.0)
+	gate = MIGRATION_MAW.new()
+	gate.name = "Sealed gate"
+	gate.setup(BIOMES.next_biome(biome_id), biome_id)
+	gate.position = Vector3(spot_at.x, 0.0, spot_at.z)
+	gate.seal(true)
+	add_child(gate)
+
+
+## HP a Bog King would get right now (the apex floor uses it too).
+func bog_king_health() -> float:
+	return TUNING.BOSS_HEALTH * sqrt(model.pressure()) * difficulty_scale(enemy_hp)
+
+
 ## Opens the Migrationsschlund now (public for tests and captures).
 func open_portal(location: Vector3) -> Node3D:
 	if portal != null:
 		return portal
-	portal = MIGRATION_MAW.new()
-	portal.name = "Migration maw"
-	portal.setup(BIOMES.next_biome(biome_id), biome_id)
-	portal.position = Vector3(location.x, 0.0, location.z)
-	add_child(portal)
+	if gate != null and is_instance_valid(gate):
+		# Etappe 30: the sealed gate at the boss arena opens (its seal sinks).
+		portal = gate
+		gate = null
+		portal.unseal()
+	else:
+		portal = MIGRATION_MAW.new()
+		portal.name = "Migration maw"
+		portal.setup(BIOMES.next_biome(biome_id), biome_id)
+		portal.position = Vector3(location.x, 0.0, location.z)
+		add_child(portal)
 	portal_point = portal.position
 	portal_clock = -1.0
 	apex_state = maxi(apex_state, 3)
@@ -2289,6 +2356,7 @@ func _arrive() -> void:
 		apex_state = 0
 		apex_due = model.elapsed + TUNING.APEX_ARRIVAL_DELAY
 	_start_new_world()
+	_place_gate()
 	if eruptions != null:
 		eruptions.safe_zones.append(Vector4(at.x, 0.0, at.z, TUNING.MIGRATION_SAFE_RADIUS))
 		eruptions.clear()
@@ -3399,10 +3467,40 @@ func choosing() -> bool:
 
 func _award_dna(amount: int) -> void:
 	evolution.earn(amount)
+	if _apply_max_heals():
+		return
 	if choosing():
 		hud.clear_pointers()
 		swarm.set_controls(Vector2.ZERO, false)
 	_update_hud("")
+
+
+# Build slots (user decision 28.09.2026): with every stat slot maxed a level-up
+# (or a shrine) heals the leader by evolution.MAX_HEAL_SHARE of max LP instead
+# of offering a card; the green "+N" over the leader (_heal_leader) and a short
+# hint show it. True when a heal was applied (the HUD is already updated).
+var max_heal_hint := 0.0
+var max_heal_text := ""
+
+
+func _apply_max_heals() -> bool:
+	var count: int = evolution.take_max_heals()
+	if count <= 0:
+		return false
+	var amount := maxi(1, int(round(float(model.leader_max_hp) * evolution.MAX_HEAL_SHARE))) * count
+	var gained := _heal_leader(amount)
+	max_heal_text = ("WERTE MAXIMAL · Anführer +%d LP" % gained) if gained > 0 else "WERTE MAXIMAL · Anführer bei vollen LP"
+	max_heal_hint = 2.5
+	_sfx("mutate")
+	_update_hud(max_heal_text)
+	return true
+
+
+func _max_heal_message(message: String, delta: float) -> String:
+	if max_heal_hint <= 0.0:
+		return message
+	max_heal_hint -= delta
+	return max_heal_text if _is_calm(message) else message
 
 
 func choose_mutation(slot: int) -> void:
@@ -3574,9 +3672,12 @@ func _map_state() -> Dictionary:
 		"alpha": cores,
 		"boss": boss.position if boss != null and is_instance_valid(boss) else Vector3.INF,
 		"apex": apex.position if apex != null and is_instance_valid(apex) else Vector3.INF,
+		# Etappe 30: the world's boss arena (endboss rises here) once discovered,
+		# until the apex is up or fell.
+		"boss_site": boss_site if boss_site.is_finite() and apex_state == 0 and _found(boss_site) else Vector3.INF,
 		"nest": nest.position if nest != null and is_instance_valid(nest) else Vector3.INF,
 		"totem": totem.position if totem != null and is_instance_valid(totem) else Vector3.INF,
-		"portal": portal.position if portal != null and is_instance_valid(portal) else Vector3.INF,
+		"portal": portal.position if portal != null and is_instance_valid(portal) else (gate.position if gate != null and is_instance_valid(gate) and _found(gate.position) else Vector3.INF),
 		"explored": explored,
 		"explored_version": explored_version,
 		"region": region_name,

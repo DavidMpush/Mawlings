@@ -94,7 +94,7 @@ func _check_spawn_times() -> void:
 		_steps(TUNING.APEX_WARNING_SECONDS + 0.1)
 		_check(world.apex_state == 2 and world.apex != null, "Apex spawns after the warning (difficulty %d)" % difficulty)
 		if world.apex != null:
-			_check(is_equal_approx(world.apex.max_health, TUNING.APEX_HEALTH * TUNING.APEX_HEALTH_DIFFICULTY[difficulty]), "Apex health = APEX_HEALTH x APEX_HEALTH_DIFFICULTY (difficulty %d: %.0f)" % [difficulty, world.apex.max_health])
+			_check(_apex_hp_ok(world.apex.max_health, TUNING.APEX_HEALTH * TUNING.APEX_HEALTH_DIFFICULTY[difficulty]), "Apex health = APEX_HEALTH x APEX_HEALTH_DIFFICULTY (difficulty %d: %.0f)" % [difficulty, world.apex.max_health])
 			_check(world.apex.position.distance_to(swarm.position) > TUNING.APEX_BODY_RADIUS + 3.0, "Apex rises away from the swarm")
 			var objectives: Dictionary = world.hud.get_meta("objectives")
 			_check(int(objectives.apex_state) == 2 and float(objectives.apex_max_health) > 0.0, "HUD gets the apex bar data")
@@ -271,3 +271,9 @@ func _maws() -> int:
 func _check(condition: bool, message: String) -> void:
 	if not condition:
 		failures.append(message)
+
+# Etappe 30: apex HP = max(base formula, APEX_KING_RATIO x a Bog King now) (2 % slack:
+# the pressure moved a little since the spawn).
+func _apex_hp_ok(value: float, base: float) -> bool:
+	var expected := maxf(base, TUNING.APEX_KING_RATIO * float(world.bog_king_health()))
+	return absf(value - expected) <= expected * 0.02 or (value >= base - 0.5 and value <= expected * 1.02 and value >= expected * 0.9)

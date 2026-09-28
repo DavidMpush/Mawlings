@@ -81,10 +81,11 @@ const APEX_COLOR := Color("b8e86a")
 const CHEST_COLOR := Color("ffc53a")
 const POWERUP_COLOR := Color("7be35a")
 const FRAME_ACCENT := Color("d8c890")
-const POI_KEYS := [["nest", Mark.NEST], ["totem", Mark.TOTEM], ["portal", Mark.PORTAL], ["boss", Mark.BOSS], ["apex", Mark.APEX]]
+const POI_KEYS := [["nest", Mark.NEST], ["totem", Mark.TOTEM], ["portal", Mark.PORTAL], ["boss", Mark.BOSS], ["boss_site", Mark.APEX], ["apex", Mark.APEX]]
 const LIST_KEYS := [["alpha", Mark.ALPHA], ["chests", Mark.CHEST], ["powerups", Mark.POWERUP]]
 # Clearing types (arena.poi_slots) -> marker drawn as a quiet site symbol (18b).
-const SITE_MARKS := {"boss": Mark.BOSS, "maw": Mark.PORTAL, "nest": Mark.NEST, "totem": Mark.TOTEM, "cocoon": Mark.CHEST, "cocoon_gold": Mark.CHEST, "grove": Mark.POWERUP, "elite": Mark.ELITE, "shrine": Mark.ALPHA}
+# Etappe 30: no "maw" site any more - the gate stands at the boss arena and shows as "portal" once found.
+const SITE_MARKS := {"boss": Mark.BOSS, "nest": Mark.NEST, "totem": Mark.TOTEM, "cocoon": Mark.CHEST, "cocoon_gold": Mark.CHEST, "grove": Mark.POWERUP, "elite": Mark.ELITE, "shrine": Mark.ALPHA}
 
 var _time := 0.0
 var _state: Dictionary = {}
@@ -127,6 +128,12 @@ var _uploaded_at := -100.0
 var _fog_img: Image
 var _fog_tex: ImageTexture
 var _fog_version := -1
+# Etappe 30: the fog has its own layers with shaders/map_fog.gdshader (smooth
+# B-spline mask + drifting cloud noise) instead of the stretched 28 x 28 texture.
+const FOG_SHADER := preload("res://shaders/map_fog.gdshader")
+var _fog_material: ShaderMaterial
+var _fog_layer: Control
+var _big_fog: Control
 var _terrain_key := 0
 
 # Markers (absolute minimap px).
@@ -178,6 +185,7 @@ func _ready() -> void:
 	_back = UiLayer.make(self, "MapBack", _paint_back, true)
 	_terrain = _live("MapTerrain", _paint_terrain)
 	_terrain.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_fog_layer = _fog_live("MapFog", _paint_fog)
 	_dots = _live("MapDots", _paint_dots)
 	_top = UiLayer.make(self, "MapFrame", _paint_top, true)
 	_self_layer = _live("MapSelf", _paint_self)
@@ -186,6 +194,27 @@ func _ready() -> void:
 	_make_big()
 	_banner.visible = false
 	_dot_tex = _make_dot()
+
+
+# A live layer drawing the fog mask through the shared fog shader.
+func _fog_live(layer_name: String, painter: Callable, parent: Node = null) -> Control:
+	if _fog_material == null:
+		_fog_material = ShaderMaterial.new()
+		_fog_material.shader = FOG_SHADER
+	var layer := _live(layer_name, painter, parent)
+	layer.material = _fog_material
+	layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	return layer
+
+
+func _paint_fog(cv: CanvasItem) -> void:
+	if _fog_tex != null:
+		cv.draw_texture_rect(_fog_tex, _map_rect.grow(-EDGE_BAND_MINI), false)
+
+
+func _paint_big_fog(cv: CanvasItem) -> void:
+	if _fog_tex != null and _big_rect_px.size.x > 0.0:
+		cv.draw_texture_rect(_fog_tex, _big_rect_px, false)
 
 
 func _live(layer_name: String, painter: Callable, parent: Node = null) -> Control:
@@ -232,7 +261,7 @@ func _step(delta: float) -> void:
 	_upload(false)
 	_update_fog()
 	_step_banner(real_delta)
-	for layer in [_back, _terrain, _dots, _top, _self_layer, _label]:
+	for layer in [_back, _terrain, _fog_layer, _dots, _top, _self_layer, _label]:
 		layer.visible = not open
 	_big.visible = open
 	if open:
@@ -246,6 +275,7 @@ func _step(delta: float) -> void:
 	if key != _terrain_key:
 		_terrain_key = key
 		_terrain.queue_redraw()
+		_fog_layer.queue_redraw()
 	_dots_clock -= real_delta
 	if _dots_clock <= 0.0:
 		_dots_clock = 1.0 / DOT_HZ
@@ -529,12 +559,12 @@ func _update_fog() -> void:
 		_fog_tex = null
 	var fog: Color = _palette(_biome).fog
 	var mist := fog.lerp(Color("5d6f66"), 0.22)
+	_fog_material.set_shader_parameter("fog_color", fog)
+	_fog_material.set_shader_parameter("mist_color", mist)
+	_fog_material.set_shader_parameter("rim_color", mist.lerp(Color("e8f0d8"), 0.55))
 	for z in size_cells.y:
 		for x in size_cells.x:
-			if cells[z * size_cells.x + x] != 0:
-				_fog_img.set_pixel(x, z, Color(fog, 0.0))
-			else:
-				_fog_img.set_pixel(x, z, Color(fog.lerp(mist, _noise(x, z)), FOG_ALPHA))
+			_fog_img.set_pixel(x, z, Color(1.0, 1.0, 1.0, 0.0 if cells[z * size_cells.x + x] != 0 else FOG_ALPHA))
 	if _fog_tex == null:
 		_fog_tex = ImageTexture.create_from_image(_fog_img)
 	else:
@@ -694,8 +724,6 @@ func _draw_map(cv: CanvasItem, rect: Rect2, band: float, fog: float) -> void:
 			var offset := step * float(index)
 			cv.draw_line(rect.position + Vector2(offset, 0.0), rect.position + Vector2(offset, rect.size.y), line, 1.0)
 			cv.draw_line(rect.position + Vector2(0.0, offset), rect.position + Vector2(rect.size.x, offset), line, 1.0)
-	if fog > 0.0 and _fog_tex != null:
-		cv.draw_texture_rect(_fog_tex, rect, false, Color(1, 1, 1, fog))
 	_draw_sites(cv, rect)
 	_draw_edge(cv, rect, band)
 
@@ -726,7 +754,6 @@ func _draw_sites(cv: CanvasItem, rect: Rect2) -> void:
 		return
 	var scale := rect.size.x / maxf(1.0, _bounds.size.x)
 	var k := clampf(rect.size.x / 260.0, 0.45, 1.3)
-	var pal := _palette(_biome)
 	for site: Dictionary in sites:
 		var center: Vector2 = site.center
 		var p := rect.position + (center - _bounds.position) * scale
@@ -734,19 +761,12 @@ func _draw_sites(cv: CanvasItem, rect: Rect2) -> void:
 		# Stage 18c: a place shows up only once it was discovered.
 		if not seen:
 			continue
+		# Etappe 30 (S25 feedback): a clearing is only a possible place - most
+		# stay empty. No type symbol here any more (it showed POIs where nothing
+		# was); the real objects come as markers from their live positions.
 		var types: Array = site.get("types", [])
-		var kind: int = -1
-		for type in types:
-			if SITE_MARKS.has(type):
-				kind = SITE_MARKS[type]
-				break
-		var alpha := 0.9 if seen else 0.5
-		cv.draw_circle(p, 7.0 * k, Color(pal.site, 0.35 * alpha))
-		cv.draw_arc(p, 7.0 * k, 0.0, TAU, 20, Color(pal.site, 0.8 * alpha), maxf(1.0, 1.4 * k), true)
-		if kind >= 0:
-			_marker(cv, kind, p, 0.75 * k if seen else 0.6 * k)
-		elif types.has("start") or types.has("arrival"):
-			cv.draw_circle(p, 1.6 * k, Color(1, 1, 1, alpha))
+		if types.has("start") or types.has("arrival"):
+			cv.draw_circle(p, 1.6 * k, Color(1, 1, 1, 0.9))
 
 
 # The natural edge as a band along the map border, coloured per segment kind.
@@ -1173,6 +1193,7 @@ func _make_big() -> void:
 	_big_static = UiLayer.make(_big, "BigStatic", _paint_big_static, true)
 	_big_terrain = _live("BigTerrain", _paint_big_terrain, _big)
 	_big_terrain.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_big_fog = _fog_live("BigFog", _paint_big_fog, _big)
 	_big_dots = _live("BigDots", _paint_big_dots, _big)
 	_big_self = _live("BigSelf", _paint_big_self, _big)
 	_big.visible = false
@@ -1209,6 +1230,7 @@ func _step_big(real_delta: float, opened: bool) -> void:
 		_collect_big_labels()
 		_big_tex = _map_tex
 		_big_terrain.queue_redraw()
+		_big_fog.queue_redraw()
 	elif _map_tex != null and _uploaded_at != float(_big_terrain.get_meta("uploaded", -1.0)):
 		_big_terrain.set_meta("uploaded", _uploaded_at)
 		_big_terrain.queue_redraw()
@@ -1315,7 +1337,7 @@ func _legend() -> Array:
 	if _state.has("chests"):
 		result.append(["Kokon", Mark.CHEST])
 	if _state.has("powerups"):
-		result.append(["Pilzknolle", Mark.POWERUP])
+		result.append(["Power-up", Mark.POWERUP])
 	return result
 
 

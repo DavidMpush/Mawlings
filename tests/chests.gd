@@ -106,7 +106,9 @@ func _run() -> void:
 	_check(String(chests.card.get("item", {}).get("id", "")) == map_pick, "The loot card shows the chosen item (%s)" % map_pick)
 	_steps(0.6)
 	var p1: int = evo.chest_price()
-	_check(p1 == int(round(evo.arsenal.CHEST_BASE * evo.arsenal.CHEST_GROWTH)) and p1 > p0, "The next one costs more (%d)" % p1)
+	# The chosen card may be Glücksknochen (unseeded cocoon dice): luck lowers the price.
+	var luck_factor: float = maxf(evo.arsenal.CHEST_MIN_FACTOR, 1.0 - evo.arsenal.CHEST_LUCK_DISCOUNT * evo.luck())
+	_check(p1 == int(round(evo.arsenal.CHEST_BASE * evo.arsenal.CHEST_GROWTH * luck_factor)) and p1 > p0, "The next one costs more (%d)" % p1)
 	_check(chests.opened == 1 and not chests.cocoons.has(cocoon), "Opened cocoon is gone after its burst")
 	_check(chests.active_beams() >= 1, "A light beam rises in the rarity colour")
 	var state: Dictionary = chests.hud_state(null, swarm.position)

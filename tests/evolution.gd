@@ -15,7 +15,12 @@ func _initialize() -> void:
 func _run() -> void:
 	var evo = EVOLUTION.new()
 	evo.rng.seed = 19
-	evo.earn(19)
+	# Level curve (stage 28 addendum): 60 + 25 L + 6 L², first level at 60 DNA.
+	check(evo.threshold() == 60, "First level at 60 DNA (%d)" % evo.threshold())
+	evo.level = 3
+	check(evo.threshold() == 60 + 75 + 54, "Level curve 60 + 25 L + 6 L² (%d)" % evo.threshold())
+	evo.level = 0
+	evo.earn(59)
 	check(evo.offers.is_empty(), "No early offer")
 	evo.earn(1)
 	check(evo.offers.size() == 3, "Three offers at threshold")
@@ -26,16 +31,57 @@ func _run() -> void:
 		check(offer.size() >= 4 and ["common", "uncommon", "rare", "epic", "legendary"].has(offer[3]), "Offer has a rarity")
 	check(not evo.choose(-1) and not evo.choose(3), "Reject invalid selection")
 	evo.earn(1000000)
-	# Etappe 17c: 14 Standard-Werte (ohne Regeneration, mit Lebensraub) mit je 5 Rängen = 70 Wahlen.
+	# User decision 28.09.2026: 6 distinct stat slots with 5 ranks each = 30 picks;
+	# once 6 are owned, offers only raise owned stats.
 	var picks := 0
 	while not evo.offers.is_empty() and picks < 200:
+		if evo.slots_used("trait") >= 6:
+			for offer in evo.offers:
+				check(evo.rank(offer[0]) > 0 and evo.rank(offer[0]) < 5, "Full stat slots: only rank-ups of owned stats (%s)" % offer[0])
 		check(evo.choose(0), "Queued level remains selectable")
+		check(evo.slots_used("trait") <= 6, "Never more than 6 distinct stats")
 		picks += 1
-	check(picks == 70, "70 stat picks until complete (%d)" % picks)
+	check(picks == 30, "30 stat picks until complete (%d)" % picks)
+	check(evo.slot_limit("trait") == 6 and evo.slots_used("trait") == 6, "6 stat slots")
 	check(evo.complete() and evo.offers.is_empty(), "All stats complete without deadlock")
 	check(evo.slots_used("attack") == 0, "Levels never give weapons")
 	for id in evo.ranks:
 		check(evo.rank(id) == 5, "Rank cap 5 (%s)" % id)
+	# Everything maxed: the remaining DNA turns into leader heals, never a card.
+	var heals: int = evo.take_max_heals()
+	check(heals > 0 and evo.take_max_heals() == 0 and evo.dna < evo.threshold() and evo.offers.is_empty(), "Maxed levels become leader heals (%d)" % heals)
+	var level_before: int = evo.level
+	evo.earn(evo.threshold())
+	check(evo.level == level_before + 1 and evo.take_max_heals() == 1 and evo.offers.is_empty(), "A maxed level-up heals instead of offering a card")
+	check(not evo.open_shrine() and evo.take_max_heals() == 1, "A shrine with every stat maxed heals too")
+	# Reroll/banish/skip at full slots never bring a new stat.
+	var full = EVOLUTION.new()
+	full.rng.seed = 23
+	full.rerolls = 20
+	full.banishes = 2
+	full.skips = 2
+	for id in ["bite", "crit", "haste", "armor", "brood", "speed"]:
+		full.ranks[id] = 2
+	full.earn(1000)
+	var owned := ["bite", "crit", "haste", "armor", "brood", "speed"]
+	for round_index in 20:
+		for offer in full.offers:
+			check(owned.has(offer[0]), "Full slots: reroll only rank-ups (%s)" % offer[0])
+		full.reroll()
+	full.banish(0)
+	for offer in full.offers:
+		check(owned.has(offer[0]), "Full slots: banish refill only rank-ups (%s)" % offer[0])
+	full.skip()
+	for offer in full.offers:
+		check(owned.has(offer[0]), "Full slots: next level after skip only rank-ups (%s)" % offer[0])
+	# Fewer than three upgradable stats: fewer cards.
+	var few = EVOLUTION.new()
+	few.rng.seed = 5
+	for id in ["bite", "crit", "haste", "armor", "brood"]:
+		few.ranks[id] = 5
+	few.ranks["speed"] = 3
+	few.earn(few.threshold())
+	check(few.offers.size() == 1 and few.offers[0][0] == "speed", "One upgradable stat: one card (%s)" % str(few.offers))
 	evo = EVOLUTION.new()
 	for id in ["bite", "rally", "brood", "magnet", "armor", "evade"]:
 		evo.ranks[id] = 5
@@ -68,6 +114,8 @@ func _run() -> void:
 	world.collect_loot_now()
 	check(world.evolution.dna == 10, "Collected crystals never pay twice")
 	hud.movement_vector = Vector2.ONE
+	# The second prey's 10 DNA completes the (60 DNA) first level.
+	world.evolution.dna = world.evolution.threshold() - 10
 	world._kill_prey(world.prey[0])
 	world.drop_loot(Vector3(40, 0, 0), 5.0)
 	world.collect_loot_now()
@@ -112,7 +160,17 @@ func _run() -> void:
 	world.step(0.01)
 	world.collect_loot_now()
 	world.collect_loot_now()
-	check(world.evolution.dna == 20 and world.choosing() and world.hunters.is_empty(), "Hunter kill awards DNA once")
+	check(world.evolution.dna == 20 and not world.choosing() and world.hunters.is_empty(), "Hunter kill awards DNA once (below the 60 DNA first level)")
+	# Every stat slot maxed: a level-up heals the leader (+20 % max LP) instead of a card.
+	world.reset_run()
+	for id in ["bite", "crit", "haste", "armor", "brood", "speed"]:
+		world.evolution.ranks[id] = 5
+	world.model.leader_hp = 10
+	var level_now: int = world.evolution.level
+	world._award_dna(world.evolution.threshold())
+	var heal_lp: int = int(round(float(world.model.leader_max_hp) * world.evolution.MAX_HEAL_SHARE))
+	check(not world.choosing() and world.evolution.level == level_now + 1 and world.model.leader_hp == mini(world.model.leader_max_hp, 10 + heal_lp), "Maxed level-up heals the leader (%d LP, expected %d)" % [world.model.leader_hp, 10 + heal_lp])
+	check(world.leader_heal_shown >= heal_lp and world.hud.hint.contains("LP"), "Maxed level-up shows the heal (+%d, '%s')" % [world.leader_heal_shown, world.hud.hint])
 	world.reset_run()
 	# Stage 09 lone start: the modifier checks below use a 25-strong swarm.
 	world.model.population = 25

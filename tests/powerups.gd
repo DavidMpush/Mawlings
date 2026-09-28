@@ -28,7 +28,8 @@ func _run() -> void:
 	swarm.set_process(false)
 	power = world.powerups
 	_check(power != null and power.get_parent() == world, "HuntWorld owns the power-up layer")
-	_check(power.knoll_count() >= 4, "Seed 0: fallback groves with treasure knolls (%d)" % power.knoll_count())
+	# Etappe 30: the golden grove knolls (coins only) are gone.
+	_check(power.knoll_count() == 0 and not POWERUPS.GROVE_TREASURE, "No grove treasure knolls any more (%d)" % power.knoll_count())
 	_quiet()
 	_population(20)
 	swarm.position = Vector3.ZERO
@@ -66,21 +67,6 @@ func _run() -> void:
 	if world.horde != null:
 		world.horde.clear()
 	_clear_pickups()
-
-	# ---- Grove knolls are a Bernstein treasure: one bite breaks them into coins, no booster.
-	var knoll: Dictionary = power.knolls[0]
-	swarm.position = knoll.at + Vector3(12, 0, 0)
-	_steps(0.2)
-	_check(knoll.alive, "A knoll waits until the swarm touches it")
-	var coins_before: float = world.loot.total(world.LOOT.Kind.AMBER)
-	var amber_before: int = world.model.amber
-	swarm.position = knoll.at
-	_steps(0.1)
-	var coins_now: float = world.loot.total(world.LOOT.Kind.AMBER) + float(world.model.amber - amber_before)
-	_check(not knoll.alive and power.pickups.is_empty(), "Touching a knoll breaks it, no power-up")
-	_check(coins_now >= coins_before + float(TUNING.AMBER_GROVE) - 0.01, "... into Bernstein coins (%.0f -> %.0f)" % [coins_before, coins_now])
-	world.collect_loot_now()
-	power.clear_active()
 
 	# ---- No magnet: a booster inside the magnet radius does not move; walking in takes it.
 	swarm.position = Vector3.ZERO

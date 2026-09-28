@@ -1,7 +1,7 @@
 extends RefCounted
 ## Etappe 17 – Spur 1: Werte (Mutationen). Nur Level geben Werte.
 ##
-## 14 Werte mit je 5 Rängen. Jede Wahl erhöht den Rang um 1 und den „Wert“ um den
+## 15 Werte mit je 5 Rängen; ein Run besitzt höchstens SLOTS (6) verschiedene. Jede Wahl erhöht den Rang um 1 und den „Wert“ um den
 ## Seltenheitsfaktor der Karte (Etappe 28: gewöhnlich 1,0 · ungewöhnlich 1,25 ·
 ## selten 1,5 · episch 2,0 · legendär 3,0). Die Wirkung ist Basis je Rang × Wert,
 ## z. B. Biss selten = +12 %.
@@ -11,6 +11,9 @@ extends RefCounted
 ## Werte, die Tests direkt in `ranks` setzen; dann gilt Wert = Rang (gewöhnlich).
 
 const MAX_RANK := 5
+## Build slots (user decision 28.09.2026): a run owns at most SLOTS distinct
+## stats; once all are taken, level/shrine offers only raise owned stats.
+const SLOTS := 6
 
 ## Etappe 28: fünf Stufen (neu: ungewöhnlich). Die Reihenfolge ist der Rang der
 ## Stufe (Böden, Strahlhöhe, beste Seltenheit); alle alten Ids bleiben gültig.
@@ -195,19 +198,33 @@ static func rarity_at_least(rarity: String, minimum: String) -> bool:
 
 # ---------------------------------------------------------------- Angebote
 
-## Werte, die noch steigen können (Pool, nicht verbannt, unter Rang 5).
-func candidates(pool: Array, banished: Array) -> Array:
+## Werte, die noch steigen können (Pool, nicht verbannt, unter Rang 5). Mit
+## `slots` > 0 und belegten Plätzen nur noch eigene Werte (nie ein neuer).
+func candidates(pool: Array, banished: Array, slots: int = 0) -> Array:
+	var full := slots > 0 and owned_count() >= slots
 	var out: Array = []
 	for id in pool:
 		if has(String(id)) and not banished.has(id) and rank(String(id)) < MAX_RANK and not out.has(id):
+			if full and rank(String(id)) <= 0:
+				continue
 			out.append(String(id))
 	return out
 
 
+## Distinct stats owned (rank > 0) = occupied stat slots.
+func owned_count() -> int:
+	var used := 0
+	for id in ranks:
+		if int(ranks[id]) > 0 and has(String(id)):
+			used += 1
+	return used
+
+
 ## Drei (oder weniger) verschiedene Werte mit gewürfelter Seltenheit:
 ## [id, Name, Beschreibung, Seltenheit]. `exclude` bevorzugt frische Karten.
-func roll_offers(rng: RandomNumberGenerator, luck: float, pool: Array = [], banished: Array = [], exclude: Array = [], count: int = 3, minimum: String = "common") -> Array:
-	var source := candidates(pool if not pool.is_empty() else ids(), banished)
+## `slots` > 0 caps the distinct stats (see candidates()).
+func roll_offers(rng: RandomNumberGenerator, luck: float, pool: Array = [], banished: Array = [], exclude: Array = [], count: int = 3, minimum: String = "common", slots: int = 0) -> Array:
+	var source := candidates(pool if not pool.is_empty() else ids(), banished, slots)
 	var fresh: Array = source.filter(func(id): return not exclude.has(id))
 	if fresh.size() >= mini(count, source.size()):
 		source = fresh

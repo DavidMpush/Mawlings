@@ -62,3 +62,21 @@ Quelle: Nutzerwunsch 28.09.2026 („Upgrade Tiers umsetzen“, „nie eine Waffe
   - Das Band über der Wahl ist immer gold (nicht in der besten Seltenheit).
   - Der grüne Kokon-Strahl ist auf Gras schwächer.
   - `hud_overlays.gd` hat noch alte Kategoriefarben.
+## Nachtrag: Slots + Levelkurve (28.09.2026)
+
+Nutzerentscheidungen: „Build-Plätze strikt begrenzt: 4 Waffen · 6 Werte · 6 Relikte“ und „man levelt zu schnell und zu oft von Anfang an“.
+
+- **Plätze:** Waffen 4 (wie bisher, +Urmutter, +Meta-Waffenplatz), **Werte 6** verschiedene (`stats.SLOTS`, `evolution.DEFAULT_SLOTS.trait`, `meta_data.BASE_SLOTS`; alte Profile und RunConfigs mit `"trait": 14` laden weiter, die Werte-/Relikt-Plätze sind fest), **Relikte 6** verschiedene (`arsenal.RELIC_SLOTS`).
+- **Nur noch Aufstiege, wenn voll:** Level-, Schrein-, Neu-würfeln-, Verbannen- und Überspringen-Angebote bieten bei 6 eigenen Werten nur Rang-ups eigener Werte unter Rang 5 (`stats.candidates(…, slots)`). Kokons bieten bei 6 eigenen Relikten nur weitere Stapel eigener Relikte, bei vollen Waffenplätzen nur Rang-ups (wie bisher). Gibt es weniger als drei gültige Karten, kommen weniger.
+- **Relikt-Stapel:** höchstens 5 je Relikt (`RELIC_MAX_STACK`), Urmutter 1 (ein Zusatzplatz), Zwillingsbrut 3 (ab 3 Stapeln schon „jede 2. Teilung“). `debug_grant` ignoriert die Grenzen (Tests/Captures).
+- **Alles belegt und maximal:** Ein Level-up (und ein Schrein) heilt den Anführer um 20 % der Max-LP (`evolution.MAX_HEAL_SHARE`, `take_max_heals()`, HuntWorld `_apply_max_heals`: grünes „+N“ und kurzer Hinweis „WERTE MAXIMAL · Anführer +N LP“); die XP-Leiste zeigt MAX. Ein Kokon erstattet Bernstein (Weg aus Etappe 28).
+- **UI:** Eine Karte für ein NEUES Teil zeigt im Kategorie-Etikett den Platz, z. B. „WAFFE 3/4“, „RELIKT 5/6“, „WERT 5/6 · ANGRIFF“. `touch_controls._slot_text`: „Waffen x/4 · Werte x/6 · Relikte x/6“.
+- **Levelkurve:** `threshold() = 60 + 25·L + 6·L²` (vorher `20 + 10·L + 1,5·L²`): erstes Level bei 60 DNA, Level 10 nach ~3435 DNA (alte Kurve dort ~Level 16).
+- **Messung** (Bot, Glutmaw/Wild, Seeds 1–3, Limit 420 s, gleicher Stand, nur die Kurve getauscht; `lv` = Level bei 1:00/2:00/4:00):
+
+  | Kurve | Seed 1 | Seed 2 | Seed 3 |
+  |---|---|---|---|
+  | alt | 420 s (überlebt), Lv 16, lv 3/6/11, pop120 41 | 355 s, Lv 15, lv 3/6/11, pop120 31 | 339 s, Lv 15, lv 3/5/11, pop120 20 |
+  | neu | 390 s, Lv 10, lv 1/3/6, pop120 12 | 293 s, Lv 7, lv 1/3/6, pop120 26 | 349 s, Lv 9, lv 1/3/7, pop120 35 |
+
+  `balance_regress` besteht mit der neuen Kurve (Glutmaw/Wild 150 s: Level 3–5, lv120 = 3–4, Peak 21–57; Sporling/Apex: Median 223 s, Level 5–7). Ziel war ~Level 2 bei 1:00 und ~4 bei 2:00: gemessen 1 bzw. 3–4; die Runs enden vor 7:00 mit Level 7–10. Wer das Ziel genauer treffen will: `45 + 20·L + 6·L²` (kumuliert 45/116/225/370/551 DNA für Level 1–5).

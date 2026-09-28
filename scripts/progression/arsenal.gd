@@ -2,8 +2,9 @@ extends RefCounted
 ## Etappe 17 – Spur 2: Arsenal (Waffen und Relikte). Nur Kokons und Bosse geben
 ## Waffen und Relikte, nie Level.
 ##
-## Waffen: 4 Plätze (+1 je Relikt „Urmutter“, +Meta-Angriffsslot), Ränge 1–5.
-## Findet man eine vorhandene Waffe, steigt ihr Rang. Relikte stapeln unbegrenzt.
+## Waffen: 4 Plätze (+1 mit Relikt „Urmutter“, +Meta-Angriffsslot), Ränge 1–5.
+## Findet man eine vorhandene Waffe, steigt ihr Rang. Relikte: 6 Plätze, je
+## Relikt bis RELIC_MAX_STACK Stapel (Urmutter 1, Zwillingsbrut 3).
 ## Evolution: Waffe Rang 5 + passendes Relikt -> der nächste Boss-Kokon bietet sie
 ## garantiert an; gewählt ersetzt sie die Grundwaffe im selben Platz.
 ##
@@ -20,6 +21,14 @@ const STATS = preload("res://scripts/progression/stats.gd")
 
 const MAX_RANK := 5
 const BASE_SLOTS := 4
+## Build slots (user decision 28.09.2026): at most RELIC_SLOTS distinct relics;
+## once all are taken, cocoons only offer further stacks of owned relics.
+const RELIC_SLOTS := 6
+## Stacks per relic (like the 5 ranks), so "maxed" exists. Exceptions:
+## Urmutter is a slot (one extra weapon slot, like the meta upgrade), and
+## Zwillingsbrut already hits its floor (every 2nd division) at 3 stacks.
+const RELIC_MAX_STACK := 5
+const RELIC_STACK_LIMIT := {"urmutter": 1, "zwillingsbrut": 3}
 const RANK_GAIN := {"common": 1, "uncommon": 1, "rare": 1, "epic": 2, "legendary": 3}
 ## Karten-/Elite-Kokon: Anteil Relikt (Rest Waffe).
 const RELIC_SHARE := 0.55
@@ -108,6 +117,7 @@ var ranks: Dictionary = {}
 var relics: Dictionary = {}
 var evolutions: Array[String] = []
 var slots := BASE_SLOTS
+var relic_slots := RELIC_SLOTS
 var weapon_pool: Array = []
 var relic_pool: Array = []
 ## Geöffnete Karten-Kokons (Preis steigt je Kokon).
@@ -165,6 +175,10 @@ static func relic_rarity(id: String) -> String:
 	return String(row[3]) if row.size() > 3 else "common"
 
 
+static func max_stacks(id: String) -> int:
+	return int(RELIC_STACK_LIMIT.get(id, RELIC_MAX_STACK))
+
+
 static func rule_for(evolution_id: String) -> Dictionary:
 	for rule in EVOLUTION_RULES:
 		if rule.id == evolution_id:
@@ -206,6 +220,31 @@ func slot_limit() -> int:
 
 func slots_free() -> int:
 	return maxi(0, slot_limit() - weapons().size())
+
+
+## Distinct relics owned (occupied relic slots).
+func relics_owned() -> int:
+	var used := 0
+	for id in relics:
+		if int(relics[id]) > 0 and is_relic(String(id)):
+			used += 1
+	return used
+
+
+func relic_slot_limit() -> int:
+	return relic_slots
+
+
+func relic_slots_free() -> int:
+	return maxi(0, relic_slot_limit() - relics_owned())
+
+
+## True when this relic may gain a stack: below its max and (new) a free slot.
+func relic_open(id: String) -> bool:
+	var owned := stacks(id)
+	if owned >= max_stacks(id):
+		return false
+	return owned > 0 or relic_slots_free() > 0
 
 
 ## Waffen-Ränge für AttackForms.set_ranks (Evolutionen als Rang 1).
@@ -337,7 +376,7 @@ func _pick_relic(rng: RandomNumberGenerator, rarity: String, taken: Array, any: 
 	for tier in order:
 		var ids: Array = []
 		for id in relic_pool:
-			if is_relic(String(id)) and relic_rarity(String(id)) == tier and not skip.has(id):
+			if is_relic(String(id)) and relic_rarity(String(id)) == tier and not skip.has(id) and relic_open(String(id)) and not ids.has(String(id)):
 				ids.append(String(id))
 		if not ids.is_empty():
 			return relic_item(String(ids[rng.randi_range(0, ids.size() - 1)]))
@@ -368,7 +407,8 @@ func evolution_item(id: String) -> Dictionary:
 
 ## Wendet ein Beute-Teil an. Rückgabe: das Teil mit tatsächlichem "from"/"to"
 ## und "applied" (false = nichts geändert, z. B. kein freier Platz).
-func grant(item: Dictionary) -> Dictionary:
+## `force` (debug/tests only) ignores the relic slot and stack limits.
+func grant(item: Dictionary, force: bool = false) -> Dictionary:
 	var out := item.duplicate()
 	out["applied"] = false
 	var id := String(item.get("id", ""))
@@ -385,7 +425,7 @@ func grant(item: Dictionary) -> Dictionary:
 			out["to"] = to
 			out["applied"] = to != from
 		"relic":
-			if not is_relic(id):
+			if not is_relic(id) or (not force and not relic_open(id)):
 				return out
 			var before := stacks(id)
 			relics[id] = before + 1

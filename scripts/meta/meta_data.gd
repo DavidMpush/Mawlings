@@ -32,8 +32,10 @@ const START_RELICS := ["hungerstein", "zaehe_haut", "scharfe_zaehne", "flinke_be
 	"blutzahn", "koenigszahnkette", "glutdruese", "zwillingsbrut", "magnetkern"]
 ## Alt-Name (Etappe 03–16); gleich START_WEAPONS.
 const START_ATTACKS := START_WEAPONS
-## attack = Waffenplätze (Arsenal); trait = Werte haben kein Platzlimit (14).
-const BASE_SLOTS := {"attack": 4, "trait": 14}
+## Build slots (user decision 28.09.2026): attack = weapons (arsenal), trait =
+## distinct stats, relic = distinct relics. Old profiles keep loading (slots are
+## rebuilt here, never read from the save).
+const BASE_SLOTS := {"attack": 4, "trait": 6, "relic": 6}
 const BASE_REROLLS := 1
 const BASE_BANISHES := 0
 const BASE_SKIPS := 0

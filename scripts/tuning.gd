@@ -540,3 +540,9 @@ const SANDSTORM_ENEMY_HASTE := 1.18
 const SHALLOW_SLOW := 0.6
 const SHALLOW_WIDTH := 2.5
 const SHALLOW_RIM := 0.8
+
+# Etappe 30: das versiegelte Tor steht so weit (m) neben der Boss-Arena der Welt.
+const GATE_OFFSET := 13.0
+# Etappe 30 (Nutzerwunsch): Endboss-LP mindestens dieses Vielfache der LP eines Bog King zum selben
+# Zeitpunkt (Bog King wächst mit sqrt(Druck)); Kampf damit ~3x so lang wie der Bog King (15-30 s -> 45-90 s).
+const APEX_KING_RATIO := 3.0

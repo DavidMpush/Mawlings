@@ -139,7 +139,7 @@ func _check_spawn_after_arrival() -> void:
 	_check(toad != null and toad is TOAD and world.apex_state == 2, "The Aschenkröte rises in the Glutsumpf")
 	if toad == null:
 		return
-	_check(is_equal_approx(toad.max_health, TUNING.APEX_TOAD_HEALTH * world.world_scale()), "First toad: APEX_TOAD_HEALTH x world bonus (%.0f)" % toad.max_health)
+	_check(_apex_hp_ok(toad.max_health, TUNING.APEX_TOAD_HEALTH * world.world_scale()), "First toad: APEX_TOAD_HEALTH x world bonus (%.0f)" % toad.max_health)
 	var objectives: Dictionary = world.hud.get_meta("objectives")
 	_check(int(objectives.apex_state) == 2 and String(objectives.apex_name) == "ASCHENKRÖTE", "HUD gets the apex bar data and name")
 	var music: Variant = scene.get_node_or_null("Music")
@@ -258,7 +258,7 @@ func _check_kill_and_circle() -> void:
 	world.model.elapsed = world.apex_due
 	_steps(TUNING.APEX_WARNING_SECONDS + 0.3)
 	var toad: Variant = world.apex
-	_check(toad is TOAD and is_equal_approx(toad.max_health, TUNING.APEX_TOAD_HEALTH * world.world_scale()), "Toad after the Moosschlund: loop 0 health (x world bonus)")
+	_check(toad is TOAD and _apex_hp_ok(toad.max_health, TUNING.APEX_TOAD_HEALTH * world.world_scale()), "Toad after the Moosschlund: loop 0 health (x world bonus)")
 	if not (toad is TOAD):
 		return
 	toad.state = TOAD.State.CHASE
@@ -306,7 +306,7 @@ func _check_kill_and_circle() -> void:
 	var moos: Variant = world.apex
 	_check(moos is APEX and world.apex_loop() == 1, "The Moosschlund returns (loop %d, biome %s, state %d, pop %d, due %.1f, now %.1f)" % [world.apex_loop(), world.biome_id, world.apex_state, world.model.population, world.apex_due, world.model.elapsed])
 	if moos is APEX:
-		_check(is_equal_approx(moos.max_health, TUNING.APEX_HEALTH * TUNING.APEX_LOOP_HEALTH * world.world_scale()), "Loop 2 Moosschlund: HP x%.1f (%.0f)" % [TUNING.APEX_LOOP_HEALTH, moos.max_health])
+		_check(_apex_hp_ok(moos.max_health, TUNING.APEX_HEALTH * TUNING.APEX_LOOP_HEALTH * world.world_scale()), "Loop 2 Moosschlund: HP x%.1f (%.0f)" % [TUNING.APEX_LOOP_HEALTH, moos.max_health])
 		_check(is_equal_approx(float(moos.get_meta("damage_scale")), TUNING.APEX_LOOP_DAMAGE * TUNING.APEX_DAMAGE_MULTIPLIER), "Loop 2 Moosschlund: losses x%.2f (x apex multiplier)" % TUNING.APEX_LOOP_DAMAGE)
 		moos.state = APEX.State.CHASE
 		moos.cooldown = 999.0
@@ -327,9 +327,15 @@ func _check_kill_and_circle() -> void:
 		world.model.elapsed = world.apex_due
 		_steps(TUNING.APEX_WARNING_SECONDS + 0.3)
 		var second: Variant = world.apex
-		_check(second is SANDWORM and is_equal_approx(second.max_health, TUNING.APEX_SANDWORM_HEALTH * TUNING.APEX_LOOP_HEALTH * world.world_scale()), "Loop 2 Sandwurm: HP x%.1f (biome %s, state %d, pop %d, hp %.0f)" % [TUNING.APEX_LOOP_HEALTH, world.biome_id, world.apex_state, world.model.population, second.max_health if second != null else -1.0])
+		_check(second is SANDWORM and _apex_hp_ok(second.max_health, TUNING.APEX_SANDWORM_HEALTH * TUNING.APEX_LOOP_HEALTH * world.world_scale()), "Loop 2 Sandwurm: HP x%.1f (biome %s, state %d, pop %d, hp %.0f)" % [TUNING.APEX_LOOP_HEALTH, world.biome_id, world.apex_state, world.model.population, second.max_health if second != null else -1.0])
 
 
 func _check(condition: bool, message: String) -> void:
 	if not condition:
 		failures.append(message)
+
+# Etappe 30: apex HP = max(base formula, APEX_KING_RATIO x a Bog King now) (2 % slack:
+# the pressure moved a little since the spawn).
+func _apex_hp_ok(value: float, base: float) -> bool:
+	var expected := maxf(base, TUNING.APEX_KING_RATIO * float(world.bog_king_health()))
+	return absf(value - expected) <= expected * 0.02 or (value >= base - 0.5 and value <= expected * 1.02 and value >= expected * 0.9)

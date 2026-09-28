@@ -114,6 +114,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/export_android.ps1    
   - [19 Wüste](stages/19_desert.md)
   - [20 Gefahren-Lesbarkeit](stages/20_danger_readability.md)
   - [21 Große Balance-Runde](stages/21_balance.md)
+  - [30 Karte, Tor, Endboss](stages/30_map_gate_boss.md): weicher Kartennebel, keine falschen POI-Symbole, versiegeltes Tor an der Endboss-Arena, Endboss ≥ 3× Bog King, keine Hain-Knollen; Slots 4 Waffen / 6 Werte / 6 Relikte und langsamere Levelkurve (Nachtrag in Etappe 28)
   - [28 Seltenheit + Build-Kontrolle](stages/28_tiers_choice.md) · [29 Wasser](stages/29_water.md): Seen/Moore mit bremsendem Flachufer und blockierender Tiefe
   - [27 S25-Feedback](stages/27_s25_feedback.md): Hordenwellen und Direktor-Vorsprung je Welt, schwebender Joystick, XP-Balken sichtbar, kein Gebietsbanner, Glutsprung über Hindernisse
   - [22 Leistung](stages/22_performance.md): HUD-Cache ohne GPU-Rücklesen, gebackene Knöpfe, Chunks über mehrere Frames, nächste Karte im Hintergrund; Bench-Szenen `mid`, `travel`, `apex`, `desert` (`tests/perf_bench.gd`)

@@ -495,4 +495,5 @@ func _mutation_color(id: String) -> Color:
 func _slot_text() -> String:
 	if evolution == null or not evolution.has_method("slots_used"):
 		return "WELT PAUSIERT"
-	return "Angriff %d/%d · Anlagen %d/%d" % [evolution.slots_used("attack"), evolution.slot_limit("attack"), evolution.slots_used("trait"), evolution.slot_limit("trait")]
+	# Build slots (user decision 28.09.2026): 4 weapons · 6 stats · 6 relics.
+	return "Waffen %d/%d · Werte %d/%d · Relikte %d/%d" % [evolution.slots_used("attack"), evolution.slot_limit("attack"), evolution.slots_used("trait"), evolution.slot_limit("trait"), evolution.slots_used("relic"), evolution.slot_limit("relic")]

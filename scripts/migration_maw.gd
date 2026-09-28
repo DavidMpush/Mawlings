@@ -114,6 +114,12 @@ var lip: MeshInstance3D
 var teeth: MeshInstance3D
 var beam: MeshInstance3D
 var _time := 0.0
+## Etappe 30: the gate stands sealed next to the biome's boss arena from the
+## start of the world (stone cap, no vortex, no hold) and unseals when the
+## apex falls (unseal() -> the usual opening animation).
+var sealed := false
+var cap: MeshInstance3D
+var _unseal := 0.0
 
 
 func setup(target: String, source := "") -> void:
@@ -166,6 +172,21 @@ func _ready() -> void:
 	column.cap_bottom = false
 	var core: Color = vortex_material.get_shader_parameter("core_color")
 	beam = _part(self, "Beam", column, FX_BATCH.shared_material(Color(core, 0.22), true, true, 1.0, true), Vector3(0, BEAM_HEIGHT * 0.5, 0))
+	# Stone seal over the pit (only while sealed): a dark domed cap with a faint
+	# rune ring in the destination colour, so it reads as 'the way on, locked'.
+	var dome := CylinderMesh.new()
+	dome.top_radius = radius * 0.72
+	dome.bottom_radius = radius * 1.02
+	dome.height = 0.42
+	dome.radial_segments = 28
+	dome.rings = 1
+	var stone := StandardMaterial3D.new()
+	stone.albedo_color = Color("4a4550")
+	stone.roughness = 0.9
+	stone.emission_enabled = true
+	stone.emission = Color(core, 1.0) * 0.18
+	cap = _part(self, "Seal", dome, stone, Vector3(0, 0.21, 0))
+	cap.visible = sealed
 	_animate(0.0)
 
 
@@ -297,8 +318,28 @@ func hit_fraction(points: PackedVector3Array) -> float:
 	return float(inside) / float(points.size())
 
 
+## Seals or unseals the gate (sealed: no opening, no hold, no beam).
+func seal(on: bool) -> void:
+	sealed = on
+	if on:
+		opened = 0.0
+		hold = 0.0
+		_unseal = 0.0
+	if cap != null:
+		cap.visible = true
+
+
+func unseal() -> void:
+	sealed = false
+
+
 ## Advances opening, hold and animation. True exactly once when entered.
 func step(delta: float, share: float) -> bool:
+	if sealed:
+		inside_share = 0.0
+		_animate(delta)
+		return false
+	_unseal = minf(1.0, _unseal + delta / OPEN_SECONDS)
 	inside_share = share
 	opened = minf(1.0, opened + delta / OPEN_SECONDS)
 	if not entered and opened >= 1.0:
@@ -317,7 +358,15 @@ func _animate(delta: float) -> void:
 	_time += delta
 	var grow := 1.0 - pow(1.0 - opened, 3.0)
 	var breath := 1.0 + 0.045 * sin(_time * 2.4) + 0.06 * hold
-	rim.scale = Vector3(breath, 1.0, breath) * maxf(0.01, grow)
+	# A sealed gate shows its full rim (a landmark), only the vortex waits.
+	var rim_grow := 1.0 if (sealed or cap != null and cap.visible) else grow
+	rim.scale = Vector3(breath if not sealed else 1.0, 1.0, breath if not sealed else 1.0) * maxf(0.01, rim_grow)
+	if cap != null and cap.visible:
+		# The seal sinks and fades while the gate unseals.
+		cap.position.y = 0.21 - 0.5 * _unseal
+		cap.scale = Vector3.ONE * maxf(0.01, 1.0 - _unseal)
+		if not sealed and _unseal >= 1.0:
+			cap.visible = false
 	vortex.scale = Vector3.ONE * maxf(0.01, grow)
 	vortex_material.set_shader_parameter("open", grow)
 	vortex_material.set_shader_parameter("hold", hold)

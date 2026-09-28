@@ -55,7 +55,7 @@ func _run() -> void:
 	for key in ["damage", "armor", "speed", "harvest", "dna", "growth"]:
 		check(config.mods.has(key), "Mods key %s" % key)
 	check(config.start_population == 1 and config.tint is Color and config.signature_attack == "rudelbiss", "Glutmaw base")
-	check(config.slots.attack == 4 and config.slots.trait == 14, "Base slots (4 weapons, stats unlimited)")
+	check(config.slots.attack == 4 and config.slots.trait == 6 and config.slots.relic == 6, "Base slots (4 weapons, 6 stats, 6 relics)")
 	check(is_equal_approx(config.pressure_doubling, float(DATA.DIFFICULTIES[0].pressure_doubling)) and is_equal_approx(config.enemy_hp, float(DATA.DIFFICULTIES[0].enemy_hp)), "Wild difficulty")
 	# Etappe 17: ein Pool mit Werten, Waffen und Relikten.
 	for id in ["bite", "crit", "brood", "rally", "evade", "armor", "luck", "rudelbiss", "sporenwolke", "klauenwirbel", "giftbiss", "schallbrueller", "hungerstein", "magnetkern"]:
@@ -186,6 +186,7 @@ func _run() -> void:
 	var legacy_config: Dictionary = legacy.build_run_config("glutmaw", "verdant_maw", 0)
 	check(legacy_config.pool.has("regen") and legacy_config.pool.has("graeber") and legacy_config.pool.has("urmutter"), "Migrated unlocks reach the pool")
 	check(legacy_config.rerolls == DATA.BASE_REROLLS + 2, "Old Anlagenslot ranks become rerolls")
+	check(legacy_config.slots.trait == 6 and legacy_config.slots.relic == 6, "An old profile gets the 6 stat / 6 relic slots")
 	# Lautstärke-Regler: defaults 1,0, old "sound": false -> master 0, 5 % steps, saved as numbers.
 	_clean()
 	var fresh = PROFILE.load_or_create(TEST_PATH)

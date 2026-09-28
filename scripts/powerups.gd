@@ -46,6 +46,9 @@ const HOVER := 1.35
 const KNOLL_REACH := 1.0
 const KNOLLS := Vector2i(2, 3)
 const FALLBACK_GROVES := 3
+## Etappe 30 (user request): the small golden grove knolls that only gave
+## Bernstein coins are gone; no grove treasure is placed any more.
+const GROVE_TREASURE := false
 const BAND_SECONDS := 1.6
 
 ## Lying boosters: {id, at, age, node, pivot, column}
@@ -96,6 +99,8 @@ func _rebuild() -> void:
 		groves = arena.poi_slots("grove")
 	if groves.is_empty():
 		groves = _fallback_groves()
+	if not GROVE_TREASURE:
+		groves.clear()
 	var grove_rng := RandomNumberGenerator.new()
 	grove_rng.seed = hash(["groves", int(arena.get("world_seed")) if arena != null and arena.get("world_seed") != null else 0])
 	for centre in groves:

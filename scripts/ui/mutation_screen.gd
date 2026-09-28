@@ -1837,6 +1837,15 @@ func _card_style(evo: RefCounted, id: String, entry: Array, rank: int) -> Dictio
 		st.kind_label = "WERT · " + str(BRANCH_LABEL[branch])
 		st.pips = max_rank
 		st.badge = "NEU" if rank == 0 else "RANG %d" % (rank + 1)
+	# Build slots (user decision 28.09.2026): a NEW weapon/stat/relic shows the
+	# slot it takes in the category tab ("WAFFE 3/4", "WERT 5/6 · ANGRIFF").
+	if kind in ["attack", "trait", "relic"] and int(st.from) == 0 and evo != null and evo.has_method("slot_limit"):
+		var limit: int = int(evo.slot_limit(kind))
+		if limit > 0:
+			var place := "%d/%d" % [mini(int(evo.slots_used(kind)) + 1, limit), limit]
+			var label := String(st.kind_label)
+			var dot := label.find(" · ")
+			st.kind_label = (label.substr(0, dot) + " " + place + label.substr(dot)) if dot >= 0 else label + " " + place
 	var hint := _evolution_hint(evo, id, rank, entry)
 	if not hint.is_empty() and hint.ready:
 		st.gold = true

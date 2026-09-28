@@ -81,7 +81,12 @@ const ICON_IDS = {
 	# Alt-IDs (Etappe 16) für alte Build-Anzeigen.
 	"lockduft": "magnet",
 }
-const DEFAULT_SLOTS = {"attack": ARSENAL.BASE_SLOTS, "trait": 14}
+## Build slots (user decision 28.09.2026): 4 weapons · 6 stats · 6 relics. The
+## stat and relic slots are fixed (old configs with "trait": 14 still load).
+const DEFAULT_SLOTS = {"attack": ARSENAL.BASE_SLOTS, "trait": STATS.SLOTS, "relic": ARSENAL.RELIC_SLOTS}
+## Every stat slot maxed: a level-up heals the leader by this share of max LP
+## instead of offering a card (HuntWorld applies take_max_heals()).
+const MAX_HEAL_SHARE := 0.2
 ## Etappe 17 Welle 2: Die Startwaffe beginnt auf Rang 1; weitere Ränge kommen
 ## nur aus Kokons (Welle 1 hatte sie ohne Kokons auf Rang 4 gesetzt).
 const SIGNATURE_START_RANK = 1
@@ -129,6 +134,8 @@ var banished: Array = []
 var rerolls := 0
 var banishes := 0
 var skips := 0
+## Level-ups with every stat maxed, waiting for HuntWorld to heal the leader.
+var max_heals := 0
 ## Etappe 17: Alpha-Kern entfällt; bleibt 0 (Altaufrufer, HUD-Chip).
 var alpha_cores := 0
 var signature := ""
@@ -181,7 +188,8 @@ static func migrate_id(id: String) -> String:
 func configure(config: Dictionary) -> void:
 	var slot_config: Dictionary = config.get("slots", {})
 	arsenal.slots = maxi(1, int(slot_config.get("attack", DEFAULT_SLOTS.attack)))
-	slots = {"attack": arsenal.slots, "trait": DEFAULT_SLOTS.trait}
+	arsenal.relic_slots = int(DEFAULT_SLOTS.relic)
+	slots = {"attack": arsenal.slots, "trait": DEFAULT_SLOTS.trait, "relic": DEFAULT_SLOTS.relic}
 	var configured: Array = []
 	for raw in config.get("pool", []):
 		var id := migrate_id(str(raw))
@@ -226,20 +234,21 @@ func configure(config: Dictionary) -> void:
 
 # ---------------------------------------------------------------- Level (Werte)
 
-## DNA for the next level. Welle 2: a small quadratic term makes late levels
-## dearer (the flood's DNA no longer maxes every stat), early ones stay cheap.
+## DNA for the next level. Stage 28 addendum (user: "man levelt zu schnell und
+## zu oft von Anfang an"): 60 + 25 L + 6 L² (was 20 + 10 L + 1,5 L²); the first
+## level costs 60 DNA, level 10 needs ~3435 DNA in total (old curve: ~level 16).
 func threshold() -> int:
-	return 20 + level * 10 + int(1.5 * level * level)
+	return 60 + 25 * level + 6 * level * level
 
 
-# True when no further stat can ever be offered in this run.
+# True when no further stat can ever be offered in this run (every owned stat
+# at rank 5 with all 6 stat slots taken, or the pool is exhausted). The XP bar
+# then shows MAX; further level-ups heal the leader instead (take_max_heals()).
 func complete() -> bool:
-	return stats.candidates(_stat_pool(), banished).is_empty()
+	return _stat_candidates().is_empty()
 
 
 func earn(amount: int) -> void:
-	if complete():
-		return
 	dna += maxi(0, int(round(float(maxi(0, amount)) * dna_multiplier())))
 	_prepare()
 
@@ -248,19 +257,47 @@ func _stat_pool() -> Array:
 	return pool.filter(func(id): return kind_of(id) == "trait")
 
 
+func _stat_candidates() -> Array:
+	return stats.candidates(_stat_pool(), banished, slot_limit("trait"))
+
+
+# Rolls level/shrine stat cards within the stat slots (full: only rank-ups).
+func _roll_stats(exclude: Array = [], minimum: String = "common") -> Array:
+	return stats.roll_offers(rng, luck(), _stat_pool(), banished, exclude, 3, minimum, slot_limit("trait"))
+
+
 func _prepare(exclude: Array = []) -> void:
 	if not offers.is_empty() or dna < threshold():
 		return
+	if complete():
+		# Nothing new may come and nothing can rise: each level heals the leader.
+		while dna >= threshold():
+			dna -= threshold()
+			level += 1
+			max_heals += 1
+		return
 	offer_source = "level"
-	offers = stats.roll_offers(rng, luck(), _stat_pool(), banished, exclude)
+	offers = _roll_stats(exclude)
+
+
+## Pending "maxed" level-ups (each heals MAX_HEAL_SHARE of the leader's max LP);
+## HuntWorld takes and applies them. Returns the count and clears it.
+func take_max_heals() -> int:
+	var count := max_heals
+	max_heals = 0
+	return count
 
 
 ## Schrein (Etappe 17 Welle 2): 1 aus 3 Werten, mindestens selten, kostenlos.
-## Liefert false, wenn gerade eine andere Wahl offen ist oder kein Wert mehr steigt.
+## Liefert false, wenn gerade eine andere Wahl offen ist oder kein Wert mehr steigt
+## (dann heilt der Schrein den Anführer wie ein maximales Level: max_heals).
 func open_shrine() -> bool:
+	if complete():
+		max_heals += 1
+		return false
 	if not offers.is_empty() or not chest_offers.is_empty():
 		return false
-	offers = stats.roll_offers(rng, luck(), _stat_pool(), banished, [], 3, SHRINE_MINIMUM)
+	offers = _roll_stats([], SHRINE_MINIMUM)
 	offer_source = "shrine" if not offers.is_empty() else "level"
 	return not offers.is_empty()
 
@@ -268,7 +305,7 @@ func open_shrine() -> bool:
 # Refills after reroll/banish in the same mode (shrine cards stay shrine cards).
 func _refill(exclude: Array = []) -> void:
 	if offer_source == "shrine":
-		offers = stats.roll_offers(rng, luck(), _stat_pool(), banished, exclude, 3, SHRINE_MINIMUM)
+		offers = _roll_stats(exclude, SHRINE_MINIMUM)
 		if offers.is_empty():
 			offer_source = "level"
 			_prepare()
@@ -387,8 +424,9 @@ func choose_chest(slot: int) -> Dictionary:
 
 
 ## Wendet ein Beute-Teil an (Waffe/Relikt/Evolution) und meldet die Änderung.
-func grant(item: Dictionary) -> Dictionary:
-	var result: Dictionary = arsenal.grant(item)
+## `force` (debug_grant only) ignores the relic slot/stack limits.
+func grant(item: Dictionary, force: bool = false) -> Dictionary:
+	var result: Dictionary = arsenal.grant(item, force)
 	if bool(result.get("applied", false)):
 		revision += 1
 		if String(result.get("type", "")) == "evolution":
@@ -405,7 +443,8 @@ func evolution_ready() -> Array:
 	return arsenal.evolution_ready()
 
 
-## Test/Debug: gibt einen Wert, eine Waffe, ein Relikt oder eine Evolution direkt.
+## Test/Debug: gibt einen Wert, eine Waffe, ein Relikt oder eine Evolution direkt
+## (Relikte ohne Platz- und Stapelgrenze, Werte ohne Platzgrenze).
 func debug_grant(id: String, rarity: String = "common") -> Dictionary:
 	id = migrate_id(id)
 	match kind_of(id):
@@ -416,7 +455,7 @@ func debug_grant(id: String, rarity: String = "common") -> Dictionary:
 		"attack":
 			return grant(arsenal.weapon_item(id, rarity))
 		"relic":
-			return grant(arsenal.relic_item(id))
+			return grant(arsenal.relic_item(id), true)
 		"evolved":
 			return grant(arsenal.evolution_item(id))
 	return {"applied": false}
@@ -485,13 +524,17 @@ func info(id: String) -> Array:
 func slot_limit(kind: String) -> int:
 	if kind == "attack":
 		return arsenal.slot_limit()
+	if kind == "relic":
+		return arsenal.relic_slot_limit()
 	return int(slots.get(kind, 0))
 
 
-# Evolved forms count as attack forms.
+# Evolved forms count as attack forms; "relic" counts distinct relics.
 func slots_used(kind: String) -> int:
 	if kind == "attack":
 		return arsenal.weapons().size()
+	if kind == "relic":
+		return arsenal.relics_owned()
 	var used := 0
 	for id in ranks:
 		if int(ranks[id]) > 0 and kind_of(id) == kind:

@@ -452,7 +452,7 @@ func build_run_config(strain_id: String, biome_id: String, difficulty: int, run_
 		"enemy_hp": float(diff.enemy_hp), "enemy_damage": float(diff.enemy_damage),
 		"pressure_doubling": float(diff.pressure_doubling),
 		"slots": {"attack": int(DATA.BASE_SLOTS.attack) + upgrade_rank("attack_slot"),
-			"trait": int(DATA.BASE_SLOTS.trait)},
+			"trait": int(DATA.BASE_SLOTS.trait), "relic": int(DATA.BASE_SLOTS.relic)},
 		# Etappe 17: "Mutationswurf" (ehemals Anlagenslot) = +1 Neu würfeln je Rang.
 		"rerolls": DATA.BASE_REROLLS + bonus_rerolls + upgrade_rank("trait_slot"),
 		"banishes": DATA.BASE_BANISHES + bonus_banishes,
