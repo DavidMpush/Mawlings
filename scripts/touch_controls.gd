@@ -40,6 +40,14 @@ var elapsed := 0.0
 var pressure := 1.0
 var extinct := false
 var paused := false
+# Etappe 26: volume sliders in the pause panel (brawl). main.gd sets `volumes`
+# from the RunConfig, applies each change to the buses (volume_changed) and
+# saves them to the profile when the pause closes.
+signal volume_changed(key: String, value: float)
+const VOLUME_KEYS := ["volume_master", "volume_music", "volume_sfx"]
+const VOLUME_NAMES := ["GESAMT", "MUSIK", "EFFEKTE"]
+var volumes := {"volume_master": 1.0, "volume_music": 1.0, "volume_sfx": 1.0}
+var _volume_drag := -1
 var peak_population := 25
 var consumed_biomass := 0.0
 var hit_feedback := 0.0
@@ -128,6 +136,8 @@ func _input(event: InputEvent) -> void:
 			_press(event.index, event.position)
 		else:
 			_release(event.index)
+	elif _volume_drag >= 0 and (event is InputEventScreenDrag or event is InputEventMouseMotion):
+		set_volume_at(_volume_drag, event.position.x)
 	elif event is InputEventScreenDrag and event.index == movement_pointer:
 		_update_movement(event.position)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -141,6 +151,11 @@ func _input(event: InputEvent) -> void:
 
 func _press(pointer: int, location: Vector2) -> void:
 	if extinct or paused:
+		for k in VOLUME_KEYS.size():
+			if _volume_rect(k).has_point(location):
+				_volume_drag = k
+				set_volume_at(k, location.x)
+				return
 		if _action_rect().has_point(location):
 			_tap_sound()
 			if extinct:
@@ -223,6 +238,7 @@ func _tap_sound() -> void:
 
 
 func _release(pointer: int) -> void:
+	_volume_drag = -1
 	if pointer == movement_pointer:
 		movement_pointer = -1
 		movement_vector = Vector2.ZERO
@@ -331,6 +347,32 @@ func _share_rect() -> Rect2:
 	if extinct and UiStyle.is_brawl():
 		return Rect2(Vector2(size.x * 0.5 + 190, _overlay_top() + 1404), Vector2(200, 104))
 	return Rect2()
+
+# Etappe 26: three compact volume sliders under the pause buttons (brawl only).
+func _volume_rect(k: int) -> Rect2:
+	if not paused or extinct or not UiStyle.is_brawl():
+		return Rect2()
+	var w := (680.0 - 2.0 * 16.0) / 3.0
+	return Rect2(Vector2(size.x * 0.5 - 340 + k * (w + 16.0), _overlay_top() + 1062), Vector2(w, 110))
+
+
+func _volume_track(k: int) -> Rect2:
+	var r := _volume_rect(k)
+	return Rect2(r.position.x + 20.0, r.position.y + 70.0, r.size.x - 40.0, 20.0)
+
+
+## Sets slider k from a finger x (5 % steps) and reports a change.
+func set_volume_at(k: int, x: float) -> void:
+	var track := _volume_track(k)
+	if track.size.x <= 0.0:
+		return
+	var value := clampf(roundf(clampf((x - track.position.x) / track.size.x, 0.0, 1.0) * 20.0) / 20.0, 0.0, 1.0)
+	var key: String = VOLUME_KEYS[k]
+	if is_equal_approx(float(volumes.get(key, 1.0)), value):
+		return
+	volumes[key] = value
+	volume_changed.emit(key, value)
+
 
 # Pause only (brawl): restart the run (a paused run is given up, like BRUTSTÄTTE).
 func _restart_rect() -> Rect2:

@@ -7,6 +7,11 @@ Reihenfolge = Priorität. Jede Etappe wird nach `stages/README.md` abgearbeitet 
 Erledigt seit dem letzten Aufräumen: 15 UI-Supercell, 16 Kristalle/Magnet, 17 duale Progression (Werte, Arsenal, Kokons, Power-ups, Schreine, Bernstein), 17b Schwarm ohne Limit, 17c Anführer-LP + Lebensraub, 17d Stammes-Fähigkeiten, 18/18c Erkundungskarte, 19 Wüste + Sandwurm, 20 Gefahren-Lesbarkeit, 22/22b Leistung, 23 Audio, 24 Einstieg, Kodex. Details in den Etappendateien.
 
 ### Offene Todos
+0. **Stand 28.09.2026 abends (Commit „World reset + stronger apex“):** Umgesetzt, aber **ohne abschließenden Balance-Kontrolllauf**:
+   - Apex-Bosse deutlich stärker als der Bog King (Ziel ≥ 3× LP, Kampf 45–70 s).
+   - Migration setzt Druck und Flut zurück (Schwarm, Build, Level, Relikte und Bernstein bleiben), Welt-Bonus je Welt, Welt-Anzeige im HUD.
+   - Lautstärkeregler im Pause-Menü.
+   - **Nächster Schritt:** Kurzer Balance-Lauf (6 Stämme × 3 Seeds, max. 30 min), `apex_duration` prüfen, Zielkurven für Welt 1 und „erreichte Welten“ (Ziel: guter Run erreicht Welt 2–3) dokumentieren, komplette `tools/test.ps1` inkl. `balance_regress` laufen lassen.
 1. **Seltenheitsfarben (Nutzerwunsch):** Karte farbig nach Seltenheit: gewöhnlich grau, **außergewöhnlich grün (neue Stufe)**, selten blau, episch violett, legendär gold, überall gleich (Level-Karten, Kokon-Beute/-Strahl, Boss-Kokon, Kodex, Schrein); Kategorie nur als kleines Label. Stand siehe `stages/21_balance.md`.
 2. **Balance-Rest (Etappe 21):** Zielkurven über alle 6 Stämme schließen (siehe `stages/21_balance.md`), Nachtmaul; Waffen-Skalierung über 25 Tiere prüfen; `balance_regress`-Toleranz wieder anheben. Messläufe künftig zeitlich begrenzen (max. ~30 min pro Runde).
 3. **Dramaturgie (Etappe 25):** Rest laut `stages/25_drama.md` (Sprechblasen, Boss-Auftritt/-Sieg).

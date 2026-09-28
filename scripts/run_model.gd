@@ -18,6 +18,10 @@ var amber := 0
 var amber_collected := 0
 var kills := 0
 var elapsed := 0.0
+## Etappe 26: run time when the current world (biome visit) began. Pressure, flood,
+## spawn director and apex schedule count world time (elapsed - world_start);
+## elapsed itself stays the total run time (clock, result, chronicle).
+var world_start := 0.0
 var peak_population: int = TUNING.START_POPULATION
 var consumed_biomass := 0.0
 var lost_population := 0
@@ -154,7 +158,12 @@ func advance(delta: float) -> void:
 
 func pressure() -> float:
 	# Floating-point guard, not a run timer or victory condition.
-	return pow(2.0, minf(elapsed / pressure_doubling, 40.0))
+	return pow(2.0, minf(world_elapsed() / pressure_doubling, 40.0))
+
+
+## Seconds since the current world began (= elapsed in the first world).
+func world_elapsed() -> float:
+	return maxf(0.0, elapsed - world_start)
 
 
 func apply_loss(amount: int) -> int:

@@ -1462,7 +1462,7 @@ func _step_brawl(hud: Control, delta: float) -> void:
 		pause.pivot_offset = Vector2(size.x * 0.5, _oy() + 760.0)
 		pause.scale = Vector2.ONE * lerpf(0.9, 1.0, pa)
 		var evo: Variant = hud.evolution
-		pause.refresh([size, int(hud.elapsed), int(hud.population), str(evo.ranks) if evo != null else "", str(evo.evolutions) if evo != null else "", int(evo.level) if evo != null else 0])
+		pause.refresh([size, int(hud.elapsed), int(hud.population), str(evo.ranks) if evo != null else "", str(evo.evolutions) if evo != null else "", int(evo.level) if evo != null else 0, str(hud.get("volumes"))])
 	# Banners
 	_detect_banners(hud)
 	_step_banner(hud, real)
@@ -1887,6 +1887,32 @@ func _paint_pause(c: CanvasItem) -> void:
 	var hub: Rect2 = hud._hub_rect()
 	Kit.button(c, hub, "neutral", false, UiStyle.R_L)
 	_button_label(c, hub, false, "hub", "BRUTSTÄTTE", UiStyle.T_HEAD, 48.0)
+	_paint_pause_volumes(c, hud)
+
+
+# Etappe 26: three compact volume sliders (title, bar with knob, percent).
+const VOLUME_TONES := ["info", "loot", "ember"]
+
+
+func _paint_pause_volumes(c: CanvasItem, hud: Control) -> void:
+	if not hud.has_method("_volume_rect"):
+		return
+	var volumes: Dictionary = hud.get("volumes") if hud.get("volumes") is Dictionary else {}
+	for k in hud.VOLUME_KEYS.size():
+		var rect: Rect2 = hud._volume_rect(k)
+		if rect.size.x <= 0.0:
+			continue
+		var value := float(volumes.get(hud.VOLUME_KEYS[k], 1.0))
+		var muted := value <= 0.001
+		var tone: String = "neutral" if muted else VOLUME_TONES[k]
+		Kit.well(c, rect, UiStyle.R_M)
+		Kit.text_outlined(c, Vector2(rect.position.x + 20.0, rect.position.y + 32.0), hud.VOLUME_NAMES[k], UiStyle.T_LABEL, Color.WHITE if not muted else UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.LEFT | Kit.MIDDLE, rect.size.x * 0.55)
+		Kit.number(c, Vector2(rect.end.x - 18.0, rect.position.y + 32.0), "AUS" if muted else "%d %%" % roundi(value * 100.0), UiStyle.T_LABEL, Color.WHITE if not muted else UiStyle.BRAWL_TEXT_DIM, Kit.RIGHT | Kit.MIDDLE, rect.size.x * 0.4)
+		var track: Rect2 = hud._volume_track(k)
+		Kit.bar(c, track, value, tone)
+		var knob := Vector2(track.position.x + track.size.x * value, track.get_center().y)
+		Kit.disc(c, knob, 17.0, UiStyle.BRAWL_INK)
+		Kit.disc(c, knob, 13.0, Color.WHITE)
 
 
 # ---------------------------------------------------------------- banners

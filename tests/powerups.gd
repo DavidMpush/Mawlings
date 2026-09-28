@@ -117,8 +117,9 @@ func _run() -> void:
 
 	# ---- Blutrausch: weapon cooldown -40 % (weapons resynced).
 	var revision: int = world.evolution.revision
+	var cooldown_before: float = world.evolution.cooldown_scale()
 	power.collect("blutrausch")
-	_check(world.evolution.revision > revision and absf(world.evolution.cooldown_scale() - 0.6) < 0.001, "Blutrausch: -40 %% cooldown (%.2f)" % world.evolution.cooldown_scale())
+	_check(world.evolution.revision > revision and absf(world.evolution.cooldown_scale() - 0.6 * cooldown_before) < 0.001, "Blutrausch: -40 %% cooldown (%.2f of %.2f)" % [world.evolution.cooldown_scale(), cooldown_before])
 	# Magnetsturm: radius x3.
 	var radius: float = world.magnet_radius()
 	power.collect("magnetsturm")

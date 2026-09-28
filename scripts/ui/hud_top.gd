@@ -830,7 +830,7 @@ func _brawl_refresh() -> void:
 		swarm_back.refresh([hurt, _b_swarm])
 	_layers.swarm.refresh([_b_swarm, _strain_head()])
 	_layers.swarm_live.refresh([pop, _pop_delta, _pop_pulse, int(_time * 60.0) if shaking else 0, _b_swarm, _strain_head(), _leader_hp(), _leader_max_hp(), _leader_hp() * 4 < _leader_max_hp()])
-	_layers.time.refresh([int(float(_hud_value("elapsed", 0.0))), danger_q, _b_time])
+	_layers.time.refresh([int(float(_hud_value("elapsed", 0.0))), danger_q, _b_time, int(_hud_value("world", 1))])
 	var glow: Control = _layers.time_glow
 	glow.visible = hot > 0.0
 	if glow.visible:
@@ -1004,6 +1004,15 @@ func _b_draw_time() -> void:
 	var text := "%02d:%02d" % [elapsed / 60, elapsed % 60]
 	Kit.number(_cv, _b_time.get_center() - Vector2(0, 2), text, UiStyle.T_TITLE, Color.WHITE, Kit.CENTER | Kit.MIDDLE, _b_time.size.x - 44.0)
 	Kit.bar(_cv, _b_bar, maxf(0.04, _danger_fraction()), "danger", 5)
+	# Etappe 26: from the second world on, a small "WELT n" chip on the pill's top
+	# edge (the clock keeps the total run time; flood and apex count world time).
+	var world := int(_hud_value("world", 1))
+	if world >= 2:
+		var label := "WELT %d" % world
+		var w := UiStyle.display_font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x + 24.0
+		var chip := Rect2(_b_time.get_center().x - w * 0.5, _b_time.position.y - 16.0, w, 32.0)
+		Kit.chip(_cv, chip, "special")
+		Kit.text_outlined(_cv, chip.get_center(), label, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, w - 10.0)
 
 
 func _b_draw_dna() -> void:

@@ -309,7 +309,7 @@ const APEX_SPAWN_DISTANCE := 12.0
 # treffen den großen Körper viel öfter. Mit 650 LP dauerte der Kampf im Bot-Median nur
 # noch ~13 s (9–15 s bei starken Builds); 1400 LP geben auf Wild ~28 s (Median der
 # gewonnenen Kämpfe, Zielkorridor 25–35 s).
-const APEX_HEALTH := 1700.0   # Orchestrator 28.09.2026: Kampfdauer 25-35 s (tests/apex_duration.gd)
+const APEX_HEALTH := 3500.0   # Etappe 26: 1700 -> 3500 (Endgegner, Kampf 45-70 s; tests/apex_duration.gd)
 const APEX_HEALTH_DIFFICULTY := [1.0, 0.73, 0.66]   # Etappe 21: Brutal 0,75 -> 0,73, Apex 0,6 -> 0,66 (Kämpfe 25-35 s)
 const APEX_BIOMASS := 70.0
 const APEX_DNA := 120
@@ -371,7 +371,7 @@ const APEX_TOAD_MIN_POPULATION := 40
 # ohne Flut (balance_sim noflood, Obergrenze der Schwarm-DPS) brauchten mit 1500 LP
 # ~11 s, mit 3000 LP ~18 s (≈ 4 s Immun-/Ausweichzeit + LP / ~210 DPS). In der Flut
 # ist der Schwarm etwa halb so stark; 3600 LP zielen dort auf ~35–45 s.
-const APEX_TOAD_HEALTH := 2000.0   # Orchestrator 28.09.2026: Kampfdauer 25-35 s
+const APEX_TOAD_HEALTH := 4100.0   # Etappe 26: 2000 -> 4100 (Kampf 45-70 s)
 const APEX_TOAD_BIOMASS := 80.0
 const APEX_TOAD_DNA := 150
 const APEX_TOAD_ALPHA_CORES := 2
@@ -380,6 +380,14 @@ const APEX_TOAD_ALPHA_CORES := 2
 # zum Druck, der ohnehin exponentiell steigt).
 const APEX_LOOP_HEALTH := 1.6
 const APEX_LOOP_DAMAGE := 1.25
+# Etappe 26: der Apex ist der Endgegner des Bioms - Verluste x APEX_DAMAGE_MULTIPLIER,
+# in Phase 2 zusätzlich x APEX_PHASE_TWO_DAMAGE.
+const APEX_DAMAGE_MULTIPLIER := 1.2
+const APEX_PHASE_TWO_DAMAGE := 1.3
+# Etappe 26 (Nutzerentscheidung): jede Migration startet Druck, Flut und Spawn-Direktor
+# neu (Weltzeit 0); jede erreichte Welt nach der ersten macht Gegner, Flut und Bosse
+# um WORLD_BONUS stärker (HP, Anführer-Treffer, Apex-LP und -Verluste).
+const WORLD_BONUS := 0.25
 
 
 # Etappe 16 – Beute-Kristalle und Magnet (scripts/loot.gd) ersetzen die Kadaver-Ernte.
@@ -448,7 +456,7 @@ const AMBER_GROVE := 6
 # Sandwurm (scripts/apex_sandworm.gd): Etappe 20 im Run gemessen
 # (tests/apex_duration.gd, ausweichender Bot, Mindestpopulation, Build wie nach
 # ~3 min): 1.075 LP ergeben 33 s auf Brutal und 26 s auf Apex (Ziel 25–35 s).
-const APEX_SANDWORM_HEALTH := 1075.0
+const APEX_SANDWORM_HEALTH := 2200.0   # Etappe 26: 1075 -> 2200 (Kampf 45-70 s)
 const APEX_SANDWORM_MIN_POPULATION := 35
 const APEX_SANDWORM_BIOMASS := 75.0
 const APEX_SANDWORM_DNA := 130

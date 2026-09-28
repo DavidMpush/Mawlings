@@ -158,7 +158,7 @@ func _check_worm_arrival() -> void:
 	_check(worm != null and worm is WORM and world.apex_state == 2, "The Sandwurm rises in the Dürrschlund")
 	if worm == null:
 		return
-	_check(is_equal_approx(worm.max_health, TUNING.APEX_SANDWORM_HEALTH), "APEX_SANDWORM_HEALTH (%.0f)" % worm.max_health)
+	_check(is_equal_approx(worm.max_health, TUNING.APEX_SANDWORM_HEALTH * world.world_scale()), "APEX_SANDWORM_HEALTH x world bonus (%.0f)" % worm.max_health)
 	var objectives: Dictionary = world.hud.get_meta("objectives")
 	_check(String(objectives.apex_name) == "SANDWURM", "HUD names the Sandwurm")
 	var music: Variant = scene.get_node_or_null("Music")
@@ -197,6 +197,10 @@ func _strike_tick() -> Array:
 				if worm.contains(points[index]):
 					inside += 1
 			var expected := ceili(float(power) * float(inside) / float(points.size()) - 0.0001)
+			# Etappe 26: the world bonus (difficulty_scale) scales every area loss.
+			var scale: float = world.difficulty_scale(world.enemy_damage)
+			if expected > 0 and scale != 1.0:
+				expected = maxi(1, ceili(float(expected) * scale))
 			worm.cooldown = 999.0
 			return [before - world.model.population, mini(expected, before - 1), inside, points.size()]
 	return [-1, -1, 0, 0]

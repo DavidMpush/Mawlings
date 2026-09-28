@@ -50,6 +50,11 @@ func _ready() -> void:
 	_register_keyboard_input()
 	controls.restart_requested.connect(_restart)
 	controls.pause_requested.connect(world.toggle_pause)
+	# Etappe 26: pause volume sliders - live on the buses, saved when the pause closes.
+	if controls.has_signal("volume_changed"):
+		controls.volume_changed.connect(_on_volume_changed)
+		controls.pause_requested.connect(_save_volumes)
+		controls.hub_requested.connect(_save_volumes)
 	controls.mutation_chosen.connect(world.choose_mutation)
 	for pair in [["hub_requested", _open_hub], ["reroll_requested", world.reroll_mutations], ["skip_requested", world.skip_mutation], ["banish_requested", world.banish_mutation]]:
 		if controls.has_signal(pair[0]):
@@ -256,6 +261,10 @@ func _apply_settings(settings: Variant) -> void:
 	var sound := true
 	if settings is Dictionary:
 		AUDIO_SETTINGS.apply(settings)
+		_run_settings = (settings as Dictionary).duplicate()
+		if controls != null and "volumes" in controls:
+			for key in AUDIO_SETTINGS.KEYS:
+				controls.volumes[key] = AUDIO_SETTINGS.volume(settings, key)
 		sound = AUDIO_SETTINGS.volume(settings, "volume_master") > 0.0
 	var sfx := get_node_or_null("Sfx")
 	if sfx != null and settings is Dictionary:
@@ -312,6 +321,41 @@ func _bank_result_for_new_run() -> void:
 		profile.call("record_run", result)
 		profile.call("save")
 	session.set("last_result", {})
+
+
+var _run_settings: Dictionary = {}
+var _volumes_dirty := false
+var _probe_at := 0
+
+
+func _on_volume_changed(key: String, value: float) -> void:
+	_run_settings[key] = value
+	_volumes_dirty = true
+	var sound_was: bool = AUDIO_SETTINGS.volume(_run_settings, "volume_master") > 0.0
+	AUDIO_SETTINGS.apply(_run_settings)
+	var sfx := get_node_or_null("Sfx")
+	if sfx != null:
+		sfx.set("sfx_enabled", AUDIO_SETTINGS.volume(_run_settings, "volume_master") > 0.0)
+		if key == "volume_sfx" and Time.get_ticks_msec() - _probe_at >= 150:
+			_probe_at = Time.get_ticks_msec()
+			sfx.play("ui")
+	var music := get_node_or_null("Music")
+	if music != null and sound_was != (AUDIO_SETTINGS.volume(_run_settings, "volume_master") > 0.0):
+		music.set_enabled(AUDIO_SETTINGS.volume(_run_settings, "volume_master") > 0.0)
+
+
+# Writes changed pause volumes into the profile (runs without a menu config,
+# e.g. tests and editor F5, never touch the profile).
+func _save_volumes() -> void:
+	if not _volumes_dirty or world.config.is_empty() or not ResourceLoader.exists(PROFILE_PATH):
+		return
+	_volumes_dirty = false
+	var profile: RefCounted = load(PROFILE_PATH).call("load_or_create")
+	if profile == null or not profile.has_method("set_volume"):
+		return
+	for key in AUDIO_SETTINGS.KEYS:
+		profile.call("set_volume", key, AUDIO_SETTINGS.volume(_run_settings, key))
+	profile.call("save")
 
 
 # Result screen "BRUTSTÄTTE": back to the menu, or a fresh run while no menu exists.

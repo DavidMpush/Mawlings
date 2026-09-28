@@ -605,7 +605,18 @@ func _reset_flood() -> void:
 # Difficulty multipliers (enemy HP/damage) ramp in over the first
 # DIFFICULTY_RAMP_SECONDS: a fresh 20-25 swarm is not wiped by the first hunter.
 func difficulty_scale(multiplier: float) -> float:
-	return lerpf(minf(1.0, multiplier), multiplier, clampf(model.elapsed / TUNING.DIFFICULTY_RAMP_SECONDS, 0.0, 1.0))
+	return lerpf(minf(1.0, multiplier), multiplier, clampf(model.world_elapsed() / TUNING.DIFFICULTY_RAMP_SECONDS, 0.0, 1.0)) * world_scale()
+
+
+# Etappe 26: every reached world (migration) makes enemies and bosses stronger:
+# x (1 + WORLD_BONUS x worlds reached after the first).
+func world_scale() -> float:
+	return 1.0 + TUNING.WORLD_BONUS * float(arrivals)
+
+
+# Etappe 26: seconds in the current world (pressure, flood, director, apex).
+func world_time() -> float:
+	return model.world_elapsed()
 
 
 # Flood start of the configured difficulty; Wild (TUNING) without a config.
@@ -619,7 +630,7 @@ func _difficulty_flood_start() -> float:
 
 # Seconds since the flood started (0 before).
 func flood_seconds() -> float:
-	return maxf(0.0, model.elapsed - flood_start) if flood_state == 2 else 0.0
+	return maxf(0.0, world_time() - flood_start) if flood_state == 2 else 0.0
 
 
 # Flood stage k: strength doubles every FLOOD_DOUBLING_SECONDS.
@@ -633,7 +644,7 @@ func flood_stats() -> Dictionary:
 	var growth := pow(2.0, minf(flood_level(), 30.0))
 	var speed_cap := minf(TUNING.FLOOD_SPEED_CAP, swarm.move_speed() * TUNING.FLOOD_SPEED_SHARE)
 	return {
-		"hp": TUNING.FLOOD_HP * growth * enemy_hp,
+		"hp": TUNING.FLOOD_HP * growth * enemy_hp * world_scale(),
 		"speed": minf(TUNING.FLOOD_SPEED * growth, speed_cap),
 		"bite": TUNING.FLOOD_BITE * growth,
 		"bite_cooldown": TUNING.FLOOD_BITE_COOLDOWN,
@@ -652,17 +663,17 @@ func flood_wave_count() -> int:
 # Announcement, waves, bites and kills. Returns true when step() must stop
 # (extinction or a mutation offer).
 func _step_flood(delta: float, damage: float) -> bool:
-	if flood_state == 0 and model.elapsed >= flood_start - TUNING.FLOOD_WARNING_SECONDS:
+	if flood_state == 0 and world_time() >= flood_start - TUNING.FLOOD_WARNING_SECONDS:
 		flood_state = 1
 		flood_beep = -1
 		_sfx("flood_warn", 150)
 	if flood_state == 1:
-		var countdown := ceili(flood_start - model.elapsed)
+		var countdown := ceili(flood_start - world_time())
 		# Short beeps over the last three seconds (the sfx rules rate-limit them).
 		if countdown <= 3 and countdown != flood_beep and countdown > 0:
 			flood_beep = countdown
 			_sfx("warn", 40)
-		if model.elapsed >= flood_start:
+		if world_time() >= flood_start:
 			flood_state = 2
 			flood_reached = true
 			flood_wave_clock = 0.0
@@ -812,7 +823,7 @@ func flush_flood_bundles() -> bool:
 
 func _flood_message(message: String) -> String:
 	if flood_state == 1:
-		return "DIE FLUT KOMMT IN %d s!" % maxi(1, ceili(flood_start - model.elapsed))
+		return "DIE FLUT KOMMT IN %d s!" % maxi(1, ceili(flood_start - world_time()))
 	if flood_state == 2 and (message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Biomasse") or message.begins_with("Kristalle") or message.begins_with("Schwarm voll")):
 		return "DIE FLUT · in Bewegung bleiben, Brut zerbeißen"
 	return message
@@ -822,7 +833,7 @@ func _flood_message(message: String) -> String:
 func _flood_hud() -> Dictionary:
 	return {
 		"state": flood_state,
-		"countdown": maxf(0.0, flood_start - model.elapsed),
+		"countdown": maxf(0.0, flood_start - world_time()),
 		"stage": int(floor(flood_level())) + 1,
 		"level": flood_level(),
 		"seconds": flood_seconds(),
@@ -1068,7 +1079,7 @@ func step(delta: float) -> void:
 	if spawn_clock >= TUNING.PREY_RESPAWN_SECONDS and prey.size() < TUNING.MAX_PREY:
 		spawn_clock = 0.0
 		_spawn_prey(_spawn_position(7.0))
-	if not hunters_unlocked and model.elapsed >= TUNING.FIRST_HUNTER_SECONDS and (model.population >= TUNING.FIRST_HUNTER_POPULATION or model.elapsed >= TUNING.FIRST_HUNTER_LATEST):
+	if not hunters_unlocked and world_time() >= TUNING.FIRST_HUNTER_SECONDS and (model.population >= TUNING.FIRST_HUNTER_POPULATION or world_time() >= TUNING.FIRST_HUNTER_LATEST):
 		hunters_unlocked = true
 		hunters_unlocked_at = model.elapsed
 		hunter_clock = maxf(hunter_clock, TUNING.FIRST_HUNTER_GRACE)
@@ -1079,30 +1090,30 @@ func step(delta: float) -> void:
 	hunter_budget = mini(hunter_budget, 1 + model.population / TUNING.HUNTER_POPULATION_STEP)
 	# The early gate holds for new hunters as long as it applies (a wiped swarm
 	# regrows to FIRST_HUNTER_POPULATION before the next one comes).
-	var gate_open: bool = model.population >= TUNING.FIRST_HUNTER_POPULATION or model.elapsed >= TUNING.FIRST_HUNTER_LATEST
+	var gate_open: bool = model.population >= TUNING.FIRST_HUNTER_POPULATION or world_time() >= TUNING.FIRST_HUNTER_LATEST
 	if hunters_unlocked and gate_open and hunter_clock <= 0.0 and hunters.size() < hunter_budget:
 		_spawn_hunter(_spawn_position(8.0))
 		# Stage 09: a small swarm gets more breathing room between hunters.
 		var small := clampf(1.0 - float(model.population) / 25.0, 0.0, 1.0)
 		hunter_clock = maxf(TUNING.HUNTER_SPAWN_MIN, TUNING.HUNTER_SPAWN_SECONDS / sqrt(pressure)) * (1.0 + TUNING.HUNTER_SMALL_SWARM_DELAY * small)
 	skitter_clock -= delta
-	var skitter_budget := mini(TUNING.MAX_SKITTERS, 1 + int(model.elapsed / TUNING.SKITTER_BUDGET_SECONDS))
+	var skitter_budget := mini(TUNING.MAX_SKITTERS, 1 + int(world_time() / TUNING.SKITTER_BUDGET_SECONDS))
 	# Stage 09: side threats join as the swarm grows (none below one step).
 	skitter_budget = mini(skitter_budget, model.population / TUNING.SKITTER_POPULATION_STEP)
-	if model.elapsed >= TUNING.FIRST_SKITTER_SECONDS and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
+	if world_time() >= TUNING.FIRST_SKITTER_SECONDS and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
 		_spawn_skitter(_spawn_position(9.0))
 		skitter_clock = maxf(TUNING.SKITTER_SPAWN_MIN, TUNING.SKITTER_SPAWN_SECONDS / sqrt(pressure))
 	leaper_clock -= delta
-	var leaper_budget := mini(TUNING.MAX_LEAPERS, 1 + int(maxf(0.0, model.elapsed - TUNING.FIRST_LEAPER_SECONDS) / TUNING.LEAPER_BUDGET_SECONDS))
+	var leaper_budget := mini(TUNING.MAX_LEAPERS, 1 + int(maxf(0.0, world_time() - TUNING.FIRST_LEAPER_SECONDS) / TUNING.LEAPER_BUDGET_SECONDS))
 	leaper_budget = mini(leaper_budget, model.population / TUNING.LEAPER_POPULATION_STEP)
-	if model.elapsed >= TUNING.FIRST_LEAPER_SECONDS and leaper_clock <= 0.0 and leapers.size() < leaper_budget:
+	if world_time() >= TUNING.FIRST_LEAPER_SECONDS and leaper_clock <= 0.0 and leapers.size() < leaper_budget:
 		_spawn_leaper(_spawn_position(10.0))
 		leaper_clock = maxf(TUNING.LEAPER_SPAWN_MIN, TUNING.LEAPER_SPAWN_SECONDS / sqrt(pressure))
 	# Stage 10: no new Bog King while the Moosschlund rises or lives.
 	if boss == null and apex_state != 1 and apex_state != 2:
 		boss_clock -= delta
 		# Stage 09: the first Bog King waits for a real swarm (or BOSS_LATEST).
-		var boss_ready: bool = boss_cycles > 0 or model.population >= TUNING.BOSS_MIN_POPULATION or model.elapsed >= TUNING.BOSS_LATEST_SECONDS
+		var boss_ready: bool = boss_cycles > 0 or model.population >= TUNING.BOSS_MIN_POPULATION or world_time() >= TUNING.BOSS_LATEST_SECONDS
 		if boss_clock <= 0.0 and boss_ready:
 			_spawn_boss(_spawn_position(11.0))
 	message = _step_objectives(delta, message)
@@ -1766,7 +1777,7 @@ func apex_health_scale() -> float:
 # Run time the next apex is due: difficulty schedule in the start biome,
 # APEX_ARRIVAL_DELAY after the arrival in every later biome.
 func apex_due_seconds() -> float:
-	return apex_due if apex_due >= 0.0 else apex_spawn_seconds()
+	return apex_due if apex_due >= 0.0 else model.world_start + apex_spawn_seconds()
 
 
 # Apex of a biome: the Glutsumpf has the Aschenkröte, the Dürrschlund the
@@ -1813,7 +1824,7 @@ func _apex_schedule(delta: float, message: String) -> String:
 		var next_kind := apex_kind_for(biome_id)
 		var needed: int = TUNING.APEX_TOAD_MIN_POPULATION if next_kind == "apex_toad" else (TUNING.APEX_SANDWORM_MIN_POPULATION if next_kind == "apex_sandworm" else TUNING.APEX_MIN_POPULATION)
 		var swarm_ready: bool = model.population >= needed or model.elapsed >= due + TUNING.APEX_LATEST_EXTRA
-		var king_clear: bool = boss == null or model.elapsed >= flood_start - TUNING.APEX_FLOOD_MARGIN
+		var king_clear: bool = boss == null or world_time() >= flood_start - TUNING.APEX_FLOOD_MARGIN
 		if swarm_ready and king_clear:
 			begin_apex_warning()
 	if apex_state == 1:
@@ -1889,9 +1900,10 @@ func spawn_apex(location: Vector3, kind: String = "") -> Node3D:
 	# The difficulty already brings it earlier against a smaller swarm; only a
 	# return in a later loop through the biome circle is stronger.
 	var loop := apex_loop()
-	target.health = (TUNING.APEX_TOAD_HEALTH if toad else (TUNING.APEX_SANDWORM_HEALTH if worm else TUNING.APEX_HEALTH)) * apex_health_scale() * pow(TUNING.APEX_LOOP_HEALTH, loop)
+	target.health = (TUNING.APEX_TOAD_HEALTH if toad else (TUNING.APEX_SANDWORM_HEALTH if worm else TUNING.APEX_HEALTH)) * apex_health_scale() * pow(TUNING.APEX_LOOP_HEALTH, loop) * world_scale()
 	target.max_health = target.health
-	target.set_meta("damage_scale", pow(TUNING.APEX_LOOP_DAMAGE, loop))
+	# The world bonus reaches its losses through difficulty_scale() like every enemy.
+	target.set_meta("damage_scale", pow(TUNING.APEX_LOOP_DAMAGE, loop) * TUNING.APEX_DAMAGE_MULTIPLIER)
 	target.set_meta("loop", loop)
 	add_child(target)
 	apex = target
@@ -1934,6 +1946,9 @@ func _step_apex(delta: float, damage: float, pressure: float, message: String) -
 			result.ended = choosing()
 			return result
 	var apex_pressure: float = pow(pressure, TUNING.APEX_PRESSURE_EXPONENT) * float(apex.get_meta("damage_scale", 1.0))
+	# Etappe 26: phase 2 hits harder (on top of the faster phase-2 patterns).
+	if int(apex.get("phase")) >= 2:
+		apex_pressure *= TUNING.APEX_PHASE_TWO_DAMAGE
 	apex.step(delta, _aim_point(), apex_pressure)
 	if _resolve_area_hit(apex, apex.attack_center, 0.5):
 		result.ended = true
@@ -2105,6 +2120,7 @@ func _arrive() -> void:
 	if apex_state != 4:
 		apex_state = 0
 		apex_due = model.elapsed + TUNING.APEX_ARRIVAL_DELAY
+	_start_new_world()
 	if eruptions != null:
 		eruptions.safe_zones.append(Vector4(at.x, 0.0, at.z, TUNING.MIGRATION_SAFE_RADIUS))
 		eruptions.clear()
@@ -2115,6 +2131,27 @@ func _arrive() -> void:
 		portal = null
 	_portal_hum(false)
 	_shake(0.25)
+
+
+# Etappe 26 (Nutzerentscheidung): a new world starts pressure, flood and the
+# spawn director over as if the run had just begun (world time 0); the swarm,
+# build, level, relics and Bernstein stay. world_scale() adds the world bonus.
+# The clock, result and chronicle keep counting the total run time.
+func _start_new_world() -> void:
+	model.world_start = model.elapsed
+	if flood_state != 0:
+		flood_state = 0
+		flood_beep = -1
+		flood_wave_clock = 0.0
+		flood_bundles.clear()
+		flood_bundle_clock = 0.0
+		flood_lure_stage = 0
+		if horde != null and horde.has_method("clear"):
+			horde.clear()
+	hunters_unlocked_at = model.elapsed
+	hunter_clock = maxf(hunter_clock, TUNING.FIRST_HUNTER_GRACE)
+	if boss == null:
+		boss_clock = TUNING.FIRST_BOSS_SECONDS
 
 
 # ------------------------------------------------------------ biome tints
@@ -2451,6 +2488,8 @@ func _update_hud(message: String) -> void:
 	_set_hud_value("leader_invulnerable", model.leader_invulnerable > 0.0)
 	_set_hud_value("milestone", milestone_value)
 	_set_hud_value("amber", model.amber)
+	# Etappe 26: world counter under the clock (the clock shows the total run time).
+	_set_hud_value("world", arrivals + 1)
 	hud.set_meta("leader_heal", {"amount": leader_heal_shown, "age": model.elapsed - leader_heal_at})
 	_set_hud_value("strain_id", String(config.get("strain_id", META_DATA.STRAIN_ORDER[0])))
 	_set_hud_value("last_loss_fraction", last_loss_fraction)

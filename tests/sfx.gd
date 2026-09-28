@@ -330,6 +330,25 @@ func _check_game_wiring() -> bool:
 		_fail("Master 0 must mute the run")
 		return false
 	scene._apply_settings({"volume_master": 1.0, "volume_music": 1.0, "volume_sfx": 1.0})
+	# Etappe 26: pause sliders - a tap on the music slider start mutes the Music bus live.
+	var was_paused: bool = world.paused
+	if not was_paused:
+		world.toggle_pause()
+	controls.paused = true
+	var music_track: Rect2 = controls._volume_track(1)
+	if controls._volume_rect(1).size.y < 96.0:
+		_fail("Pause volume slider is smaller than 96 px")
+		return false
+	controls.set_volume_at(1, music_track.position.x - 10.0)
+	if not audio.bus_muted("Music") or float(controls.volumes.volume_music) != 0.0:
+		_fail("Pause slider did not mute the Music bus")
+		return false
+	controls.set_volume_at(1, music_track.end.x)
+	if audio.bus_muted("Music"):
+		_fail("Pause slider did not restore the Music bus")
+		return false
+	world.toggle_pause()
+	controls.paused = world.paused
 	world.alpha_cores_enabled = true
 	var core: Node3D = world._drop_alpha_core(Vector3.ZERO)
 	if core.get_node("Float").get_node_or_null("CoreModel") == null:

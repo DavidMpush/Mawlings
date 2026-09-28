@@ -46,7 +46,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS migration: hold 60 %% / 1 s, swirl %.1f s (world still, pause-proof), biome + light + tints + eruptions, safe arrival, build/population/flood kept, reset (also mid-swirl), start biome from config" % TUNING.MIGRATION_TRANSITION_SECONDS)
+	print("PASS migration: hold 60 %% / 1 s, swirl %.1f s (world still, pause-proof), biome + light + tints + eruptions, safe arrival, build/population kept, flood + pressure start over (world bonus), reset (also mid-swirl), start biome from config" % TUNING.MIGRATION_TRANSITION_SECONDS)
 	quit(0)
 
 
@@ -162,7 +162,9 @@ func _check_transition() -> void:
 	_check(world.model.elapsed > elapsed_frozen and elapsed_frozen > elapsed_before, "Run time carries on after the swirl")
 	_check(world.model.population == population_before and world.model.peak_population == peak_before, "Population kept (%d)" % world.model.population)
 	_check(world.evolution.ranks == ranks_before, "Build kept")
-	_check(world.flood_state == 2 and world.flood_level() >= level_before, "Flood keeps running")
+	# Etappe 26: a new world starts pressure and flood over (world time 0, world bonus).
+	_check(world.flood_state == 0 and world.flood_level() == 0.0 and level_before > 0.0 and world.world_time() < 1.0 and world.model.pressure() < 1.05, "New world: flood and pressure start over (world %.1f s)" % world.world_time())
+	_check(is_equal_approx(world.world_scale(), 1.0 + TUNING.WORLD_BONUS) and world.hud.get_meta("world", world.hud.get("world")) == 2, "World bonus and HUD world counter")
 	# New hunters wear the Glutsumpf tint (shared tinted material, no explosion).
 	var hunter: Variant = world._spawn_hunter(arrival + Vector3(9, 0, 0))
 	var tinted := 0
