@@ -1571,7 +1571,7 @@ func _draw_tabs() -> void:
 	for i in menu.TABS.size():
 		var id: String = menu.TABS[i]
 		var rect: Rect2 = menu.tab_rect(i)
-		var active: bool = menu.tab == id
+		var active: bool = menu.tab == id or (id == "trophies" and menu.tab == "codex")
 		var accent: Color = accents[i]
 		var fill := S.color("panel").lerp(accent, 0.14) if active else S.color("panel")
 		var ic := Vector2(rect.get_center().x, rect.position.y + 42)
@@ -1629,7 +1629,9 @@ const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const TAB_TONES := ["info", "loot", "ember", "special"]
 const TAB_ICONS := ["tab_brutkammer", "trophy", "tab_instinct", "tab_chronicle"]
 const STRAIN_HEADER := 74.0
-const PORTRAIT_H := 288.0
+const PORTRAIT_H := 230.0
+## Etappe 17d: ground of the portrait below the body top (was 306 before the ability row).
+const PORTRAIT_FOOT := 232.0
 
 
 func _paint_brawl() -> void:
@@ -1837,7 +1839,7 @@ func _b_strain() -> void:
 	var card := Rect2(base_rect.position + Vector2(menu._slide, 0.0), base_rect.size)
 	var body := _b_body(card, STRAIN_HEADER)
 	var cx := card.get_center().x
-	var foot := Vector2(cx, body.position.y + 306.0)
+	var foot := Vector2(cx, body.position.y + PORTRAIT_FOOT)
 	if _on("base"):
 		Kit.card(_cv, card, tone, "normal" if unlocked else "disabled", STRAIN_HEADER, S.R_XL)
 		var light := _b_light(tone)
@@ -1868,14 +1870,18 @@ func _b_strain() -> void:
 		var lc := foot + Vector2(0, -130)
 		Kit.icon_plate(_cv, lc, 104, "neutral")
 		_b_icon("lock", Kit.plate_center(lc, 104), 66)
-	var text_top := foot.y + 44.0
+	var text_top := foot.y + 52.0
+	var chip_row := Rect2(body.position.x + 20, body.end.y - 62, body.size.x - 40, 50)
 	if unlocked:
 		var desc := String(s.get("description", ""))
 		var one_line := Kit.wrap_lines(desc, S.body_font(), S.T_BODY, body.size.x - 72).size() <= 1
 		Kit.paragraph(_cv, Vector2(body.position.x + 36, text_top + (16.0 if one_line else 0.0)), desc, body.size.x - 72, S.T_BODY, Color.WHITE, false, Kit.CENTER, 2)
-		_b_chips(s, Rect2(body.position.x + 20, body.end.y - 66, body.size.x - 40, 52))
+		# Etappe 17d: the tribe ability sits between the description and the stat chips.
+		_b_ability(id, Rect2(chip_row.position.x, chip_row.position.y - 60, chip_row.size.x, 52), true)
+		_b_chips(s, chip_row)
 	else:
-		_b_unlock_quest(String(s.get("unlock_quest", "")), Rect2(body.position.x + 36, text_top - 30, body.size.x - 72, body.end.y - 50 - (text_top - 30)))
+		_b_unlock_quest(String(s.get("unlock_quest", "")), Rect2(body.position.x + 36, text_top - 26, body.size.x - 72, chip_row.position.y - 8 - (text_top - 26)))
+		_b_ability(id, Rect2(chip_row.position.x, chip_row.position.y - 2, chip_row.size.x, 52), false)
 	_b_arrows()
 	_b_page_dots(Vector2(body.end.x - S.SPACE_L - 12.0, body.position.y + S.SPACE_L + 23.0))
 
@@ -1922,6 +1928,39 @@ func _b_unlock_quest(quest_id: String, area: Rect2) -> void:
 	var bar := Rect2(cx - 250, y + 76, 380, 34)
 	Kit.bar(_cv, bar, clampf(progress.x / maxf(1.0, progress.y), 0.0, 1.0), "loot")
 	_b_text(Vector2(bar.end.x + 16, bar.get_center().y), menu._progress_text(q, progress), S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE, area.end.x - bar.end.x - 16)
+
+
+## Etappe 17d: the strain's active ability as one strip like the stat chips:
+## icon plate, name, short text and the cooldown chip on the right.
+func _b_ability(id: String, area: Rect2, unlocked: bool) -> void:
+	if menu.codex == null:
+		return
+	var a: Dictionary = menu.codex.strain_ability(id)
+	if a.is_empty():
+		return
+	Kit.chip(_cv, area, "dark")
+	var plate := 44.0
+	var pc := Vector2(area.position.x + 6.0 + plate * 0.5, area.get_center().y)
+	Kit.icon_plate(_cv, pc, plate, "loot" if unlocked else "neutral")
+	if not _b_icon(String(a.icon), Kit.plate_center(pc, plate), plate * 0.86):
+		_b_text(Kit.plate_center(pc, plate), "!", S.T_LABEL, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
+	# Cooldown chip on the right: clock + seconds.
+	var cd := "%d s" % roundi(float(a.cooldown))
+	var cw := 40.0 + _tw_b(cd, S.T_LABEL) + 14.0
+	var cr := Rect2(area.end.x - 6.0 - cw, area.position.y + 7.0, cw, area.size.y - 14.0)
+	Kit.chip(_cv, cr, "neutral")
+	_b_icon("clock", Vector2(cr.position.x + 20, cr.get_center().y), 28)
+	Kit.number(_cv, Vector2(cr.position.x + 38, cr.get_center().y), cd, S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE)
+	var x := pc.x + plate * 0.5 + 10.0
+	var right := cr.position.x - 12.0
+	var name_color: Color = S.brawl_tone("loot")["light"] if unlocked else S.BRAWL_TEXT_DIM
+	x += _b_text(Vector2(x, area.get_center().y), String(a.name).to_upper(), S.T_LABEL, name_color, Kit.LEFT | Kit.MIDDLE, right - x) + 12.0
+	if right - x > 60.0 and String(a.text) != "":
+		_b_text(Vector2(x, area.get_center().y), String(a.text), S.T_LABEL, Color.WHITE if unlocked else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, right - x, S.body_bold_font())
+
+
+func _tw_b(value: String, font_size: int) -> float:
+	return S.number_font().get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 
 
 ## Stat chips: start pack, signature form, stat modifiers.
@@ -2209,7 +2248,7 @@ func _b_tabs() -> void:
 	for i in menu.TABS.size():
 		var id: String = menu.TABS[i]
 		var rect: Rect2 = menu.tab_rect(i)
-		var active: bool = menu.tab == id
+		var active: bool = menu.tab == id or (id == "trophies" and menu.tab == "codex")
 		var tone: String = TAB_TONES[i]
 		var pressed: bool = menu.is_pressed(rect)
 		if _on("base"):

@@ -46,6 +46,7 @@ const TIP_GAP := 22.0       # space between tip panel and the hint banner
 const TIP_ICONS := {
 	"move": "mawling_head_color", "rally": "pack", "warning": "skull", "boss": "bog_king",
 	"prey": "nibbler", "corpse": "biomass", "alpha": "alpha_core", "mutation": "dna", "nest": "brood",
+	"ability": "mawling_head_color",
 }
 var _tip_layer: Control = null
 var _tip_text := ""
@@ -457,7 +458,7 @@ func _chamfer(rect: Rect2, cut: float) -> PackedVector2Array:
 
 func _tip_accent(id: String) -> Color:
 	match id:
-		"rally":
+		"rally", "ability":
 			return UiStyle.color("ember")
 		"warning":
 			return UiStyle.color("danger")
@@ -572,15 +573,21 @@ func _draw_tip() -> void:
 # a pulsing ring around it and a fingertip (dragging on the joystick, pressing Rally).
 func _draw_tip_pointer(layer: Control, hud: Control, rect: Rect2, accent: Color, beat: float) -> void:
 	var target: Vector2
+	var frame := FRAME_R
 	match _tip_icon:
 		"move":
 			target = hud._movement_center()
 		"rally":
 			target = hud._rally_center()
+		"ability":
+			if not hud.has_method("_ability_center"):
+				return
+			target = hud._ability_center()
+			frame = 78.0
 		_:
 			return
 	var from := Vector2(clampf(target.x, rect.position.x + 40.0, rect.end.x - 40.0), rect.end.y + 6.0)
-	var to := target + Vector2(0.0, -FRAME_R - 14.0)
+	var to := target + Vector2(0.0, -frame - 14.0)
 	var along := to - from
 	var dir := along.normalized()
 	var side := Vector2(-dir.y, dir.x)
@@ -591,7 +598,7 @@ func _draw_tip_pointer(layer: Control, hud: Control, rect: Rect2, accent: Color,
 		var pts := PackedVector2Array([p - dir * 10.0 + side * 16.0, p + dir * 6.0, p - dir * 10.0 - side * 16.0])
 		layer.draw_polyline(pts, Color(UiStyle.color("outline"), 0.7 * fade), 9.0, true)
 		layer.draw_polyline(pts, Color(accent.lerp(Color.WHITE, 0.3), fade), 5.0, true)
-	var ring_r := FRAME_R + 12.0 + 10.0 * beat
+	var ring_r := frame + 12.0 + 10.0 * beat
 	layer.draw_arc(target, ring_r, 0.0, TAU, 72, Color(UiStyle.color("outline"), 0.5), 8.0, true)
 	layer.draw_arc(target, ring_r, 0.0, TAU, 72, Color(accent, 0.55 + 0.4 * beat), 4.0, true)
 	var finger: Vector2

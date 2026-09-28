@@ -73,6 +73,7 @@ const LEAP_DISTANCE := 8.0
 const LEAP_WIDTH := 2.2
 const LEAP_DAMAGE := 30.0
 const LEAP_GRACE := 0.4
+const LEAP_ARC := 1.6
 const TRAIL_SECONDS := 3.0
 const TRAIL_RADIUS := 1.3
 const TRAIL_DPS := 8.0
@@ -176,6 +177,11 @@ func speed_multiplier() -> float:
 	return HASTE_MULT if ability_id == "hetzjagd" and active() else 1.0
 
 
+## Height of the Glutsprung arc right now (m; 0 on the ground).
+func leap_height() -> float:
+	return sin(_leap_t * PI) * LEAP_ARC if ability_id == "glutsprung" and _leap_t < 1.0 else 0.0
+
+
 func line_formation() -> bool:
 	return ability_id == "hetzjagd" and active()
 
@@ -242,6 +248,9 @@ func use(move := Vector3.ZERO) -> bool:
 			_acid()
 		"schattenschleier":
 			_veil()
+	# Feuerspur on the other abilities: burning ground where the swarm stood.
+	if bool(modifiers.fire_trail) and ability_id != "glutsprung":
+		_add_area(_swarm(), 2.4 * float(modifiers.radius), TRAIL_DPS, TRAIL_SECONDS, 1.0)
 	used.emit(ability_id)
 	return true
 
@@ -265,6 +274,13 @@ func step(delta: float, move := Vector3.ZERO) -> void:
 	_step_areas(delta)
 	if _vfx != null:
 		_vfx.step(delta, _swarm())
+
+
+## Ends every running effect but keeps the cooldown (migration, map change).
+func clear_effects() -> void:
+	var keep := cooldown_left
+	clear()
+	cooldown_left = keep
 
 
 func clear() -> void:
@@ -513,7 +529,7 @@ func _step_areas(delta: float) -> void:
 	# Whoever left every cloud walks at full speed again.
 	for id in before:
 		if not _slowed.has(id):
-			var target: Object = before[id]
+			var target: Variant = before[id]
 			if is_instance_valid(target) and "slow_factor" in target:
 				target.set("slow_factor", 1.0)
 
@@ -521,7 +537,7 @@ func _step_areas(delta: float) -> void:
 # Frees every target this ability slowed (clear / reset).
 func _release_slows() -> void:
 	for id in _slowed:
-		var target: Object = _slowed[id]
+		var target: Variant = _slowed[id]
 		if is_instance_valid(target) and "slow_factor" in target:
 			target.set("slow_factor", 1.0)
 	_slowed.clear()

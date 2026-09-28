@@ -132,7 +132,7 @@ func _save(file_name: String, hint: String) -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()
-	image.save_png("res://" + file_name)
+	image.save_png("res://previews/" + file_name)
 	shots.append(image)
 
 
@@ -147,4 +147,4 @@ func _sheet() -> void:
 		small.convert(Image.FORMAT_RGBA8)
 		small.resize(w, h)
 		sheet.blit_rect(small, Rect2i(0, 0, w, h), Vector2i((index % columns) * w, (index / columns) * h))
-	sheet.save_png("res://preview_ability_sheet.png")
+	sheet.save_png("res://previews/preview_ability_sheet.png")

@@ -260,9 +260,11 @@ func _run() -> void:
 		return
 	if not _check_chronicle(menu, today):
 		return
+	if not _check_codex(menu):
+		return
 	menu.queue_free()
 	_delete_test_profile()
-	print("PASS: menu loads, strain switch/swipe/buy, difficulty/biome locks, upgrades, instinct, trophies, SPIELEN config, reward overlay, fresh seed per start, TAGES-BRUT + daily record, settings, pressed state, layout incl. sheets/settings, UI style, chronicle booking/sheet, share card")
+	print("PASS: menu loads, strain switch/swipe/buy, difficulty/biome locks, upgrades, instinct, trophies, SPIELEN config, reward overlay, fresh seed per start, TAGES-BRUT + daily record, settings, pressed state, layout incl. sheets/settings, UI style, chronicle booking/sheet, share card, strain ability, KODEX")
 	quit(0)
 
 
@@ -312,6 +314,96 @@ func _check_layout(menu: Control) -> bool:
 			return false
 	if menu.records_rect().size.y < 48.0:
 		_fail("Record line hit area too small: %s" % menu.records_rect())
+		return false
+	return true
+
+
+## Etappe 17d strain ability on the card and the KODEX sheet (open from TROPHÄEN,
+## five category segments, silhouettes for unseen entries, run discovery saved).
+func _check_codex(menu: Control) -> bool:
+	if menu.codex == null:
+		_fail("KODEX script missing")
+		return false
+	for id in menu.strain_ids:
+		var a: Dictionary = menu.codex.strain_ability(id)
+		if a.is_empty() or String(a.name) == "" or String(a.text) == "" or float(a.cooldown) <= 0.0:
+			_fail("Strain %s has no ability for the card: %s" % [id, a])
+			return false
+	# The last run (mutations jaws, one Bog King) is already in the codex.
+	for key in ["stat:bite", "boss:bog_king"]:
+		if not menu.profile.codex_seen.has(key):
+			_fail("Run discovery missing %s: %s" % [key, menu.profile.codex_seen])
+			return false
+	menu.open_tab("trophies")
+	var button: Rect2 = menu.codex_button_rect()
+	if button.size.x < 96.0 or button.size.y < 96.0 or button.intersects(menu.trophy_summary_rect()) or not menu.sheet_rect().encloses(button):
+		_fail("KODEX button out of spec: %s" % button)
+		return false
+	menu.tap(button.get_center())
+	if menu.tab != "codex":
+		_fail("KODEX button did not open the codex (tab %s)" % menu.tab)
+		return false
+	var sheet: Rect2 = menu.sheet_rect()
+	var cats: Array = menu.codex.CATEGORIES
+	if cats.size() != 5:
+		_fail("KODEX needs five categories: %s" % [cats])
+		return false
+	for i in cats.size():
+		var seg: Rect2 = menu.codex_segment_rect(i)
+		if seg.size.x < 96.0 or seg.size.y < 96.0 or not sheet.encloses(seg):
+			_fail("KODEX segment %d out of spec: %s" % [i, seg])
+			return false
+		menu.tap(seg.get_center())
+		if menu.codex_view != cats[i]:
+			_fail("Segment %d did not select %s" % [i, cats[i]])
+			return false
+		var entries: Array = menu.codex_entries()
+		if entries.is_empty():
+			_fail("KODEX category %s is empty" % cats[i])
+			return false
+		var unseen := 0
+		for e in entries:
+			if String(e.name) == "" or String(e.icon) == "" or String(e.text) == "":
+				_fail("KODEX entry incomplete: %s" % e)
+				return false
+			if not e.seen:
+				unseen += 1
+		if unseen == 0:
+			_fail("KODEX %s must show silhouettes for unseen entries" % cats[i])
+			return false
+		if cats[i] == "stats" and not entries.filter(func(e: Dictionary) -> bool: return e.id == "bite")[0].seen:
+			_fail("Biss must be discovered after the run")
+			return false
+	menu.select_codex_view("weapons")
+	if menu._trophy_scroll_max() <= 0.0:
+		_fail("KODEX weapon list must scroll (16 entries)")
+		return false
+	if menu.codex_list_rect().position.y < menu.codex_summary_rect().end.y or menu.codex_list_rect().end.y > sheet.end.y:
+		_fail("KODEX list outside the sheet")
+		return false
+	# The dock's TROPHÄEN tab leads back; the close button closes.
+	menu.tap(menu.tab_rect(menu.TABS.find("trophies")).get_center())
+	if menu.tab != "trophies":
+		_fail("TROPHÄEN tab must lead back from the codex")
+		return false
+	menu.open_codex("relics")
+	menu.tap(menu.sheet_close_rect().get_center())
+	if menu.tab != "":
+		_fail("Close did not close the codex")
+		return false
+	# Relics / power-ups / evolutions from RunStats, saved with the profile.
+	var fresh: Array = menu.profile.record_codex({"relics": {"blutzahn": 1}, "powerups_taken": ["rausch"], "evolutions": ["meute"], "worm_kills": 1, "apex_kills": 1})
+	for key in ["relic:blutzahn", "powerup:rausch", "weapon:meute", "boss:sandwurm"]:
+		if not fresh.has(key):
+			_fail("record_codex missed %s: %s" % [key, fresh])
+			return false
+	if fresh.has("boss:moosschlund") or not menu.profile.record_codex({"relics": {"blutzahn": 2}}).is_empty():
+		_fail("record_codex must count the worm as Sandwurm and not repeat entries")
+		return false
+	menu.profile.save()
+	var reread: Variant = load("res://scripts/meta/profile.gd").load_or_create(TEST_PROFILE)
+	if not reread.codex_seen.has("relic:blutzahn") or not reread.codex_seen.has("stat:bite"):
+		_fail("codex_seen was not saved")
 		return false
 	return true
 

@@ -13,6 +13,8 @@ const SESSION_PATH := "res://scripts/meta/session.gd"
 const META_DATA_PATH := "res://scripts/meta/meta_data.gd"
 const CHRONICLE_PATH := "res://scripts/meta/chronicle.gd"
 const SHARE_CARD_PATH := "res://scripts/ui/share_card.gd"
+## KODEX (Sammlung): Blatt "codex", erreichbar über den KODEX-Knopf im TROPHÄEN-Blatt.
+const CODEX_PATH := "res://scripts/meta/codex.gd"
 ## Chronik-Ansichten (Segmente oben im CHRONIK-Blatt).
 const CHRONICLE_VIEWS := ["runs", "daily", "best"]
 const CHRONICLE_VIEW_NAMES := {"runs": "LETZTE RUNS", "daily": "TAGES-BRUT", "best": "BESTWERTE"}
@@ -79,6 +81,9 @@ var toast_time := 0.0
 var settings_open := false
 var chronicle: Variant = null
 var chronicle_view := "runs"
+## KODEX: Katalog-Skript (scripts/meta/codex.gd) und gewählte Kategorie.
+var codex: Variant = null
+var codex_view := "weapons"
 ## Chronik-Eintrag des gerade gezeigten Belohnungs-Runs (Grundlage der Teilen-Karte).
 var reward_entry: Dictionary = {}
 var last_share_path := ""
@@ -111,6 +116,7 @@ const COMPONENTS := [
 	["res://scripts/ui/menu/menu_main.gd", ["background", "logo", "resources", "strain", "biomes", "difficulties", "play", "tabs"]],
 	["res://scripts/ui/menu/menu_sheets.gd", ["sheet", "reward", "toast", "settings"]],
 	["res://scripts/ui/menu/menu_chronicle.gd", []],
+	["res://scripts/ui/menu/menu_codex.gd", []],
 ]
 
 
@@ -172,6 +178,8 @@ func _load_meta() -> void:
 		if chronicle_path == DEFAULT_CHRONICLE and profile_path != DEFAULT_PROFILE:
 			chronicle_path = profile_path.get_basename() + "_chronicle.json"
 		chronicle = load(CHRONICLE_PATH).load_or_create(chronicle_path)
+	if ResourceLoader.exists(CODEX_PATH):
+		codex = load(CODEX_PATH)
 	_apply_settings()
 
 
@@ -571,6 +579,24 @@ func open_chronicle(view: String = "runs") -> void:
 	queue_redraw()
 
 
+## KODEX-Blatt öffnen (vom TROPHÄEN-Blatt aus); `view` = Kategorie.
+func open_codex(view: String = "") -> void:
+	if codex == null:
+		return
+	tab = "codex"
+	if view in codex.CATEGORIES:
+		codex_view = view
+	trophy_scroll = 0.0
+	queue_redraw()
+
+
+func select_codex_view(view: String) -> void:
+	if codex != null and view in codex.CATEGORIES and view != codex_view:
+		codex_view = view
+		trophy_scroll = 0.0
+		queue_redraw()
+
+
 func select_chronicle_view(view: String) -> void:
 	if view in CHRONICLE_VIEWS and view != chronicle_view:
 		chronicle_view = view
@@ -682,7 +708,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 
 ## Sheets with a swipe-scrolled list (all share trophy_scroll).
-const SCROLL_TABS := ["upgrades", "trophies", "chronicle"]
+const SCROLL_TABS := ["upgrades", "trophies", "chronicle", "codex"]
 
 
 func _scroll_trophies(amount: float) -> void:
@@ -787,6 +813,11 @@ func _button_rects() -> Array:
 	elif tab == "chronicle":
 		for i in CHRONICLE_VIEWS.size():
 			rects.append(chronicle_segment_rect(i))
+	elif tab == "trophies" and codex != null:
+		rects.append(codex_button_rect())
+	elif tab == "codex" and codex != null:
+		for i in codex.CATEGORIES.size():
+			rects.append(codex_segment_rect(i))
 	if tab != "":
 		rects.append(sheet_close_rect())
 	else:
@@ -808,6 +839,14 @@ func _tap_sheet(location: Vector2) -> void:
 	elif tab == "instinct":
 		if instinct_buy_rect().has_point(location):
 			buy_instinct()
+	elif tab == "trophies":
+		if codex != null and codex_button_rect().has_point(location):
+			open_codex()
+	elif tab == "codex":
+		for i in codex.CATEGORIES.size():
+			if codex_segment_rect(i).has_point(location):
+				select_codex_view(codex.CATEGORIES[i])
+				return
 	elif tab == "chronicle":
 		for i in CHRONICLE_VIEWS.size():
 			if chronicle_segment_rect(i).has_point(location):
@@ -960,10 +999,20 @@ func upgrade_buy_rect(i: int) -> Rect2:
 	return Rect2(row.end.x - 8 - 196, row.position.y + 8, 196, 100)
 
 
-## Trophy summary strip above the list, and the list itself.
+## Trophy summary strip above the list, and the list itself. The KODEX
+## button sits right of the strip (full 96 px touch target).
 func trophy_summary_rect() -> Rect2:
 	var area := upgrade_list_rect()
-	return Rect2(area.position.x, area.position.y, area.size.x, 84)
+	var w := area.size.x - (CODEX_BUTTON_W + 14.0 if codex != null else 0.0)
+	return Rect2(area.position.x, area.position.y, w, 100)
+
+
+const CODEX_BUTTON_W := 236.0
+
+
+func codex_button_rect() -> Rect2:
+	var area := upgrade_list_rect()
+	return Rect2(area.end.x - CODEX_BUTTON_W, area.position.y, CODEX_BUTTON_W, 100)
 
 
 func trophy_list_rect() -> Rect2:
@@ -985,6 +1034,47 @@ func reward_button_rect() -> Rect2:
 ## KARTE TEILEN links neben WEITER im Belohnungs-Overlay.
 func share_button_rect() -> Rect2:
 	return Rect2(64, size.y * 0.5 + 540, 340, 120)
+
+# ---------------------------------------------------------------- codex layout
+
+## Kategorie-Segmente oben im KODEX-Blatt (je ≥ 96 px).
+func codex_segment_rect(i: int) -> Rect2:
+	var s := sheet_rect()
+	var n: int = codex.CATEGORIES.size() if codex != null else 5
+	var w := (s.size.x - 48 - 10 * (n - 1)) / float(n)
+	return Rect2(s.position.x + 24 + i * (w + 10), _sheet_body_top(), w, 104)
+
+
+## Zähler-Leiste unter den Segmenten (nicht antippbar).
+func codex_summary_rect() -> Rect2:
+	var s := sheet_rect()
+	return Rect2(s.position.x + 24, codex_segment_rect(0).end.y + 14, s.size.x - 48, 64)
+
+
+func codex_list_rect() -> Rect2:
+	var s := sheet_rect()
+	var top := codex_summary_rect().end.y + 14
+	return Rect2(s.position.x + 24, top, s.size.x - 48, s.end.y - 22 - top)
+
+
+## Einträge der gewählten Kategorie mit "seen" (entdeckt) je Eintrag.
+func codex_entries() -> Array:
+	if codex == null or profile == null:
+		return []
+	var out: Array = codex.entries(codex_view)
+	for e in out:
+		e["seen"] = profile.codex_seen.has(e.key)
+	return out
+
+
+const CODEX_ROW_H := 124.0
+const CODEX_ROW_GAP := 12.0
+
+
+## Zeile i in Menü-Koordinaten (berücksichtigt den Scroll).
+func codex_row_rect(i: int) -> Rect2:
+	var area := codex_list_rect()
+	return Rect2(area.position.x, area.position.y + i * (CODEX_ROW_H + CODEX_ROW_GAP) - trophy_scroll, area.size.x, CODEX_ROW_H)
 
 # ---------------------------------------------------------------- chronicle layout
 
@@ -1074,6 +1164,9 @@ func _trophy_scroll_max() -> float:
 		return 0.0
 	if tab == "chronicle":
 		return maxf(0.0, _chronicle_content_height() - chronicle_list_rect().size.y)
+	if tab == "codex":
+		var n: int = codex.entries(codex_view).size() if codex != null else 0
+		return maxf(0.0, n * (CODEX_ROW_H + CODEX_ROW_GAP) - CODEX_ROW_GAP - codex_list_rect().size.y)
 	if tab == "upgrades":
 		var rows: int = meta.UPGRADE_ORDER.size()
 		return maxf(0.0, rows * (UPGRADE_ROW_H + UPGRADE_ROW_GAP) - UPGRADE_ROW_GAP - upgrade_list_rect().size.y)

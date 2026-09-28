@@ -29,6 +29,7 @@ In Godot den Ordner als Projekt öffnen und **F5** drücken. Das Spiel startet i
 - **Kampf und Ende:** Der Schwarm greift in der Nähe automatisch an. Warnflächen treffen nur die Tiere, die darin stehen. Der Zeitdruck verdoppelt sich regelmäßig. Ab 4:30 / 4:00 / 3:00 (Wild / Brutal / Apex) kommt **„Die Flut“**, Horden mit exponentiell wachsender Stärke. **Nur Aussterben beendet einen Run.**
 - **Anführer:** Er hat **100 LP** mit einem Balken über dem Kopf. Treffer kosten je Angriff LP, danach ist er kurz unverwundbar. Heilung gibt es über Lebensraub, Regeneration und Meilensteine. Fällt er, übernimmt ein Nachfolger mit 80 % des Maximums.
 - **Meta:** Menü **Brutstätte** mit 6 Stämmen (Glutmaw, Sporling, Knochenkiefer, Flinkzahn, Ätzmaul, Nachtmaul), 3 Schwierigkeiten, Brutkammer-Upgrades, Trophäen, Chronik, Tages-Brut und Einstellungen. Die Meta-Währung ist Essenz; Bosse geben Königszähne.
+- **Kodex:** Sammlung mit den Tabs Waffen, Relikte, Werte, Power-ups und Bosse; der Knopf KODEX steht im Trophäen-Blatt. Ein Eintrag gilt als entdeckt, sobald er einmal in einem Run erhalten oder besiegt wurde. Das Profil speichert ihn in `codex_seen`; unentdeckte Einträge erscheinen als Silhouette mit „???“ und Fundort. Katalog: `scripts/meta/codex.gd`.
 
 ## Welt
 
@@ -72,7 +73,7 @@ Beute platzt in Kristalle und Münzen, die liegen bleiben, bis sie eingesammelt 
   - Zum Öffnen den Schwarm 1 s im Kokon halten.
 - **Schreine:** Den Schwarm im Steinkreis halten lädt ihn auf; voll gibt es eine Werte-Wahl mit mindestens seltenen Karten.
 - **Power-ups** nur von Mini-Bossen (Elite, Bog King, Apex): Rausch, Blutrausch, Magnetsturm, Chitinschild, Raserei, Brutwelle. Aufsammeln nur durch Hinlaufen.
-- **Stammes-Fähigkeiten** (Etappe 17d, in Arbeit): eine aktive Fähigkeit je Stamm mit eigenem Knopf und Cooldown.
+- **Stammes-Fähigkeiten** (Etappe 17d, in Arbeit): eine aktive Fähigkeit je Stamm mit eigenem Knopf und Cooldown. Die Stammkarte im Menü zeigt Name, Kurztext und Abklingzeit.
 
 ## Code-Überblick
 

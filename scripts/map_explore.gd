@@ -851,9 +851,14 @@ func _join_open() -> void:
 				component[here - w] = id
 				members.append(here - w)
 		cells_of.append(members)
+	# A pocket holding a place is always joined, never filled (its clearing stays).
+	var holds := {}
+	for node in nodes:
+		var cell := _cell_of(node.center)
+		holds[component[cell.y * w + cell.x]] = true
 	for id in range(1, cells_of.size()):
 		var members: PackedInt32Array = cells_of[id]
-		if members.size() < 40:
+		if members.size() < 40 and not holds.has(id):
 			for cell in members:
 				blocked[cell] = 1
 			_filled += 1

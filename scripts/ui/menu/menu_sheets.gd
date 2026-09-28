@@ -19,8 +19,8 @@ const UiFramesRef := preload("res://scripts/ui/ui_frames.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 
-const TAB_TITLE := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK"}
-const TAB_ACCENT := {"upgrades": S.GOLD, "trophies": S.VIOLET, "instinct": S.CYAN, "chronicle": S.VIOLET}
+const TAB_TITLE := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK", "codex": "KODEX"}
+const TAB_ACCENT := {"upgrades": S.GOLD, "trophies": S.VIOLET, "instinct": S.CYAN, "chronicle": S.VIOLET, "codex": S.GOLD}
 ## Kategorie-Farbe je Brutkammer-Upgrade (Angriff Ember, Wachstum Cyan, Spezial Violett, Schutz Toxic).
 const UPGRADE_ACCENT := {"brood_size": S.CYAN, "rending": S.EMBER, "chitin": S.TOXIC, "sprinter": S.CYAN,
 	"digestion": S.AMBER, "geneflow": S.CYAN, "attack_slot": S.EMBER, "trait_slot": S.VIOLET}
@@ -432,6 +432,7 @@ func _draw_sheet() -> void:
 	elif tab == "trophies":
 		_draw_trophy_header(s, accent)
 		_draw_trophy_scrollbar(s, accent)
+		_b_codex_button()
 	elif tab == "instinct":
 		_essence_pill(Vector2(close.position.x - 16, top + 66))
 		_draw_instinct()
@@ -1314,8 +1315,8 @@ func _claw(base: Vector2, direction: Vector2, length: float, width: float, color
 
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const UiArtRef := preload("res://scripts/ui/ui_art.gd")
-const B_TAB_TONE := {"upgrades": "info", "trophies": "loot", "instinct": "ember", "chronicle": "special"}
-const B_TAB_ICON := {"upgrades": "tab_brutkammer", "trophies": "trophy", "instinct": "tab_instinct", "chronicle": "tab_chronicle"}
+const B_TAB_TONE := {"upgrades": "info", "trophies": "loot", "instinct": "ember", "chronicle": "special", "codex": "loot"}
+const B_TAB_ICON := {"upgrades": "tab_brutkammer", "trophies": "trophy", "instinct": "tab_instinct", "chronicle": "tab_chronicle", "codex": "evo_badge"}
 ## Plate tone per Brutkammer upgrade (own swarm ember, growth/DNA info, loot, evolution special).
 const B_UPGRADE_TONE := {"brood_size": "ember", "rending": "ember", "chitin": "action", "sprinter": "info",
 	"digestion": "loot", "witterung": "info", "geneflow": "info", "attack_slot": "special", "trait_slot": "special"}
@@ -1447,6 +1448,7 @@ func _b_sheet() -> void:
 			_b_scrollbar(menu.upgrade_list_rect(), tone)
 		"trophies":
 			_b_trophy_summary()
+			_b_codex_button()
 			_b_scrollbar(menu.trophy_list_rect(), tone)
 		"instinct":
 			_b_instinct()
@@ -1540,9 +1542,26 @@ func _b_trophy_summary() -> void:
 	_b_icon("trophy", Kit.plate_center(pc, 64), 50)
 	var x := pc.x + 48
 	x += Kit.number(self, Vector2(x, r.get_center().y), "%d / %d" % [done, total], S.T_HEAD, _b_light("loot"), Kit.LEFT | Kit.MIDDLE) + 12
-	_b_label(Vector2(x, r.get_center().y + 2), "ERLEDIGT", S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE)
-	var bar := Rect2(r.end.x - 24 - 300, r.get_center().y - 17, 300, 34)
-	Kit.bar(self, bar, float(done) / maxf(1.0, total), "loot")
+	x += _b_label(Vector2(x, r.get_center().y + 2), "ERLEDIGT", S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE) + 20
+	# The bar takes what is left (the strip is narrower beside the KODEX button).
+	var bar_w := minf(300.0, r.end.x - 24 - x)
+	if bar_w >= 80.0:
+		Kit.bar(self, Rect2(r.end.x - 24 - bar_w, r.get_center().y - 17, bar_w, 34), float(done) / maxf(1.0, total), "loot")
+
+
+## KODEX button beside the trophy summary: opens the collection sheet.
+func _b_codex_button() -> void:
+	if menu.codex == null:
+		return
+	var rect: Rect2 = menu.codex_button_rect()
+	var pressed: bool = menu.is_pressed(rect)
+	Kit.button(self, rect, "special", pressed, S.R_L)
+	var lc := Kit.button_label_center(rect, pressed)
+	var p: Vector2i = menu.codex.progress(menu.profile.codex_seen)
+	_b_icon("evo_badge", lc + Vector2(-rect.size.x * 0.5 + 44, 0), 58)
+	var tx := lc.x - rect.size.x * 0.5 + 82
+	_b_text(Vector2(tx, lc.y - 14), "KODEX", S.T_HEAD - 4, Color.WHITE, Kit.LEFT | Kit.MIDDLE, rect.end.x - tx - 12)
+	Kit.number(self, Vector2(tx, lc.y + 22), "%d / %d" % [p.x, p.y], S.T_LABEL, Color.WHITE, Kit.LEFT | Kit.MIDDLE, rect.end.x - tx - 12)
 
 
 func _b_trophy_rows() -> void:

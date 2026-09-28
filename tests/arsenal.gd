@@ -37,12 +37,12 @@ func _run() -> void:
 
 
 func _test_catalog() -> void:
-	# Etappe 17c: + Blutzahn (selten) = 21 Relikte.
-	_check(ARSENAL.WEAPONS.size() == 10 and ARSENAL.RELICS.size() == 21 and ARSENAL.EVOLVED.size() == 6, "10 Waffen, 21 Relikte, 6 Evolutionen")
+	# Etappe 17c: + Blutzahn (selten) = 21 Relikte; 17d: + 4 Fähigkeits-Relikte = 25.
+	_check(ARSENAL.WEAPONS.size() == 10 and ARSENAL.RELICS.size() == 25 and ARSENAL.EVOLVED.size() == 6, "10 Waffen, 25 Relikte, 6 Evolutionen")
 	var tiers := {}
 	for entry in ARSENAL.RELICS:
 		tiers[entry[3]] = int(tiers.get(entry[3], 0)) + 1
-	_check(tiers.get("common", 0) == 6 and tiers.get("rare", 0) == 8 and tiers.get("epic", 0) == 4 and tiers.get("legendary", 0) == 3, "Relikt-Seltenheiten 6/8/4/3: %s" % str(tiers))
+	_check(tiers.get("common", 0) == 6 and tiers.get("rare", 0) == 11 and tiers.get("epic", 0) == 5 and tiers.get("legendary", 0) == 3, "Relikt-Seltenheiten 6/11/5/3: %s" % str(tiers))
 	for entry in ARSENAL.WEAPONS:
 		_check(FORMS.FORMS.has(entry[0]) and FORMS.FORMS[entry[0]].ranks.size() == 5, "Waffe ohne 5 Ränge in attack_forms: " + str(entry[0]))
 	for rule in ARSENAL.EVOLUTION_RULES:

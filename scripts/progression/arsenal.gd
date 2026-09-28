@@ -81,6 +81,11 @@ const RELICS := [
 	["urmutter", "Urmutter", "+1 Waffenplatz", "legendary"],
 	["blutmond", "Blutmond", "+40 % Schaden, Anführer −25 Max-LP", "legendary"],
 	["schlundherz", "Schlundherz", "Kokons 40 % billiger", "legendary"],
+	# Etappe 17d: Relikte der Stammesfähigkeit (abilities.gd RELIC_HOOKS).
+	["glutkern", "Glutkern", "Stammesfähigkeit −20 % Abklingzeit", "rare"],
+	["feuerspur", "Feuerspur", "Die Fähigkeit hinterlässt 3 s brennenden Boden", "rare"],
+	["sporenhall", "Sporenhall", "Wirkung der Fähigkeit +40 % länger", "rare"],
+	["weiter_schlund", "Weiter Schlund", "Fähigkeit +25 % Reichweite", "epic"],
 ]
 ## Standard-Pools; weitere IDs kommen über Trophäen (meta_data „weapon:“/„relic:“).
 const START_WEAPONS := ["rudelbiss", "sporenwolke", "klauenwirbel", "giftbiss", "schallbrueller"]

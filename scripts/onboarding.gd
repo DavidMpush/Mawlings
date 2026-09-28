@@ -28,8 +28,11 @@ const TIPS := {
 	"mutation": "Mutation aktiv – mehr DNA aus Beute bringt die nächste Wahl",
 	"nest": "Brutnest! Bleib im Kreis, bis der Balken voll ist",
 	"map": "Tippe auf die Karte für die Übersicht",
+	"ability": "Stammesfähigkeit bereit! Tippe den Knopf über Rally (Q / Shift)",
 }
-const ORDER := ["move", "warning", "leader", "boss", "rally", "prey", "corpse", "alpha", "mutation", "nest", "map"]
+const ORDER := ["move", "warning", "leader", "boss", "rally", "ability", "prey", "corpse", "alpha", "mutation", "nest", "map"]
+## Etappe 17d: the ability tip comes once the run is under way and a threat is near.
+const ABILITY_SECONDS := 20.0
 
 const PREY_RANGE := 7.0
 const CORPSE_RANGE := 8.0
@@ -166,6 +169,9 @@ func _wanted(id: String) -> bool:
 			return _alive(world.get("boss"))
 		"rally":
 			return not bool(swarm.get("rally_pressed")) and _threat_near()
+		"ability":
+			var ability: Variant = world.get("abilities")
+			return ability != null and is_instance_valid(ability) and ability.is_ready() and int(ability.uses) == 0 and float(_model.get("elapsed")) >= ABILITY_SECONDS and _threat_near()
 		"prey":
 			return _nearest(world.get("prey"), PREY_RANGE)
 		"corpse":
@@ -201,6 +207,9 @@ func _fulfilled(id: String) -> bool:
 			return not _alive(world.get("boss"))
 		"rally":
 			return bool(swarm.get("rally_pressed"))
+		"ability":
+			var used: Variant = world.get("abilities")
+			return used == null or not is_instance_valid(used) or int(used.uses) > 0
 		"prey":
 			return int(_model.get("kills")) > _kills_at
 		"corpse":

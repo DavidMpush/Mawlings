@@ -65,6 +65,13 @@ enum Focus { NONE, ATTACK, HARVEST }
 var movement_vector := Vector2.ZERO
 # Run configuration: strain speed multiplier and colour accent.
 var speed_multiplier := 1.0
+## Stage 17d (Hetzjagd): the swarm stretches into a line behind the leader along
+## `line_direction`; `leap_height` (m) lifts every animal (Glutsprung arc).
+var line_formation := false
+var line_direction := Vector3(0, 0, -1)
+var line_blend := 0.0
+var leap_height := 0.0
+const LINE_SPACING := 0.55
 var coral := CORAL
 var coral_light := CORAL_LIGHT
 var rim_tint := DEFAULT_RIM
@@ -581,6 +588,9 @@ func _animate_units(delta: float) -> void:
 	var bite_active := attack_blend + harvest_blend > 0.002
 	var any_split := not _fx_shape.is_empty()
 	var spiral := 1.0 / (float(count) + LEADER_GAP)
+	line_blend = lerpf(line_blend, 1.0 if line_formation else 0.0, 1.0 - exp(-7.0 * delta))
+	var line_back := Vector3(-line_direction.x, 0.0, -line_direction.z).normalized() if line_direction.length_squared() > 0.001 else Vector3(0, 0, 1)
+	var line_side := Vector3(-line_back.z, 0.0, line_back.x)
 	for index in count:
 		var unit := units[index]
 		if rescale:
@@ -597,6 +607,11 @@ func _animate_units(delta: float) -> void:
 			goal = Vector3(cos(angle) * reach_out, 0.0, sin(angle) * reach_out)
 			# Slower followers hang further back and stretch the swarm while moving.
 			goal -= swarm_velocity * TRAIL_SECONDS * (2.3 - follow)
+			if line_blend > 0.01:
+				# Hetzjagd: a narrow column behind the leader (two files, slight zigzag).
+				var rank := float(index) * 0.5
+				var line_goal := line_back * (0.9 + rank * LINE_SPACING) + line_side * (0.35 if index % 2 == 0 else -0.35)
+				goal = goal.lerp(line_goal, line_blend)
 		goal.x += sway * sin(clock * 0.7 + phase)
 		goal.z += sway * cos(clock * 0.53 + phase * 1.7)
 		var pull := 0.0
@@ -652,7 +667,7 @@ func _animate_units(delta: float) -> void:
 		# Waddling hop gait; its phase advances with speed so idle animals rest.
 		var gait := unit_gait[index] + delta * GAIT_RATE * (0.85 + 0.3 * follow) * speed_share
 		unit_gait[index] = fmod(gait, TAU * 8.0)
-		var hop := absf(sin(gait)) * HOP_HEIGHT * speed_share
+		var hop := absf(sin(gait)) * HOP_HEIGHT * speed_share + leap_height
 		if individuality > 0.0:
 			hop += pow(maxf(0.0, sin(clock * 1.7 + phase * 3.0)), 12.0) * 0.12 * individuality * (1.0 - speed_share)
 		var roll := sin(gait) * 0.16 * speed_share
@@ -674,7 +689,7 @@ func _animate_units(delta: float) -> void:
 		# Leg cycle (creature_anim.gdshader) locked to the hop: feet land as the hop ends.
 		if bite_active:
 			unit_bite[index] = jaw
-		var shadow_size := display_scale * 1.05 * grown * (1.0 - hop * 1.4)
+		var shadow_size := display_scale * 1.05 * grown * maxf(0.35, 1.0 - hop * 1.4 + leap_height * 1.2)
 		if not special:
 			body_mesh.set_instance_transform(index, unit.transform * pose * mesh_local)
 			body_mesh.set_instance_custom_data(index, Color(speed_share, fmod(gait, TAU) + PI * 0.5, unit_bite[index], 0.0))

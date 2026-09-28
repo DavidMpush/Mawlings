@@ -96,6 +96,15 @@ func _check_slots(arena: Variant, seed_value: int) -> void:
 		var slots: Array = arena.poi_slots(type)
 		check(slots.size() >= int(counts[type]), "POI type %s: %d slots (seed %d)" % [type, slots.size(), seed_value])
 		for spot in slots:
+			if not arena.is_open(spot, 2.0):
+				var near := []
+				var middle: Vector2i = arena.chunk_at(spot)
+				for x in range(middle.x - 1, middle.x + 2):
+					for z in range(middle.y - 1, middle.y + 2):
+						for circle in arena.obstacles(Vector2i(x, z)):
+							if Vector2(spot.x - circle.x, spot.z - circle.z).length() < circle.w + 2.0:
+								near.append(circle)
+				print("  not open: %s wall %.2f inside %s obstacles %s" % [spot, arena.wall_distance(spot), arena.is_inside(spot, 2.0), near])
 			check(arena.is_open(spot, 2.0), "%s slot %s is open ground (seed %d)" % [type, spot, seed_value])
 	var start: Vector3 = arena.spawn_points(1)[0]
 	check(arena.is_open(start, 3.0), "Start on open ground (seed %d)" % seed_value)

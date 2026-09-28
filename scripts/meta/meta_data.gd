@@ -42,6 +42,16 @@ const MUTATION_NAMES := {"rudelbiss": "Rudelbiss", "sporenwolke": "Sporenwolke",
 	"graeber": "Gräber", "blitzbiss": "Blitzbiss", "brutsack": "Brutsack",
 	"klauenwirbel": "Klauenwirbel", "giftbiss": "Giftbiss", "schallbrueller": "Schallbrüller",
 	"regen": "Regeneration", "dornenhaut": "Dornenhaut", "urmutter": "Urmutter", "blutmond": "Blutmond", "schlundherz": "Schlundherz"}
+## Etappe 17d: Kurztext der Stammes-Fähigkeit auf der Stammkarte (Name, Abklingzeit
+## und Stamm -> Fähigkeit stehen in abilities.gd; Codex.strain_ability() fügt zusammen).
+const ABILITY_TEXT := {
+	"glutsprung": "8 m Sprung, beißt alles auf der Bahn",
+	"sporenbombe": "Sporenwolke bremst und vergiftet",
+	"panzerstoss": "Stoßwelle, danach 2 s −60 % Verluste",
+	"hetzjagd": "4 s lang +70 % Tempo",
+	"saeureschwall": "Säurekegel mit brennenden Pfützen",
+	"schattenschleier": "3 s verlieren Gegner die Spur",
+}
 ## Alt-IDs der Anlagen -> neue Werte (dornenhaut bleibt als Relikt-ID gleich).
 const LEGACY_IDS := {"jaws": "bite", "pack": "rally", "scatter": "evade", "glutton": "brood", "lockduft": "magnet", "regeneration": "regen"}
 ## Etappe 17b: kein Populationslimit mehr; nur noch Deckel der Start-Population.

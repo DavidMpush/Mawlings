@@ -26,6 +26,12 @@ const APEX_TOAD = preload("res://scripts/apex_toad.gd")
 # Etappe 19: Sandwurm (Dürrschlund-Apex) und der Wüstenteil des Runs (Sandmaden, Sandsturm).
 const APEX_SANDWORM = preload("res://scripts/apex_sandworm.gd")
 const DESERT_RUN = preload("res://scripts/desert_run.gd")
+# Etappe 17d: tribe ability (one per strain, button above Rally, Q / Shift).
+const ABILITIES = preload("res://scripts/abilities.gd")
+const ABILITY_SFX := {
+	"glutsprung": ["leaper_windup", "stomp"], "sporenbombe": ["mutate", ""], "panzerstoss": ["quake", ""],
+	"hetzjagd": ["rally", ""], "saeureschwall": ["split", ""], "schattenschleier": ["migration_whoosh", ""],
+}
 const MIGRATION_MAW = preload("res://scripts/migration_maw.gd")
 const BIOMES = preload("res://scripts/biomes.gd")
 const BROOD_NEST = preload("res://scripts/objectives/brood_nest.gd")
@@ -220,6 +226,10 @@ var toad_kills := 0
 var worm_kills := 0
 ## Etappe 19: Wüstenteil des Runs (scripts/desert_run.gd), neben der Horde erzeugt.
 var desert: Node3D
+## Etappe 17d: tribe ability of the configured strain (scripts/abilities.gd).
+var abilities: Node3D
+var _ability_wanted := false
+var _ability_relic_key := ""
 var apex_clock := 0.0
 var apex_spot := Vector3.ZERO
 var apex_pulse := 0.0
@@ -474,6 +484,99 @@ func _create_desert() -> void:
 	desert.setup(self, swarm, get_parent().get_node_or_null("Arena"))
 	if attack_forms != null and attack_forms.has_method("set_horde"):
 		attack_forms.set_horde(desert.brood)
+	_create_abilities()
+
+
+# Etappe 17d: the strain's ability; HuntWorld is its host (ability_* methods).
+func _create_abilities() -> void:
+	abilities = ABILITIES.new()
+	abilities.name = "Abilities"
+	add_child(abilities)
+	abilities.setup(self, String(config.get("strain_id", META_DATA.STRAIN_ORDER[0])))
+	_ability_wanted = false
+	_ability_relic_key = ""
+	abilities.used.connect(_on_ability_used)
+	if hud != null and hud.has_signal("ability_requested") and not hud.ability_requested.is_connected(request_ability):
+		hud.ability_requested.connect(request_ability)
+	abilities.sync_hud(hud)
+
+
+## Button / Q / Shift / bot: the ability fires in the next step (walking direction).
+func request_ability() -> void:
+	_ability_wanted = true
+
+
+func _step_abilities(delta: float) -> void:
+	if abilities == null:
+		return
+	var move := Vector3(swarm.movement_vector.x, 0.0, swarm.movement_vector.y)
+	var key := ""
+	for id in ABILITIES.RELIC_HOOKS:
+		key += "%s%d," % [id, evolution.stacks(id)]
+	if key != _ability_relic_key:
+		_ability_relic_key = key
+		abilities.modifiers = {"cooldown": 1.0, "duration": 1.0, "radius": 1.0, "power": 1.0, "fire_trail": false}
+		for id in ABILITIES.RELIC_HOOKS:
+			for count in evolution.stacks(id):
+				abilities.apply_relic(id)
+	if _ability_wanted:
+		_ability_wanted = false
+		abilities.use(move)
+	abilities.step(delta, move)
+	swarm.speed_multiplier *= abilities.speed_multiplier()
+	swarm.line_formation = abilities.line_formation()
+	swarm.line_direction = abilities.direction
+	swarm.leap_height = abilities.leap_height()
+	abilities.sync_hud(hud)
+
+
+func _on_ability_used(id: String) -> void:
+	var sounds: Array = ABILITY_SFX.get(id, ["", ""])
+	if String(sounds[0]) != "":
+		_sfx(String(sounds[0]), 40)
+	if id == "glutsprung" and String(sounds[1]) != "":
+		get_tree().create_timer(0.33, false).timeout.connect(func() -> void:
+			if is_inside_tree():
+				_sfx(String(sounds[1]), 60))
+	_shake(0.12)
+
+
+# Enemies aim here: the swarm, or the Schattenschleier decoy.
+func _aim_point() -> Vector3:
+	if abilities != null:
+		var decoy: Vector3 = abilities.decoy_position()
+		if decoy.is_finite():
+			return decoy
+	return swarm.position
+
+
+# ---- host interface for abilities.gd
+
+func ability_swarm_position() -> Vector3:
+	return swarm.position
+
+
+func ability_set_swarm_position(point: Vector3) -> void:
+	swarm.position = Vector3(point.x, 0.0, point.z)
+	unit_points_valid = false
+
+
+func ability_targets() -> Array:
+	return _living_targets().filter(func(target): return not (target is PREY))
+
+
+func ability_brood() -> Node3D:
+	if desert != null and is_instance_valid(desert) and desert.get("brood") != null:
+		return desert.brood
+	return horde
+
+
+func ability_arena() -> Node3D:
+	return get_parent().get_node_or_null("Arena") if get_parent() != null else null
+
+
+func ability_damage_scale() -> float:
+	return sqrt(model.pressure()) * evolution.damage_multiplier(false) * form_population_scale()
 
 
 func _ensure_flood_hud() -> void:
@@ -792,6 +895,8 @@ func step(delta: float) -> void:
 	# whatever dealt the damage.
 	if attack_forms != null and attack_forms.has_method("step"):
 		attack_forms.step(delta, _living_targets(), swarm.rally_pressed, sqrt(pressure) * evolution.damage_multiplier(false) * form_population_scale())
+	# Etappe 17d: after the forms (they reset slow_factor), before the enemies.
+	_step_abilities(delta)
 	for target in prey.duplicate():
 		if target.get("health") <= 0.0:
 			_kill_prey(target)
@@ -844,7 +949,7 @@ func step(delta: float) -> void:
 					return
 				continue
 		var velocity: Vector3 = Vector3(swarm.movement_vector.x, 0.0, swarm.movement_vector.y) * swarm.move_speed()
-		hunter.call("step", delta, swarm.position, pressure, velocity)
+		hunter.call("step", delta, _aim_point(), pressure, velocity)
 		if _resolve_area_hit(hunter, hunter.attack_center, 0.35):
 			return
 		if hunter.get("state") == HUNTER.State.WARNING:
@@ -865,7 +970,7 @@ func step(delta: float) -> void:
 				if choosing():
 					return
 				continue
-		skitter.step(delta, swarm.position, pressure)
+		skitter.step(delta, _aim_point(), pressure)
 		if _resolve_area_hit(skitter, skitter.position, 0.3):
 			return
 		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH]:
@@ -890,7 +995,7 @@ func step(delta: float) -> void:
 					if choosing():
 						return
 					continue
-		leaper.step(delta, swarm.position, pressure)
+		leaper.step(delta, _aim_point(), pressure)
 		if _resolve_area_hit(leaper, leaper.landing_center, 0.35):
 			return
 		if leaper.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP]:
@@ -911,7 +1016,7 @@ func step(delta: float) -> void:
 			if _resolve_death(boss, "boss") and choosing():
 				return
 		if boss != null:
-			boss.step(delta, swarm.position, pressure)
+			boss.step(delta, _aim_point(), pressure)
 			if _resolve_area_hit(boss, boss.attack_center, 0.45):
 				return
 			if boss.state == BOG_KING.State.WARNING:
@@ -1826,7 +1931,7 @@ func _step_apex(delta: float, damage: float, pressure: float, message: String) -
 			result.ended = choosing()
 			return result
 	var apex_pressure: float = pow(pressure, TUNING.APEX_PRESSURE_EXPONENT) * float(apex.get_meta("damage_scale", 1.0))
-	apex.step(delta, swarm.position, apex_pressure)
+	apex.step(delta, _aim_point(), apex_pressure)
 	if _resolve_area_hit(apex, apex.attack_center, 0.5):
 		result.ended = true
 		return result
@@ -1941,6 +2046,11 @@ func _begin_migration() -> void:
 	_portal_hum(false)
 	_sfx("migration_whoosh", 120)
 	_shake(0.35)
+	# Etappe 17d: running ability effects end with the old map (cooldown stays).
+	if abilities != null:
+		abilities.clear_effects()
+		swarm.line_formation = false
+		swarm.leap_height = 0.0
 	_update_hud("MIGRATION · %s" % BIOMES.display_name(migration_to).to_upper())
 
 
@@ -2442,6 +2552,9 @@ func _resolve_area_hit(enemy: Node3D, fallback_impact: Vector3, shake_amount: fl
 	var power: int = enemy.get("resolved_power")
 	if power <= 0:
 		return false
+	# Etappe 17d - Schattenschleier: announced areas (enemies, apex, eruptions) miss.
+	if abilities != null and abilities.warnings_miss():
+		return false
 	if attack_forms != null and (enemy == boss or enemy == apex) and attack_forms.has_method("impact_fx"):
 		attack_forms.impact_fx(fallback_impact, TUNING.BOSS_ATTACK_RADIUS if enemy == boss else float(enemy.get("body_radius")) * 1.5 if "body_radius" in enemy else 4.5)  # VFX V1: Schockwelle
 	if enemy == boss and enemy.has_meta("cursed"):
@@ -2691,11 +2804,21 @@ func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3
 	# Etappe 17 Welle 2 - Chitinschild: the leader cannot be struck while it lasts.
 	if leader_struck and bool(evolution.boosts.get("leader_immune", false)):
 		leader_struck = false
+	# Etappe 17d: Glutsprung leaps over everything; Panzerstoß takes -60 %
+	# (animals and leader LP alike).
+	if abilities != null and abilities.invulnerable():
+		return false
+	var ability_scale: float = abilities.damage_taken_multiplier() if abilities != null else 1.0
 	var damage_scale := difficulty_scale(enemy_damage)
 	if loss > 0 and damage_scale != 1.0:
 		loss = maxi(1, ceili(float(loss) * damage_scale))
+	if loss > 0 and ability_scale < 1.0:
+		loss = ceili(float(loss) * ability_scale)
+	var leader_loss := leader_damage(attacker, source)
+	if ability_scale < 1.0:
+		leader_loss = maxi(1, ceili(float(leader_loss) * ability_scale))
 	var before: int = model.population
-	var outcome: Dictionary = model.apply_hit(evolution.loss_after_armor(loss, swarm.rally_pressed), leader_struck, nonlethal, leader_damage(attacker, source))
+	var outcome: Dictionary = model.apply_hit(evolution.loss_after_armor(loss, swarm.rally_pressed), leader_struck, nonlethal, leader_loss)
 	var leader_state: String = outcome.leader
 	var leader_lost_hp: bool = leader_state in ["hit", "swap", "extinct"]
 	if int(outcome.lost) <= 0 and not leader_lost_hp:
@@ -2843,6 +2966,9 @@ func run_stats() -> Dictionary:
 		if evolution.ranks[id] > 0:
 			mutations[id] = evolution.ranks[id]
 	return {
+		# Kodex im Menü: gefundene Relikte und genommene Power-ups dieses Runs.
+		"relics": evolution.relics.duplicate(),
+		"powerups_taken": Array(powerups.taken) if powerups != null else [],
 		"strain_id": str(config.get("strain_id", "")),
 		"biome_id": str(config.get("biome_id", "")),
 		"difficulty": int(config.get("difficulty", 0)),

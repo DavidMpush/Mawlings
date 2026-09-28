@@ -2,6 +2,7 @@ extends RefCounted
 ## Account-Profil: Essenz, Königszähne, Upgrades, Stämme, Trophäen, Records. JSON unter user://.
 
 const DATA = preload("res://scripts/meta/meta_data.gd")
+const CODEX = preload("res://scripts/meta/codex.gd")
 const SCRIPT_PATH := "res://scripts/meta/profile.gd"
 const DEFAULT_PATH := "user://mawlings_profile.json"
 const VERSION := 1
@@ -30,6 +31,8 @@ var daily_records: Dictionary = {}
 var settings: Dictionary = {}
 ## Einstieg: IDs der bereits gezeigten Tipps (jeder Tipp einmal pro Profil).
 var seen_tips: Array = []
+## KODEX: entdeckte Einträge "<art>:<id>" (scripts/meta/codex.gd), nie wieder vergessen.
+var codex_seen: Array = []
 
 const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false, "music_v1": false, "skin_calm": false, "skin_organic": false}
 ## So viele Tage bleiben in daily_records erhalten (älteste fallen heraus).
@@ -63,6 +66,7 @@ func _reset_defaults() -> void:
 	daily_records = {}
 	settings = DEFAULT_SETTINGS.duplicate()
 	seen_tips = []
+	codex_seen = []
 
 static func _default_records() -> Dictionary:
 	return {
@@ -111,6 +115,7 @@ func to_dict() -> Dictionary:
 		"unlocked_mutations": unlocked_mutations, "bonus_rerolls": bonus_rerolls,
 		"bonus_banishes": bonus_banishes, "bonus_skips": bonus_skips, "next_seed": next_seed,
 		"daily_records": daily_records, "settings": settings, "seen_tips": seen_tips,
+		"codex_seen": codex_seen,
 	}
 
 func _apply(d: Dictionary) -> void:
@@ -201,6 +206,11 @@ func _apply(d: Dictionary) -> void:
 		# Ältere Profile kennen nur total_apex (beide Apex) und total_toads.
 		if not saved_records.has("total_moss"):
 			records.total_moss = maxi(0, int(records.total_apex) - int(records.total_toads))
+	_merge_strings(codex_seen, d.get("codex_seen"), [])
+	# Ältere Profile: Evolutionen und besiegte Bosse aus den Rekorden nachtragen.
+	for key in CODEX.keys_from_records(records):
+		if not codex_seen.has(key):
+			codex_seen.append(key)
 
 static func _int(value: Variant, fallback: int) -> int:
 	if value is int or value is float:
@@ -457,14 +467,25 @@ func record_run(stats: Dictionary) -> Dictionary:
 				unlocked.append(String(token))
 	essence += quest_essence
 	crowns += quest_crowns
+	var codex_new := record_codex(stats)
 	reroll_seed()
 	save()
 	return {
+		"codex_new": codex_new,
 		"essence": gained_essence + quest_essence, "crowns": gained_crowns + quest_crowns,
 		"new_quests": new_quests, "unlocked": unlocked,
 		"run_essence": gained_essence, "run_crowns": gained_crowns,
 		"quest_essence": quest_essence, "quest_crowns": quest_crowns,
 	}
+
+## Trägt alle Einträge eines Runs in den KODEX ein; liefert die neu entdeckten Schlüssel.
+func record_codex(stats: Dictionary) -> Array:
+	var fresh: Array = []
+	for key in CODEX.keys_from_result(stats):
+		if not codex_seen.has(key):
+			codex_seen.append(key)
+			fresh.append(key)
+	return fresh
 
 func _apply_unlock(token: String) -> bool:
 	var parts := token.split(":", true, 1)

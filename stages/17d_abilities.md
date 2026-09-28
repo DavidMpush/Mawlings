@@ -42,3 +42,47 @@ Iterationen: (1) Sporenwolke mit weinrotem Rand (Gefahrenkontur) und ohne Sporen
 
 ### Offen für die Anbindungsrunde
 HuntWorld: Host-Methoden, `step()` im Lauf, `ability_requested`/Q, Verlustfaktor, Unverwundbarkeit, Köder und `warnings_miss` in `_resolve_area_hit`, Tempo in `swarm.speed_multiplier`, Linienformation in `swarm.gd`, Relikt-Einträge, Bot-Nutzung (vor Warnflächen, bei Einkesselung), Balance, Sounds.
+
+## Ergebnis Anbindung (28.09.2026, nach 17b/17c)
+
+### HuntWorld (`scripts/hunt_world.gd`)
+- `abilities` wird mit der Horde erzeugt (`_create_abilities`, Stamm aus `config.strain_id`), bei Reset neu. HuntWorld ist der Host (`ability_*`-Methoden; Ziele ohne Beute, Brut = Moorbrut + Sandmaden, Schaden-Skalierung wie die Angriffsformen).
+- `_step_abilities()` läuft direkt nach `attack_forms.step()`: Relikte → Modifikatoren, Knopf/Q/Shift (`request_ability`, wirkt im nächsten Schritt in Laufrichtung), Schritt, Tempo ×1,7, Linienformation, Sprunghöhe, HUD-Zustand.
+- `_apply_hit`: Glutsprung = keine Verluste (auch keine Anführer-LP); Panzerstoß = Tier-Verluste und Anführer-LP ×0,4.
+- `_resolve_area_hit`: unter dem Schattenschleier verfehlen alle angekündigten Flächen (Gegner, Bog King, Apex, Ausbrüche). Jäger, Skitter, Leaper, Bog King und Apex zielen dann auf den Köder (`_aim_point`).
+- Pause/Auswahl/Migration: kein Schritt → Cooldown steht. Migration beendet laufende Effekte (Cooldown bleibt), Reset baut die Fähigkeit neu.
+- Sounds aus vorhandenen IDs: Glutsprung `leaper_windup` + `stomp` bei der Landung, Sporenbombe `mutate`, Panzerstoß `quake`, Hetzjagd `rally`, Säureschwall `split`, Schattenschleier `migration_whoosh`.
+- Nebenbei (Kodex): `run_stats()` liefert `relics` und `powerups_taken`.
+
+### Schwarm (`scripts/swarm.gd`)
+- `speed_multiplier` wie bisher (HuntWorld multipliziert die Hetzjagd hinein).
+- `line_formation`/`line_direction`: die Tiere ordnen sich weich (Blend) in einer Doppelreihe hinter dem Anführer.
+- `leap_height`: alle Tiere heben im Sprungbogen ab (bis 1,6 m), der Schatten bleibt am Boden.
+
+### Relikte (`progression/arsenal.gd`)
+Glutkern (selten, −20 % Abklingzeit), Feuerspur (selten, 3 s brennender Boden; beim Glutsprung als Spur, sonst am Schwarm), Sporenhall (selten, +40 % Dauer), Weiter Schlund (episch, +25 % Reichweite). Icons vorerst `haste`/`glutdruese`/`sporenwolke`/`reach`; eigene Icons (auch sechs Fähigkeits-Icons) in `stages/UI_ASSET_REQUESTS.md` angefragt.
+
+### Onboarding
+Tipp „Stammesfähigkeit bereit! …“ ab 20 s, wenn eine Bedrohung nah ist und die Fähigkeit noch nie benutzt wurde; Zeiger auf den Knopf (`onboarding.gd`, `hud_controls.gd`).
+
+### Bot (`tests/balance_sim.gd`)
+Vor Warnflächen: Glutsprung, Hetzjagd, Panzerstoß, Schattenschleier. Eingekesselt (≥ 3 Gegner in 6 m oder Moorbrut-Ring): Sporenbombe, Säureschwall, Panzerstoß. `BALANCE_NOABILITY=1` schaltet das für A/B-Läufe ab; die BALANCE-Zeile nennt `ability=<id>:<Einsätze>`.
+
+### Balance (3 Stämme × 5 Seeds, greedy, `tools/balance.ps1`)
+| | Wild | Brutal | Apex | Spreizung W/B/A |
+|---|---|---|---|---|
+| ohne Fähigkeit (Stand 6a51e87) | 566 s | 406 s | 212 s | 1/68/32 % |
+| mit Fähigkeit | 603 s | 440 s | 244 s | 19/112/20 % |
+
+- Die Fähigkeit verlängert die Läufe um etwa 7–15 %. Wild und Brutal liegen **schon ohne** Fähigkeit über dem Ziel (390–510 / 300–390 s); Apex bleibt im Ziel. Die Streuung (vor allem Brutal) ist mit 5 Seeds stark vom Zufall getrieben (z. B. Knochenkiefer 253 → 578 s, Glutmaw 424 → 273 s).
+- Fähigkeitswerte habe ich nicht verändert: die Abweichung stammt aus dem Grundstand, die große Balance-Runde (Waffen-Skalierung) folgt. Matrix über alle sechs Stämme (3 Seeds): Nachtmaul klar am schwächsten (Wild 200 s), Sporling/Ätzmaul am stärksten – Stammeswerte, nicht die Fähigkeit.
+
+### Tests
+- `tests/abilities.gd` (Schicht) und neu `tests/ability_run.gd` (echter Run: Stamm, Knopf, Q, Cooldown, Sprung ohne Verluste, Panzerstoß −60 % Tiere und LP, Hetzjagd ×1,7 + Linie, Schleier verfehlt und Köder, Pause/Reset/Migration, Relikt) in `tools/test.ps1`.
+
+### Bilder
+`tests/capture_ability_run.gd` → `preview_ability_run_<id>.png` und `_sheet.png` (echter Run, Jäger in der Nähe). Der Sprung zeigt den abgehobenen Schwarm mit Schatten, die Hetzjagd die gestreckte Doppelreihe, der Panzerstoß die große Glut-Schockwelle, Wolke und Pfützen liegen als Glut-Flächen.
+- **Volle Suite `tools/test.ps1`: ALL PASS** (51 Einträge inkl. `balance_regress` und `endless_playthrough`).
+- Angepasst: `arsenal` (25 Relikte, Seltenheiten 6/11/5/3).
+- Nebenfund behoben: In der Wüste (Seed 31337) konnte ein Gold-Kokon-Platz als kleine, abgeschnittene Tasche zugeschüttet werden (`_join_open` füllte Taschen < 40 Zellen). Taschen mit einem Ort werden jetzt immer angebunden statt gefüllt (`map_explore.gd`); `map_layout` druckt bei einem nicht offenen Platz Wandabstand und Hindernisse.
+- Fehler behoben: `abilities.gd` hielt verlangsamte, inzwischen freigegebene Gegner typisiert fest (Skriptfehler im Balance-Lauf).

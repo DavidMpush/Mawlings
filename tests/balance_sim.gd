@@ -326,11 +326,11 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"migrated": migrated,
 		"fights": fights,
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d wall=%.1f" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d ability=%s:%d wall=%.1f" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
 		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop60, pop120, pop_flood, stats.swaps, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
-		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, (Time.get_ticks_msec() - wall) / 1000.0])
+		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, String(world.abilities.ability_id) if world.get("abilities") != null else "-", int(world.abilities.uses) if world.get("abilities") != null else 0, (Time.get_ticks_msec() - wall) / 1000.0])
 	root.remove_child(scene)
 	scene.free()
 	await process_frame
@@ -434,9 +434,13 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	var arena: Variant = swarm.get_parent().get_node("Arena")
 	if dodge != Vector3.ZERO:
 		dodge = arena.open_direction(here, dodge, 1.0, 3.0)
+		# Etappe 17d: leap / sprint out, shield up or veil the warning.
+		_maybe_ability(world, "dodge")
 		return {"move": Vector2(dodge.x, dodge.z).normalized(), "rally": false}
 	# Stage 08: keep away from the Moorbrut; Rally (more bite) when surrounded.
 	var brood := _brood_escape(world, here)
+	if brood.surrounded or _enemies_near(world, here, ABILITY_CROWD_RANGE) >= ABILITY_CROWD:
+		_maybe_ability(world, "crowd")
 	var target := here
 	var best := INF
 	var harvesting := false
@@ -588,6 +592,40 @@ func _leader_point(swarm: Variant) -> Vector3:
 
 # Escape direction from the Moorbrut within BROOD_ALERT m (weighted by closeness)
 # and whether the swarm is surrounded (BROOD_CROWD brood within 2.5 m).
+# Etappe 17d: the bot's use of the tribe ability. "dodge" = an announced area is
+# coming (Glutsprung / Hetzjagd carry the swarm out, Panzerstoß and
+# Schattenschleier blunt it); "crowd" = encircled (Sporenbombe, Säureschwall,
+# Panzerstoß clear the ring).
+const ABILITY_USE := {
+	"dodge": ["glutsprung", "hetzjagd", "panzerstoss", "schattenschleier"],
+	"crowd": ["sporenbombe", "saeureschwall", "panzerstoss"],
+}
+const ABILITY_CROWD := 3
+const ABILITY_CROWD_RANGE := 6.0
+var ability_uses := 0
+
+
+func _maybe_ability(world: Variant, reason: String) -> void:
+	# BALANCE_NOABILITY=1: baseline without the tribe ability (A/B balance runs).
+	if OS.get_environment("BALANCE_NOABILITY") != "":
+		return
+	var ability: Variant = world.get("abilities")
+	if ability == null or not ability.is_ready():
+		return
+	if not (ABILITY_USE[reason] as Array).has(String(ability.ability_id)):
+		return
+	world.request_ability()
+	ability_uses += 1
+
+
+func _enemies_near(world: Variant, here: Vector3, reach: float) -> int:
+	var count := 0
+	for enemy in _enemies(world):
+		if is_instance_valid(enemy) and Vector2(enemy.position.x - here.x, enemy.position.z - here.z).length() <= reach:
+			count += 1
+	return count
+
+
 func _brood_escape(world: Variant, here: Vector3) -> Dictionary:
 	var result := {"away": Vector3.ZERO, "surrounded": false}
 	var horde: Variant = world.get("horde")

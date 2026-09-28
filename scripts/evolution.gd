@@ -76,6 +76,8 @@ const ICON_IDS = {
 	"aetzdruese": "saeurespucker", "rudelhorn": "pack", "gewitterfell": "blitzbiss", "grabkralle": "graeber",
 	"gluecksknochen": "crown_tooth", "koenigszahnkette": "crown", "zwillingsbrut": "brood",
 	"magnetkern": "alpha_core", "urmutter": "nest", "blutmond": "skull", "schlundherz": "biomass",
+	# Etappe 17d: Fähigkeits-Relikte (eigene Icons angefragt, stages/UI_ASSET_REQUESTS.md).
+	"glutkern": "haste", "feuerspur": "glutdruese", "sporenhall": "sporenwolke", "weiter_schlund": "reach",
 	# Alt-IDs (Etappe 16) für alte Build-Anzeigen.
 	"lockduft": "magnet",
 }

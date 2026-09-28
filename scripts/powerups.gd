@@ -55,6 +55,8 @@ var active: Dictionary = {}
 ## Mushroom knolls: {at, alive, node}
 var knolls: Array[Dictionary] = []
 var collected := 0
+## Arten, die in diesem Run eingesammelt wurden (KODEX, RunStats „powerups_taken“).
+var taken: Array[String] = []
 var dropped := 0
 var band: Dictionary = {}
 var world: Node3D
@@ -254,6 +256,8 @@ func collect(id: String) -> void:
 	if not DEFS.has(id):
 		return
 	collected += 1
+	if not taken.has(id):
+		taken.append(id)
 	var def: Array = DEFS[id]
 	var duration: float = def[1]
 	var tone: Dictionary = _tone(id)
