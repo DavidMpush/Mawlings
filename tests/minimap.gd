@@ -1,7 +1,7 @@
 extends SceneTree
 
 # Minimap stage: world -> map conversion (stage 18: the whole bounded map),
-# POIs, exploration fog, region names (deterministic per seed), region banner,
+# POIs, exploration fog, region names (deterministic per seed), no region banner (Etappe 27),
 # big map open/close by touch, and steering/Rally unchanged while the big map
 # is open; Kokon/Pilzknolle markers prepared.
 
@@ -135,10 +135,12 @@ func _run() -> void:
 	check(world.region_entries > entries_before, "A new region was entered")
 	check(int(world.run_stats().get("regions_visited", 0)) >= 2, "RunStats count regions")
 	check(String(world.region_name) == String(arena.region_name(arena.region_at(swarm.position))), "Current region name follows the swarm")
-	await _frames(6)
-	check(minimap.banner_time() >= 0.0 and minimap.banner_text() != "", "Region banner shows")
-	await create_timer(2.3).timeout
-	check(minimap.banner_time() < 0.0, "Region banner ends within two seconds")
+	# Etappe 27 (S25 feedback): entering a region shows no name banner any more.
+	for frame in 30:
+		await process_frame
+		check(minimap.banner_time() < 0.0, "No region banner on entering a region")
+		if minimap.banner_time() >= 0.0:
+			break
 
 	# --- Big map by touch --------------------------------------------------------
 	controls._map_toggled_at = -100000
@@ -231,5 +233,5 @@ func _finish() -> void:
 		print("MINIMAP FAILED: %d" % failures)
 		quit(1)
 		return
-	print("PASS: minimap whole-map conversion, POIs, Kokon/Pilzknolle kinds, exploration fog, region names, banner, big map input")
+	print("PASS: minimap whole-map conversion, POIs, Kokon/Pilzknolle kinds, exploration fog, region names, no region banner, big map input")
 	quit(0)

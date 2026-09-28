@@ -732,6 +732,7 @@ var _ctx_current: Array = []
 var _ctx_t := -1.0
 var _ctx_tier := -1
 var _ctx_hunters := -1
+var _ctx_surge := false
 
 
 func _paint_brawl(part: String) -> void:
@@ -893,6 +894,12 @@ func _brawl_context(delta: float) -> void:
 	if _ctx_hunters == 0 and hunters > 0:
 		_ctx_push(["JÄGER ×%d" % hunters, "danger", "skull"])
 	_ctx_hunters = hunters
+	# Etappe 27: an announced Hordenwelle jumps the queue (it is the next threat).
+	var surge := bool(_hud_value("surge_warning", false))
+	if surge and not _ctx_surge:
+		_ctx_queue.push_front(["HORDE NAHT!", "danger", "skull", _time])
+		_ctx_t = -1.0
+	_ctx_surge = surge
 	# Entries that waited too long are stale (the situation moved on).
 	while not _ctx_queue.is_empty() and _time - float(_ctx_queue[0][3]) > CONTEXT_STALE:
 		_ctx_queue.pop_front()
@@ -1010,7 +1017,9 @@ func _b_draw_time() -> void:
 	if world >= 2:
 		var label := "WELT %d" % world
 		var w := UiStyle.display_font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x + 24.0
-		var chip := Rect2(_b_time.get_center().x - w * 0.5, _b_time.position.y - 16.0, w, 32.0)
+		# Etappe 27: never over the XP bar above it (the chip slides down a little).
+		var chip_top := maxf(_b_time.position.y - 16.0, _xp_top() + XP_H + 5.0)
+		var chip := Rect2(_b_time.get_center().x - w * 0.5, chip_top, w, 32.0 if chip_top <= _b_time.position.y - 16.0 else 26.0)
 		Kit.chip(_cv, chip, "special")
 		Kit.text_outlined(_cv, chip.get_center(), label, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, w - 10.0)
 
@@ -1230,33 +1239,45 @@ func _xp_fill() -> float:
 	return clampf(float(evo.get("dna")) / maxf(1.0, float(evo.threshold())), 0.0, 1.0)
 
 
-## Top edge of the XP bar: below the display's safe area (notch).
+## Top edge of the XP bar: below the display's safe area (notch), measured in
+## viewport units. Etappe 27 (S25): the viewport is letterboxed (stretch aspect
+## "keep"), so the safe inset is taken relative to the viewport's top edge on
+## the screen; the old screen-to-viewport ratio pushed the bar down behind the
+## pill row on the phone.
 func _xp_top() -> float:
 	var safe := DisplayServer.get_display_safe_area()
-	var screen := DisplayServer.screen_get_size()
-	var window := DisplayServer.window_get_size()
-	if screen.y <= 0 or window.y <= 0 or safe.size.y <= 0 or window.y < screen.y - 2:
+	if safe.size.y <= 0 or not is_inside_tree():
 		return 0.0
-	return clampf(float(safe.position.y) * size.y / float(screen.y), 0.0, 80.0)
+	var root := get_tree().root
+	if root == null or root.size.y <= 0 or DisplayServer.window_get_size().y < DisplayServer.screen_get_size().y - 2:
+		return 0.0
+	var screen_from_canvas := root.get_final_transform()
+	var scale_y := screen_from_canvas.get_scale().y
+	if scale_y <= 0.0:
+		return 0.0
+	var inset := (float(safe.position.y) - screen_from_canvas.origin.y) / scale_y
+	# Never down into the pill row (B_TOP): the bar must stay above every panel.
+	return clampf(inset, 0.0, B_TOP - XP_H - 4.0)
 
 
-const XP_H := 10.0
+const XP_H := 16.0
 
 
-# Thin violet strip across the full width (Kit tone special), no numbers; it
-# flashes on a level-up.
+# Violet strip across the full width (Kit tone special), no numbers; it flashes
+# on a level-up. Etappe 27: 10 -> 16 px with a light track and an ink frame so
+# it reads on the phone and never sits behind a panel (drawn above B_TOP).
 func _b_draw_xp() -> void:
 	var top := _xp_top()
 	var track := Rect2(0.0, top, size.x, XP_H)
 	var special: Dictionary = UiStyle.brawl_tone("special")
-	_cv.draw_rect(track, Color(UiStyle.BRAWL_WELL, 0.85))
+	_cv.draw_rect(Rect2(0.0, top, size.x, XP_H + 3.0), Color(UiStyle.BRAWL_INK, 0.92))
+	_cv.draw_rect(track.grow_individual(0.0, -2.0, 0.0, -2.0), Color(UiStyle.BRAWL_WELL, 0.95))
 	var fill := _xp_fill()
 	if fill > 0.0:
-		var bar := Rect2(track.position, Vector2(track.size.x * fill, XP_H))
+		var bar := Rect2(track.position + Vector2(0.0, 2.0), Vector2(track.size.x * fill, XP_H - 4.0))
 		_cv.draw_rect(bar, special["face"])
-		_cv.draw_rect(Rect2(bar.position, Vector2(bar.size.x, 3.0)), Color(special["light"], 0.9))
-		_cv.draw_rect(Rect2(bar.end.x - 3.0, bar.position.y, 3.0, XP_H), Color(Color.WHITE, 0.8))
-	_cv.draw_rect(Rect2(0.0, track.end.y, size.x, 2.0), Color(UiStyle.BRAWL_INK, 0.8))
+		_cv.draw_rect(Rect2(bar.position, Vector2(bar.size.x, 4.0)), Color(special["light"], 0.95))
+		_cv.draw_rect(Rect2(bar.end.x - 4.0, bar.position.y, 4.0, bar.size.y), Color(Color.WHITE, 0.9))
 	if _level_pulse > 0.0:
 		_cv.draw_rect(track.grow(2.0), Color(special["light"], 0.6 * _level_pulse))
 

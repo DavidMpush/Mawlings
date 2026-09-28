@@ -39,6 +39,25 @@ class Wall extends Node3D:
 		return next
 
 
+class Field extends Node3D:
+	# Stage 27 E: a square map of +-`half` m with a wall band lo_x..hi_x across
+	# the whole map (like arena.is_open: edge margin + wall clearance).
+	var half := 30.0
+	var lo_x := 3.0
+	var hi_x := 4.0
+	func is_open(point: Vector3, radius: float) -> bool:
+		if absf(point.x) > half - radius or absf(point.z) > half - radius:
+			return false
+		return point.x + radius <= lo_x or point.x - radius >= hi_x
+	func resolve_motion(start: Vector3, motion: Vector3, radius: float) -> Vector3:
+		var next := start + motion
+		if start.x <= lo_x:
+			next.x = minf(next.x, lo_x - radius)
+		next.x = clampf(next.x, -half + radius, half - radius)
+		next.z = clampf(next.z, -half + radius, half - radius)
+		return next
+
+
 class Host extends Node3D:
 	var swarm := Vector3.ZERO
 	var enemies: Array = []
@@ -77,7 +96,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS abilities: 6 strains, cooldown + ring share, pause freezes, relic hooks, Glutsprung (path bite, invulnerable, wall), Sporenbombe (slow + poison 5 s), Panzerstoß (push, bosses firm, -60 %), Hetzjagd (x1.7, line), Säureschwall (cone + puddles), Schattenschleier (decoy, warnings miss), button hit + Q/Shift")
+	print("PASS abilities: 6 strains, cooldown + ring share, pause freezes, relic hooks, Glutsprung (path bite, invulnerable, hops narrow obstacles, stops at wide walls + map edge), Sporenbombe (slow + poison 5 s), Panzerstoß (push, bosses firm, -60 %), Hetzjagd (x1.7, line), Säureschwall (cone + puddles), Schattenschleier (decoy, warnings miss), button hit + Q/Shift")
 	quit(0)
 
 
@@ -177,6 +196,67 @@ func _check_leap() -> void:
 	_check(ability.areas.size() > 0, "Feuerspur leaves burning ground")
 	var area: MeshInstance3D = ability.areas[0].node
 	_check((area.material_override as ShaderMaterial).get_shader_parameter("fill_color") == Color("ff6a1f"), "Own areas in ember, never danger pink")
+	host.free()
+	_check_leap_hop()
+
+
+# Stage 27 E: the leap hops narrow obstacles (<= LEAP_HOP_MAX along the line),
+# stops in front of wide walls and never leaves the map.
+func _check_leap_hop() -> void:
+	var pair := _make("glutmaw")
+	var host: Host = pair[0]
+	var ability: Variant = pair[1]
+	var field := Field.new()
+	host.arena = field
+	host.add_child(field)
+	var east := Vector3(1, 0, 0)
+	# A narrow stone band (1 m, 2.5 m blocked with clearance): landing behind it.
+	var peak := 0.0
+	ability.cooldown_left = 0.0
+	ability.use(east)
+	for index in int(ceil(0.5 / DT)):
+		ability.step(DT, Vector3.ZERO)
+		peak = maxf(peak, ability.leap_height())
+	_check(absf(host.swarm.x - 8.0) < 0.05 and absf(host.swarm.z) < 0.05, "Glutsprung hops a narrow stone (x %.2f)" % host.swarm.x)
+	_check(field.is_open(host.swarm, 0.75), "Hop landing is open ground")
+	_check(peak > ability.LEAP_ARC + 0.1 and peak <= ability.LEAP_ARC * 1.5 + 0.01, "Hopping arc is higher (%.2f m)" % peak)
+	# Obstacle close to the end of the line: land in front of it, not inside.
+	field.lo_x = 7.0
+	field.hi_x = 8.5
+	var landing: Vector3 = ability._leap_landing(Vector3.ZERO, east, 8.0)
+	_check(landing.x <= 6.25 + 0.01 and landing.x > 5.9 and field.is_open(landing, 0.75), "Obstacle at the end: land in front (x %.2f)" % landing.x)
+	# Two narrow bands, each hoppable: land behind both.
+	field.lo_x = 1.5
+	field.hi_x = 2.5
+	landing = ability._leap_landing(Vector3.ZERO, east, 8.0)
+	_check(absf(landing.x - 8.0) < 0.05, "Band right in front is hopped (x %.2f)" % landing.x)
+	# Wide wall (4.5 m thick = 6 m blocked along the line > LEAP_HOP_MAX): stop in front.
+	field.lo_x = 2.5
+	field.hi_x = 7.0
+	landing = ability._leap_landing(Vector3.ZERO, east, 8.0)
+	_check(landing.x <= 1.75 + 0.01 and landing.x > 1.4, "A wide wall stops the leap in front (x %.2f)" % landing.x)
+	host.swarm = Vector3.ZERO
+	ability.cooldown_left = 0.0
+	ability.use(east)
+	_steps(ability, 0.5)
+	_check(host.swarm.x <= 1.76 and field.is_open(host.swarm, 0.75), "Leap never passes a wide wall (x %.2f)" % host.swarm.x)
+	# Standing right at the wide wall: no open sample beyond, old walk = stay.
+	landing = ability._leap_landing(Vector3(1.75, 0, 0), east, 8.0)
+	_check(landing.x <= 1.76, "At a wide wall the leap stays in front (x %.2f)" % landing.x)
+	# Map edge: never beyond it, also not hopping a stone into the edge.
+	field.half = 6.0
+	field.lo_x = 100.0
+	field.hi_x = 101.0
+	for dir in [east, Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0.7, 0, -0.7)]:
+		landing = ability._leap_landing(Vector3(1, 0, 1), dir, 8.0)
+		_check(field.is_open(landing, 0.75), "Leap toward the edge lands inside (%s)" % landing)
+	field.lo_x = 3.0
+	field.hi_x = 4.0
+	landing = ability._leap_landing(Vector3.ZERO, east, 8.0)
+	_check(absf(landing.x - 5.25) < 0.01 and field.is_open(landing, 0.75), "Stone before the edge: land between stone and edge (x %.2f)" % landing.x)
+	field.hi_x = 5.0
+	landing = ability._leap_landing(Vector3.ZERO, east, 8.0)
+	_check(landing.x <= 2.25 + 0.01, "Stone reaching the edge: no landing beyond (x %.2f)" % landing.x)
 	host.free()
 
 

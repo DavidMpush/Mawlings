@@ -388,6 +388,45 @@ const APEX_PHASE_TWO_DAMAGE := 1.3
 # neu (Weltzeit 0); jede erreichte Welt nach der ersten macht Gegner, Flut und Bosse
 # um WORLD_BONUS stärker (HP, Anführer-Treffer, Apex-LP und -Verluste).
 const WORLD_BONUS := 0.25
+# Etappe 27 (S25-Feedback): der Direktor startet in Welt n mit Vorsprung, damit der
+# Grunddruck nach einer Migration zur erreichten Welt passt (Weltzeit läuft trotzdem neu).
+const WORLD_HUNTER_HEADSTART := 2     # Jäger-Budget +2 je erreichter Welt
+const WORLD_HUNTER_CAP := 3           # Jäger-Deckel +3 je Welt (bis HUNTER_CAP_MAX)
+const HUNTER_CAP_MAX := 21
+const WORLD_SIDE_CAP := 1             # Skitter-/Leaper-Budget und -Deckel +1 je Welt
+const SIDE_CAP_MAX := 6
+const WORLD_SIDE_DELAY := 15.0        # Skitter/Leaper ab Weltzeit 15 s statt 50/65 s
+
+# Etappe 27 – Hordenwellen: außerhalb der Flut kommt regelmäßig eine angekündigte
+# Moorbrut-Welle aus EINER Richtung. Welt 1 ab SURGE_FIRST_SECONDS (Einzelstart
+# bleibt fair), spätere Welten ab SURGE_FIRST_LATER; Abstand SURGE_INTERVAL, je
+# erreichter Welt SURGE_INTERVAL_WORLD kürzer (min. SURGE_INTERVAL_MIN). Keine Welle
+# während Flut-Ankündigung, Flut, Apex-Kampf und Migration.
+const SURGE_FIRST_SECONDS := 100.0
+const SURGE_FIRST_LATER := 35.0
+const SURGE_INTERVAL := 50.0
+const SURGE_INTERVAL_WORLD := 6.0
+const SURGE_INTERVAL_MIN := 32.0
+const SURGE_WARNING_SECONDS := 3.0
+const SURGE_MIN_POPULATION := 12      # Welt 1: erst ab so vielen Tieren
+# Anzahl = SURGE_COUNT x SURGE_COUNT_GROWTH^Welle x (1 + SURGE_COUNT_WORLD x Welten)
+# x sqrt(P / SURGE_POP_REF) (ab SURGE_POP_REF), höchstens SURGE_MAX (und nie über
+# FLOOD_MAX_ACTIVE lebende Brut zusammen mit der Flut: S25-Leistung).
+const SURGE_COUNT := 14
+const SURGE_COUNT_GROWTH := 1.2
+const SURGE_COUNT_WORLD := 0.35
+const SURGE_POP_REF := 40.0
+const SURGE_MAX := 70
+# Stärke wie Flutstufe k: Biss und Tempo mit k = SURGE_LEVEL_WORLD x Welten +
+# SURGE_LEVEL_STEP x Welle (Bissverluste skalieren ohnehin mit P); die LP zusätzlich
+# mit SURGE_HP_POP x log2(P/25), damit ein großer Schwarm sie nicht nur streift.
+const SURGE_LEVEL_WORLD := 0.5
+const SURGE_LEVEL_STEP := 0.15
+const SURGE_HP_POP := 0.8
+const SURGE_LEVEL_MAX := 6.0
+const SURGE_DISTANCE := 22.0          # Mitte der Welle vor dem Schwarm (außerhalb des Bildes)
+const SURGE_RADIUS := 6.0
+const SURGE_APEX_GAP := 25.0         # keine Welle so kurz vor dem fälligen Apex (Brut lebte sonst im Bosskampf)
 
 
 # Etappe 16 – Beute-Kristalle und Magnet (scripts/loot.gd) ersetzen die Kadaver-Ernte.

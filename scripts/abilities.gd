@@ -5,7 +5,7 @@ extends Node3D
 # acts in the walking direction (the last one while standing) or around the
 # swarm. Cooldown 20-40 s, drawn as a ring on the button.
 #
-#   Glutmaw       glutsprung        8 m leap forward, bites along the path, briefly invulnerable
+#   Glutmaw       glutsprung        8 m leap forward (hops narrow obstacles), bites along the path, briefly invulnerable
 #   Sporling      sporenbombe       spore cloud at the swarm: slows and poisons 5 s
 #   Knochenkiefer panzerstoss       shock wave throws enemies back, 2 s -60 % losses
 #   Flinkzahn     hetzjagd          4 s +70 % speed, the swarm stretches into a line
@@ -19,7 +19,7 @@ extends Node3D
 #   ability_targets() -> Array            living enemies (Node3D with health /
 #                                         take_damage, optional slow_factor)
 #   ability_brood() -> Node3D             horde / grubs with damage_circle()
-#   ability_arena() -> Node3D             resolve_motion, push_walls
+#   ability_arena() -> Node3D             is_open (leap landing), resolve_motion
 #   ability_damage_scale() -> float       pressure / build scaling of damage
 # What the run must honour while an ability is active, read by HuntWorld:
 #   damage_taken_multiplier()  Panzerstoß 0.4 (losses x0.4), else 1
@@ -74,6 +74,11 @@ const LEAP_WIDTH := 2.2
 const LEAP_DAMAGE := 30.0
 const LEAP_GRACE := 0.4
 const LEAP_ARC := 1.6
+# Stage 27 E: blocked stretches along the leap line up to this thickness (m) are
+# hopped like a short Flash; wider walls and the map edge stop the leap.
+const LEAP_HOP_MAX := 5.5
+const LEAP_SAMPLE := 0.25
+const LEAP_CLEARANCE := 0.75
 const TRAIL_SECONDS := 3.0
 const TRAIL_RADIUS := 1.3
 const TRAIL_DPS := 8.0
@@ -114,6 +119,8 @@ var _leap_from := Vector3.ZERO
 var _leap_to := Vector3.ZERO
 var _leap_t := 1.0
 var _leap_hit: Dictionary = {}
+# Blocked metres the current leap hops over (raises the arc so the hop reads).
+var _leap_hopped := 0.0
 # Areas lying in the world: {center, radius, dps, left, node, slow}.
 var areas: Array[Dictionary] = []
 var _vfx: Node3D
@@ -179,7 +186,10 @@ func speed_multiplier() -> float:
 
 ## Height of the Glutsprung arc right now (m; 0 on the ground).
 func leap_height() -> float:
-	return sin(_leap_t * PI) * LEAP_ARC if ability_id == "glutsprung" and _leap_t < 1.0 else 0.0
+	if ability_id != "glutsprung" or _leap_t >= 1.0:
+		return 0.0
+	# A hop over an obstacle flies higher (up to x1.5) so it reads as a jump over it.
+	return sin(_leap_t * PI) * LEAP_ARC * (1.0 + 0.5 * clampf(_leap_hopped / LEAP_HOP_MAX, 0.0, 1.0))
 
 
 func line_formation() -> bool:
@@ -352,24 +362,69 @@ func _world_parent() -> Node:
 
 func _start_leap() -> void:
 	_leap_from = _swarm()
-	var target := _leap_from + direction * LEAP_DISTANCE * float(modifiers.radius)
-	var arena: Variant = _call("ability_arena")
-	if arena != null and is_instance_valid(arena) and arena.has_method("resolve_motion"):
-		# Walk the line in 1 m steps: a wall ends the leap early (never through it).
-		var at := _leap_from
-		var steps := ceili(LEAP_DISTANCE * float(modifiers.radius))
-		for index in steps:
-			var next: Vector3 = arena.resolve_motion(at, direction * (LEAP_DISTANCE * float(modifiers.radius) / steps), 0.75)
-			if next.distance_to(at) < 0.2:
-				break
-			at = next
-		target = at
+	var distance := LEAP_DISTANCE * float(modifiers.radius)
+	var target := _leap_landing(_leap_from, direction, distance)
 	_leap_to = Vector3(target.x, 0.0, target.z)
 	_leap_t = 0.0
 	_leap_hit.clear()
 	grace_left = duration_total() + LEAP_GRACE
 	_vfx_spawn("shock", _leap_from, 4.0)
 	FX.ring(_world_parent(), _leap_from, Color(OWN_LIGHT, 0.85), 0.6, 3.0, 0.4)
+
+
+## Landing point of a leap from `from` along `dir` (at most `distance` m). The
+## line is sampled every LEAP_SAMPLE m with arena.is_open (playable rect, walls,
+## obstacle circles; clearance = swarm motion radius). The landing is the
+## farthest open sample behind which every blocked stretch is at most
+## LEAP_HOP_MAX long; a longer stretch (wide wall, beyond the map edge, which a
+## straight line never re-enters) ends the scan. No open sample beyond the
+## start: the old walk (stop in front of the wall). Sets _leap_hopped.
+func _leap_landing(from: Vector3, dir: Vector3, distance: float) -> Vector3:
+	_leap_hopped = 0.0
+	var arena: Variant = _call("ability_arena")
+	if arena == null or not is_instance_valid(arena):
+		return from + dir * distance
+	if not arena.has_method("is_open"):
+		return _leap_walk(arena, from, dir, distance)
+	var flat := Vector3(dir.x, 0.0, dir.z)
+	if flat.length_squared() < 0.0001 or distance <= 0.0:
+		return from
+	flat = flat.normalized()
+	var samples := maxi(1, ceili(distance / LEAP_SAMPLE))
+	var step := distance / float(samples)
+	var landing := 0
+	var run := 0
+	var blocked := 0
+	var hopped := 0
+	for index in range(1, samples + 1):
+		if arena.is_open(from + flat * (step * float(index)), LEAP_CLEARANCE):
+			blocked += run
+			run = 0
+			landing = index
+			hopped = blocked
+		else:
+			run += 1
+			if float(run) * step > LEAP_HOP_MAX:
+				break
+	if landing == 0:
+		return _leap_walk(arena, from, flat, distance)
+	_leap_hopped = float(hopped) * step
+	return from + flat * (step * float(landing))
+
+
+# Pre-stage-27 leap: walks the line in 1 m steps with resolve_motion; a wall
+# ends it early (never through it).
+func _leap_walk(arena: Variant, from: Vector3, dir: Vector3, distance: float) -> Vector3:
+	if not arena.has_method("resolve_motion"):
+		return from + dir * distance
+	var at := from
+	var steps := maxi(1, ceili(distance))
+	for index in steps:
+		var next: Vector3 = arena.resolve_motion(at, dir * (distance / steps), LEAP_CLEARANCE)
+		if next.distance_to(at) < 0.2:
+			break
+		at = next
+	return at
 
 
 func _step_leap(delta: float) -> void:

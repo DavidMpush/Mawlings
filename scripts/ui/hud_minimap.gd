@@ -46,6 +46,9 @@ var _bake_budget := int(preload("res://scripts/quality.gd").value("minimap_bake_
 const UPLOAD_GAP := 0.4            # seconds between texture uploads while baking
 const BANNER_SECONDS := 2.0
 const ARRIVAL_HOLD := 3.2
+# Etappe 27 (S25 feedback): the region-name banner on entering a region is off;
+# region names stay on the big map.
+const REGION_BANNER := false
 const HORDE_BIN := 6.0
 const EDGE_BAND_MINI := 4.0        # px of the edge band on the minimap
 const EDGE_BAND_BIG := 9.0         # px of the edge band on the big map
@@ -1100,7 +1103,7 @@ func _step_banner(real_delta: float) -> void:
 		_entries_seen = entries
 	elif entries != _entries_seen:
 		_entries_seen = entries
-		_banner_pending = true
+		_banner_pending = REGION_BANNER
 	var arrivals := int(_state.get("arrivals", 0))
 	if arrivals != _arrivals_seen:
 		if _arrivals_seen >= 0 and arrivals > _arrivals_seen:

@@ -28,7 +28,7 @@ class FakeHorde extends Node3D:
 	func setup(_world: Node3D, _swarm: Node3D, _arena: Node3D) -> void:
 		pass
 
-	func spawn_ring(_center: Vector3, amount: int, _radius: float, stats: Dictionary) -> int:
+	func spawn_ring(_center: Vector3, amount: int, _radius: float, stats: Dictionary, _heading := Vector3.ZERO) -> int:
 		rings += 1
 		last_stats = stats
 		return amount

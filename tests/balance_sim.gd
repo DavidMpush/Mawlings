@@ -225,6 +225,8 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 	var apex_seen := -1.0
 	var apex_killed := -1.0
 	var migrated := -1.0
+	# Etappe 27: kills when the first migration landed (activity per minute afterwards).
+	var kills_migrated := 0
 	# Stage 10 part 3: every apex fight as "kind:seconds" (spawn -> kill, "+" = still alive at the end).
 	var fights := PackedStringArray()
 	var fight_apex: Variant = null
@@ -304,6 +306,7 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 			apex_killed = world.model.elapsed
 		if migrated < 0.0 and int(world.get("migrations")) > 0:
 			migrated = world.model.elapsed
+			kills_migrated = world.model.kills
 		var apex_live: Variant = world.get("apex")
 		if OS.get_environment("BALANCE_TOADTRACE") != "" and apex_live != null and fmod(world.model.elapsed, 2.0) < STEP:
 			print("TOAD t=%.0f d=%.1f rim=%.1f state=%d hp=%.0f pop=%d flood=%d brood=%d" % [world.model.elapsed, apex_live.position.distance_to(swarm.position), apex_live.body_distance(swarm.position) if apex_live.has_method("body_distance") else -1.0, apex_live.state, apex_live.health, world.model.population, int(world.flood_state), int(world.horde.count()) if world.get("horde") != null else -1])
@@ -352,11 +355,11 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"migrated": migrated,
 		"fights": fights,
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d ability=%s:%d wall=%.1f" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d ability=%s:%d surges=%d kpm_w1=%.0f kpm_after=%.0f wall=%.1f" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
 		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop60, pop120, pop_flood, stats.swaps, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
-		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, String(world.abilities.ability_id) if world.get("abilities") != null else "-", int(world.abilities.uses) if world.get("abilities") != null else 0, (Time.get_ticks_msec() - wall) / 1000.0])
+		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, String(world.abilities.ability_id) if world.get("abilities") != null else "-", int(world.abilities.uses) if world.get("abilities") != null else 0, int(world.get("surge_total")) if world.get("surge_total") != null else 0, (float(kills_migrated if migrated >= 0.0 else world.model.kills) * 60.0 / maxf(1.0, migrated if migrated >= 0.0 else world.model.elapsed)), (float(world.model.kills - kills_migrated) * 60.0 / maxf(1.0, world.model.elapsed - migrated) if migrated >= 0.0 else -1.0), (Time.get_ticks_msec() - wall) / 1000.0])
 	root.remove_child(scene)
 	scene.free()
 	await process_frame

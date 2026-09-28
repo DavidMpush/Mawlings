@@ -31,6 +31,7 @@ const JOY_R := 104.0
 const KNOB_R := 50.0
 const KNOB_TRAVEL := 52.0
 const BANNER_GAP := 52.0  # space between banner and the top claws
+const JOY_IDLE_ALPHA := 0.45  # Etappe 27: idle (floating) joystick at rest
 
 var _icons: Script = null
 var _icons_checked := false
@@ -154,6 +155,11 @@ func _refresh_layers(hud: Control) -> void:
 	_layers.joy.refresh([hud.movement_vector, move_c])
 	_region("joy_base", Rect2(move_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0))
 	_layers.joy_base.refresh([move_c, UiStyle.is_brawl()])
+	# Etappe 27: floating joystick. At rest it waits dimmed ("thumb anywhere
+	# on the right"); held, it sits under the thumb at full strength.
+	var joy_alpha := 1.0 if _movement_active(hud) else JOY_IDLE_ALPHA
+	_fade(_layers.joy, joy_alpha)
+	_fade(_layers.joy_base, joy_alpha)
 	# Stage 17d: ability button (repaints only when its state changes).
 	var ability: Dictionary = hud.ability_state if "ability_state" in hud else {}
 	_layers.ability.visible = not ability.is_empty() and not debug_hidden.has("ability")
@@ -181,6 +187,22 @@ func _refresh_layers(hud: Control) -> void:
 	rings.visible = pressed
 	if pressed:
 		rings.refresh(null, true)
+
+
+## Fades a layer. A baked layer is drawn with premultiplied alpha, so its
+## colour has to shrink with the alpha, or the fade would only brighten it.
+func _fade(layer: Control, alpha: float) -> void:
+	var premult: bool = layer.material != null
+	layer.modulate = Color(alpha, alpha, alpha, alpha) if premult else Color(1, 1, 1, alpha)
+
+
+func _movement_active(hud: Control) -> bool:
+	return hud.has_method("movement_active") and hud.movement_active()
+
+
+## Joystick rest position (the floating origin must not move banner or tips).
+func _movement_rest(hud: Control) -> Vector2:
+	return hud.movement_rest_center() if hud.has_method("movement_rest_center") else hud._movement_center()
 
 
 func _region(part: String, rect: Rect2) -> void:
@@ -499,7 +521,7 @@ func _tip_accent(id: String) -> Color:
 # Top of the hint banner slot: above the claws, and (brawl) above the ability
 # button's cooldown ring when a strain ability is shown.
 func _banner_top(hud: Control) -> float:
-	var top := minf(hud._rally_center().y, hud._movement_center().y) - FRAME_R - 30.0 - BANNER_GAP
+	var top := minf(hud._rally_center().y, _movement_rest(hud).y) - FRAME_R - 30.0 - BANNER_GAP
 	if UiStyle.is_brawl() and "ability_state" in hud and not (hud.ability_state as Dictionary).is_empty():
 		var ability_top: float = (hud._ability_center() as Vector2).y - ABILITY_R - 24.0
 		top = minf(top, ability_top - 14.0 - BRAWL_HINT_H)

@@ -2,7 +2,7 @@ extends SceneTree
 
 # Stage 17d: the tribe ability inside a real run (HuntWorld + Swarm + HUD).
 # Strain -> ability, HUD button state, Q key, cooldown, pause and reset,
-# Glutsprung (moves the swarm, arc, no losses), Panzerstoß (-60 % losses and
+# Glutsprung (moves the swarm, arc, no losses, hops on a seeded map), Panzerstoß (-60 % losses and
 # leader LP), Hetzjagd (speed x1.7, line formation), Schattenschleier (announced
 # areas miss, enemies aim at the decoy), migration ends effects, relics.
 
@@ -51,7 +51,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS ability_run: strain ability + HUD button, Q key, cooldown, Glutsprung (8 m, arc, no losses), Panzerstoß (-60 % animals + leader), Hetzjagd (x1.7, line), Schattenschleier (areas miss, decoy), pause/reset/migration, relic")
+	print("PASS ability_run: strain ability + HUD button, Q key, cooldown, Glutsprung (8 m, arc, no losses; seeded map: landings open + inside, hops carry all 120 animals), Panzerstoß (-60 % animals + leader), Hetzjagd (x1.7, line), Schattenschleier (areas miss, decoy), pause/reset/migration, relic")
 	quit(0)
 
 
@@ -110,6 +110,86 @@ func _check_leap() -> void:
 	var moved := Vector2(swarm.position.x - start.x, swarm.position.z - start.z)
 	_check(moved.length() > 6.0 and moved.y < -5.0, "Glutsprung carries the swarm forward (%.1f m)" % moved.length())
 	_check(swarm.leap_height == 0.0, "Landed")
+	_check_leap_map()
+
+
+# Stage 27 E on a real seeded map: every landing is open ground inside the map;
+# leaps over narrow obstacles carry all animals along (none stays behind the
+# wall once the swarm settles), toward the map edge they stay inside.
+func _check_leap_map() -> void:
+	var arena: Variant = scene.get_node("Arena")
+	world.config = {"strain_id": "glutmaw", "seed": 4242}
+	arena.set_seed(4242)
+	world.reset_run()
+	world.config = {}
+	world.model.population = 120
+	swarm.set_population(120, false)
+	for clock in ["hunter_clock", "skitter_clock", "leaper_clock", "elite_clock", "nest_clock", "boss_clock"]:
+		world.set(clock, 9999.0)
+	world.flood_start = 100000.0
+	world.model.leader_invulnerable = 1.0e9
+	var ability: Variant = world.abilities
+	_check(arena.has_layout(), "Seeded map has a layout")
+	var play: Rect2 = arena.playable_rect()
+	var hops: Array = []
+	var bad := 0
+	var leaps := 0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 27
+	for attempt in 3000:
+		var from := Vector3(rng.randf_range(play.position.x, play.end.x), 0.0, rng.randf_range(play.position.y, play.end.y))
+		if not arena.is_open(from, 0.75):
+			continue
+		var angle := rng.randf() * TAU
+		var dir := Vector3(cos(angle), 0.0, sin(angle))
+		var landing: Vector3 = ability._leap_landing(from, dir, ability.LEAP_DISTANCE)
+		leaps += 1
+		if not arena.is_open(landing, 0.7) or not arena.is_inside(landing, 0.7):
+			bad += 1
+		if ability._leap_hopped > 0.5 and hops.size() < 8:
+			hops.append([from, dir, landing, ability._leap_hopped])
+	_check(bad == 0, "Every leap lands on open ground inside the map (%d of %d bad)" % [bad, leaps])
+	_check(hops.size() >= 3, "The seeded map offers narrow obstacles to hop (%d)" % hops.size())
+	# Toward every edge from just inside: the landing stays inside.
+	for side in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+		var center := Vector3(play.get_center().x, 0.0, play.get_center().y)
+		var near: Vector3 = arena.clamp_inside(center + side * play.size.x, 4.0)
+		var landing: Vector3 = ability._leap_landing(near, side, ability.LEAP_DISTANCE)
+		_check(arena.is_inside(landing, 0.7), "Leap toward the edge stays inside (%s)" % landing)
+	# Real hops with the swarm animated: nobody is left behind the obstacle.
+	var stuck_total := 0
+	for hop in hops:
+		swarm.position = hop[0]
+		ability.clear()
+		for index in 60:
+			swarm._process(DT)
+		ability.use(hop[1])
+		var airborne := 0.0
+		for index in int(ceil(0.5 / DT)):
+			swarm._process(DT)
+			world.step(DT)
+			airborne = maxf(airborne, swarm.leap_height)
+		_check(swarm.position.distance_to(hop[2]) < 0.1, "Swarm lands at the planned hop landing (%s vs %s)" % [swarm.position, hop[2]])
+		_check(arena.is_open(swarm.position, 0.7), "Hop landing on open ground (%s)" % swarm.position)
+		_check(airborne > ability.LEAP_ARC, "A hop flies higher than a plain leap (%.2f m)" % airborne)
+		for index in int(ceil(2.0 / DT)):
+			swarm._process(DT)
+		var stuck := 0
+		for unit in swarm.units:
+			if not unit.visible:
+				continue
+			var spot: Vector3 = swarm.position + unit.position
+			for sample in range(1, 9):
+				var probe: Vector3 = swarm.position.lerp(spot, float(sample) / 8.0)
+				if not arena.is_open(probe, 0.05):
+					stuck += 1
+					break
+		stuck_total += stuck
+	_check(stuck_total == 0, "No animal stays behind a hopped obstacle (%d)" % stuck_total)
+	print("  leap map: %d leaps, %d hops found, %d animals behind walls" % [leaps, hops.size(), stuck_total])
+	# Back to the classic map for the other checks.
+	arena.set_seed(0)
+	world.reset_run()
 
 
 func _check_shock() -> void:

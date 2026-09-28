@@ -8,7 +8,8 @@ Erledigt seit dem letzten Aufräumen: 15 UI-Supercell, 16 Kristalle/Magnet, 17 d
 
 ### Offene Todos
 
-**Neues S25-Nutzerfeedback (28.09.2026):** [Playtest-Protokoll](../playtests/2026-09-28_s25_feedback.md) – nach drei Migrationen/über 15 Minuten zu wenig Gegner zwischen Fluten, Wunsch nach Hordenwellen; außerdem dynamischer rechter Joystick, verdeckte XP-Anzeige, Gebietsnamen-Overlay entfernen und Sprungfähigkeiten über schmale Hindernisse. Noch nicht umgesetzt; vor weiterer Content-Ausweitung als nächsten Geräte- und Survival-Pass priorisieren.
+**Neues S25-Nutzerfeedback (28.09.2026):** [Playtest-Protokoll](../playtests/2026-09-28_s25_feedback.md) – nach drei Migrationen/über 15 Minuten zu wenig Gegner zwischen Fluten, Wunsch nach Hordenwellen; außerdem dynamischer rechter Joystick, verdeckte XP-Anzeige, Gebietsnamen-Overlay entfernen und Sprungfähigkeiten über schmale Hindernisse. **Umgesetzt in [Etappe 27](27_s25_feedback.md)** (Hordenwellen + Direktor-Vorsprung je Welt, schwebender Joystick, XP-Balken, kein Gebietsbanner, Glutsprung über Hindernisse); offen ist der S25-Vergleichsrun über drei Migrationen.
+0a. **Late-Game-Druck ab Welt 2 (Entscheidung nötig, Etappe 27):** Der Balance-Lauf ist zweigeteilt: Wer den ersten Apex schlägt, migriert vor jeder Flut weiter und überlebt mit über 1000 Tieren 20+ min. Optionen: Flut-Countdown über Migrationen fortsetzen statt zurückzusetzen, Welt-Bonus stark erhöhen (z. B. ×2 je Welt), oder die Flut in Welt n früher starten. Danach Zielkurven neu festlegen.
 0. **Stand 28.09.2026 abends (Commit „World reset + stronger apex“):** Umgesetzt, aber **ohne abschließenden Balance-Kontrolllauf**:
    - Apex-Bosse deutlich stärker als der Bog King (Ziel ≥ 3× LP, Kampf 45–70 s).
    - Migration setzt Druck und Flut zurück (Schwarm, Build, Level, Relikte und Bernstein bleiben), Welt-Bonus je Welt, Welt-Anzeige im HUD.
@@ -60,10 +61,9 @@ Erledigt seit dem letzten Aufräumen: 15 UI-Supercell, 16 Kristalle/Magnet, 17 d
 - **Schriftwahl:** 8 OFL-Kandidaten liegen unter `assets/ui/fonts/candidates/` (Vergleich `tests/capture_fonts.gd`). Empfehlung: Baloo 2 ExtraBold (Titel) + Figtree (Text).
 - **Gefahrenfarbe:** Magenta statt Rot für Gegnerflächen (eigene Farbe bleibt Glut-Rot)?
 - **Reihenfolge:** Etappe 14 (Swarm-Lesbarkeit) als Nächstes?
-- **Android-Test auf dem Gerät:** APK baut (`tools/export_android.ps1`); Handy mit USB-Debugging anschließen.
+- **S25-Vergleichsrun nach Etappe 27:** neue APK, Run über mindestens drei Migrationen (Aktivität zwischen Fluten, Wellen lesbar, FPS, Joystick).
 - **Modelle (Hunyuan3D):** Skitter, Moorbrut, Moosschlund, Aschenkröte, Brutnest, Stamm-Anführer, Glutsumpf-Requisiten (Prompts in `stages/ASSET_REQUESTS.md`).
 - **Später:** Name/Markenprüfung, Monetarisierung (Free-to-play mit Werbung und Skins).
-- **Handtest:** 5–10 Minuten Spielgefühl.
 
 ## Erledigt
 - 01 Bewegung & Lesbarkeit · 02 Welt & Assets · 03 Progression · 04 UI-Komponenten · 05 Spielgefühl, Balance, Lesbarkeit · 06 Ziele, Einstieg, UI-Politur, Leistungsmessung · 07 Leistung · 08 Die Flut & Schwierigkeit · 09 Einzelstart & Anführer · 10 Apex, Migration, Build-Vielfalt, Nutzer-Sounds/Drops/Icons · Minimap · V2-Stil · Aschenkröte · Asset-Paket V3 · Android-Export · 16 Beute-Kristalle & Magnet · 18 Begrenzte Karte (`stages/18_bounded_map.md`)

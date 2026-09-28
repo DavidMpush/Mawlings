@@ -1128,25 +1128,33 @@ func spawn_point_near(center: Vector3, distance: float, angle: float, clearance:
 
 ## A flood spawn point: a random cell at 24-44 m walking distance from the
 ## swarm (the path mouths just out of view), at least 18 m away in a straight
-## line. `salt` varies the pick. INF without a finished field.
-func flood_point(salt: int) -> Vector3:
+## line. `salt` varies the pick. INF without a finished field. Etappe 27: a
+## non-zero `heading` prefers cells within ~70 deg of that direction (a
+## Hordenwelle from one side); without such a cell any ring cell is used.
+func flood_point(salt: int, heading := Vector3.ZERO) -> Vector3:
 	if flow == null or not flow.ready:
 		return Vector3.INF
 	var ring: PackedInt32Array = flow.ring
 	if ring.is_empty():
 		return Vector3.INF
 	var source: Vector3 = flow.source
-	for attempt in 6:
+	var aim := Vector2(heading.x, heading.z).normalized() if heading.length_squared() > 0.0001 else Vector2.ZERO
+	var fallback := Vector3.INF
+	for attempt in (6 if aim == Vector2.ZERO else 18):
 		var roll := _scramble(salt * 7919 + attempt * 104729 + world_seed)
 		var cell: int = ring[posmod(roll, ring.size())]
 		var point: Vector3 = flow.cell_center(cell)
 		point.x += (float(posmod(roll >> 12, 100)) / 100.0 - 0.5) * 2.4
 		point.z += (float(posmod(roll >> 20, 100)) / 100.0 - 0.5) * 2.4
-		if Vector2(point.x - source.x, point.z - source.z).length() < 18.0:
+		var away := Vector2(point.x - source.x, point.z - source.z)
+		if away.length() < 18.0:
 			continue
 		if is_open(point, 0.5):
-			return point
-	return Vector3.INF
+			if aim == Vector2.ZERO or away.normalized().dot(aim) >= 0.34:
+				return point
+			if not fallback.is_finite():
+				fallback = point
+	return fallback
 
 # Cached A* grid over the flow cells (native) for nav_direction().
 var _astar: AStarGrid2D

@@ -10,6 +10,7 @@ const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const META_DATA = preload("res://scripts/meta/meta_data.gd")
 const FX = preload("res://scripts/fx.gd")
+const UI_STYLE = preload("res://scripts/ui/ui_style.gd")
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
 const QUALITY = preload("res://scripts/quality.gd")
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
@@ -192,6 +193,15 @@ var flood_bundle_clock := 0.0
 const HORDE_FLASH := 0.5
 const HORDE_FLASH_SECONDS := 0.6
 var horde_flash_at := 0.0
+# Etappe 27 - Hordenwellen outside the flood (same horde, one direction).
+# surge_state: 0 calm, 1 announced (warning). surge_next = world time of the next
+# wave; surge_index counts the waves of this world, surge_total of the run.
+var surge_state := 0
+var surge_next := TUNING.SURGE_FIRST_SECONDS
+var surge_index := 0
+var surge_total := 0
+var surge_heading := Vector3(0.0, 0.0, -1.0)
+var _surge_mark_clock := 0.0
 # Etappe 09 - Anfuehrer: HUD/feel state (rules live in RunModel.apply_hit()).
 const MILESTONE_SHOW_SECONDS := 2.5
 var last_loss_fraction := 0.0
@@ -600,6 +610,16 @@ func _reset_flood() -> void:
 	flood_bundle_clock = 0.0
 	horde_flash_at = 0.0
 	flood_lure_stage = 0
+	_reset_surges()
+	surge_total = 0
+
+
+# Etappe 27: the wave schedule of a fresh world (run start or migration).
+func _reset_surges() -> void:
+	surge_state = 0
+	surge_index = 0
+	surge_next = TUNING.SURGE_FIRST_SECONDS if arrivals == 0 else TUNING.SURGE_FIRST_LATER
+	_surge_mark_clock = 0.0
 
 
 # Difficulty multipliers (enemy HP/damage) ramp in over the first
@@ -681,18 +701,25 @@ func _step_flood(delta: float, damage: float) -> bool:
 			_sfx("threat")
 			_music_cue("flood")
 			_shake(0.45)
-	if flood_state != 2:
-		return false
-	flood_wave_clock -= delta
-	if flood_wave_clock <= 0.0:
-		flood_wave_clock = TUNING.FLOOD_WAVE_SECONDS
-		_spawn_flood_wave()
-	# Etappe 16: every new flood stage drops a Lockruf ahead of the swarm.
-	var stage := int(floor(flood_level()))
-	if stage > flood_lure_stage:
-		flood_lure_stage = stage
-		drop_lure(swarm.position + Vector3(0.0, 0.0, -TUNING.LURE_FLOOD_DISTANCE))
+	if flood_state == 2:
+		flood_wave_clock -= delta
+		if flood_wave_clock <= 0.0:
+			flood_wave_clock = TUNING.FLOOD_WAVE_SECONDS
+			_spawn_flood_wave()
+		# Etappe 16: every new flood stage drops a Lockruf ahead of the swarm.
+		var stage := int(floor(flood_level()))
+		if stage > flood_lure_stage:
+			flood_lure_stage = stage
+			drop_lure(swarm.position + Vector3(0.0, 0.0, -TUNING.LURE_FLOOD_DISTANCE))
+	return _step_horde(delta, damage)
+
+
+# Moves, bites and kills the Moorbrut: during the flood and (Etappe 27) while a
+# Hordenwelle lives outside it. Same bite, crystal and loss rules for both.
+func _step_horde(delta: float, damage: float) -> bool:
 	if horde == null:
+		return false
+	if flood_state != 2 and horde.count() == 0 and flood_bundles.is_empty():
 		return false
 	var points := _unit_points()
 	if horde.has_method("melee") and horde.count() > 0 and not points.is_empty():
@@ -711,6 +738,128 @@ func _spawn_flood_wave() -> void:
 	center.y = 0.0
 	horde.spawn_ring(center, count, TUNING.FLOOD_RING_RADIUS, flood_stats())
 	flood_waves += 1
+
+
+# ------------------------------------------------------------ Hordenwellen (Etappe 27)
+
+## Wave level k like a flood stage: bite and speed grow with the reached worlds and
+## the wave number of this world (bite losses already scale with the population).
+func surge_level() -> float:
+	return minf(TUNING.SURGE_LEVEL_MAX, TUNING.SURGE_LEVEL_WORLD * float(arrivals) + TUNING.SURGE_LEVEL_STEP * float(surge_index))
+
+
+## Stats of a Hordenwelle's Moorbrut; the HP also grow with log2(P/25) so a big
+## swarm has to bite through them instead of brushing them away.
+func surge_stats() -> Dictionary:
+	var level := surge_level()
+	var hp_level := minf(TUNING.SURGE_LEVEL_MAX + 3.0, level + TUNING.SURGE_HP_POP * log(maxf(1.0, float(model.population) / 25.0)) / log(2.0))
+	var growth := pow(2.0, level)
+	var speed_cap := minf(TUNING.FLOOD_SPEED_CAP, swarm.move_speed() * TUNING.FLOOD_SPEED_SHARE)
+	return {
+		"hp": TUNING.FLOOD_HP * pow(2.0, hp_level) * enemy_hp * world_scale(),
+		"speed": minf(TUNING.FLOOD_SPEED * growth, speed_cap),
+		"bite": TUNING.FLOOD_BITE * growth,
+		"bite_cooldown": TUNING.FLOOD_BITE_COOLDOWN,
+		"biomass": TUNING.FLOOD_KILL_BIOMASS,
+		"dna": TUNING.FLOOD_KILL_DNA,
+	}
+
+
+## Moorbrut in the next wave (never above the shared FLOOD_MAX_ACTIVE).
+func surge_count() -> int:
+	var wanted := float(TUNING.SURGE_COUNT) * pow(TUNING.SURGE_COUNT_GROWTH, float(surge_index))
+	wanted *= 1.0 + TUNING.SURGE_COUNT_WORLD * float(arrivals)
+	wanted *= sqrt(maxf(1.0, float(model.population) / TUNING.SURGE_POP_REF))
+	var living := int(horde.count()) if horde != null and horde.has_method("count") else 0
+	return clampi(mini(TUNING.SURGE_MAX, int(round(wanted))), 0, maxi(0, TUNING.FLOOD_MAX_ACTIVE - living))
+
+
+func surge_interval() -> float:
+	return maxf(TUNING.SURGE_INTERVAL_MIN, TUNING.SURGE_INTERVAL - TUNING.SURGE_INTERVAL_WORLD * float(arrivals))
+
+
+# Waves wait while the flood is announced or running, an apex rises or fights,
+# the migration runs, and (first world) while the swarm is still tiny.
+func _surge_blocked() -> bool:
+	if flood_state != 0 or world_time() >= flood_start - TUNING.FLOOD_WARNING_SECONDS - TUNING.SURGE_WARNING_SECONDS:
+		return true
+	if apex_state == 1 or apex_state == 2 or migration_state == 1 or horde == null:
+		return true
+	# Keep the boss fight readable: no wave whose brood would still live when the
+	# apex rises.
+	if apex_state == 0 and apex_due_seconds() - model.elapsed < TUNING.SURGE_APEX_GAP:
+		return true
+	return arrivals == 0 and model.population < TUNING.SURGE_MIN_POPULATION
+
+
+# Schedule, warning and spawn of the Hordenwellen; returns the hint line.
+func _step_surges(delta: float, message: String) -> String:
+	if _surge_blocked():
+		if surge_state == 1:
+			surge_state = 0
+		# A blocked wave comes a little after the block ends, not all at once.
+		surge_next = maxf(surge_next, world_time() + TUNING.SURGE_WARNING_SECONDS + 2.0)
+		return message
+	if surge_state == 0 and world_time() >= surge_next - TUNING.SURGE_WARNING_SECONDS:
+		surge_state = 1
+		# The full warning always runs (also after a block or a jump in time).
+		surge_next = maxf(surge_next, world_time() + TUNING.SURGE_WARNING_SECONDS)
+		surge_heading = _surge_direction()
+		_surge_mark_clock = 0.0
+		_sfx("flood_warn", 90)
+	if surge_state == 1:
+		_surge_mark_clock -= delta
+		if _surge_mark_clock <= 0.0:
+			_surge_mark_clock = 0.5
+			# Danger rings along the incoming direction: "they come from there".
+			for distance in [7.0, 10.5, 14.0]:
+				FX.ring(get_parent(), swarm.position + surge_heading * distance, Color(UI_STYLE.BRAWL_DANGER_LIGHT, 1.0), 3.2, 1.2, 0.6)
+		if world_time() >= surge_next:
+			_spawn_surge()
+		else:
+			return "HORDE NAHT %s · Brut kommt in %d s" % [_surge_side(), maxi(1, ceili(surge_next - world_time()))]
+	if horde != null and horde.count() > 0 and flood_state == 0 and (message.begins_with("Jage") or message.begins_with("Mawlings greifen") or message.begins_with("Kristalle")):
+		return "HORDE · in Bewegung bleiben, Brut zerbeißen"
+	return message
+
+
+func _spawn_surge() -> void:
+	surge_state = 0
+	var count := surge_count()
+	if count > 0 and horde.has_method("spawn_ring"):
+		var center: Vector3 = swarm.position + surge_heading * TUNING.SURGE_DISTANCE
+		center.y = 0.0
+		horde.spawn_ring(center, count, TUNING.SURGE_RADIUS, surge_stats(), surge_heading)
+		_sfx("stomp", 160)
+		_shake(0.3)
+	surge_index += 1
+	surge_total += 1
+	surge_next = world_time() + surge_interval()
+
+
+# The incoming direction: one of eight, preferring a centre that lies inside the
+# map (a wave from beyond the edge would fold back and lose its direction).
+func _surge_direction() -> Vector3:
+	var arena: Node = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	var start := drop_rng.randi_range(0, 7)
+	var fallback := Vector3.ZERO
+	for step in 8:
+		var angle := TAU * float((start + step) % 8) / 8.0
+		var heading := Vector3(cos(angle), 0.0, sin(angle))
+		if fallback == Vector3.ZERO:
+			fallback = heading
+		if arena == null or not arena.has_method("is_inside") or arena.is_inside(swarm.position + heading * TUNING.SURGE_DISTANCE, TUNING.SURGE_RADIUS):
+			return heading
+	return fallback
+
+
+# Screen side of the incoming wave (the camera looks along -Z = up).
+func _surge_side() -> String:
+	if absf(surge_heading.x) > absf(surge_heading.z) * 1.5:
+		return "VON RECHTS" if surge_heading.x > 0.0 else "VON LINKS"
+	if absf(surge_heading.z) > absf(surge_heading.x) * 1.5:
+		return "VON OBEN" if surge_heading.z < 0.0 else "VON UNTEN"
+	return ("VON OBEN" if surge_heading.z < 0.0 else "VON UNTEN") + (" RECHTS" if surge_heading.x > 0.0 else " LINKS")
 
 
 # Bitten animals fall first (prefer_removal); the loss is scaled to the logical
@@ -1085,7 +1234,10 @@ func step(delta: float) -> void:
 		hunter_clock = maxf(hunter_clock, TUNING.FIRST_HUNTER_GRACE)
 	hunter_clock -= delta
 	# Stage 09: the budget grows from the moment hunters unlocked (lone start).
-	var hunter_budget := mini(TUNING.MAX_HUNTERS, TUNING.HUNTER_BUDGET_BASE + int(maxf(0.0, model.elapsed - hunters_unlocked_at) / TUNING.HUNTER_BUDGET_SECONDS))
+	# Etappe 27: every reached world raises the caps (see _start_new_world for the head start).
+	var hunter_cap := mini(TUNING.HUNTER_CAP_MAX, TUNING.MAX_HUNTERS + TUNING.WORLD_HUNTER_CAP * arrivals)
+	var side_bonus := TUNING.WORLD_SIDE_CAP * arrivals
+	var hunter_budget := mini(hunter_cap, TUNING.HUNTER_BUDGET_BASE + int(maxf(0.0, model.elapsed - hunters_unlocked_at) / TUNING.HUNTER_BUDGET_SECONDS))
 	# ... and never more hunters than the swarm can take (1 + P / HUNTER_POPULATION_STEP).
 	hunter_budget = mini(hunter_budget, 1 + model.population / TUNING.HUNTER_POPULATION_STEP)
 	# The early gate holds for new hunters as long as it applies (a wiped swarm
@@ -1097,16 +1249,17 @@ func step(delta: float) -> void:
 		var small := clampf(1.0 - float(model.population) / 25.0, 0.0, 1.0)
 		hunter_clock = maxf(TUNING.HUNTER_SPAWN_MIN, TUNING.HUNTER_SPAWN_SECONDS / sqrt(pressure)) * (1.0 + TUNING.HUNTER_SMALL_SWARM_DELAY * small)
 	skitter_clock -= delta
-	var skitter_budget := mini(TUNING.MAX_SKITTERS, 1 + int(world_time() / TUNING.SKITTER_BUDGET_SECONDS))
+	var skitter_budget := mini(mini(TUNING.SIDE_CAP_MAX, TUNING.MAX_SKITTERS + side_bonus), 1 + side_bonus + int(world_time() / TUNING.SKITTER_BUDGET_SECONDS))
 	# Stage 09: side threats join as the swarm grows (none below one step).
 	skitter_budget = mini(skitter_budget, model.population / TUNING.SKITTER_POPULATION_STEP)
-	if world_time() >= TUNING.FIRST_SKITTER_SECONDS and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
+	# Later worlds: side threats join after WORLD_SIDE_DELAY instead of the lone-start delay.
+	if world_time() >= (TUNING.FIRST_SKITTER_SECONDS if arrivals == 0 else TUNING.WORLD_SIDE_DELAY) and skitter_clock <= 0.0 and skitters.size() < skitter_budget:
 		_spawn_skitter(_spawn_position(9.0))
 		skitter_clock = maxf(TUNING.SKITTER_SPAWN_MIN, TUNING.SKITTER_SPAWN_SECONDS / sqrt(pressure))
 	leaper_clock -= delta
-	var leaper_budget := mini(TUNING.MAX_LEAPERS, 1 + int(maxf(0.0, world_time() - TUNING.FIRST_LEAPER_SECONDS) / TUNING.LEAPER_BUDGET_SECONDS))
+	var leaper_budget := mini(mini(TUNING.SIDE_CAP_MAX, TUNING.MAX_LEAPERS + side_bonus), 1 + side_bonus + int(maxf(0.0, world_time() - TUNING.FIRST_LEAPER_SECONDS) / TUNING.LEAPER_BUDGET_SECONDS))
 	leaper_budget = mini(leaper_budget, model.population / TUNING.LEAPER_POPULATION_STEP)
-	if world_time() >= TUNING.FIRST_LEAPER_SECONDS and leaper_clock <= 0.0 and leapers.size() < leaper_budget:
+	if world_time() >= (TUNING.FIRST_LEAPER_SECONDS if arrivals == 0 else TUNING.WORLD_SIDE_DELAY) and leaper_clock <= 0.0 and leapers.size() < leaper_budget:
 		_spawn_leaper(_spawn_position(10.0))
 		leaper_clock = maxf(TUNING.LEAPER_SPAWN_MIN, TUNING.LEAPER_SPAWN_SECONDS / sqrt(pressure))
 	# Stage 10: no new Bog King while the Moosschlund rises or lives.
@@ -1118,6 +1271,7 @@ func step(delta: float) -> void:
 			_spawn_boss(_spawn_position(11.0))
 	message = _step_objectives(delta, message)
 	message = _flood_message(message)
+	message = _step_surges(delta, message)
 	message = _apex_schedule(delta, message)
 	_update_hud(message)
 
@@ -2146,9 +2300,13 @@ func _start_new_world() -> void:
 		flood_bundles.clear()
 		flood_bundle_clock = 0.0
 		flood_lure_stage = 0
-		if horde != null and horde.has_method("clear"):
-			horde.clear()
-	hunters_unlocked_at = model.elapsed
+	# Etappe 27: a Hordenwelle still alive stays behind in the old world as well.
+	if horde != null and horde.has_method("clear"):
+		horde.clear()
+	_reset_surges()
+	# Etappe 27 (S25): the director starts with a head start of
+	# WORLD_HUNTER_HEADSTART hunters per reached world (budget grows from there).
+	hunters_unlocked_at = model.elapsed - float(TUNING.WORLD_HUNTER_HEADSTART * arrivals) * TUNING.HUNTER_BUDGET_SECONDS
 	hunter_clock = maxf(hunter_clock, TUNING.FIRST_HUNTER_GRACE)
 	if boss == null:
 		boss_clock = TUNING.FIRST_BOSS_SECONDS
@@ -2490,6 +2648,8 @@ func _update_hud(message: String) -> void:
 	_set_hud_value("amber", model.amber)
 	# Etappe 26: world counter under the clock (the clock shows the total run time).
 	_set_hud_value("world", arrivals + 1)
+	# Etappe 27: a Hordenwelle is announced (hud_top shows a context line).
+	_set_hud_value("surge_warning", surge_state == 1)
 	hud.set_meta("leader_heal", {"amount": leader_heal_shown, "age": model.elapsed - leader_heal_at})
 	_set_hud_value("strain_id", String(config.get("strain_id", META_DATA.STRAIN_ORDER[0])))
 	_set_hud_value("last_loss_fraction", last_loss_fraction)

@@ -26,6 +26,11 @@ const LEADER_GAP := 1.5
 const LEADER_FOLLOW_SPEED := 22.0
 const LEADER_WANDER := 0.04
 const LEADER_FOCUS_SHARE := 0.35
+# Stage 27 E (Glutsprung): above this arc height (m) the swarm counts as in the
+# air; the animals then tuck to LEAP_TUCK of their formation radius.
+const LEAP_AIRBORNE := 0.05
+const LEAP_TUCK := 0.2
+const LEAP_TUCK_SPEED := 14.0
 # Cell division (split_new_units): swell, then pinch and slide out.
 const SPLIT_SWELL := 0.25
 const SPLIT_SLIDE := 0.32
@@ -523,7 +528,10 @@ func _process(delta: float) -> void:
 	game_material.set_shader_parameter("idle_motion", 1.0)
 	var before := position
 	var motion := Vector3(movement_vector.x, 0.0, movement_vector.y) * move_speed() * delta
-	position = get_parent().get_node("Arena").resolve_motion(position, motion, 0.75)
+	# Stage 27 E: mid-Glutsprung the ability carries the swarm (possibly over a
+	# narrow obstacle); resolving it here would shove it out of that obstacle.
+	if leap_height <= LEAP_AIRBORNE:
+		position = get_parent().get_node("Arena").resolve_motion(position, motion, 0.75)
 	swarm_velocity = (position - before) / delta if delta > 0.0 else Vector3.ZERO
 	swarm_velocity.y = 0.0
 	clock += delta
@@ -577,6 +585,9 @@ func _animate_units(delta: float) -> void:
 	# Stage 18b: close to a wall of the path map every animal is pushed out of
 	# it (no Mawling stands inside the thicket or squeezes through a wall).
 	var walled: bool = field != null and field.has_method("has_layout") and field.has_layout() and field.wall_distance(position) < radius * 2.5 + 4.0
+	# Stage 27 E: mid-Glutsprung (the ability may carry the swarm over a narrow
+	# obstacle) no animal is pushed out of walls; the push resumes on landing.
+	var airborne := leap_height > LEAP_AIRBORNE
 	var damping := exp(-PUSH_DAMPING * delta)
 	var body_mesh := bodies.multimesh
 	var shadow_mesh := shadows.multimesh
@@ -615,13 +626,19 @@ func _animate_units(delta: float) -> void:
 		goal.x += sway * sin(clock * 0.7 + phase)
 		goal.z += sway * cos(clock * 0.53 + phase * 1.7)
 		var pull := 0.0
-		if focus_strength > 0.01:
+		if focus_strength > 0.01 and not airborne:
 			var to_focus := focus_local - goal
 			var distance := to_focus.length()
 			pull = focus_strength * clampf(1.0 - distance / reach, 0.2, 1.0)
 			goal += to_focus.limit_length(2.6) * pull * (LEADER_FOCUS_SHARE if is_leader else 1.0)
 		var old := unit.position
 		var response := 1.0 - exp(-(LEADER_FOLLOW_SPEED if is_leader else FOLLOW_SPEED * follow) * delta)
+		if airborne:
+			# Glutsprung: the animals tuck into a tight ball around the swarm
+			# centre, so they all land on the open landing spot (none is left
+			# on the near side of a hopped obstacle) and spread out from there.
+			goal *= LEAP_TUCK
+			response = maxf(response, 1.0 - exp(-LEAP_TUCK_SPEED * delta))
 		var next := old.lerp(Vector3(goal.x, 0.0, goal.z), response)
 		var push := unit_push[index]
 		if push.length_squared() > 0.0001:
@@ -642,7 +659,9 @@ func _animate_units(delta: float) -> void:
 		if fenced:
 			next.x = clampf(next.x, fence.position.x, fence.end.x)
 			next.z = clampf(next.z, fence.position.y, fence.end.y)
-		if walled:
+		# In the air the animals fly over the wall with the swarm; after landing
+		# the push resumes (offsets are local, so they land with the swarm).
+		if walled and not airborne:
 			var spot := Vector3(position.x + next.x, 0.0, position.z + next.z)
 			if field.wall_distance(spot) < UNIT_WALL_RADIUS:
 				var pushed: Vector3 = field.push_walls(spot, UNIT_WALL_RADIUS)

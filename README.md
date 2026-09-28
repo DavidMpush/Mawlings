@@ -16,7 +16,7 @@ In Godot den Ordner als Projekt öffnen und **F5** drücken. Das Spiel startet i
 
 | Aktion | Touch | Tastatur |
 |---|---|---|
-| Bewegen | rechte Hand | WASD / Pfeiltasten |
+| Bewegen | rechter Daumen: schwebender Joystick, entsteht beim Aufsetzen in der rechten Hälfte | WASD / Pfeiltasten |
 | Rally (verdichten, stärker beißen, größerer Sog) | linke Hand | Leertaste |
 | Pause | Pause-Knopf | P / Esc |
 | Neustart nach dem Aussterben | NEUER RUN | R / Enter |
@@ -26,7 +26,7 @@ In Godot den Ordner als Projekt öffnen und **F5** drücken. Das Spiel startet i
 ## Spielablauf
 
 - **Start:** Ein Run beginnt mit einem einzelnen **Anführer**. Neue Mawlings entstehen per Zellteilung aus Biomasse. Die Population hat **kein Limit**; bis 120 Tiere sind einzeln sichtbar, darüber steht jedes Modell für mehrere Tiere.
-- **Kampf und Ende:** Der Schwarm greift in der Nähe automatisch an; der Nahkampf wächst linear mit der Population, Waffen und Fähigkeit ab 25 Tieren ohne Deckel mit √(P/25) (Etappe 21). Warnflächen treffen nur die Tiere, die darin stehen. Der Zeitdruck verdoppelt sich regelmäßig. Ab 4:30 / 3:30 / 3:00 (Wild / Brutal / Apex) kommt **„Die Flut“**, Horden, deren Stärke sich alle 24 s verdoppelt. **Nur Aussterben beendet einen Run.**
+- **Kampf und Ende:** Der Schwarm greift in der Nähe automatisch an; der Nahkampf wächst linear mit der Population, Waffen und Fähigkeit ab 25 Tieren ohne Deckel mit √(P/25) (Etappe 21). Warnflächen treffen nur die Tiere, die darin stehen. Der Zeitdruck verdoppelt sich regelmäßig. Ab 4:30 / 3:30 / 3:00 (Wild / Brutal / Apex) kommt **„Die Flut“**, Horden, deren Stärke sich alle 24 s verdoppelt. Vorher und nach jeder Migration kommen **Hordenwellen** (Etappe 27): angekündigt (3 s, „HORDE NAHT“, Warnringe) und aus einer Richtung, in Welt 1 ab 1:40, danach ab 0:35 Weltzeit, stärker je Welt, Welle und Schwarmgröße. **Nur Aussterben beendet einen Run.**
 - **Anführer:** Er hat **100 LP** mit einem Balken über dem Kopf. Treffer kosten je Angriff LP, danach ist er kurz unverwundbar. Heilung gibt es über Lebensraub, Regeneration und Meilensteine. Fällt er, übernimmt ein Nachfolger mit 80 % des Maximums.
 - **Meta:** Menü **Brutstätte** mit 6 Stämmen (Glutmaw, Sporling, Knochenkiefer, Flinkzahn, Ätzmaul, Nachtmaul), 3 Schwierigkeiten, Brutkammer-Upgrades, Trophäen, Chronik, Tages-Brut und Einstellungen (Lautstärke-Regler GESAMT/MUSIK/EFFEKTE 0–100 % in 5er-Schritten auf eigenen Audio-Bussen, `scripts/audio_settings.gd`; GESAMT 0 = stumm). Die Meta-Währung ist Essenz; Bosse geben Königszähne.
 - **Kodex:** Sammlung mit den Tabs Waffen, Relikte, Werte, Power-ups und Bosse; der Knopf KODEX steht im Trophäen-Blatt. Ein Eintrag gilt als entdeckt, sobald er einmal in einem Run erhalten oder besiegt wurde. Das Profil speichert ihn in `codex_seen`; unentdeckte Einträge erscheinen als Silhouette mit „???“ und Fundort. Katalog: `scripts/meta/codex.gd`.
@@ -36,7 +36,7 @@ In Godot den Ordner als Projekt öffnen und **F5** drücken. Das Spiel startet i
 - **Karte:** begrenzte, seed-generierte **Erkundungskarte**. Solo 4 × 4 Regionen = 336 m, Duo 5 × 5, Trio/Quad 6 × 6.
   - Jede Region würfelt eine Landschaft: Wiese, Wald, Dickicht, Ruinen, Felsrücken, Sumpf oder Labyrinth. Der Rand ist natürlich.
   - Orte liegen zufällig: Kokons, Schreine, Nester, Totems, Hain-Schätze, Elite-Lager, Boss-Arena, Migrationsschlund.
-  - Die Minimap zeigt die ganze Karte mit Nebel; Orte erscheinen erst nach der Entdeckung.
+  - Die Minimap zeigt die ganze Karte mit Nebel; Orte erscheinen erst nach der Entdeckung. Regionsnamen stehen auf der großen Karte; beim Betreten einer Region gibt es keine Einblendung mehr (Etappe 27).
   - Seed 0 (Tests) bleibt die offene Klassik-Karte.
 - **Biome im Kreis:** **Verdant Maw → Dürrschlund** (Wüste: Treibsand, Sandstürme) **→ Glutsumpf** (Lava-Ausbrüche) → wieder Verdant Maw. Jeder Durchlauf macht die Apex-Bosse stärker. Nach dem Apex öffnet sich ein Schlund; wer hineinläuft, wandert mit Build und Flut auf eine neue Karte.
 - **Gegner:**
@@ -73,7 +73,7 @@ Beute platzt in Kristalle und Münzen, die liegen bleiben, bis sie eingesammelt 
   - Zum Öffnen den Schwarm 1 s im Kokon halten.
 - **Schreine:** Den Schwarm im Steinkreis halten lädt ihn auf; voll gibt es eine Werte-Wahl mit mindestens seltenen Karten.
 - **Power-ups** nur von Mini-Bossen (Elite, Bog King, Apex): Rausch, Blutrausch, Magnetsturm, Chitinschild, Raserei, Brutwelle. Aufsammeln nur durch Hinlaufen.
-- **Stammes-Fähigkeiten** (Etappe 17d, in Arbeit): eine aktive Fähigkeit je Stamm mit eigenem Knopf und Cooldown. Die Stammkarte im Menü zeigt Name, Kurztext und Abklingzeit.
+- **Stammes-Fähigkeiten** (Etappe 17d, in Arbeit): eine aktive Fähigkeit je Stamm mit eigenem Knopf und Cooldown. Die Stammkarte im Menü zeigt Name, Kurztext und Abklingzeit. Der Glutsprung springt über schmale Hindernisse (bis 5,5 m blockiert entlang der Linie, Etappe 27), nie über breite Wände oder aus der Karte.
 
 ## Code-Überblick
 
@@ -114,6 +114,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/export_android.ps1    
   - [19 Wüste](stages/19_desert.md)
   - [20 Gefahren-Lesbarkeit](stages/20_danger_readability.md)
   - [21 Große Balance-Runde](stages/21_balance.md)
+  - [27 S25-Feedback](stages/27_s25_feedback.md): Hordenwellen und Direktor-Vorsprung je Welt, schwebender Joystick, XP-Balken sichtbar, kein Gebietsbanner, Glutsprung über Hindernisse
   - [22 Leistung](stages/22_performance.md): HUD-Cache ohne GPU-Rücklesen, gebackene Knöpfe, Chunks über mehrere Frames, nächste Karte im Hintergrund; Bench-Szenen `mid`, `travel`, `apex`, `desert` (`tests/perf_bench.gd`)
 - Ältere Etappen (01–10) und archivierte Prüfnachweise stehen ebenfalls unter `stages/`.
 

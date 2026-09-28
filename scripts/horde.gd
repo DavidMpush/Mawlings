@@ -186,7 +186,9 @@ func count() -> int:
 	return _n
 
 
-func spawn_ring(center: Vector3, amount: int, radius: float, stats: Dictionary) -> int:
+## Etappe 27: `heading` (non-zero) keeps path spawns in that direction from the
+## swarm (a Hordenwelle comes from one side); zero = all around (the flood).
+func spawn_ring(center: Vector3, amount: int, radius: float, stats: Dictionary, heading := Vector3.ZERO) -> int:
 	_allocate()
 	_build()
 	var room := mini(amount, MAX_BROOD - _n)
@@ -216,7 +218,7 @@ func spawn_ring(center: Vector3, amount: int, radius: float, stats: Dictionary) 
 			var r := radius + float(attempt) * 1.3 + 0.6 * sin(float(k) * 2.3)
 			var candidate := Vector3(center.x + cos(a) * r, 0.0, center.z + sin(a) * r)
 			if from_paths:
-				var mouth: Vector3 = arena.flood_point(_frame * 131 + k * 17 + attempt * 7919 + total_kills)
+				var mouth: Vector3 = arena.flood_point(_frame * 131 + k * 17 + attempt * 7919 + total_kills, heading)
 				if mouth.is_finite():
 					candidate = mouth
 			# Etappe 18: Ringpunkte jenseits des Kartenrands an der Kante nach innen spiegeln.

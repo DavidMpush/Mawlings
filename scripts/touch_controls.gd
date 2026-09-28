@@ -16,6 +16,14 @@ var movement_vector := Vector2.ZERO
 var rally_pressed := false
 var movement_pointer := -1
 var rally_pointer := -1
+# Etappe 27 (S25 feedback): floating joystick. A touch in the right movement
+# zone puts the joystick origin under the thumb; steering is the displacement
+# from there. Released, the origin goes back to the rest position.
+const MOVE_RADIUS := 66.0        # displacement for full speed (as before)
+const MOVE_REST_TOUCH_R := 125.0 # old fixed touch area around the rest centre
+const MOVE_FRAME_R := 125.0      # drawn joystick frame; the origin keeps it on screen
+const MOVE_ZONE_TOP := 0.30      # zone starts below the top HUD (share of the height)
+var _movement_origin := Vector2.INF
 ## Stage 17d: button state from abilities.gd hud_state() ({} = no button);
 ## ability_requests counts presses (HuntWorld may poll it instead of the signal).
 var ability_state: Dictionary = {}
@@ -109,6 +117,7 @@ func clear_pointers() -> void:
 	movement_vector = Vector2.ZERO
 	rally_pressed = false
 	movement_pointer = -1
+	_movement_origin = Vector2.INF
 	rally_pointer = -1
 	map_open = false
 
@@ -217,8 +226,9 @@ func _press(pointer: int, location: Vector2) -> void:
 	if not ability_state.is_empty() and location.distance_to(_ability_center()) < ABILITY_TOUCH_R:
 		request_ability()
 		return
-	if movement_pointer == -1 and location.distance_to(_movement_center()) < 125.0:
+	if movement_pointer == -1 and _in_movement_zone(location):
 		movement_pointer = pointer
+		_movement_origin = _clamp_movement_origin(location)
 		_update_movement(location)
 	elif rally_pointer == -1 and location.distance_to(_rally_center()) < 125.0:
 		rally_pointer = pointer
@@ -242,17 +252,51 @@ func _release(pointer: int) -> void:
 	if pointer == movement_pointer:
 		movement_pointer = -1
 		movement_vector = Vector2.ZERO
+		_movement_origin = Vector2.INF
 	if pointer == rally_pointer:
 		rally_pointer = -1
 		rally_pressed = false
 
 
 func _update_movement(location: Vector2) -> void:
-	movement_vector = ((location - _movement_center()) / 66.0).limit_length(1.0)
+	movement_vector = ((location - _movement_center()) / MOVE_RADIUS).limit_length(1.0)
 
 
+## Joystick origin: under the thumb while a movement pointer is held, else the
+## rest position (hud_controls draws the joystick here).
 func _movement_center() -> Vector2:
+	if movement_active():
+		return _movement_origin
+	return movement_rest_center()
+
+
+## Idle joystick position (bottom right), also the old fixed touch centre.
+func movement_rest_center() -> Vector2:
 	return Vector2(size.x - 125.0, size.y - 145.0)
+
+
+func movement_active() -> bool:
+	return movement_pointer != -1 and _movement_origin != Vector2.INF
+
+
+## Right movement zone: right half below the top HUD (pause, pills, chips and
+## boss bar end well above 30 % of the height). Pause, minimap, ability and
+## cards are handled in _press() before this; the open big map keeps its
+## panel. The old circle around the rest centre always counts.
+func _in_movement_zone(location: Vector2) -> bool:
+	if location.distance_to(movement_rest_center()) < MOVE_REST_TOUCH_R:
+		return true
+	if location.x < size.x * 0.5 or location.y < size.y * MOVE_ZONE_TOP:
+		return false
+	if map_open and _bigmap_rect().has_point(location):
+		return false
+	return Rect2(Vector2.ZERO, size).has_point(location)
+
+
+## Keeps the drawn joystick frame fully on screen.
+func _clamp_movement_origin(location: Vector2) -> Vector2:
+	var r := minf(MOVE_FRAME_R, minf(size.x, size.y) * 0.5)
+	return Vector2(clampf(location.x, r, size.x - r), clampf(location.y, r, size.y - r))
 
 
 func _rally_center() -> Vector2:
