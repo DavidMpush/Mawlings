@@ -58,46 +58,46 @@ func _capture() -> void:
 	var targets := _place([Vector3(3.6, 0, -1.8), Vector3(-3.4, 0, 2.2), Vector3(0.8, 0, -4.2)], origin)
 	forms.set_ranks({"klauenwirbel": 1})
 	_step(0.5, targets, false)
-	await _save("res://preview_weapons17_klauenwirbel.png")
+	await _save("res://previews/preview_weapons17_klauenwirbel.png")
 	forms.clear()
 	forms.set_ranks({"klauenwirbel": 5})
 	_step(0.6, targets, false)
-	await _save("res://preview_weapons17_klauenwirbel_r5.png")
+	await _save("res://previews/preview_weapons17_klauenwirbel_r5.png")
 
 	# Giftbiss Rang 3: Fänge schnappen, vergiftete Ziele blubbern.
 	forms.clear()
 	targets = _place([Vector3(3.3, 0, -1.0), Vector3(-2.8, 0, -2.4), Vector3(1.0, 0, 3.4), Vector3(6.5, 0, -5.0)], origin)
 	forms.set_ranks({"giftbiss": 3})
 	_step(0.12, targets, false)
-	await _save("res://preview_weapons17_giftbiss.png")
+	await _save("res://previews/preview_weapons17_giftbiss.png")
 	_step(0.9, targets, false)
-	await _save("res://preview_weapons17_giftbiss_poison.png")
+	await _save("res://previews/preview_weapons17_giftbiss_poison.png")
 
 	# Schallbrüller Rang 3 und Rang 5 (doppelter Kegel).
 	forms.clear()
 	targets = _place([Vector3(0.6, 0, -4.6), Vector3(-1.4, 0, -6.0), Vector3(1.6, 0, 5.2)], origin)
 	forms.set_ranks({"schallbrueller": 3})
 	_step(0.16, targets, false)
-	await _save("res://preview_weapons17_schallbrueller.png")
+	await _save("res://previews/preview_weapons17_schallbrueller.png")
 	forms.clear()
 	targets = _place([Vector3(0.6, 0, -4.6), Vector3(-1.4, 0, -6.0), Vector3(1.6, 0, 5.2)], origin)
 	forms.set_ranks({"schallbrueller": 5})
 	_step(0.18, targets, false)
-	await _save("res://preview_weapons17_schallbrueller_r5.png")
+	await _save("res://previews/preview_weapons17_schallbrueller_r5.png")
 
 	# Rudelbiss Rang 5: zweiter Sprung mit Betäubung.
 	forms.clear()
 	targets = _place([Vector3(3.0, 0, -1.2), Vector3(5.8, 0, -3.6)], origin)
 	forms.set_ranks({"rudelbiss": 5})
 	_step(0.36, targets, true)
-	await _save("res://preview_weapons17_rudelbiss_r5.png")
+	await _save("res://previews/preview_weapons17_rudelbiss_r5.png")
 
 	# Gräber Rang 3: zwei Tunnel.
 	forms.clear()
 	targets = _place([Vector3(-5.0, 0, -7.0), Vector3(5.5, 0, -6.0), Vector3(1.8, 0, 1.2)], origin)
 	forms.set_ranks({"graeber": 3})
 	_step(0.3, targets, false)
-	await _save("res://preview_weapons17_graeber_r3.png")
+	await _save("res://previews/preview_weapons17_graeber_r3.png")
 
 	# Pilzreich: große Aura, Kills platzen als Pilzwolke.
 	forms.clear()
@@ -107,14 +107,14 @@ func _capture() -> void:
 	forms.on_kill(origin + Vector3(3.5, 0, 2.5), false)
 	forms.on_kill(origin + Vector3(-3.0, 0, -3.0), false)
 	_step(0.3, targets, false)
-	await _save("res://preview_weapons17_pilzreich.png")
+	await _save("res://previews/preview_weapons17_pilzreich.png")
 
 	# Dornenwall: Dornenring um den Schwarm.
 	forms.clear()
 	targets = _place([Vector3(3.6, 0, -1.2), Vector3(-2.0, 0, 3.2)], origin)
 	forms.set_ranks({"dornenwall": 1})
 	_step(0.6, targets, false)
-	await _save("res://preview_weapons17_dornenwall.png")
+	await _save("res://previews/preview_weapons17_dornenwall.png")
 
 	# Glutdrüse: brennende Ziele am Schwarmrand, dazu Giftbiss.
 	forms.clear()
@@ -122,7 +122,7 @@ func _capture() -> void:
 	forms.set_ranks({"giftbiss": 1})
 	forms.set_modifiers({"burn": 1})
 	_step(1.0, targets, false)
-	await _save("res://preview_weapons17_glut.png")
+	await _save("res://previews/preview_weapons17_glut.png")
 	print("Saved stage 17 weapon frames")
 	quit()
 

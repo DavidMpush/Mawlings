@@ -20,7 +20,7 @@ func _capture() -> void:
 	# UI components animate in; give them time before each frame.
 	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_design_active.png")
+	root.get_texture().get_image().save_png("res://previews/preview_design_active.png")
 	world.model.population = 250
 	swarm.set_population(250)
 	for frame in 120:
@@ -29,7 +29,7 @@ func _capture() -> void:
 	# UI components animate in; give them time before each frame.
 	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_design_250.png")
+	root.get_texture().get_image().save_png("res://previews/preview_design_250.png")
 	# Busiest HUD state: boss bar, threats, corpse, biomass, hit flash, pointer, pressed input.
 	var hud: Variant = scene.get_node("HUD/Controls")
 	hud.elapsed = 347.0
@@ -52,7 +52,7 @@ func _capture() -> void:
 	# UI components animate in; give them time before each frame.
 	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_design_busy.png")
+	root.get_texture().get_image().save_png("res://previews/preview_design_busy.png")
 	hud.rally_pressed = false
 	hud.movement_vector = Vector2.ZERO
 	world.evolution.offers = [world.evolution.info("bite") + ["rare"], world.evolution.info("evade") + ["common"], world.evolution.info("brood") + ["epic"]]
@@ -63,7 +63,7 @@ func _capture() -> void:
 	# UI components animate in; give them time before each frame.
 	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_design_cards.png")
+	root.get_texture().get_image().save_png("res://previews/preview_design_cards.png")
 	world.evolution.offers.clear()
 	world.model.apply_loss(250)
 	swarm.set_population(0)
@@ -71,6 +71,6 @@ func _capture() -> void:
 	# UI components animate in; give them time before each frame.
 	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_design_result.png")
+	root.get_texture().get_image().save_png("res://previews/preview_design_result.png")
 	print("Saved four design review frames")
 	quit()

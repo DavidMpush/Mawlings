@@ -119,4 +119,4 @@ func _a(color: Color, alpha: float) -> Color:
 
 func _save(file_name: String) -> void:
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)

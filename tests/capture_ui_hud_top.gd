@@ -105,8 +105,8 @@ func _frames(count: int) -> void:
 func _save(file_name: String, detail: bool) -> void:
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()
-	image.save_png("res://" + file_name)
+	image.save_png("res://previews/" + file_name)
 	if detail:
 		var crop := image.get_region(Rect2i(0, 0, image.get_width(), int(image.get_height() * 0.36)))
 		crop.resize(crop.get_width() * 2, crop.get_height() * 2, Image.INTERPOLATE_LANCZOS)
-		crop.save_png("res://" + file_name.replace(".png", "_detail.png"))
+		crop.save_png("res://previews/" + file_name.replace(".png", "_detail.png"))

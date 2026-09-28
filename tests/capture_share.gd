@@ -37,7 +37,7 @@ func _capture() -> void:
 		var stats: Dictionary = RUNS[key].duplicate(true)
 		stats["date"] = profile_script.today_key()
 		stats["daily_date"] = profile_script.today_key() if stats.get("daily", false) else ""
-		var path: String = await card.render(stats, "res://", "preview_share_%s.png" % key)
+		var path: String = await card.render(stats, "res://previews/", "preview_share_%s.png" % key)
 		print("Saved ", path)
 		card.queue_free()
 		await process_frame
@@ -82,13 +82,13 @@ func _capture() -> void:
 	menu.skip_menu_on_first_start = false
 	menu.open_shares = false
 	root.add_child(menu)
-	await _shot("res://preview_menu_chronicle_main.png")
+	await _shot("res://previews/preview_menu_chronicle_main.png")
 	menu.open_chronicle("runs")
-	await _shot("res://preview_menu_chronicle.png")
+	await _shot("res://previews/preview_menu_chronicle.png")
 	menu.select_chronicle_view("daily")
-	await _shot("res://preview_menu_chronicle_daily.png")
+	await _shot("res://previews/preview_menu_chronicle_daily.png")
 	menu.select_chronicle_view("best")
-	await _shot("res://preview_menu_chronicle_best.png")
+	await _shot("res://previews/preview_menu_chronicle_best.png")
 	menu.queue_free()
 	await process_frame
 	# Reward overlay with the KARTE TEILEN button.
@@ -99,7 +99,7 @@ func _capture() -> void:
 	menu.change_scene_on_play = false
 	menu.open_shares = false
 	root.add_child(menu)
-	await _shot("res://preview_menu_reward_share.png")
+	await _shot("res://previews/preview_menu_reward_share.png")
 	menu.queue_free()
 	await process_frame
 	for p in [TEST_PROFILE, TEST_CHRONICLE]:

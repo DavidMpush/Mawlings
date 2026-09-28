@@ -98,7 +98,7 @@ func _pair(file_name: String) -> void:
 	sheet.fill(Color("050b08"))
 	sheet.blit_rect(organic, Rect2i(Vector2i.ZERO, organic.get_size()), Vector2i.ZERO)
 	sheet.blit_rect(calm, Rect2i(Vector2i.ZERO, calm.get_size()), Vector2i(organic.get_width() + GAP, 0))
-	sheet.save_png("res://" + file_name)
+	sheet.save_png("res://previews/" + file_name)
 
 
 func _settle() -> void:
@@ -138,7 +138,7 @@ func _icons_sheet() -> void:
 	out.fill(Color("050b08"))
 	out.blit_rect(images[0], Rect2i(Vector2i.ZERO, size), Vector2i.ZERO)
 	out.blit_rect(images[1], Rect2i(Vector2i.ZERO, size), Vector2i(0, size.y + GAP))
-	out.save_png("res://preview_ui_v2_icons.png")
+	out.save_png("res://previews/preview_ui_v2_icons.png")
 	viewport.queue_free()
 
 

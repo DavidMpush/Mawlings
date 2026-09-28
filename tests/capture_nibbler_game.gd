@@ -46,7 +46,7 @@ func _capture() -> void:
 func _save(file_name: String, target: Node3D) -> void:
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()
-	image.save_png("res://" + file_name + ".png")
+	image.save_png("res://previews/" + file_name + ".png")
 	if not is_instance_valid(target):
 		return
 	var spot := camera.unproject_position(target.global_position + Vector3(0, 0.5, 0)) * Vector2(image.get_size()) / root.get_visible_rect().size
@@ -57,4 +57,4 @@ func _save(file_name: String, target: Node3D) -> void:
 		return
 	var crop := image.get_region(box)
 	crop.resize(box.size.x * 3, box.size.y * 3, Image.INTERPOLATE_NEAREST)
-	crop.save_png("res://" + file_name + "_zoom.png")
+	crop.save_png("res://previews/" + file_name + "_zoom.png")

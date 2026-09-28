@@ -160,7 +160,7 @@ func _combo(title: String, body: String) -> void:
 
 	if OS.get_cmdline_user_args().has("raw"):
 		for k in frames:
-			frames[k].save_png("res://preview_fonts_raw_%s_%s.png" % [title, k])
+			frames[k].save_png("res://previews/preview_fonts_raw_%s_%s.png" % [title, k])
 	await _sheet(title, body, frames)
 
 
@@ -195,7 +195,7 @@ func _sheet(title: String, body: String, frames: Dictionary) -> void:
 	for i in 3:
 		await process_frame
 	var image := await _grab()
-	image.save_png("res://preview_fonts_%s_%s.png" % [title, body])
+	image.save_png("res://previews/preview_fonts_%s_%s.png" % [title, body])
 	canvas.queue_free()
 	await process_frame
 
@@ -244,6 +244,6 @@ func _overview() -> void:
 	for i in 3:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	viewport.get_texture().get_image().save_png("res://preview_fonts_overview.png")
+	viewport.get_texture().get_image().save_png("res://previews/preview_fonts_overview.png")
 	viewport.queue_free()
 	await process_frame

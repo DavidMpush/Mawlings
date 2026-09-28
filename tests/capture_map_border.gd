@@ -85,7 +85,7 @@ func _walk(start: Vector3, direction: Vector2, file_name: String, message: Strin
 	swarm.set_controls(Vector2.ZERO, false)
 	world._update_hud(message)
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)
 
 
 # The whole map from straight above (orthographic, square SubViewport sharing
@@ -112,7 +112,7 @@ func _overview(file_name: String) -> void:
 	for frame in 6:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	view.get_texture().get_image().save_png("res://" + file_name)
+	view.get_texture().get_image().save_png("res://previews/" + file_name)
 	view.queue_free()
 	arena.view_radius = old_radius
 	arena.sync(middle)

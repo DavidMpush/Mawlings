@@ -39,7 +39,7 @@ func _capture() -> void:
 		# Swarm just south of the landmark so the camera shows both.
 		var spot: Vector3 = arena.safe_spawn(mark.center + Vector3(0.0, 0.0, 5.5), 0.75)
 		await _frame(scene, swarm, arena, spot)
-		root.get_texture().get_image().save_png("res://preview_landmark_%s.png" % NAMES[type])
+		root.get_texture().get_image().save_png("res://previews/preview_landmark_%s.png" % NAMES[type])
 		print("Landmark %s at %s (swarm %s)" % [NAMES[type], mark.center, spot])
 	# Leaper beside the swarm in the game camera, crouched in its warning pose.
 	var open: Vector3 = arena.safe_spawn(Vector3(3.0, 0.0, 30.0), 3.0)
@@ -50,7 +50,7 @@ func _capture() -> void:
 	leaper.state = leaper.State.STALK
 	leaper.step(0.2, open, 1.0)
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_leaper_game.png")
+	root.get_texture().get_image().save_png("res://previews/preview_leaper_game.png")
 	# Close-up from the front-left to judge silhouette, facing and colours.
 	var close := Camera3D.new()
 	scene.add_child(close)
@@ -64,7 +64,7 @@ func _capture() -> void:
 	leaper.arc.visible = false
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_leaper_model.png")
+	root.get_texture().get_image().save_png("res://previews/preview_leaper_model.png")
 	# Pure side view: the head must point along the leaper's forward (+Z).
 	close.position = leaper.global_position + side * 5.5 + Vector3(0.0, 1.2, 0.0)
 	close.look_at(leaper.global_position + Vector3(0.0, 0.7, 0.0), Vector3.UP)
@@ -77,7 +77,7 @@ func _capture() -> void:
 	marker.global_position = leaper.global_position + forward * 1.8 + Vector3(0.0, 0.3, 0.0)
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_leaper_side.png")
+	root.get_texture().get_image().save_png("res://previews/preview_leaper_side.png")
 	marker.queue_free()
 	print("Saved landmark and leaper review frames")
 	quit()

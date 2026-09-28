@@ -88,7 +88,7 @@ func _live_background() -> void:
 func _fallback_background() -> void:
 	print("hunt_world.gd does not load right now: using a still background")
 	var tex: Texture2D = null
-	for path in ["res://preview_hunt.png", "res://preview.png"]:
+	for path in ["res://previews/preview_hunt.png", "res://previews/preview.png"]:
 		if FileAccess.file_exists(path):
 			tex = ImageTexture.create_from_image(Image.load_from_file(ProjectSettings.globalize_path(path)))
 			break
@@ -265,4 +265,4 @@ func _icon(c: CanvasItem, id: String, center: Vector2, size: float) -> void:
 func _save(file_name: String) -> void:
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)

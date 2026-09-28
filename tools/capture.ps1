@@ -1,6 +1,6 @@
 # Renders review frames from the real game camera (needs a window, never --headless).
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1 [-Only boss,hunt]
-# Output: preview_*.png in the project root (git-ignored).
+# Output: previews/preview_*.png (git-ignored, .gdignore: Godot does not import them).
 param([string[]]$Only = @())
 $godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
 $projectDir = Split-Path -Parent $PSScriptRoot
@@ -24,4 +24,4 @@ foreach ($name in $captures) {
 	}
 	Remove-Job $job -Force
 }
-Get-ChildItem $projectDir -Filter 'preview*.png' | Sort-Object LastWriteTime -Descending | ForEach-Object { "  $($_.Name)" }
+Get-ChildItem (Join-Path $projectDir 'previews') -Filter 'preview*.png' | Sort-Object LastWriteTime -Descending | ForEach-Object { "  previews/$($_.Name)" }

@@ -29,7 +29,7 @@ func _capture() -> void:
 		await create_timer(0.7).timeout
 		Input.action_release("move_right")
 		await RenderingServer.frame_post_draw
-		root.get_texture().get_image().save_png("res://preview_strain_%s.png" % strain)
+		root.get_texture().get_image().save_png("res://previews/preview_strain_%s.png" % strain)
 		scene.queue_free()
 		await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://mawlings_profile_capture.json"))

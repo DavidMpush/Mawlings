@@ -17,15 +17,15 @@ func _capture() -> void:
 	world._kill_prey(world.prey[0])
 	world._kill_prey(world.prey[0])
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_evolution.png")
+	root.get_texture().get_image().save_png("res://previews/preview_evolution.png")
 	world.choose_mutation(0)
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_evolution_play.png")
+	root.get_texture().get_image().save_png("res://previews/preview_evolution_play.png")
 	for mutation in world.evolution.TRAITS:
 		world.evolution.ranks[mutation[0]] = 3
 	world.evolution.level = 18
 	world.toggle_pause()
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_evolution_summary.png")
+	root.get_texture().get_image().save_png("res://previews/preview_evolution_summary.png")
 	print("Saved evolution, gameplay and summary previews")
 	quit()

@@ -23,13 +23,13 @@ func _capture() -> void:
 	world.paused = false
 	world._update_hud("RAUS AUS DEM ROTEN RING!")
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_survival.png")
+	root.get_texture().get_image().save_png("res://previews/preview_survival.png")
 	for tick in 1200:
 		world.step(1.0 / 60.0)
 		if world.model.extinct:
 			break
 	await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_extinction.png")
+	root.get_texture().get_image().save_png("res://previews/preview_extinction.png")
 	print("Saved survival warning and extinction previews")
 	quit()

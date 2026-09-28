@@ -107,4 +107,4 @@ func _run(seconds: float) -> void:
 
 func _save(name: String) -> void:
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_swarm17_%s.png" % name)
+	root.get_texture().get_image().save_png("res://previews/preview_swarm17_%s.png" % name)

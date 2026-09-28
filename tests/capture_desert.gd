@@ -88,10 +88,10 @@ func _capture() -> void:
 	# Menu card: a calm dune shot with the swarm, cropped to 480 x 320.
 	_frame_at(_find_land("dunes", start), 1.1)
 	await _save("preview_desert_card_full.png", "")
-	var full := Image.load_from_file(ProjectSettings.globalize_path("res://preview_desert_card_full.png"))
+	var full := Image.load_from_file(ProjectSettings.globalize_path("res://previews/preview_desert_card_full.png"))
 	full.crop(540, 960)
 	var card := full.get_region(Rect2i(30, 330, 480, 320))
-	card.save_png("res://preview_desert_card.png")
+	card.save_png("res://previews/preview_desert_card.png")
 	# Sandstorm: announced, then the edge veil (centre free).
 	_frame_at(_find_land("dunes", start))
 	world.desert.storm.force(0.0)
@@ -201,7 +201,7 @@ func _save(file_name: String, message: String, settle := true) -> void:
 		for frame in 2:
 			await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)
 
 
 func _find_land(name: String, start: Vector3) -> Vector3:
@@ -240,7 +240,7 @@ func _minimap(file_name: String) -> void:
 		for frame in 20:
 			await process_frame
 		await RenderingServer.frame_post_draw
-		root.get_texture().get_image().save_png("res://" + file_name)
+		root.get_texture().get_image().save_png("res://previews/" + file_name)
 		hud.map_open = false
 		for frame in 3:
 			await process_frame
@@ -318,7 +318,7 @@ func _overview(file_name: String, focus := Vector3.INF, span := 0.0) -> void:
 	for frame in 6:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	view.get_texture().get_image().save_png("res://" + file_name)
+	view.get_texture().get_image().save_png("res://previews/" + file_name)
 	view.queue_free()
 	arena.view_radius = old_radius
 	arena.fade_enabled = true

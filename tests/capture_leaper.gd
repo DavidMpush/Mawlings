@@ -29,7 +29,7 @@ func _capture() -> void:
 		leaper.step(1.0 / 60.0, swarm.position, world.model.pressure())
 	world._update_hud("RAUS AUS DER SPRUNGZONE!")
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_leaper_warning.png")
+	root.get_texture().get_image().save_png("res://previews/preview_leaper_warning.png")
 	# Swarm sidesteps; capture the leaper at the top of its arc.
 	var aside: Vector3 = swarm.position + Vector3(3.5, 0, 0)
 	swarm.position = aside
@@ -38,7 +38,7 @@ func _capture() -> void:
 	while leaper.remaining > TUNING.LEAPER_FLIGHT_SECONDS * 0.5:
 		leaper.step(1.0 / 60.0, aside, world.model.pressure())
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_leaper_jump.png")
+	root.get_texture().get_image().save_png("res://previews/preview_leaper_jump.png")
 	# Landing: shock ring and exhausted pose.
 	while leaper.state == leaper.State.LEAP:
 		leaper.step(1.0 / 60.0, aside, world.model.pressure())
@@ -46,6 +46,6 @@ func _capture() -> void:
 		leaper.step(1.0 / 60.0, aside, world.model.pressure())
 	world._update_hud("Leaper erschöpft · jetzt angreifen!")
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_leaper_landing.png")
+	root.get_texture().get_image().save_png("res://previews/preview_leaper_landing.png")
 	print("Saved Mire Leaper review frames")
 	quit()

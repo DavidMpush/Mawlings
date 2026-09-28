@@ -139,4 +139,4 @@ func _save(file_name: String) -> void:
 	for i in 3:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)

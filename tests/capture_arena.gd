@@ -22,6 +22,6 @@ func _capture() -> void:
 	world.drop_loot(swarm.position + Vector3(2.5, 0, -3), 12)
 	world._update_hud("Offene Arena · breite Wege")
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_arena.png")
+	root.get_texture().get_image().save_png("res://previews/preview_arena.png")
 	print("Saved arena preview")
 	quit()

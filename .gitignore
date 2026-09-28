@@ -6,7 +6,10 @@ preview.png
 preview.png.import
 preview_*.png
 preview_*.png.import
-previews/
+# Review frames of the tests/capture_*.gd scripts (regenerable); the folder and
+# its .gdignore (no import) stay in the repository.
+previews/*
+!previews/.gdignore
 
 .tools/
 assets/source/*/*_texture_*.png

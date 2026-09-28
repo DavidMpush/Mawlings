@@ -26,10 +26,10 @@ func _initialize() -> void:
 
 func _capture() -> void:
 	UiIcons.set_v4(true)
-	await _render(_draw_sheet, _sheet_size(), "res://preview_ui_icons.png")
+	await _render(_draw_sheet, _sheet_size(), "res://previews/preview_ui_icons.png")
 	UiIcons.set_v4(false)
-	await _render(_draw_sheet, _sheet_size(), "res://preview_ui_icons_before.png")
-	await _render(_draw_compare, Vector2i(1400, 640), "res://preview_ui_icons_compare.png")
+	await _render(_draw_sheet, _sheet_size(), "res://previews/preview_ui_icons_before.png")
+	await _render(_draw_compare, Vector2i(1400, 640), "res://previews/preview_ui_icons_compare.png")
 	UiIcons.set_v4(true)
 	print("Saved preview_ui_icons(.png/_before/_compare) (%d icons)" % UiIcons.IDS.size())
 	quit()

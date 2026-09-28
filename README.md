@@ -1,117 +1,117 @@
-# MAWLINGS — Godot-Neustart
+# MAWLINGS
 
-Eigenständiges Projekt mit Godot **4.7.2**. Projektordner: `C:\Users\vrxby\Documents\Codex\Godot\Mawlings`. Das frühere Unity-Projekt wird nicht verwendet oder verändert.
+Mobiles Schwarm-Survival im Hochformat, gebaut mit Godot **4.7.2**. Projektordner `C:\Users\vrxby\Documents\Codex\Godot\Mawlings`, eigenes Git-Repository. Das alte Unity-Projekt ist nur noch Referenz. Verbindliche Regeln: [DESIGN_BRIEF.md](DESIGN_BRIEF.md); Stil: [ART_UI_PLAN.md](ART_UI_PLAN.md); nächste Schritte: [stages/BACKLOG.md](stages/BACKLOG.md).
 
-**UI-Assets V5 (28.09.2026):** Die priorisierten Gruppen A und B aus [UI_ASSET_REQUESTS.md](stages/UI_ASSET_REQUESTS.md) sind als 56 transparente PNGs unter `assets/ui/v5/` vorhanden. 35 gemalte Icons und vier Porträts sind für das Spiel aufbereitet; die neuen Glyphen sind direkt verfügbar. Visuelle Prüfbilder: `preview_ui_icons.png`, `preview_ui_menu_main_540.png`, `preview_ui_mutations_rarity_540.png`. Die vier Seltenheits-Plaketten liegen als Vorlagen bereit, ihre Karteneinbindung ist noch offen. Details in [assets/README.md](assets/README.md).
+Stand: spielbarer Prototyp mit Bot-Balance. Ein längerer Handtest und die Messung auf dem Zielgerät (Samsung S25) stehen noch aus.
 
 ## Starten
 
-In Godot diesen Ordner als Projekt importieren und **F6** für die Hauptszene oder **F5** für das Projekt drücken. Alternativ:
+In Godot den Ordner als Projekt öffnen und **F5** drücken. Das Spiel startet im Menü (`scenes/menu.tscn`), der Run läuft in `scenes/main.tscn` (**F6**). Ohne Editor:
 
 ```powershell
 & 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64.exe' --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings'
 ```
 
-Der aktuelle Stand enthält eine begrenzte 3D-Karte aus Lichtungen, Wegen und Engpässen (Solo 4 × 4 Regionen = 336 × 336 m, Etappen 18/18b; der folgende Satz beschreibt die offene Klassik-Karte von Seed 0) und 25 Mawlings zum Start. **WASD/Pfeiltasten** bewegen den Schwarm, **Leertaste** hält Rally. Für Touch liegen Bewegung rechts und Rally links. Breite sandige Laufwege und wenige Steinformationen geben Orientierung. Die Steine begrenzen die Bewegung des Schwarms, der Beute und der Jäger; zwischen ihnen bleibt viel freier Raum. Flache Wasserstellen und Blätter sind begehbare Dekoration. Die Karte wird aus dem Seed erzeugt; nur die Abschnitte in der Nähe des Spielers sind sichtbar. Am Rand endet die Welt natürlich in Dickicht, Felsklippen und Sumpfwasser (Glutsumpf: Basalt, verkohlte Stümpfe, Lavafeld), die in Nebel auslaufen.
+**Steuerung:**
 
-Die drei türkisfarbenen Nibbler fliehen vor dem Schwarm. In Nähe greift er automatisch an; Rally verstärkt den Angriff und verdichtet die Formation. Besiegte Gegner platzen in Beute-Kristalle auf (Biomasse gold, DNA türkis). Kristalle im Magnetradius fliegen von selbst zum Schwarm; je 3,5 Biomasse entsteht ein Mawling. Was außerhalb liegt, bleibt liegen, bis der Schwarm vorbeikommt. Die Population hat **kein Limit** (Etappe 17b): Bis zu 120 Mawlings werden als einzelne Modelle dargestellt, darüber steht jedes Modell für mehrere Tiere (dichtere Formation, etwas größere Tiere, kräftigerer Bodenring); das HUD kürzt ab 10.000 („12,3k“). Das vom Nutzer bereitgestellte `assets/source/mawling/Mawling.glb` ist als farblich vereinfachtes `assets/gameplay/characters/Mawling_game.glb` im Schwarm eingebunden. Nach einer Jagd erscheinen wieder Nibbler.
+| Aktion | Touch | Tastatur |
+|---|---|---|
+| Bewegen | rechte Hand | WASD / Pfeiltasten |
+| Rally (verdichten, stärker beißen, größerer Sog) | linke Hand | Leertaste |
+| Pause | Pause-Knopf | P / Esc |
+| Neustart nach dem Aussterben | NEUER RUN | R / Enter |
+| Karte groß | Tipp auf die Minimap | – |
+| Mutation wählen | Karte antippen | 1 / 2 / 3 |
 
-Nach 18 Sekunden kommt der erste violette **Jäger**. Ein blauer Ring kündigt sein Erscheinen an. Sein roter Angriffsring bleibt während der 1,25 Sekunden langen Warnung fest an der markierten Position: rechtzeitig herauslaufen. Treffer kosten Mawlings und erzeugen eine Verlustanzeige. Rally erhöht den Bissschaden; ein besiegter Jäger hinterlässt 26 Biomasse. Bei höherem Druck werden Jäger schneller und markieren Flächen vor der aktuellen Laufrichtung. Richtungswechsel bleiben möglich, da sie die Warnfläche anschließend nicht nachführen.
+## Spielablauf
 
-Ab etwa 45 Sekunden kommt der blau-pinke **Skitter** hinzu. Er markiert eine gerade, gelbe Sprintbahn für eine Sekunde und schießt danach entlang dieser festen Spur. Seitlich ausweichen; Steine stoppen die Sprintbahn und können Deckung bieten. Skitter hinterlassen 18 Biomasse und geben 15 DNA. Im HUD stehen aktive Jäger und Skitter.
+- **Start:** Ein Run beginnt mit einem einzelnen **Anführer**. Neue Mawlings entstehen per Zellteilung aus Biomasse. Die Population hat **kein Limit**; bis 120 Tiere sind einzeln sichtbar, darüber steht jedes Modell für mehrere Tiere.
+- **Kampf und Ende:** Der Schwarm greift in der Nähe automatisch an. Warnflächen treffen nur die Tiere, die darin stehen. Der Zeitdruck verdoppelt sich regelmäßig. Ab 4:30 / 4:00 / 3:00 (Wild / Brutal / Apex) kommt **„Die Flut“**, Horden mit exponentiell wachsender Stärke. **Nur Aussterben beendet einen Run.**
+- **Anführer:** Er hat **100 LP** mit einem Balken über dem Kopf. Treffer kosten je Angriff LP, danach ist er kurz unverwundbar. Heilung gibt es über Lebensraub, Regeneration und Meilensteine. Fällt er, übernimmt ein Nachfolger mit 80 % des Maximums.
+- **Meta:** Menü **Brutstätte** mit 6 Stämmen (Glutmaw, Sporling, Knochenkiefer, Flinkzahn, Ätzmaul, Nachtmaul), 3 Schwierigkeiten, Brutkammer-Upgrades, Trophäen, Chronik, Tages-Brut und Einstellungen. Die Meta-Währung ist Essenz; Bosse geben Königszähne.
 
-Nach etwa **90 Sekunden** erscheint der große **Bog King**. Seine eigene Lebensleiste steht unter der oberen HUD-Zeile. Bei Nähe markiert er einen roten Kreis an seiner Position und stampft nach 1,8 Sekunden; aus dem Kreis herauslaufen, danach während seiner Erholung angreifen. Ein besiegter Bog King gibt 50 DNA und hinterlässt 110 dauerhafte Biomasse. Nach 180 weiteren Spielsekunden kann der nächste erscheinen. Die Spielversion des vom Nutzer gelieferten Modells hat 8.000 statt 50.000 Dreiecke und liegt getrennt vom Original unter `assets/gameplay/characters/`. Das Original und seine Texturdateien liegen unter `assets/source/bog_king/`; die Ordnerstruktur steht in [assets/README.md](assets/README.md).
+## Welt
 
-**Bewegung und Rückmeldung (Etappe 01):** Jedes Mawling dreht sich in seine eigene Laufrichtung, hüpft und watschelt abhängig vom Tempo, atmet im Stand und folgt der Formation mit eigener Trägheit, sodass sich der Schwarm beim Laufen streckt. Weiche Schatten (eine MultiMesh) und ein korallfarbener Bodenhalo zeigen, wo der Schwarm steht; Rally verdichtet ihn sichtbar mit hellerem Ring. Beim Angriff drängen die Tiere zur Beute und beißen, beim Ernten picken sie am Kadaver. Neue Mawlings schlüpfen aus der Mitte; bei Treffern werden verlorene Tiere weggeschleudert, Überlebende weggestoßen, der Schwarm blitzt und die Kamera wackelt. Der Bog King hat eine helle, zustandsabhängige Randkontur (lila jagend, orange warnend, gold erschöpft), taucht aus dem Boden auf, stapft mit Schrittstaub, bäumt sich während der Warnung auf und stampft mit Schockwelle. Sein Warnkreis füllt sich von innen bis zum Rand und zeigt so die Restzeit. Danach ist er erschöpft („JETZT ANGREIFEN“). Außerhalb des Bildes zeigt ein Kronenpfeil am Rand zu ihm. Die Kamera zoomt bei großem Schwarm und nahem Boss etwas heraus. Alle Effekte sind rein visuell; Trefferbereiche, Zeiten und Schaden sind unverändert.
+- **Karte:** begrenzte, seed-generierte **Erkundungskarte**. Solo 4 × 4 Regionen = 336 m, Duo 5 × 5, Trio/Quad 6 × 6.
+  - Jede Region würfelt eine Landschaft: Wiese, Wald, Dickicht, Ruinen, Felsrücken, Sumpf oder Labyrinth. Der Rand ist natürlich.
+  - Orte liegen zufällig: Kokons, Schreine, Nester, Totems, Hain-Schätze, Elite-Lager, Boss-Arena, Migrationsschlund.
+  - Die Minimap zeigt die ganze Karte mit Nebel; Orte erscheinen erst nach der Entdeckung.
+  - Seed 0 (Tests) bleibt die offene Klassik-Karte.
+- **Biome im Kreis:** **Verdant Maw → Dürrschlund** (Wüste: Treibsand, Sandstürme) **→ Glutsumpf** (Lava-Ausbrüche) → wieder Verdant Maw. Jeder Durchlauf macht die Apex-Bosse stärker. Nach dem Apex öffnet sich ein Schlund; wer hineinläuft, wandert mit Build und Flut auf eine neue Karte.
+- **Gegner:**
+  - Nibbler (schnappen zurück), Jäger und Elite-Jäger (Ring-Angriff), Skitter (Sprintbahn), Mire Leaper (Sprungzone).
+  - Bog King: Mini-Boss mit Stampf-Angriff.
+  - Moorbrut: Horde der Flut.
+  - Sandmaden: nur in der Wüste.
+- **Apex-Bosse:** Moosschlund (Verdant Maw), Sandwurm (Dürrschlund), Aschenkröte (Glutsumpf).
+- **Gefahren:** Alle Angriffe sind angekündigt. Es gibt drei Formen: Kontur (kommt gleich), Fläche (liegt da), großer Ring (läuft gerade). Gefahr ist immer Magenta/Pink.
 
-**Welt und Figuren (Etappe 02):** Boden, Sandwege und Teiche folgen dem Kartenkonzept V3; Felsen, Blatthorste und Nibbler nutzen die gelieferten Hunyuan-Modelle (`tools/optimize_characters.py nibbler|rock|leaf`). Mawlings und Bog King laufen zusätzlich mit Bein-, Kiefer- und Schwanzanimation im Vertex-Shader. Ab etwa **60 Sekunden** kommt der teal-violette **Mire Leaper**: Er markiert eine feste, magentafarbene Landezone mit Flugbahn, springt nach 1,1 Sekunden im Bogen hinein und ist nach der Landung 2 Sekunden erschöpft. Aus der Zone laufen, danach angreifen; er gibt 15 DNA und 20 dauerhafte Biomasse. Das HUD wurde an die Konzepte angenähert. Details: [Etappe 02](stages/02_world_assets.md).
+## Drei Ressourcen
 
-**Progression (Etappe 03):** Das Spiel startet in der **Brutstätte** (Stamm, Biom, Schwierigkeit, Brutkammer-Upgrades, Trophäen, Urinstinkt). Jeder Run bringt Essenz; Bosse geben Königszähne. Im Run gibt es Angriffsformen (Rudelbiss, Sporenwolke, Säurespucker, Stachelrücken) neben den Anlagen, Evolutionen über den **Alpha-Kern**, Neu würfeln/Verbannen/Überspringen per Freischaltung. Jede Karte wird aus einem **Seed** erzeugt. Erste Soundeffekte und Vibration. Details: [Etappe 03](stages/03_progression.md). Profil: `user://mawlings_profile.json`.
+| Ressource | Farbe | Herkunft | Zweck |
+|---|---|---|---|
+| **Biomasse** | grün | Gegner-Kills | Wachstum, 3,5 je Mawling |
+| **DNA** | blau | Kills, Bernsteinknollen | Erfahrung: violetter XP-Balken oben, Level → Werte-Wahl |
+| **Bernstein** | gold | Kills, Bernsteinknollen, Hain-Schätze | Karten-Kokons, verfällt am Run-Ende |
 
-**Spielgefühl (Etappe 05):** Warnflächen treffen nur die Mawlings, die wirklich darin stehen – wer den Schwarm teilweise herauszieht, rettet diesen Teil. Muster statt reiner Farbe (Farbenblind-Modus in den Einstellungen). Königs-Kill mit Zeitlupe. Karten-Code und **TAGES-BRUT** im Menü. Balance per Simulation (`tools/balance.ps1`). Android-Export vorbereitet: `tools/export_android.ps1`. Details: [Etappe 05](stages/05_feel_balance.md), nächste Schritte: [Backlog](stages/BACKLOG.md).
+Beute platzt in Kristalle und Münzen, die liegen bleiben, bis sie eingesammelt sind. Der **Magnet** zieht sie heran; er wächst mit dem Schwarm und bei Rally. Ein **Lockruf** holt alle Kristalle der Karte auf einmal.
 
-**Run-Ziele und Einstieg (Etappe 06):** Brutnester (Zone mit dem Schwarm füllen → liegenbleibende Biomasse), Fluch-Totems vor Bossen (Risiko gegen doppelte Beute), gekrönte Elite-Jäger mit garantiertem Alpha-Kern. Neue Spieler starten direkt im Run und erhalten einmalige Tipps. Leistungsmessung: `tools/perf.ps1`. Details: [Etappe 06](stages/06_objectives_onboarding.md).
+## Progression im Run (zwei Spuren)
 
-**Leistung (Etappe 07):** Schwarm, Kadaver und Effekte als MultiMesh, HUD/Menü zeichnen nur bei Änderung; Desktop-Worst-Case 3,97 ms statt 8,5 ms, Menü 1,1 ms statt 14 ms (`tools/perf.ps1`). Qualitätsstufen werden beim Start gewählt. Details: [Etappe 07](stages/07_performance.md).
+- **Werte** kommen nur über Level (DNA).
+  - Jede Wahl bietet 3 Karten mit Seltenheit (gewöhnlich/selten/episch/legendär); Glück hebt die Seltenheit.
+  - 15 Werte mit 5 Rängen: Biss, Kritbiss, Angriffstempo, Reichweite, Rudelinstinkt, Knochenpanzer, Fluchtreflex, Anführerherz, Regeneration, Lebensraub, Brutrate, Lockduft, Genfluss, Sprinter, Glück.
+  - Neu würfeln, Verbannen und Überspringen werden über die Meta freigeschaltet.
+- **Arsenal** kommt nur aus Kokons und Bossen.
+  - 10 Waffen mit Rang 1–5, 4 Waffenplätze.
+  - 21 stapelbare Relikte.
+  - 6 Evolutionen: Waffe auf Rang 5 + passendes Relikt → Boss-Kokon.
+- **Kokons:**
+  - Karten-Kokons kosten Bernstein (steigend).
+  - Gratis sind der Start-Kokon, goldene Kokons (mindestens episch), Elite-Kokons und Boss-Kokons (1 aus 3).
+  - Zum Öffnen den Schwarm 1 s im Kokon halten.
+- **Schreine:** Den Schwarm im Steinkreis halten lädt ihn auf; voll gibt es eine Werte-Wahl mit mindestens seltenen Karten.
+- **Power-ups** nur von Mini-Bossen (Elite, Bog King, Apex): Rausch, Blutrausch, Magnetsturm, Chitinschild, Raserei, Brutwelle. Aufsammeln nur durch Hinlaufen.
+- **Stammes-Fähigkeiten** (Etappe 17d, in Arbeit): eine aktive Fähigkeit je Stamm mit eigenem Knopf und Cooldown.
 
-**Einzelstart, Kadaver, Musik, Lava (Etappe 09):** Jeder Kadaver zeigt die Überreste seines Tiers (Beute, Jäger, Elite, Skitter, Leaper, Bog King, Moorbrut, gefallene Mawlings, Nest) mit Bernstein-Biomasse, die beim Fressen schrumpft; Mini-Bosse und Bosse leuchten am Boden (`scripts/corpse_visuals.gd`, eine MultiMesh je Design). Die adaptive Musik (`scripts/music.gd`) folgt Druck, Flut und Boss und setzt Stinger bei Flutbeginn, Boss, Königsmoment und Aussterben. Im **Glutsumpf** brechen angekündigte Lavakreise aus („LAVA BRICHT AUS!“, `scripts/eruptions.gd`); sie treffen wie Gegnerflächen pro Tier, der Anführer verliert 1 LP. Der **Mire Leaper** zieht sich nach der Landung nicht mehr zurück, sondern setzt sofort nach und bereitet den nächsten Sprung vor. Der Anführer bleibt eng in der Schwarmmitte. Details: [Etappe 09](stages/09_lone_start.md).
+## Code-Überblick
 
-**Beute-Kristalle und Magnet (Etappe 16):** Die Kadaver-Ernte ist ersetzt. Jeder Tod platzt in 1–6 Kristalle, die im Bogen herausspringen und ohne Verfall liegen bleiben. Volle Stellen bündeln sich zu größeren Kristallen. Im Magnetradius (1 Tier 3,3 m bis 250 Tiere 7,7 m; Rally ×1,35, Anlage „Lockduft“ +25 % je Rang, Brutkammer „Witterung“ +8 % je Rang) fliegen sie heran und zählen am Schwarm zu einer wachsenden Zahl mit steigender Tonkette. Der pulsierende **Lockruf** (Elite, Bog King, Apex, jede Flutstufe, selten sonst) holt alle Kristalle der Karte auf einmal. Kadaver sind nur noch Deko: aschgrau, auf dem Rücken mit angezogenen Beinen, leicht eingesunken; sie versinken nach 25–60 s. In der Flut bleibt es bei einem Kristall je Moorbrut-Bündel, und Kristalle bündeln früher. Details: [Etappe 16](stages/16_loot_magnet.md).
+- `scripts/hunt_world.gd` verbindet alle Systeme; die Zahlen stehen in `scripts/tuning.gd`.
+- Progression: `scripts/evolution.gd` (Fassade), `scripts/progression/`.
+- Welt: `scripts/arena*.gd`, `scripts/map_explore.gd`, `scripts/flow_field.gd`.
+- Beute: `scripts/loot.gd`, `scripts/loot_nodes.gd`, `scripts/chests.gd`, `scripts/powerups.gd`, `scripts/shrines.gd`.
+- HUD: `scripts/ui/`, Skin **„brawl“** (Kit `scripts/ui/ui_kit_brawl.gd`). Meta: `scripts/meta/`.
+- Schriften liegen unter `assets/ui/fonts/`: Display und Body als eingebundene TTF mit Lizenz.
+- Assets und ihre Herkunft: [assets/README.md](assets/README.md). Die Nutzer-Originale in `assets/*.glb` importiert Godot nicht (`importer="skip"`); das Spiel nutzt die reduzierten Versionen unter `assets/gameplay/`.
 
-**Begrenzte Karte (Etappe 18):** Statt einer endlosen Arena gibt es eine feste Karte: Solo 4 × 4 Regionen (336 m, ca. 50 s von Rand zu Rand), vorbereitet für Duo 5 × 5 und Trio/Quad 6 × 6 (`arena.configure_map`, `spawn_points(n)`). Der Rand ist ein Hindernis für Schwarm und Gegner; Spawn-Ringe, Flut, Apex, Schlund, Nester, Totems und Ausbrüche liegen immer innen (Ringpunkte werden an der Kante gespiegelt). Die 16 Regionen haben je Seed und Biom eindeutige Namen. Eine Migration führt auf eine neu erzeugte Karte gleicher Größe (Seed + Biom) mit einer freien Ankunftslichtung. Die **Minimap** zeigt jetzt die ganze Karte mit Rand, Regionslinien und Nebel über Unerkundetem; die große Karte benennt die erkundeten Regionen. Test `tests/map_bounds.gd`, Bilder `tests/capture_map_border.gd`. Details: [Etappe 18](stages/18_bounded_map.md).
-
-**Lichtungen, Wege, Engpässe (Etappe 18b):** Jede Karte mit Seed ist ein gestaltetes Level (`scripts/map_layout.gd`): rund 10 Lichtungen um eine große Start-Lichtung in der Mitte (Boss-Arena weit weg, Migrationsschlund am Rand gegenüber, Nester, Kokon-Plätze, Pilzknollen-Hain, Totem, Landmarke), verbunden durch breite Hauptwege (14–18 m) und enge Wege mit einer Engstelle (~9 m). Es gibt keine Sackgassen, jede Lichtung hat mindestens zwei Ausgänge, durch die Mitte laufen mehrere Schleifen. Dazwischen stehen undurchdringliche Wände aus Dickicht, Fels, Wurzelwällen und Wasser (Glutsumpf: verkohltes Holz, Basalt, Lavakruste, Glutpilze an der Kante) über dunklem Waldboden; Wände südlich des Schwarms bleiben niedrig. Alle Gegner laufen über ein gemeinsames Flussfeld (`scripts/flow_field.gd`, 2-m-Raster, ~0,3 ms je Frame) zum Schwarm, die Flut-Horde entsteht an Wegmündungen außerhalb des Bildes. Nester und Totems erscheinen in ihren Lichtungen, der Apex in der Boss-Arena, der Schlund in seiner Lichtung. Minimap und große Karte zeigen dunkle Wände, helle Wege und Lichtungssymbole. Seed 0 (Tests/F5) bleibt die offene Klassik-Karte. Details: [Etappe 18b](stages/18b_map_layout.md). **Abgelöst durch 18c** (die Lichtungskarte bleibt über `arena.layout_style = "graph"` baubar).
-
-**Erkundungskarte (Etappe 18c):**
-- Jede Karte mit Seed würfelt je Region eine Landschaft: Wiese, lichter Wald, Dickicht, Ruinenfeld mit Hausgrundrissen, Felsrücken, Sumpf oder Felslabyrinth. Die Übergänge sind organisch, etwa 27–29 % sind blockiert, nichts ist abgeschnitten.
-- Orte liegen zufällig verstreut: Kokons (auch goldene), Schreine, Nester, Totems, Pilzknollen-Haine, Elite-Lager, Boss-Arena, Schlund. Auch der Start ist zufällig.
-- Minimap und große Karte zeigen nur Gesehenes; Orte und Randzeiger für Nest und Totem erscheinen erst nach der Entdeckung (`arena.discover_around`, `is_discovered`, `discovered`).
-- Hohe Landmarken locken von weitem.
-- Überall liegen Bernsteinknollen: Eine Berührung zerbricht sie zu Kristallen, tiefer im Gelände sind sie wertvoller (`scripts/loot_nodes.gd`).
-- Wände und Bäume zwischen Kamera und Schwarm werden durchsichtig (`shaders/prop_fade.gdshader`).
-- Bog King und Apex nutzen ein eigenes Flussfeld für breite Wege.
-- Test `tests/map_layout.gd`, Bilder `tests/capture_map_explore.gd`. Details: [Etappe 18c](stages/18c_exploration_map.md).
-
-**Wüste „Dürrschlund“ (Etappe 19):** Neue Biom-Reihenfolge **Verdant Maw → Dürrschlund → Glutsumpf** (danach wieder Verdant, jeder Durchlauf stärker).
-- Die Wüste ist eine eigene Variante der Erkundungskarte: offene Dünen mit Sandsteinfelsen, Kaktushaine, Sandstein-Klippenfelder, Knochenfelder mit Riesen-Rippenkörben als Wände, Felsrücken, Oasen mit türkisem Wasser und Schluchten. Landmarken sind Riesenschädel und Felsbögen (unter dem Bogen begehbar). Boden-Shader mit hellem Ocker, kühlen Schatten und Windrippeln (`shaders/desert_ground.gdshader`), Rand aus Dünen, Sandstein und Dünenmeer.
-- **Treibsand** (dunkle, wirbelnde Flächen, `shaders/quicksand.gdshader`) bremst alles auf 50 %, ist aber begehbar und nie tödlich. **Sandsturm**: alle 60–90 s eine angekündigte Welle (12 s) mit Staubschleier nur am Bildrand, Gegner dann 18 % schneller (`scripts/sandstorm.gd`).
-- Apex der Wüste ist der **Sandwurm** (1.075 LP seit Etappe 20, 100 s nach der Ankunft): Durchbruch-Ring und Schwanzfeger treffen pro Tier, in Phase 2 setzt er **Sandmaden** frei. Sandmaden kommen in der Wüste auch als kleiner, seltener Hinterhalt (`scripts/desert_run.gd`). Nach seinem Tod: Kadaver, Boss-Kokon und ein **Sandschlund** (SandPortal-Modell) in den Glutsumpf.
-- Menü: Biom-Kachel „Dürrschlund“, freigeschaltet durch den ersten Moosschlund-Sieg; Trophäe „Sandwurm bezwungen“. Minimap in Wüstenfarben mit Treibsand.
-- Test `tests/desert_run.gd`, Bilder `tests/capture_desert.gd`. Details: [Etappe 19](stages/19_desert.md).
-
-**Apex, Migration, Minimap, Assets (Etappe 10 und Folgearbeit):** Vor der Flut erscheint der Apex-Boss **Moosschlund** (Wild ~3:45, Brutal ~3:00, Apex ~2:15). Nach dem Sieg öffnet sich ein **Migrationsschlund**; wer mit dem Schwarm hineinläuft, wandert samt Build und Flut ins nächste Biom (seit Etappe 19 zuerst in den **Dürrschlund**, danach in den **Glutsumpf**). Dort wartet 100 s nach der Ankunft die **Aschenkröte** (Sprünge, Glutpfützen, `scripts/apex_toad.gd`). Ihr Schlund führt zurück in den Verdant Maw, jeder weitere Durchlauf macht die Apex-Bosse stärker. Angriffsformen messen bei großen Körpern bis zum Rand. Neue Angriffsformen (Gräber, Blitzbiss, Brutsack), Anlagen (Regeneration, Dornenhaut) und Evolutionen (Erdbeben, Sturmrudel). Oben links zeigt eine **Minimap** die Umgebung mit Regionsnamen (`scripts/ui/hud_minimap.gd`). Das HUD nutzt standardmäßig den ruhigen **V2-Stil** (Skin „calm“). Das Menü zeigt Logo, gemalte Biomkarten und Stammporträts aus dem Nutzerpaket (`assets/ui/v3/`). Jäger, Fluch-Totem, Alpha-Kern und Migrationsschlund nutzen die gelieferten Hunyuan-Modelle, die Sounds kommen aus den Stock-Paketen des Nutzers. Der Android-Export funktioniert (`tools/export_android.ps1`, Paket `com.mawlings.game`). Details: [Etappe 10](stages/10_apex_content.md).
-
-Der Zeitdruck verdoppelt sich alle 90 Spielsekunden und erhöht Angriffsleistung, neue Gegnergesundheit und Spawnrate. Maximal zwölf Jäger, drei Skitter und fünf Nibbler sind gleichzeitig aktiv. **Nur Aussterben beendet den Run**; es gibt kein Zeitlimit. Die Ergebnisanzeige zeigt Überlebenszeit, höchste Population, Kills und geerntete Biomasse. Mit **NEUER RUN**, **R** oder **Enter** neu starten. **P / Escape** oder der Pause-Button pausiert; bei Fokusverlust pausiert das Spiel ebenfalls. Beute-Kristalle bleiben innerhalb des aktiven Runs erhalten; Neustart setzt den gesamten Run zurück.
-
-Das ist ein spielbarer **Survival-Mechanik-Prototyp** mit vorläufigen Werten und Gegner-/Weltformen. Das Mawling- und Bog-King-Modell sowie das HUD haben einen ersten Design-Pass. Angriff, Ernte und Flächentreffer verwenden vorerst die Entfernung zum Schwarmzentrum; individuelle Mawlings haben keine eigene Kampf-KI. Endgültige Animationen und Grafik fehlen noch. Zentrale Survival-Werte stehen in `scripts/tuning.gd`.
-
-Der Designstand, die Asset-Aufbereitung und die nächsten Stil-Schritte stehen im [Art- und UI-Plan](ART_UI_PLAN.md).
-
-## Anführer-LP (Etappe 17c)
-
-Der Anführer hat **100 LP** mit einem Balken über dem Kopf (grün → gelb → rot) und einer kleinen Leiste an der Schwarm-Pille. Treffer kosten je Angriff LP (Jäger 20, Bog-King-Stampf 35, Moorbrut-Biss 4, Eruption 15 …, mit √Druck steigend), danach 1,2 s Unverwundbarkeit. **Lebensraub** (Wert, Relikt Blutzahn) heilt einen Anteil des Schwarm-Schadens, Regeneration heilt LP je Sekunde, Meilensteine je 25 Tiere heilen 15 LP. Fällt der Anführer, übernimmt ein Nachfolger mit 80 % des Maximums. Details: [Etappe 17b/17c](stages/17bc_swarm_leader.md).
-
-## Evolution im Run (Etappe 17: zwei Spuren)
-
-Nibbler geben 10 DNA, Skitter 15 DNA, Jäger 20 DNA. Ab 20 DNA öffnet sich eine Auswahl aus drei **Werten** (jede weitere Stufe kostet 10 DNA mehr); währenddessen steht die Welt still. **Level geben nur Werte**, Waffen und Relikte kommen aus Kokons und Bosse (Welle 2). Jede Karte hat eine **Seltenheit** (gewöhnlich 70 % ×1 · selten 22 % ×1,5 · episch 7 % ×2 · legendär 1 % ×3), sichtbar am Kartenrand und am Chip; **Glück** erhöht selten/episch/legendär um je +10 % relativ.
-
-15 Werte mit je 5 Rängen: Biss, Kritbiss, Angriffstempo, Reichweite, Rudelinstinkt, Knochenpanzer, Fluchtreflex, Anführerherz (+15 % Max-LP), Regeneration (Trophäe, LP je Sekunde), Lebensraub (Etappe 17c), Brutrate, Lockduft, Genfluss, Sprinter, Glück. Die alten Anlagen gehen darin auf; Dornenhaut ist jetzt ein Relikt. Arsenal: 10 Waffen mit Rang 1–5 (sichtbare Sprünge auf Rang 3 und 5, neu: Klauenwirbel, Giftbiss, Schallbrüller), 4 Waffenplätze, 20 stapelbare Relikte, 6 Evolutionen (Waffe Rang 5 + passendes Relikt → Boss-Kokon bietet sie an). Der Alpha-Kern entfällt. Die Startwaffe des Stammes beginnt auf Rang 1. Details: [Etappe 17](stages/17_dual_progression.md).
-
-**Kokons, Power-ups, Schreine (Etappe 17 Welle 2):**
-- **Kokons** (`scripts/chests.gd`): Karten-Kokons liegen an den Kokon-Plätzen der Karte. Den Schwarm 1 s im Kokon halten öffnet ihn; ein normaler Kokon kostet **Bernstein** (Preis 25 · 1,85^n, Pille über dem Kokon, rot = zu wenig Bernstein). Ein Gratis-**Start-Kokon** liegt 15–30 m vom Start und bringt meist eine zweite Waffe. Goldene Kokons (bewacht) sind gratis und mindestens episch, Elite-Jäger lassen einen kleinen Gratis-Kokon (mindestens selten) fallen. Die Beute kommt sofort: Kokon pulsiert und platzt, Lichtstrahl in Seltenheitsfarbe, Beute-Karte im HUD, Klang je Seltenheit. Bog King, Moosschlund und Aschenkröte hinterlassen einen goldenen **Boss-Kokon**: 1 aus 3 (mindestens episch, Evolution garantiert, wenn bereit). Kokons bleiben liegen, bis sie geöffnet sind.
-- **Power-ups** (`scripts/powerups.gd`): Rausch (+45 % Tempo), Blutrausch (−40 % Abklingzeit), Magnetsturm (Sammelradius ×3), Chitinschild (Anführer unverwundbar, −70 % Verluste), Raserei (doppelter Schaden), Brutwelle (sofort +3 Tiere). Quelle: nur Mini-Bosse (Elite-Jäger, Bog King, Apex), je Kill garantiert einer. Nur durch Hinlaufen (kein Magnet); gleiche verlängern bis zum Doppelten; nach 45 s blinken sie, verschwinden aber nicht. HUD: Reihe mit Ring-Timern unter der Schwarm-Pille, dazu ein kurzes Band.
-- **Schreine** (`scripts/shrines.gd`): Schwarm im Steinkreis halten lädt ihn (~4 s, Verlassen pausiert); voll → Werte-Wahl 1 aus 3, mindestens selten, ohne DNA. Jeder Schrein einmal.
-- **Drei Ressourcen:** Biomasse (grün, nur aus Kills) lässt den Schwarm wachsen, DNA (blau) füllt den dünnen violetten XP-Balken oben (Level → Werte-Wahl), **Bernstein** (Gold-Münzen aus Kills, Bernsteinknollen und den Hain-Schätzen, per Magnet) bezahlt Kokons und verfällt am Run-Ende. Die rechte HUD-Pille zeigt den Bernstein.
-- HUD oben rechts: Waffen-Medaillons mit 5 Rang-Punkten (Rang 5 gold, Evolution mit Glanz und EVO-Chip), darunter die Relikt-Leiste mit Stapel-Abzeichen.
-
-Prüfung dieser Etappe: [Evolution](stages/archive/EVOLUTION_VERIFICATION.md).
-
-## Arbeitsweise ab dem Neustart
-
-Wir arbeiten ausdrücklich in **größeren, zusammenhängenden Etappen**. Eine Etappe umfasst den spielbaren Ablauf, notwendiges HUD und Bedienung, Fehlerkorrekturen sowie Funktions- und Sichtprüfung. Keine Übergabe nach jeder kleinen Funktion und keine wiederholten Freigaben für bereits vereinbarte Arbeit. Diese Vorgabe ist auch in `AGENTS.md` für die weitere Zusammenarbeit festgehalten. Die [Spielregeln](DESIGN_BRIEF.md) bleiben stabil.
-
-Alle automatisierten Prüfungen auf einmal (kompakte Ausgabe, Exit-Code ≠ 0 bei Fehlern) und alle Prüfbilder aus der echten Kamera:
+## Tests und Werkzeuge
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1              # alle Tests + Durchlauf + Balance-Regression
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1 -Only smoke,menu
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1 -Only boss # Prüfbilder (mit Fenster)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/perf.ps1              # Leistungsmessung
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/balance.ps1           # Balance-Bot
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/export_android.ps1    # APK
 ```
 
-Einzelne Prüfungen mit der installierten Godot-Konsole (zusätzlich `tests/motion.gd` für Etappe 01):
+- Godot-Läufe starten immer mit `--audio-driver Dummy`; Fenster-Läufe mit `--screen 1`.
+- Captures (`tests/capture_*.gd`) laufen ohne `--headless` und schreiben nach **`previews/`**. Der Ordner ist git-ignoriert und wird von Godot per `.gdignore` nicht importiert.
+- Der Balance-Bot `tests/balance_sim.gd` misst die Zielkurven: Wild 390–510 s, Brutal 300–390 s, Apex 210–270 s.
 
-```powershell
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/smoke.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/run_model.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/hunt_flow.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/survival.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/evolution.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/arena.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/skitter.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/model_budget.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/boss.gd'
-& 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe' --headless --fixed-fps 60 --path 'C:\Users\vrxby\Documents\Codex\Godot\Mawlings' --script 'res://tests/endless_playthrough.gd'
-```
+## Etappen
 
-Prüfstand und Grenzen: [Survival-Prüfung](stages/archive/SURVIVAL_VERIFICATION.md), [Evolution](stages/archive/EVOLUTION_VERIFICATION.md), [Arena](stages/archive/ARENA_VERIFICATION.md), [Skitter](stages/archive/SKITTER_VERIFICATION.md) (archiviert, Stand Prototyp) und [Etappe 01 – Bewegung und Lesbarkeit](stages/01_motion_readability.md). Der Arbeitsablauf mit Claude Code steht in [stages/README.md](stages/README.md).
+- Etappen-Dateien: [stages/](stages/). Ablauf: [stages/README.md](stages/README.md).
+- Aktuell:
+  - [15 UI (Kit)](stages/15_ui_rework.md)
+  - [16 Beute und Magnet](stages/16_loot_magnet.md)
+  - [17 Duale Progression](stages/17_dual_progression.md)
+  - [17b/17c Schwarm ohne Limit, Anführer-LP](stages/17bc_swarm_leader.md)
+  - [17d Fähigkeiten](stages/17d_abilities.md)
+  - [18 Begrenzte Karte](stages/18_bounded_map.md)
+  - [18c Erkundungskarte](stages/18c_exploration_map.md)
+  - [19 Wüste](stages/19_desert.md)
+  - [20 Gefahren-Lesbarkeit](stages/20_danger_readability.md)
+- Ältere Etappen (01–10) und archivierte Prüfnachweise stehen ebenfalls unter `stages/`.
 
-Projektdateien liegen unter `scenes/` und `scripts/`; `.godot/` wird nicht versioniert. Das Projekt besitzt ein eigenes Git-Repository, damit Dateien außerhalb dieses Ordners nicht dazugehören.
+Arbeitsweise: größere, zusammenhängende, spielbare Etappen (siehe `AGENTS.md`, `CLAUDE.md`).

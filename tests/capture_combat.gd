@@ -36,13 +36,13 @@ func _capture() -> void:
 	for i in 12:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_combat_partial_warning.png")
+	root.get_texture().get_image().save_png("res://previews/preview_combat_partial_warning.png")
 	while hunter.state == hunter.State.WARNING:
 		await process_frame
 	for i in 8:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_combat_partial_hit.png")
+	root.get_texture().get_image().save_png("res://previews/preview_combat_partial_hit.png")
 	print("partial hit share=%.2f loss=%d population=%d" % [world.last_hit_share, world.last_loss, world.model.population])
 	hunter.health = -1.0
 
@@ -57,7 +57,7 @@ func _capture() -> void:
 	for i in 14:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_combat_popups.png")
+	root.get_texture().get_image().save_png("res://previews/preview_combat_popups.png")
 
 	# Königsmoment: the Bog King falls next to the swarm.
 	for i in 60:
@@ -76,11 +76,11 @@ func _capture() -> void:
 		world.evolution.dna = 0
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_combat_king.png")
+	root.get_texture().get_image().save_png("res://previews/preview_combat_king.png")
 	print("king moment time_scale=%.2f" % Engine.time_scale)
 	await create_timer(0.9, true, false, true).timeout
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_combat_king_late.png")
+	root.get_texture().get_image().save_png("res://previews/preview_combat_king_late.png")
 	print("after moment time_scale=%.2f" % Engine.time_scale)
 	print("Saved combat review frames")
 	quit()

@@ -39,7 +39,7 @@ func _capture() -> void:
 			arena.sync(spot)
 			scene._snap_camera()
 			await _settle()
-			root.get_texture().get_image().save_png("res://preview_seed_%d_%s.png" % [seed_value, pair[0]])
+			root.get_texture().get_image().save_png("res://previews/preview_seed_%d_%s.png" % [seed_value, pair[0]])
 		# Wide overview around the start: more chunks, camera pulled far back.
 		swarm.position = Vector3.ZERO
 		arena.view_radius = 4
@@ -47,7 +47,7 @@ func _capture() -> void:
 		camera.position = scene.CAMERA_OFFSET * 4.0
 		camera.look_at(Vector3.ZERO, Vector3.UP)
 		await _settle()
-		root.get_texture().get_image().save_png("res://preview_seed_%d_overview.png" % seed_value)
+		root.get_texture().get_image().save_png("res://previews/preview_seed_%d_overview.png" % seed_value)
 		arena.view_radius = arena.VISIBLE_RADIUS
 		print("Seed %d captured" % seed_value)
 	quit()

@@ -174,10 +174,10 @@ func _settle() -> void:
 func _save(file_name: String) -> Image:
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()
-	image.save_png("res://%s.png" % file_name)
+	image.save_png("res://previews/%s.png" % file_name)
 	var grey := image.duplicate() as Image
 	grey.convert(Image.FORMAT_L8)
-	grey.save_png("res://%s_grey.png" % file_name)
+	grey.save_png("res://previews/%s_grey.png" % file_name)
 	return image
 
 

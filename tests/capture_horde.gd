@@ -81,4 +81,4 @@ func _run(seconds: float, with_forms: bool) -> void:
 
 func _save(file_name: String) -> void:
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)

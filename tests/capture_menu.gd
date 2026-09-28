@@ -38,14 +38,14 @@ func _capture() -> void:
 	menu.profile_path = TEST_PROFILE
 	menu.change_scene_on_play = false
 	root.add_child(menu)
-	await _shot("res://preview_menu_main.png")
+	await _shot("res://previews/preview_menu_main.png")
 	# TAGES-BRUT held down (pressed state) with today's record.
 	var press := InputEventMouseButton.new()
 	press.button_index = MOUSE_BUTTON_LEFT
 	press.pressed = true
 	press.position = menu.daily_rect().get_center()
 	menu._gui_input(press)
-	await _shot("res://preview_menu_daily.png")
+	await _shot("res://previews/preview_menu_daily.png")
 	var release := InputEventMouseButton.new()
 	release.button_index = MOUSE_BUTTON_LEFT
 	release.pressed = false
@@ -57,21 +57,21 @@ func _capture() -> void:
 	menu.open_settings()
 	menu.toggle_setting("colorblind")
 	menu.toggle_setting("vibration")
-	await _shot("res://preview_menu_settings.png")
+	await _shot("res://previews/preview_menu_settings.png")
 	menu.toggle_setting("colorblind")
 	menu.toggle_setting("vibration")
 	menu.close_settings()
 	menu.strain_index = menu.strain_ids.find("knochenkiefer")
-	await _shot("res://preview_menu_locked.png")
+	await _shot("res://previews/preview_menu_locked.png")
 	menu.profile.unlocked_strains.append("knochenkiefer")
-	await _shot("res://preview_menu_buy.png")
+	await _shot("res://previews/preview_menu_buy.png")
 	menu.strain_index = 0
 	menu.open_tab("upgrades")
-	await _shot("res://preview_menu_upgrades.png")
+	await _shot("res://previews/preview_menu_upgrades.png")
 	menu.open_tab("trophies")
-	await _shot("res://preview_menu_trophies.png")
+	await _shot("res://previews/preview_menu_trophies.png")
 	menu.open_tab("instinct")
-	await _shot("res://preview_menu_instinct.png")
+	await _shot("res://previews/preview_menu_instinct.png")
 	menu.queue_free()
 	await process_frame
 	session.last_result = {"strain_id": "glutmaw", "biome_id": "verdant_maw", "difficulty": 0, "seconds": 318.0,
@@ -81,7 +81,7 @@ func _capture() -> void:
 	menu = load("res://scenes/menu.tscn").instantiate()
 	menu.profile_path = TEST_PROFILE
 	root.add_child(menu)
-	await _shot("res://preview_menu_rewards.png")
+	await _shot("res://previews/preview_menu_rewards.png")
 	menu.queue_free()
 	await process_frame
 	# Result of a daily brood: subtitle names TAGES-BRUT and the new day record.
@@ -93,9 +93,9 @@ func _capture() -> void:
 	menu = load("res://scenes/menu.tscn").instantiate()
 	menu.profile_path = TEST_PROFILE
 	root.add_child(menu)
-	await _shot("res://preview_menu_daily_reward.png")
+	await _shot("res://previews/preview_menu_daily_reward.png")
 	menu.close_reward()
-	await _shot("res://preview_menu_after_daily.png")
+	await _shot("res://previews/preview_menu_after_daily.png")
 	menu.queue_free()
 	for p in [TEST_PROFILE, TEST_CHRONICLE]:
 		if FileAccess.file_exists(p):

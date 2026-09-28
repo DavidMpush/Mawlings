@@ -215,3 +215,7 @@ Herkunft: **(a)** gemaltes Nutzer-Asset (V2/V3-Paket, auch als V4 nachbearbeitet
 **Zählung der Elementarten** (ca., jede Art einmal je Bildschirmgruppe): **(a) ≈ 34**, **(b) ≈ 17**, **(c) ≈ 29**, **(d) 2** (Schallbrüller, Glutdrüse; dazu jede künftige ID ohne Icon). Doppelt belegte Motive: 25 Werte/Relikte/Power-ups zeigen ein Icon, das an anderer Stelle etwas anderes bedeutet.
 
 **Die schlimmsten Stellen:** (1) Währungsleiste oben im Menü (Essenz-Tropfen und Königszahn sind flache SVGs direkt neben dem gemalten Logo); (2) Power-up-Ringe und Relikt-Kacheln im HUD – alles Stellvertreter, u. a. die Uhr-Glyphe als „Blutrausch“; (3) Einstellungen-Sheet mit vier Code-Glyphen; (4) Schallbrüller/Glutdrüse als Buchstaben; (5) ein Schädel für Flut, Druck und „Apex erscheint“.
+
+## Etappe 17d – Stammesfähigkeiten (neu angefragt)
+- **Sechs Fähigkeits-Icons** für den runden Knopf über Rally (bisher Stammesköpfe): Glutsprung (Sprungbogen mit Glutspur), Sporenbombe (Sporenwolke), Panzerstoß (Schockwelle am Knochenschild), Hetzjagd (Pfeilreihe/Laufspur), Säureschwall (Säurekegel), Schattenschleier (Schleier/Auge). Stil wie V4, Grundfarbe Glut, bei 64 px lesbar.
+- **Vier Relikt-Icons**: Glutkern (Stundenglas mit Glutkern; bisher „haste“), Feuerspur (brennende Spur; bisher „glutdruese“), Sporenhall (Echo-Wolke; bisher „sporenwolke“), Weiter Schlund (weites Maul; bisher „reach“).

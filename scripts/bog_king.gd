@@ -3,7 +3,7 @@ extends Node3D
 const TUNING = preload("res://scripts/tuning.gd")
 const FX = preload("res://scripts/fx.gd")
 const TG = preload("res://scripts/telegraph_style.gd")
-# Stage 11: the user's reworked Bog King (BogKing_game.glb stays for the Aschenkroete).
+# Stage 11: the user's reworked Bog King (the old BogKing_game.glb is gone).
 const MODEL = preload("res://assets/gameplay/characters/BogKingNew_game.glb")
 const CREATURE_SHADER = preload("res://shaders/creature_anim.gdshader")
 

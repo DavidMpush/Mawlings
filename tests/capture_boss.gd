@@ -26,19 +26,19 @@ func _capture() -> void:
 	boss.refresh_pose()
 	world._update_hud("DER BOG KING ERSCHEINT")
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_boss.png")
+	root.get_texture().get_image().save_png("res://previews/preview_boss.png")
 	boss.position = Vector3(0, 0, -4.4)
 	boss.step(0.01, swarm.position, 1.0)
 	for i in range(12):
 		boss.step(1.0 / 60.0, swarm.position, 1.0)
 	world._update_hud("BOG KING STAMPFT · RAUS AUS DEM KREIS!")
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_boss_warning.png")
+	root.get_texture().get_image().save_png("res://previews/preview_boss_warning.png")
 	# Advance to ~80 % of the warning to show the growing fill disc and rearing pose.
 	while boss.state == boss.State.WARNING and boss.remaining > TUNING.BOSS_WARNING_SECONDS * 0.2:
 		boss.step(1.0 / 60.0, swarm.position, 1.0)
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_boss_warning_late.png")
+	root.get_texture().get_image().save_png("res://previews/preview_boss_warning_late.png")
 	# Swarm steps aside, the stomp lands; then settle into the exhausted recovery pose.
 	var aside := Vector3(8, 0, 0)
 	while boss.state == boss.State.WARNING:
@@ -47,6 +47,6 @@ func _capture() -> void:
 		boss.step(1.0 / 60.0, aside, 1.0)
 	world._update_hud("BOG KING ERSCHÖPFT · JETZT ANGREIFEN!")
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_boss_recovery.png")
+	root.get_texture().get_image().save_png("res://previews/preview_boss_recovery.png")
 	print("Saved boss review frames")
 	quit()

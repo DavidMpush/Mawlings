@@ -154,7 +154,7 @@ func _save(file_name: String, message: String) -> void:
 		arena.sync(swarm.position)
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)
 
 
 # A forest spot next to a wall (gaps and a choke in the picture).
@@ -216,12 +216,12 @@ func _minimap(file_name: String) -> void:
 		for frame in 10:
 			await process_frame
 		await RenderingServer.frame_post_draw
-		root.get_texture().get_image().save_png("res://" + file_name)
+		root.get_texture().get_image().save_png("res://previews/" + file_name)
 		hud.map_open = false
 		for frame in 3:
 			await process_frame
 	else:
-		root.get_texture().get_image().save_png("res://" + file_name)
+		root.get_texture().get_image().save_png("res://previews/" + file_name)
 
 
 func _overview(file_name: String, focus := Vector3.INF, span := 0.0) -> void:
@@ -249,7 +249,7 @@ func _overview(file_name: String, focus := Vector3.INF, span := 0.0) -> void:
 	for frame in 6:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	view.get_texture().get_image().save_png("res://" + file_name)
+	view.get_texture().get_image().save_png("res://previews/" + file_name)
 	view.queue_free()
 	arena.view_radius = old_radius
 	arena.fade_enabled = true

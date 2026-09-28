@@ -85,7 +85,7 @@ func _singles() -> void:
 		var small := shots[index].duplicate() as Image
 		small.resize(270, 480, Image.INTERPOLATE_LANCZOS)
 		sheet.blit_rect(small, Rect2i(Vector2i.ZERO, small.get_size()), Vector2i((index % 3) * 270, (index / 3) * 480))
-	sheet.save_png("res://preview_vfx_sheet.png")
+	sheet.save_png("res://previews/preview_vfx_sheet.png")
 
 
 # --- 2: späte Flut mit vielen Effekten ------------------------------------
@@ -248,6 +248,6 @@ func _quiet() -> void:
 func _save(file_name: String, keep := false) -> void:
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()
-	image.save_png("res://" + file_name)
+	image.save_png("res://previews/" + file_name)
 	if keep:
 		shots.append(image)

@@ -17,7 +17,7 @@ func _capture() -> void:
 	skitter.step(0.01, Vector3.ZERO, world.model.pressure())
 	world._update_hud("SPRINT! SEITLICH AUSWEICHEN")
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_skitter.png")
+	root.get_texture().get_image().save_png("res://previews/preview_skitter.png")
 	print("Saved Skitter warning preview")
 	quit()
 
@@ -54,11 +54,11 @@ func _side_view() -> void:
 	for i in 10:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_skitter_side.png")
+	root.get_texture().get_image().save_png("res://previews/preview_skitter_side.png")
 	camera.look_at_from_position(Vector3(0, 7, 4), Vector3(0, 0.2, 0))
 	for i in 4:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://preview_skitter_top.png")
+	root.get_texture().get_image().save_png("res://previews/preview_skitter_top.png")
 	skitter.cleanup()
 	stage.free()

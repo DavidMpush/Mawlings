@@ -81,7 +81,7 @@ func _save(file_name: String, message: String) -> void:
 	for frame in 3:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)
 
 
 func _game_frames() -> void:
@@ -208,7 +208,7 @@ func _overview(file_name: String) -> void:
 	for frame in 6:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	view.get_texture().get_image().save_png("res://" + file_name)
+	view.get_texture().get_image().save_png("res://previews/" + file_name)
 	view.queue_free()
 	arena.view_radius = old_radius
 	arena.sync(middle)

@@ -91,7 +91,7 @@ func _closeups() -> void:
 			var shot := view.get_texture().get_image()
 			shot.convert(Image.FORMAT_RGBA8)
 			sheet.blit_rect(shot, Rect2i(Vector2i.ZERO, cell), Vector2i((index % 3) * cell.x, (index / 3) * cell.y))
-		sheet.save_png("res://preview_anim_mawling_%s.png" % ["side", "top"][view_index])
+		sheet.save_png("res://previews/preview_anim_mawling_%s.png" % ["side", "top"][view_index])
 
 	# Bog King: one instance, walk phase is a material uniform, so shoot a sheet.
 	for child in stage.get_children():
@@ -141,7 +141,7 @@ func _closeups() -> void:
 	var last := view.get_texture().get_image()
 	last.convert(Image.FORMAT_RGBA8)
 	sheet.blit_rect(last, Rect2i(Vector2i.ZERO, frame_size), Vector2i(3 * frame_size.x, frame_size.y))
-	sheet.save_png("res://preview_anim_boss.png")
+	sheet.save_png("res://previews/preview_anim_boss.png")
 	view.queue_free()
 	await process_frame
 
@@ -177,9 +177,9 @@ func _game_shots() -> void:
 
 func _save_view(file_name: String) -> void:
 	await RenderingServer.frame_post_draw
-	view.get_texture().get_image().save_png("res://" + file_name)
+	view.get_texture().get_image().save_png("res://previews/" + file_name)
 
 
 func _save(file_name: String) -> void:
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)

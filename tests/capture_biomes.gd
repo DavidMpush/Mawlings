@@ -142,7 +142,7 @@ func _frame(spot: Vector3, zoom := 1.0) -> void:
 func _save(file_name: String, message: String) -> void:
 	world._update_hud(message)
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://" + file_name)
+	root.get_texture().get_image().save_png("res://previews/" + file_name)
 
 
 # A lava pool well outside the start zone (the swarm stands beside it).
