@@ -41,6 +41,8 @@ const BRAWL_SCALE := 0.8
 const DOT_HZ := 12.0
 const BIG_HZ := 10.0
 const BAKE_BUDGET_USEC := 600      # bake work per frame (one step may overrun it)
+# Etappe 22: the quality tier may lower it ("minimap_bake_us").
+var _bake_budget := int(preload("res://scripts/quality.gd").value("minimap_bake_us", BAKE_BUDGET_USEC))
 const UPLOAD_GAP := 0.4            # seconds between texture uploads while baking
 const BANNER_SECONDS := 2.0
 const ARRIVAL_HOLD := 3.2
@@ -459,7 +461,7 @@ func _step_bakes() -> void:
 	var started := Time.get_ticks_usec()
 	# The start area (3 x 3 chunks) bakes at once on a new map, the rest in budget.
 	var sync_left := 9 if _sync_fill else 0
-	while not _queue.is_empty() and (sync_left > 0 or Time.get_ticks_usec() - started < BAKE_BUDGET_USEC):
+	while not _queue.is_empty() and (sync_left > 0 or Time.get_ticks_usec() - started < _bake_budget):
 		var id: Vector3i = _queue[0]
 		if _images.has(id):
 			_queue.pop_front()

@@ -36,6 +36,10 @@ var king_slow_left := 0.0
 var king_zoom_left := 0.0
 var king_focus := Vector3.ZERO
 var hitstop_left := 0.0
+# Etappe 25: boss entrance - the camera pulls back a little for a moment.
+const DRAMA_ZOOM := 1.12
+const DRAMA_PATH := "res://scripts/drama.gd"
+var drama_zoom_left := 0.0
 # Etappe 07: quality tier (quality.gd Tier) and its display switches.
 var quality_tier := -1
 var quality: Dictionary = {}
@@ -62,6 +66,7 @@ func _ready() -> void:
 		_apply_settings(config.get("settings", {}))
 		world.apply_config(config)
 		_create_onboarding(config)
+	_create_drama(config)
 	_snap_camera()
 	DisplayServer.window_set_title("MAWLINGS — Godot Prototype")
 
@@ -69,6 +74,11 @@ func _ready() -> void:
 # Purely visual camera kick; stacks but saturates so big hits stay readable.
 func add_shake(amount: float) -> void:
 	shake = minf(1.0, shake + amount)
+
+
+## Etappe 25: pulls the camera back by DRAMA_ZOOM for `seconds` (real time).
+func drama_zoom(seconds: float) -> void:
+	drama_zoom_left = maxf(drama_zoom_left, seconds)
 
 
 # Bog King eaten: short slow motion and a close camera push towards the kill.
@@ -96,6 +106,7 @@ func hitstop(strength: float) -> void:
 # Counts the moment down in real seconds and always restores normal time.
 func update_king_moment(real_delta: float) -> void:
 	king_zoom_left = maxf(0.0, king_zoom_left - real_delta)
+	drama_zoom_left = maxf(0.0, drama_zoom_left - real_delta)
 	if hitstop_left > 0.0:
 		hitstop_left -= real_delta
 		if hitstop_left <= 0.0 or world.paused or world.model.extinct:
@@ -129,6 +140,8 @@ func _process(delta: float) -> void:
 	# Stage 10: during the migration swirl the swarm is drawn into the maw.
 	var steering: bool = active and not world.migrating()
 	swarm.set_controls(movement if steering else Vector2.ZERO, steering and (controls.rally_pressed or Input.is_key_pressed(KEY_SPACE)))
+	# Etappe 22: new chunks one per frame (no hitch when a row appears).
+	arena.chunk_budget = 1
 	arena.sync(swarm.position)
 	# Pull back for a large swarm and a nearby boss so both fit the portrait frame.
 	var wanted := 1.0 + clampf(float(swarm.population - 25) / 225.0, 0.0, 1.0) * 0.12
@@ -145,6 +158,9 @@ func _process(delta: float) -> void:
 	if apex_close:
 		look_at_point = swarm.position.lerp(Vector3(world.apex.position.x, 0.0, world.apex.position.z), 0.18)
 	var zoom_rate := 1.5
+	if drama_zoom_left > 0.0 and king_zoom_left <= 0.0:
+		wanted *= DRAMA_ZOOM
+		zoom_rate = 3.0
 	if king_zoom_left > 0.0:
 		# Push in fast, then let the normal framing ease back out.
 		wanted *= KING_ZOOM
@@ -171,6 +187,18 @@ func _take_pending_config() -> Dictionary:
 	var pending: Variant = session.get("pending_config")
 	session.set("pending_config", {})
 	return (pending as Dictionary).duplicate(true) if pending is Dictionary else {}
+
+
+# Etappe 25: speech bubbles and boss drama for every run (tests too; they only
+# write HUD metadata). The menu switch "SPRÜCHE" (settings.speech) mutes the lines.
+func _create_drama(config: Dictionary) -> void:
+	if has_node("Drama") or not ResourceLoader.exists(DRAMA_PATH):
+		return
+	var drama: Node = load(DRAMA_PATH).new()
+	drama.name = "Drama"
+	add_child(drama)
+	var settings: Variant = config.get("settings", {})
+	drama.setup(world, controls, self, not (settings is Dictionary) or bool((settings as Dictionary).get("speech", true)))
 
 
 # Einstieg: contextual first-time tips, only for runs started from the menu
@@ -295,6 +323,7 @@ func _restart() -> void:
 	_bank_result_for_new_run()
 	end_king_moment()
 	king_zoom_left = 0.0
+	drama_zoom_left = 0.0
 	world.reset_run()
 	var music := get_node_or_null("Music")
 	if music != null:

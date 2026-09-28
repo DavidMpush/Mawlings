@@ -219,7 +219,7 @@ const PILZ_SLOW := 0.35
 const SPIT_INTERVAL := [1.1, 1.0, 0.9, 0.8, 0.7]
 const SPIT_REACH := 9.0
 const SPIT_SPEED := 14.0
-const SPIT_DAMAGE := [7.5, 8.5, 10.0, 12.0, 14.0]
+const SPIT_DAMAGE := [9.5, 11.0, 13.0, 15.5, 18.0]
 # Rang 3: zwei Salven kurz nacheinander; Rang 5: durchschlägt ein weiteres Ziel.
 const SPIT_SALVOS := [1, 1, 2, 2, 2]
 const SPIT_SALVO_GAP := 0.16

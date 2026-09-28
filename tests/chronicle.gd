@@ -26,12 +26,13 @@ func _run() -> void:
 		_fail("Fresh chronicle must be empty")
 		return
 	# Booking + reload keeps every field.
+	# Etappe 21: flood stage = seconds / FLOOD_DOUBLING_SECONDS (24 s) + 1 -> 95 s = stage 4.
 	var booked: Dictionary = c.record(_stats("glutmaw", 0, 200.0, 64, {"seed": 1234567, "flood_reached": true, "flood_seconds": 95.0, "mutations": {"jaws": 2, "pack": 1}}), {"date": "2026-09-20", "time": 1790000000})
 	if not booked.new_best or booked.daily_rank != 0:
 		_fail("First run must be a new best and no daily rank: %s" % booked)
 		return
 	var e: Dictionary = booked.entry
-	if e.seed_code != "00QGLJ" or e.flood_stage != 3 or e.date != "2026-09-20" or int(e.mutations.jaws) != 2:
+	if e.seed_code != "00QGLJ" or e.flood_stage != 4 or e.date != "2026-09-20" or int(e.mutations.jaws) != 2:
 		_fail("Entry fields wrong: code %s flood %s date %s" % [e.seed_code, e.flood_stage, e.date])
 		return
 	if Chronicle.seed_code(1234567) != load("res://scripts/menu/menu.gd").seed_code(1234567):
@@ -41,7 +42,7 @@ func _run() -> void:
 		_fail("Chronicle did not save")
 		return
 	var r: Variant = Chronicle.load_or_create(TEST_PATH)
-	if r.runs.size() != 1 or not is_equal_approx(float(r.runs[0].seconds), 200.0) or int(r.runs[0].peak_population) != 64 or r.runs[0].seed_code != "00QGLJ" or int(r.runs[0].flood_stage) != 3:
+	if r.runs.size() != 1 or not is_equal_approx(float(r.runs[0].seconds), 200.0) or int(r.runs[0].peak_population) != 64 or r.runs[0].seed_code != "00QGLJ" or int(r.runs[0].flood_stage) != 4:
 		_fail("Reloaded run differs: %s" % [r.runs])
 		return
 	if r.recovered:
@@ -60,7 +61,7 @@ func _run() -> void:
 		return
 	# Bests per strain + difficulty.
 	var b: Dictionary = r2.best("glutmaw", 0)
-	if b.is_empty() or not is_equal_approx(float(b.seconds), 200.0) or int(b.peak) != 64 or int(b.runs) != 1 or int(b.flood_stage) != 3:
+	if b.is_empty() or not is_equal_approx(float(b.seconds), 200.0) or int(b.peak) != 64 or int(b.runs) != 1 or int(b.flood_stage) != 4:
 		_fail("Glutmaw/Wild best wrong: %s" % b)
 		return
 	var weaker: Dictionary = r2.record(_stats("glutmaw", 0, 150.0, 90), {"date": "2026-09-22"})
@@ -73,7 +74,7 @@ func _run() -> void:
 		_fail("Difficulties must keep separate bests")
 		return
 	var overall: Dictionary = r2.overall_best()
-	if not is_equal_approx(float(overall.seconds), 200.0) or int(overall.peak) != 90 or int(overall.flood_stage) != 3:
+	if not is_equal_approx(float(overall.seconds), 200.0) or int(overall.peak) != 90 or int(overall.flood_stage) != 4:
 		_fail("Overall best wrong: %s" % overall)
 		return
 	# Daily board: top 10 by time, then peak; rank reported; other days separate.

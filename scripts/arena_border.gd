@@ -30,6 +30,8 @@ enum Kind { THICKET, CLIFF, WATER }
 const KIND_NAMES := [["thicket", "cliff", "water"], ["char", "basalt", "lava"]]
 const DEFAULT_LOOK := {"floor": Color("4a6a34"), "fog": Color(0.16, 0.23, 0.18), "water": Color("2f9ea6"), "shore": Color("5d7a3a")}
 
+const QUALITY = preload("res://scripts/quality.gd")
+
 var arena: Node3D
 var look: Dictionary = DEFAULT_LOOK
 var band_material: StandardMaterial3D
@@ -44,6 +46,8 @@ var skirt: MeshInstance3D
 var _tint := Color.WHITE
 # Stage 19: the Dürrschlund builds dunes, sandstone, bones and cacti.
 var _desert := false
+# Etappe 22: quality "wall_detail" (1 = every prop; lower thins deep interiors).
+var _detail := clampf(float(QUALITY.value("wall_detail", 1.0)), 0.3, 1.0)
 # Placed props per chunk key (revisits only rebuild the MultiMeshes); cleared
 # with every new layout or biome.
 var _cache: Dictionary = {}
@@ -292,8 +296,8 @@ func _place(groups: Dictionary, ember: bool, kind: int, side: int, depth: float,
 	var tall := 0.55 if side == Side.SOUTH and depth < 12.0 else 1.0
 	# Along-edge yaw for logs (the log model is long along z).
 	var along_yaw := (PI * 0.5 if side == Side.NORTH or side == Side.SOUTH else 0.0) + (roll - 0.5) * 0.5
-	if depth > 14.0 and roll < 0.35:
-		return  # deep in the fog: thinner
+	if depth > 14.0 * _detail and roll < 0.35 + 0.5 * (1.0 - _detail):
+		return  # deep in the fog: thinner (quality "wall_detail" thins more)
 	if _desert:
 		_place_desert(groups, kind, depth, local, roll, size_roll, yaw, tall)
 		return
@@ -914,7 +918,8 @@ func _cell_walls(groups: Dictionary, key: Vector2i, origin: Vector3, ember: bool
 			var yaw: float = arena._unit(ix, iz, 3301) * TAU
 			var inner := closed[index - 1] == 1 and closed[index + 1] == 1 and closed[index - grid] == 1 and closed[index + grid] == 1
 			var camera_side := closed[index - grid] == 0
-			if depth > 9.0 and roll < 0.5:
+			# Etappe 22: quality "wall_detail" thins the deep inside (the rim stays).
+			if depth > 9.0 * _detail and roll < 1.0 - 0.5 * _detail:
 				continue
 			var local := Vector3(cx - origin.x, 0.0, cz - origin.z)
 			_tint = _shade(depth * 1.3 + 1.0)

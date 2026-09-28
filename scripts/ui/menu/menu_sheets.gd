@@ -1174,9 +1174,9 @@ func _draw_settings() -> void:
 		var ic := row.position + Vector2(58, row.size.y * 0.5) + po
 		_medallion(ic, 36, accent if on else S.tone(Color("56625a")), 0.7 if on else 0.0)
 		_setting_glyph(String(entry[0]), ic, accent.lightened(0.2) if on else S.tone(Color("7d8a80")), on)
-		_txt(String(entry[1]), row.position + Vector2(116, 56) + po, 32, S.color("text") if on else S.color("text_dim"), 0, 6)
+		_txt(String(entry[1]), row.position + Vector2(116, 50) + po, 32, S.color("text") if on else S.color("text_dim"), 0, 6)
 		var desc := _fit(String(entry[2]), row.size.x - 116 - 190, [22], S.body_font())
-		_body(desc[0], row.position + Vector2(116, 92) + po, desc[1], Color(S.color("text_dim"), 0.95))
+		_body(desc[0], row.position + Vector2(116, 84) + po, desc[1], Color(S.color("text_dim"), 0.95))
 		_switch(Rect2(Vector2(row.end.x - 164, row.get_center().y - 30) + po, Vector2(140, 60)), on, accent)
 	# UI style row (stage 15), drawn in the old frame language too so a player
 	# on calm/organic can switch back.
@@ -1189,7 +1189,12 @@ func _draw_settings() -> void:
 		var down: bool = menu.is_pressed(rect)
 		_button(rect, "ember" if id == menu.ui_skin() else "off", 0.0, down)
 		_txt(String(menu.UI_SKIN_NAMES[id]), rect.get_center() + Vector2(0, 10) + _press_offset(down), 26, S.color("text"), 1, 5)
-	var note_y: float = sr.end.y + 40
+	# Etappe 24: reset the one-time tips.
+	var tips: Rect2 = menu.settings_tips_rect()
+	var tips_down: bool = menu.is_pressed(tips)
+	_button(tips, "off", 0.0, tips_down)
+	_txt("TIPPS ZURÜCKSETZEN", tips.get_center() + Vector2(0, 10) + _press_offset(tips_down), 28, S.color("text"), 1, 5)
+	var note_y: float = tips.end.y + 40
 	_paragraph_body("Farbenblind: Gefahren zusätzlich mit Muster und Kontur.", Vector2(p.get_center().x, note_y), p.size.x - 110, 22, Color(S.color("text_dim"), 0.85))
 
 
@@ -1227,7 +1232,7 @@ func _switch(rect: Rect2, on: bool, accent: Color) -> void:
 
 func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
 	if S.is_brawl():
-		var glyph_id: String = {"sound": "g_sound", "vibration": "g_vibration", "music_v1": "g_music"}.get(key, "g_eye")
+		var glyph_id: String = {"sound": "g_sound", "vibration": "g_vibration", "music_v1": "g_music", "speech": "mawling_head_color"}.get(key, "g_eye")
 		if _b_icon(glyph_id, c, 50.0, color if on else Color(0.5, 0.55, 0.6)):
 			return
 	match key:
@@ -1250,6 +1255,17 @@ func _setting_glyph(key: String, c: Vector2, color: Color, on: bool) -> void:
 					draw_line(c + Vector2(sgn * 17, -10), c + Vector2(sgn * 21, -4), color, 3, true)
 					draw_line(c + Vector2(sgn * 21, -4), c + Vector2(sgn * 17, 2), color, 3, true)
 					draw_line(c + Vector2(sgn * 17, 2), c + Vector2(sgn * 21, 8), color, 3, true)
+		"speech":
+			# Etappe 25: speech bubble with a tail (three dots while on).
+			var bubble := PackedVector2Array()
+			for i in 24:
+				var a := TAU * float(i) / 24.0
+				bubble.append(c + Vector2(cos(a) * 22.0, sin(a) * 15.0 - 3.0))
+			draw_colored_polygon(bubble, color)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-12, 8), c + Vector2(-4, 10), c + Vector2(-16, 20)]), color)
+			if on:
+				for x in [-9.0, 0.0, 9.0]:
+					draw_circle(c + Vector2(x, -3), 3, S.color("outline"))
 		"music_v1":
 			# Two beamed notes; a third, small one when the V1 pack is on.
 			for x in [-12.0, 10.0]:
@@ -1324,7 +1340,7 @@ const B_UPGRADE_ICON := {"brood_size": "brood", "rending": "jaws", "chitin": "ar
 	"digestion": "glutton", "witterung": "branch_growth", "geneflow": "dna", "attack_slot": "rudelbiss", "trait_slot": "pack"}
 const B_CATEGORY_TONE := {"time": "info", "swarm": "ember", "boss": "danger", "evolution": "special", "biomass": "loot", "runs": "action", "hunt": "ember"}
 const B_CATEGORY_ICON := {"time": "clock", "swarm": "mawling_head_color", "boss": "crown", "evolution": "branch_special", "biomass": "biomass", "runs": "trophy", "hunt": "skull"}
-const B_SETTING_TONE := {"sound": "info", "vibration": "ember", "colorblind": "special", "music_v1": "loot"}
+const B_SETTING_TONE := {"sound": "info", "vibration": "ember", "colorblind": "special", "music_v1": "loot", "speech": "action"}
 const B_DIFF_TONE := ["action", "ember", "danger"]
 
 
@@ -1721,8 +1737,8 @@ func _b_settings() -> void:
 		_setting_glyph(key, Kit.plate_center(pc, 80), Color.WHITE, on)
 		var sw := Rect2(row.end.x - 20 - 156, row.get_center().y - 32, 156, 64)
 		var x := row.position.x + 112
-		_b_text(Vector2(x, row.position.y + 36), String(entry[1]), S.T_HEAD, Color.WHITE if on else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, sw.position.x - x - 16)
-		Kit.paragraph(self, Vector2(x, row.position.y + 78), String(entry[2]), sw.position.x - x - 16, S.T_LABEL, S.BRAWL_TEXT_DIM, false, Kit.LEFT, 2, 3)
+		_b_text(Vector2(x, row.position.y + 32), String(entry[1]), S.T_HEAD, Color.WHITE if on else S.BRAWL_TEXT_DIM, Kit.LEFT | Kit.MIDDLE, sw.position.x - x - 16)
+		Kit.paragraph(self, Vector2(x, row.position.y + 70), String(entry[2]), sw.position.x - x - 16, S.T_LABEL, S.BRAWL_TEXT_DIM, false, Kit.LEFT, 2, 3)
 		_b_switch(sw, on, pressed)
 	# UI style: three segment buttons.
 	var sr: Rect2 = menu.settings_skin_row_rect()
@@ -1743,7 +1759,15 @@ func _b_settings() -> void:
 			_b_text(Vector2(lc.x - (nw + 34) * 0.5 + 34, lc.y), String(menu.UI_SKIN_NAMES[id]), S.T_BODY, Color.WHITE, Kit.LEFT | Kit.MIDDLE, rect.size.x - 60)
 		else:
 			_b_text(lc, String(menu.UI_SKIN_NAMES[id]), S.T_BODY, Color.WHITE, Kit.CENTER | Kit.MIDDLE, rect.size.x - 24)
-	Kit.paragraph(self, Vector2(p.position.x + 40, sr.end.y + 40), "Farbenblind: Gefahren zusätzlich mit Muster und Kontur.", p.size.x - 80, S.T_LABEL, S.BRAWL_TEXT_DIM, false, Kit.CENTER, 2)
+	# Etappe 24: every one-time tip shows again (profile.seen_tips cleared).
+	var tips: Rect2 = menu.settings_tips_rect()
+	var tips_pressed: bool = menu.is_pressed(tips)
+	Kit.button(self, tips, "neutral", tips_pressed, S.R_L)
+	var tc := Kit.button_label_center(tips, tips_pressed)
+	var tw := _b_width("TIPPS ZURÜCKSETZEN", S.T_BODY)
+	_b_text(Vector2(tc.x - (tw + 50) * 0.5 + 50, tc.y), "TIPPS ZURÜCKSETZEN", S.T_BODY, Color.WHITE, Kit.LEFT | Kit.MIDDLE, tips.size.x - 90)
+	_icon(["reroll"], Rect2(Vector2(tc.x - (tw + 50) * 0.5 - 4, tc.y - 20), Vector2(40, 40)))
+	Kit.paragraph(self, Vector2(p.position.x + 40, tips.end.y + 40), "Farbenblind: Gefahren zusätzlich mit Muster und Kontur.", p.size.x - 80, S.T_LABEL, S.BRAWL_TEXT_DIM, false, Kit.CENTER, 2)
 
 
 ## Pill toggle: on = action with the knob right, off = neutral with the knob left.

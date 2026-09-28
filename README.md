@@ -26,7 +26,7 @@ In Godot den Ordner als Projekt öffnen und **F5** drücken. Das Spiel startet i
 ## Spielablauf
 
 - **Start:** Ein Run beginnt mit einem einzelnen **Anführer**. Neue Mawlings entstehen per Zellteilung aus Biomasse. Die Population hat **kein Limit**; bis 120 Tiere sind einzeln sichtbar, darüber steht jedes Modell für mehrere Tiere.
-- **Kampf und Ende:** Der Schwarm greift in der Nähe automatisch an. Warnflächen treffen nur die Tiere, die darin stehen. Der Zeitdruck verdoppelt sich regelmäßig. Ab 4:30 / 4:00 / 3:00 (Wild / Brutal / Apex) kommt **„Die Flut“**, Horden mit exponentiell wachsender Stärke. **Nur Aussterben beendet einen Run.**
+- **Kampf und Ende:** Der Schwarm greift in der Nähe automatisch an; der Nahkampf wächst linear mit der Population, Waffen und Fähigkeit ab 25 Tieren ohne Deckel mit √(P/25) (Etappe 21). Warnflächen treffen nur die Tiere, die darin stehen. Der Zeitdruck verdoppelt sich regelmäßig. Ab 4:30 / 3:30 / 3:00 (Wild / Brutal / Apex) kommt **„Die Flut“**, Horden, deren Stärke sich alle 24 s verdoppelt. **Nur Aussterben beendet einen Run.**
 - **Anführer:** Er hat **100 LP** mit einem Balken über dem Kopf. Treffer kosten je Angriff LP, danach ist er kurz unverwundbar. Heilung gibt es über Lebensraub, Regeneration und Meilensteine. Fällt er, übernimmt ein Nachfolger mit 80 % des Maximums.
 - **Meta:** Menü **Brutstätte** mit 6 Stämmen (Glutmaw, Sporling, Knochenkiefer, Flinkzahn, Ätzmaul, Nachtmaul), 3 Schwierigkeiten, Brutkammer-Upgrades, Trophäen, Chronik, Tages-Brut und Einstellungen. Die Meta-Währung ist Essenz; Bosse geben Königszähne.
 - **Kodex:** Sammlung mit den Tabs Waffen, Relikte, Werte, Power-ups und Bosse; der Knopf KODEX steht im Trophäen-Blatt. Ein Eintrag gilt als entdeckt, sobald er einmal in einem Run erhalten oder besiegt wurde. Das Profil speichert ihn in `codex_seen`; unentdeckte Einträge erscheinen als Silhouette mit „???“ und Fundort. Katalog: `scripts/meta/codex.gd`.
@@ -113,6 +113,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/export_android.ps1    
   - [18c Erkundungskarte](stages/18c_exploration_map.md)
   - [19 Wüste](stages/19_desert.md)
   - [20 Gefahren-Lesbarkeit](stages/20_danger_readability.md)
+  - [21 Große Balance-Runde](stages/21_balance.md)
+  - [22 Leistung](stages/22_performance.md): HUD-Cache ohne GPU-Rücklesen, gebackene Knöpfe, Chunks über mehrere Frames, nächste Karte im Hintergrund; Bench-Szenen `mid`, `travel`, `apex`, `desert` (`tests/perf_bench.gd`)
 - Ältere Etappen (01–10) und archivierte Prüfnachweise stehen ebenfalls unter `stages/`.
 
 Arbeitsweise: größere, zusammenhängende, spielbare Etappen (siehe `AGENTS.md`, `CLAUDE.md`).

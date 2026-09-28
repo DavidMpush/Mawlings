@@ -13,6 +13,11 @@ extends Node
 ## tools/import_user_sfx.py. The tempos differ, so the two are cross-faded, never
 ## layered; the boss loop restarts at its first bar each time it fades in.
 ## Menu theme and stingers are shared by both styles. Default stays "classic".
+##
+## Etappe 23: biome sets (set_biome). In the Dürrschlund the classic style plays
+## its own stem set (desert_*: same grid in D Hijaz, frame drums, oud, ney;
+## desert_boss = the Sandwurm fight); a biome change cross-fades the two sets
+## like a style change. Style "v1" has no desert variant and stays as it is.
 
 const MUSIC_DIR := "res://assets/music/"
 const MENU_ID := "menu_theme"
@@ -25,6 +30,9 @@ const STINGERS := {
 }
 ## Mix level (dB) of each layer at full intensity; files are all peak-normalised to -3 dBFS.
 const STEM_DB := {"run_base": -9.0, "run_tension": -11.0, "run_flood": -9.0, "run_boss": -8.0}
+const BIOMES: Array[String] = ["verdant", "desert"]
+const DESERT_STEMS: Array[String] = ["desert_base", "desert_tension", "desert_flood", "desert_boss"]
+const DESERT_DB := {"desert_base": -9.0, "desert_tension": -11.0, "desert_flood": -9.0, "desert_boss": -8.0}
 const STYLES: Array[String] = ["classic", "v1"]
 const V1_LOOPS: Array[String] = ["v1_arena", "v1_boss"]
 ## Mix level of the V1 loops (both are bass-heavy: phone loudness about -22 / -24).
@@ -53,6 +61,10 @@ var mode := Mode.NONE
 var _streams := {}
 var _menu_player: AudioStreamPlayer
 var _stem_players: Array[AudioStreamPlayer] = []
+var _desert_players: Array[AudioStreamPlayer] = []
+var _desert_gain: Array[float] = [0.0, 0.0, 0.0, 0.0]
+var _desert_target: Array[float] = [0.0, 0.0, 0.0, 0.0]
+var _biome := "verdant"
 var _v1_players: Array[AudioStreamPlayer] = []
 ## Linear gains 0..1 of the V1 loops (index = V1_LOOPS order).
 var _v1_gain: Array[float] = [0.0, 0.0]
@@ -87,6 +99,8 @@ func _ready() -> void:
 		_load(STINGERS[key], false)
 	for id in V1_LOOPS:
 		_load(id, true)
+	for id in DESERT_STEMS:
+		_load(id, true)
 	_menu_player = _make_player("Menu")
 	_menu_player.stream = _streams.get(MENU_ID)
 	for id in STEMS:
@@ -97,6 +111,10 @@ func _ready() -> void:
 		var player := _make_player(id)
 		player.stream = _streams.get(id)
 		_v1_players.append(player)
+	for id in DESERT_STEMS:
+		var player := _make_player(id)
+		player.stream = _streams.get(id)
+		_desert_players.append(player)
 	_stinger_player = _make_player("Stinger")
 	_apply_volumes()
 
@@ -106,22 +124,28 @@ func _process(delta: float) -> void:
 	var step := _fade_rate * real_delta
 	for i in STEMS.size():
 		_stem_gain[i] = move_toward(_stem_gain[i], _stem_target[i], step)
+	for i in DESERT_STEMS.size():
+		_desert_gain[i] = move_toward(_desert_gain[i], _desert_target[i], step)
 	_menu_gain = move_toward(_menu_gain, _menu_target, step)
 	for i in V1_LOOPS.size():
 		_v1_gain[i] = move_toward(_v1_gain[i], _v1_target[i], step)
 		# A faded-out V1 loop stops; it restarts at bar 1 when it is needed again.
 		if _v1_gain[i] <= 0.0 and _v1_target[i] <= 0.0 and _v1_players[i].playing:
 			_v1_players[i].stop()
-	# Classic stems stop together once silent in style v1 (restart in sync later).
-	if _style != "classic" and _max_stem_gain() <= 0.0 and not _stem_players.is_empty() and _stem_players[0].playing:
+	# A stem set stops together once silent and not needed (other style or
+	# biome); it restarts in sync at position 0 later.
+	if (_style != "classic" or _biome != "verdant") and _max_stem_gain() <= 0.0 and not _stem_players.is_empty() and _stem_players[0].playing:
 		for player in _stem_players:
+			player.stop()
+	if (_style != "classic" or _biome != "desert") and _max_desert_gain() <= 0.0 and not _desert_players.is_empty() and _desert_players[0].playing:
+		for player in _desert_players:
 			player.stop()
 	if _duck_hold > 0.0:
 		_duck_hold -= real_delta
 	else:
 		_duck = move_toward(_duck, 0.0, real_delta / DUCK_RELEASE_SECONDS)
 	_apply_volumes()
-	if _stopping and _menu_gain <= 0.0 and _max_stem_gain() <= 0.0 and _max_v1_gain() <= 0.0:
+	if _stopping and _menu_gain <= 0.0 and _max_stem_gain() <= 0.0 and _max_v1_gain() <= 0.0 and _max_desert_gain() <= 0.0:
 		_stopping = false
 		_halt_players()
 		mode = Mode.NONE
@@ -136,6 +160,7 @@ func play_menu() -> void:
 	for i in STEMS.size():
 		_stem_target[i] = 0.0
 	_v1_target = [0.0, 0.0]
+	_desert_target = [0.0, 0.0, 0.0, 0.0]
 	_menu_target = 1.0
 	_fade_rate = 1.0 / START_FADE_SECONDS
 	mode = Mode.MENU
@@ -193,6 +218,24 @@ func style() -> String:
 	return _style
 
 
+## Etappe 23: "verdant" (default) or "desert". scripts/desert_run.gd calls it
+## every world step; repeats and unknown names are ignored.
+func set_biome(biome_name: String) -> void:
+	if not BIOMES.has(biome_name) or biome_name == _biome:
+		return
+	_biome = biome_name
+	if mode != Mode.RUN or _stopping:
+		return
+	_update_run_targets()
+	_fade_rate = 1.0 / FADE_SECONDS
+	if enabled:
+		_start_run_layers()
+
+
+func biome() -> String:
+	return _biome
+
+
 func styles() -> Array[String]:
 	return STYLES.duplicate()
 
@@ -214,16 +257,32 @@ func stinger(id: String) -> void:
 		_stinger_player.play()
 
 
+## Etappe 25: a quiet moment after a boss victory - the loops duck like under
+## a stinger for `seconds`, then come back (DUCK_RELEASE_SECONDS).
+var hushes := 0
+
+
+func hush(seconds: float) -> void:
+	if not enabled or seconds <= 0.0:
+		return
+	hushes += 1
+	_duck = 1.0
+	_duck_hold = maxf(_duck_hold, seconds)
+	_apply_volumes()
+
+
 ## Fades everything out, then stops the players.
 func stop(immediate := false) -> void:
 	_menu_target = 0.0
 	_stem_target = [0.0, 0.0, 0.0, 0.0]
 	_v1_target = [0.0, 0.0]
+	_desert_target = [0.0, 0.0, 0.0, 0.0]
 	_fade_rate = 1.0 / STOP_FADE_SECONDS
 	if immediate or mode == Mode.NONE:
 		_menu_gain = 0.0
 		_stem_gain = [0.0, 0.0, 0.0, 0.0]
 		_v1_gain = [0.0, 0.0]
+		_desert_gain = [0.0, 0.0, 0.0, 0.0]
 		_halt_players()
 		_stinger_player.stop()
 		_stopping = false
@@ -244,6 +303,7 @@ func set_enabled(value: bool) -> void:
 		_menu_gain = 0.0
 		_stem_gain = [0.0, 0.0, 0.0, 0.0]
 		_v1_gain = [0.0, 0.0]
+		_desert_gain = [0.0, 0.0, 0.0, 0.0]
 		_apply_volumes()
 	elif mode == Mode.MENU:
 		_start_menu()
@@ -269,6 +329,20 @@ func stem_target(id: String) -> float:
 func stem_gain(id: String) -> float:
 	var i := STEMS.find(id)
 	return _stem_gain[i] if i >= 0 else 0.0
+
+
+func desert_ids() -> Array[String]:
+	return DESERT_STEMS.duplicate()
+
+
+func desert_target(id: String) -> float:
+	var i := DESERT_STEMS.find(id)
+	return _desert_target[i] if i >= 0 else 0.0
+
+
+func desert_gain(id: String) -> float:
+	var i := DESERT_STEMS.find(id)
+	return _desert_gain[i] if i >= 0 else 0.0
 
 
 func v1_ids() -> Array[String]:
@@ -357,6 +431,8 @@ func _make_player(player_name: String) -> AudioStreamPlayer:
 func _start_menu() -> void:
 	for player in _stem_players:
 		player.stop()
+	for player in _desert_players:
+		player.stop()
 	for player in _v1_players:
 		player.stop()
 	if _silent or _menu_player.stream == null or _menu_player.playing:
@@ -377,7 +453,12 @@ func _start_stems() -> void:
 ## Starts whatever the current style needs; layers of the other style fade out.
 func _start_run_layers() -> void:
 	_menu_player.stop()
-	if _style == "classic":
+	if _style == "classic" and _biome == "desert":
+		if not _desert_players.is_empty() and not _desert_players[0].playing and not _silent:
+			for player in _desert_players:
+				if player.stream != null:
+					player.play(0.0)
+	elif _style == "classic":
 		if not _stem_players.is_empty() and not _stem_players[0].playing:
 			_start_stems()
 	else:
@@ -397,10 +478,14 @@ func _update_run_targets() -> void:
 	if _style == "classic":
 		var octaves := log(maxf(_pressure, 1.0)) / log(2.0)
 		var tension := clampf((octaves - 0.585) / 1.415, 0.0, 1.0)
-		_stem_target = [1.0, 1.0 if _flood else tension, 1.0 if _flood else 0.0, 1.0 if _boss else 0.0]
+		var targets: Array[float] = [1.0, 1.0 if _flood else tension, 1.0 if _flood else 0.0, 1.0 if _boss else 0.0]
+		var silent: Array[float] = [0.0, 0.0, 0.0, 0.0]
+		_stem_target = silent if _biome == "desert" else targets
+		_desert_target = targets if _biome == "desert" else silent.duplicate()
 		_v1_target = [0.0, 0.0]
 	else:
 		_stem_target = [0.0, 0.0, 0.0, 0.0]
+		_desert_target = [0.0, 0.0, 0.0, 0.0]
 		_v1_target[0] = 0.0 if _boss else 1.0
 		_v1_target[1] = 1.0 if _boss else 0.0
 
@@ -412,12 +497,15 @@ func _halt_players() -> void:
 		player.stop()
 	for player in _v1_players:
 		player.stop()
+	for player in _desert_players:
+		player.stop()
 
 
 func _all_players() -> Array[AudioStreamPlayer]:
 	var list: Array[AudioStreamPlayer] = []
 	list.append_array(_stem_players)
 	list.append_array(_v1_players)
+	list.append_array(_desert_players)
 	for player in [_menu_player, _stinger_player]:
 		if player != null:
 			list.append(player)
@@ -427,6 +515,13 @@ func _all_players() -> Array[AudioStreamPlayer]:
 func _max_stem_gain() -> float:
 	var best := 0.0
 	for g in _stem_gain:
+		best = maxf(best, g)
+	return best
+
+
+func _max_desert_gain() -> float:
+	var best := 0.0
+	for g in _desert_gain:
 		best = maxf(best, g)
 	return best
 
@@ -444,6 +539,8 @@ func _apply_volumes() -> void:
 		_stem_players[i].volume_db = _gain_db(_stem_gain[i], float(STEM_DB[STEMS[i]]) + duck_db)
 	for i in _v1_players.size():
 		_v1_players[i].volume_db = _gain_db(_v1_gain[i], float(V1_DB[V1_LOOPS[i]]) + duck_db)
+	for i in _desert_players.size():
+		_desert_players[i].volume_db = _gain_db(_desert_gain[i], float(DESERT_DB[DESERT_STEMS[i]]) + duck_db)
 
 
 func _gain_db(gain: float, base_db: float) -> float:

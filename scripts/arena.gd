@@ -324,6 +324,7 @@ func sync(position: Vector3) -> void:
 	_update_fade(position)
 	var center := _cell(position)
 	var wanted: Dictionary = {}
+	var missing: Array[Vector2i] = []
 	# Only map chunks plus the border ring exist; beyond it lies the fog skirt.
 	var low := _chunk_lo - BORDER_CHUNKS
 	var high := _chunk_hi + BORDER_CHUNKS
@@ -332,7 +333,21 @@ func sync(position: Vector3) -> void:
 			var key := Vector2i(x, z)
 			wanted[key] = true
 			if not chunks.has(key):
-				chunks[key] = _make_chunk(key)
+				missing.append(key)
+	# Etappe 22: a new row of chunks is built over several frames (nearest first,
+	# the chunk under the swarm always at once); chunk_budget 0 = all at once.
+	if not missing.is_empty():
+		missing.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return (a - center).length_squared() < (b - center).length_squared())
+		var built := 0
+		for key in missing:
+			if chunk_budget > 0 and built >= chunk_budget and key != center:
+				continue
+			var started := Time.get_ticks_usec()
+			chunks[key] = _make_chunk(key)
+			var ms := float(Time.get_ticks_usec() - started) / 1000.0
+			chunk_build_ms_max = maxf(chunk_build_ms_max, ms)
+			chunk_builds += 1
+			built += 1
 	for key in chunks.keys():
 		if not wanted.has(key):
 			chunks[key].queue_free()
@@ -340,6 +355,13 @@ func sync(position: Vector3) -> void:
 			_stale.erase(key)
 	if not _stale.is_empty():
 		_rebuild_stale(REBUILDS_PER_SYNC)
+
+## Etappe 22: chunks built per sync() while moving (0 = all at once; main.gd sets 1).
+var chunk_budget := 0
+## Longest single chunk build (ms) and number of builds, for the perf bench.
+var chunk_build_ms_max := 0.0
+var chunk_builds := 0
+
 
 ## Chunks still waiting for a staggered rebuild (biome or density switch).
 func rebuild_pending() -> int:
@@ -441,6 +463,71 @@ func set_biome(id: String, staggered := false) -> void:
 		_relayout(next_seed, staggered)
 	else:
 		_restage(staggered)
+
+# ------------------------------------------------------------ stage 22: map prefetch
+# Building an exploration map costs a few hundred ms of GDScript. When the next
+# map is known in advance (the Migrationsschlund opened), it is built on a
+# worker thread; the switch then only takes the finished data. Same inputs =
+# same map, so the result is identical to building it on the spot.
+var _prefetch_key := ""
+var _prefetch_task := -1
+var _prefetch_result: RefCounted
+var _prefetch_mutex := Mutex.new()
+
+
+func _layout_key(seed_value: int, id: String, starts: Array[Vector3], arrivals: Array[Vector3]) -> String:
+	return "%d|%s|%d|%s|%s|%s|%s" % [seed_value, id, map_regions, _playable, _bounds, starts, arrivals]
+
+
+## Starts building the map of biome `id` for an arrival at `point` in the
+## background (the migration will use it). Safe to call more than once.
+func prefetch_layout(id: String, point: Vector3) -> void:
+	if layout_style != "explore" or not BIOMES.has(id):
+		return
+	var next_seed := layout_seed(run_seed, id)
+	if next_seed == 0:
+		return
+	var safe := clamp_inside(Vector3(point.x, 0.0, point.z), START_CLEARANCE * 0.5)
+	var arrivals: Array[Vector3] = [safe]
+	var starts := _raw_spawn_points(player_count)
+	var key := _layout_key(next_seed, id, starts, arrivals)
+	if key == _prefetch_key:
+		return
+	_finish_prefetch()
+	_prefetch_key = key
+	_prefetch_result = null
+	var playable := _playable
+	var map_bounds := _bounds
+	var regions := map_regions
+	_prefetch_task = WorkerThreadPool.add_task(func() -> void:
+		var built: RefCounted = MAP_EXPLORE.new(next_seed, playable, map_bounds, regions, starts, arrivals, id)
+		_prefetch_mutex.lock()
+		_prefetch_result = built
+		_prefetch_mutex.unlock(), false, "Map prefetch")
+
+
+func _finish_prefetch() -> void:
+	if _prefetch_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_prefetch_task)
+		_prefetch_task = -1
+
+
+# The prefetched map when it matches `key` (waits for the worker if needed).
+func _take_prefetch(key: String) -> RefCounted:
+	if _prefetch_key == "" or key != _prefetch_key:
+		return null
+	_finish_prefetch()
+	_prefetch_mutex.lock()
+	var result := _prefetch_result
+	_prefetch_mutex.unlock()
+	_prefetch_key = ""
+	_prefetch_result = null
+	return result
+
+
+func _exit_tree() -> void:
+	_finish_prefetch()
+
 
 ## Migration: the swarm will arrive at `point` on the next map. Returns the safe
 ## arrival point (inside the playable area); the next set_biome() keeps a
@@ -790,7 +877,9 @@ func _build_layout() -> void:
 	if layout_style == "graph":
 		layout = MAP_LAYOUT.new(world_seed, _playable, _bounds, map_regions, starts, _arrival)
 	else:
-		layout = MAP_EXPLORE.new(world_seed, _playable, _bounds, map_regions, starts, _arrival, biome_id)
+		layout = _take_prefetch(_layout_key(world_seed, biome_id, starts, _arrival))
+		if layout == null:
+			layout = MAP_EXPLORE.new(world_seed, _playable, _bounds, map_regions, starts, _arrival, biome_id)
 	for stone in layout.stones:
 		_bucket(_chunk_stones, Vector3(stone.x, 0.0, stone.z), stone)
 	for mark in layout.landmarks:

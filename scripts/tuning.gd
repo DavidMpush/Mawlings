@@ -71,6 +71,19 @@ const BIOMASS_PER_MAWLING := 3.5
 # FORM_MIN_SHARE, 1) – ein einzelner Mawling spuckt/sport nicht wie ein Rudel.
 const FORM_FULL_POPULATION := 25.0
 const FORM_MIN_SHARE := 0.1
+# Etappe 21 (Nutzerwunsch „Power soll linear unendlich skalieren“): über
+# FORM_FULL_POPULATION wachsen die Formen ohne Deckel weiter, abgeschwächt mit
+# (P / 25)^FORM_GROWTH_EXPONENT: 100 Tiere x2, 250 x3,2, 500 x4,5, 1000 x6,3. Der
+# Nahkampf (1 + 0,12 x P) bleibt linear; die Flut (2^k) bleibt das Gegengewicht.
+const FORM_GROWTH_EXPONENT := 0.5
+
+
+## Faktor der Angriffsformen (und der Stammes-Fähigkeit) für `population` Tiere.
+static func form_population_scale(population: int) -> float:
+	var share := float(population) / FORM_FULL_POPULATION
+	if share <= 1.0:
+		return maxf(FORM_MIN_SHARE, share)
+	return pow(share, FORM_GROWTH_EXPONENT)
 const LEADER_HP := 100
 const LEADER_INVULNERABLE_SECONDS := 1.2
 const LEADER_HEAL_STEP := 25
@@ -150,7 +163,7 @@ const BOSS_RESPAWN_SECONDS := 180.0
 # Tieren, spätestens nach BOSS_LATEST_SECONDS (vorher löschte er kleine Schwärme aus).
 const BOSS_MIN_POPULATION := 40
 const BOSS_LATEST_SECONDS := 240.0
-const BOSS_HEALTH := 230.0
+const BOSS_HEALTH := 1900.0   # Etappe 21: 230 -> 1900 (Kontaktzeit ~4 s -> Wild 16 s / Brutal 29 s)
 const BOSS_SPEED := 1.6
 const BOSS_WARNING_SECONDS := 1.8
 const BOSS_RECOVERY_SECONDS := 2.5
@@ -226,7 +239,7 @@ const ELITE_DNA := 40
 # (FLOOD_SPEED_SHARE), damit man der Brut immer noch davonlaufen kann.
 const FLOOD_START_SECONDS := 300.0
 const FLOOD_WARNING_SECONDS := 10.0
-const FLOOD_DOUBLING_SECONDS := 40.0
+const FLOOD_DOUBLING_SECONDS := 24.0     # Etappe 21: 40 -> 24 (Waffen wachsen jetzt ohne Deckel, stages/21_balance.md)
 const FLOOD_WAVE_SECONDS := 3.0
 const FLOOD_WAVE_COUNT := 8          # Brut pro Welle bei Stufe 0; x 2^k bis FLOOD_WAVE_MAX
 const FLOOD_WAVE_MAX := 40
@@ -235,7 +248,10 @@ const FLOOD_HP := 1.2
 const FLOOD_BITE := 0.4               # Biss-Multiplikator: Verlust je gebissenem sichtbarem Tier x 2^k
 const FLOOD_BITE_COOLDOWN := 0.8
 const FLOOD_SPEED := 3.4
-const FLOOD_SPEED_CAP := 6.0
+# Etappe 21: 6,0 -> 8,5. Mit dem alten festen Deckel lief ein schneller Build
+# (Flinkzahn + Sprinter, > 7,3 m/s) der Brut dauerhaft davon (ein Wild-Lauf > 15 min);
+# jetzt gilt bis 8,5 m/s wieder der Anteil FLOOD_SPEED_SHARE am Schwarmtempo.
+const FLOOD_SPEED_CAP := 8.5
 const FLOOD_SPEED_SHARE := 0.82       # nie schneller als 82 % des Schwarmtempos
 const FLOOD_RING_RADIUS := 23.0       # außerhalb des Hochformat-Bildes
 const FLOOD_RING_SHIFT := 7.0         # Ringmitte nach "oben" (-Z): oben sieht die Kamera weiter
@@ -279,7 +295,7 @@ static func recovery(base: float, pressure: float, minimum: float) -> float:
 # lebender Bog King schiebt ihn auf (höchstens bis Flutbeginn - APEX_FLOOD_MARGIN).
 # APEX_WARNING_SECONDS vorher bebt der Boden an der Auftauchstelle (Ankündigung, nichts
 # trifft). Solange der Apex lebt, kommt kein neuer Bog King.
-const APEX_SPAWN_SECONDS := [225.0, 180.0, 135.0]
+const APEX_SPAWN_SECONDS := [225.0, 165.0, 135.0]   # Etappe 21: Brutal 180 -> 165 (Flut jetzt ab 210 s)
 const APEX_MIN_POPULATION := 30
 const APEX_LATEST_EXTRA := 30.0
 const APEX_FLOOD_MARGIN := 15.0
@@ -294,7 +310,7 @@ const APEX_SPAWN_DISTANCE := 12.0
 # noch ~13 s (9–15 s bei starken Builds); 1400 LP geben auf Wild ~28 s (Median der
 # gewonnenen Kämpfe, Zielkorridor 25–35 s).
 const APEX_HEALTH := 1700.0   # Orchestrator 28.09.2026: Kampfdauer 25-35 s (tests/apex_duration.gd)
-const APEX_HEALTH_DIFFICULTY := [1.0, 0.75, 0.6]
+const APEX_HEALTH_DIFFICULTY := [1.0, 0.73, 0.66]   # Etappe 21: Brutal 0,75 -> 0,73, Apex 0,6 -> 0,66 (Kämpfe 25-35 s)
 const APEX_BIOMASS := 70.0
 const APEX_DNA := 120
 const APEX_ALPHA_CORES := 2

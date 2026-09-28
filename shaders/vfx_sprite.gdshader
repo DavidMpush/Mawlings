@@ -17,6 +17,10 @@ uniform int mode = 0;
 uniform float now = 0.0;
 uniform vec3 pull_target = vec3(0.0);
 uniform float opacity = 1.0;
+// Own strain abilities (scripts/vfx_sprites.gd ABILITY_POOL): 1 = the sprite's
+// light and shade mapped onto the swarm's ember ramp (deep red -> orange ->
+// warm white) instead of the painted poison violet/green.
+uniform float ember = 0.0;
 
 varying float v_alpha;
 varying float v_flash;
@@ -93,6 +97,13 @@ void vertex() {
 
 void fragment() {
 	vec4 tex = texture(sprite, UV);
-	ALBEDO = tex.rgb * (1.0 + 0.6 * v_flash);
+	vec3 col = tex.rgb;
+	if (ember > 0.0) {
+		float lum = max(max(col.r, col.g), col.b) * 0.6 + dot(col, vec3(0.299, 0.587, 0.114)) * 0.4;
+		vec3 ramp = mix(vec3(0.55, 0.09, 0.03), vec3(1.0, 0.47, 0.1), smoothstep(0.15, 0.6, lum));
+		ramp = mix(ramp, vec3(1.0, 0.85, 0.52), smoothstep(0.7, 0.98, lum));
+		col = mix(col, ramp, ember);
+	}
+	ALBEDO = col * (1.0 + 0.6 * v_flash);
 	ALPHA = tex.a * v_alpha * opacity;
 }

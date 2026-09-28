@@ -66,7 +66,7 @@ func _shot(strain: String) -> void:
 	world._update_hud(world.abilities.definition().text)
 	await RenderingServer.frame_post_draw
 	var image := root.get_texture().get_image()
-	image.save_png("res://preview_ability_run_%s.png" % id)
+	image.save_png("res://previews/preview_ability_run_%s.png" % id)
 	shots.append(image)
 	swarm.movement_vector = Vector2.ZERO
 
@@ -91,4 +91,4 @@ func _sheet() -> void:
 		small.convert(Image.FORMAT_RGBA8)
 		small.resize(w, h)
 		sheet.blit_rect(small, Rect2i(0, 0, w, h), Vector2i((index % 3) * w, (index / 3) * h))
-	sheet.save_png("res://preview_ability_run_sheet.png")
+	sheet.save_png("res://previews/preview_ability_run_sheet.png")

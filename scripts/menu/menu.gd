@@ -31,6 +31,8 @@ const SETTINGS := [
 	["vibration", "VIBRATION", "Kurzes Rütteln bei Treffern"],
 	["colorblind", "FARBENBLIND-MODUS", "Warnflächen mit Mustern und Kontur"],
 	["music_v1", "MUSIK: KLASSIK V1", "Aus: adaptive Musik · An: Musikpaket V1"],
+	# Etappe 25: speech bubbles of the leader and the bosses.
+	["speech", "SPRÜCHE", "Kommentare von Anführer und Bossen"],
 ]
 ## Seed-Code: 6 Zeichen Base36 decken 1..2^31-1 eindeutig ab (36^6 > 2^31).
 ## UI-Stil in den Einstellungen (Etappe 15): gespeichert als zwei Schalter im
@@ -495,6 +497,15 @@ func toggle_setting(key: String) -> void:
 	queue_redraw()
 
 
+## Etappe 24: every tip of the run shows again once (profile.seen_tips cleared).
+func reset_tips() -> void:
+	if profile == null or not profile.has_method("reset_tips"):
+		return
+	profile.reset_tips()
+	_toast("Tipps werden wieder gezeigt")
+	queue_redraw()
+
+
 ## Saved UI style: "brawl" (default), "calm" or "organic".
 func ui_skin() -> String:
 	if profile == null:
@@ -773,6 +784,8 @@ func _tap_settings(location: Vector2) -> void:
 		if settings_skin_rect(k).has_point(location):
 			set_ui_skin(UI_SKINS[k])
 			return
+	if settings_tips_rect().has_point(location):
+		reset_tips()
 
 
 ## True while a finger/mouse is held on `rect` without dragging (buttons draw
@@ -801,6 +814,7 @@ func _button_rects() -> Array:
 			rects.append(settings_row_rect(i))
 		for k in UI_SKINS.size():
 			rects.append(settings_skin_rect(k))
+		rects.append(settings_tips_rect())
 		return rects
 	rects.append(settings_button_rect())
 	for i in TABS.size():
@@ -912,11 +926,15 @@ func daily_rect() -> Rect2:
 ## Stage 15: centred modal (ribbon on top, four switch rows and the UI style
 ## row). TAGES-BRUT stays outside it; a tap outside closes it.
 func settings_panel_rect() -> Rect2:
-	var h := 96.0 + SETTINGS.size() * SETTINGS_ROW_STEP + 186.0 + 64.0
+	var h := 96.0 + SETTINGS.size() * SETTINGS_ROW_STEP + 186.0 + 64.0 + SETTINGS_TIPS_STEP
 	return Rect2(40, 250, size.x - 80, h)
 
 
-const SETTINGS_ROW_STEP := 128.0
+# Etappe 25: five switch rows - a little tighter (was 128 / 114) so TAGES-BRUT
+# stays outside the modal.
+const SETTINGS_ROW_STEP := 112.0
+## Etappe 24: row with the "TIPPS ZURÜCKSETZEN" button under the UI style.
+const SETTINGS_TIPS_STEP := 116.0
 
 
 func settings_close_rect() -> Rect2:
@@ -926,13 +944,18 @@ func settings_close_rect() -> Rect2:
 
 func settings_row_rect(i: int) -> Rect2:
 	var p := settings_panel_rect()
-	return Rect2(p.position.x + 28, p.position.y + 84 + i * SETTINGS_ROW_STEP, p.size.x - 56, 114)
+	return Rect2(p.position.x + 28, p.position.y + 84 + i * SETTINGS_ROW_STEP, p.size.x - 56, 100)
 
 
 ## UI style row below the switches: one well with three segment buttons.
 func settings_skin_row_rect() -> Rect2:
 	var last := settings_row_rect(SETTINGS.size() - 1)
 	return Rect2(last.position.x, last.end.y + 14, last.size.x, 172)
+
+
+func settings_tips_rect() -> Rect2:
+	var row := settings_skin_row_rect()
+	return Rect2(row.position.x, row.end.y + 18, row.size.x, 96)
 
 
 func settings_skin_rect(k: int) -> Rect2:

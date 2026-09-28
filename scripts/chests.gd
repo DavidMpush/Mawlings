@@ -38,7 +38,8 @@ const TAG_RANGE := 20.0
 ## Rückfall ohne Karten-Plätze (Seed 0 / klassische Karte).
 const FALLBACK_MAP := 6
 const FALLBACK_GOLD := 1
-const SOUND := {"common": "pickup", "rare": "mutate", "epic": "alpha_core", "legendary": "evolve"}
+# Etappe 23: own opening sounds, more festive with every rarity (legendary adds "fanfare").
+const SOUND := {"common": "cocoon_common", "rare": "cocoon_rare", "epic": "cocoon_epic", "legendary": "cocoon_legendary"}
 const SILK := Color("f4ead2")
 const SILK_DARK := Color("cdb994")
 
@@ -263,7 +264,7 @@ func _step_closed(entry: Dictionary, delta: float, centre: Vector3) -> void:
 				return
 			entry.denied = true
 			if world != null and world.has_method("_sfx"):
-				world._sfx("warn", 30)
+				world._sfx("cocoon_denied", 30)
 	elif not inside:
 		entry.hold = maxf(0.0, float(entry.hold) - delta * 2.0)
 		entry.denied = false
@@ -280,7 +281,7 @@ func _begin_open(entry: Dictionary) -> void:
 	entry.anim = 0.0
 	entry["paid"] = price
 	if world != null and world.has_method("_sfx"):
-		world._sfx("split", 20)
+		world._sfx("cocoon_open", 20)
 
 
 ## Opens a closed cocoon at once (tests/captures; pays like a hold would).
@@ -337,7 +338,7 @@ func play_moment(entry: Dictionary, rarity: String, item: Dictionary = {}) -> vo
 	if world.has_method("_shake"):
 		world._shake(0.18 if entry.kind != "boss" else 0.35)
 	if world.has_method("_sfx"):
-		world._sfx(String(SOUND.get(rarity, "pickup")), 40 if rarity in ["epic", "legendary"] else 20)
+		world._sfx(String(SOUND.get(rarity, "cocoon_common")), 40 if rarity in ["epic", "legendary"] else 20)
 		if rarity == "legendary":
 			world._sfx("fanfare", 80)
 	if entry.body != null:

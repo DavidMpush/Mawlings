@@ -9,6 +9,9 @@ Output: 16-bit mono 22.05 kHz WAV files in assets/music/:
     run_flood.wav     same grid: four-on-the-floor, distorted bass, warning motif
     run_boss.wav      same grid: heavy taiko drums, low brass swells
     sting_flood.wav, sting_boss.wav, sting_king.wav, sting_extinct.wav  one-shots
+    desert_base/tension/flood/boss.wav  Etappe 23: the Dürrschlund's stem set, same
+                      grid in D Hijaz (frame drums, oud pluck, drone, ney);
+                      desert_boss is the Sandwurm fight
 
 All run stems share tempo, length and chord grid, so they can be layered and
 cross-faded while playing in sync. Loops are rendered circularly (note tails
@@ -478,6 +481,170 @@ def gen_run_boss() -> np.ndarray:
     return master_loop(x, 1.8)
 
 
+# --------------------------------------------------------------------------- desert (Etappe 23, D Hijaz)
+# The Dürrschlund's own stem set: same tempo, length and bar count as the
+# classic run stems (music.gd cross-fades the sets on a biome change), but in
+# D Hijaz (Phrygian dominant: D Eb F# G A Bb C) with frame drums, an oud-like
+# pluck, a drone and a breathy ney. desert_boss is the Sandwurm's fight music.
+
+DESERT_CHORDS = [
+    ([50, 54, 57], 38),  # D (major third: the Hijaz colour)
+    ([51, 55, 58], 39),  # Eb
+    ([50, 54, 57], 38),  # D
+    ([48, 51, 55], 36),  # Cm
+    ([43, 46, 50], 43),  # Gm
+    ([48, 51, 55], 36),  # Cm
+    ([51, 55, 58], 39),  # Eb
+    ([50, 54, 57], 38),  # D
+]
+HIJAZ = [0, 1, 4, 5, 7, 8, 10]  # relative to D
+
+
+def hijaz(degree: int, octave_base: int = 62) -> int:
+    o, d = divmod(degree, 7)
+    return octave_base + 12 * o + HIJAZ[d]
+
+
+def oud(m: float, dur: float, vel: float = 1.0) -> np.ndarray:
+    # bright plucked string with a quick decay and a little body resonance
+    f = mtof(m)
+    t = t_axis(dur)
+    x = additive(f, dur, 2600.0) * np.exp(-t / 0.28) + 0.4 * np.sin(2 * np.pi * f * t) * np.exp(-t / 0.5)
+    return tail_fade(x * env_exp(len(t), 0.002, 10.0) * vel)
+
+
+def ney(rng, m: float, dur: float, vel: float = 1.0) -> np.ndarray:
+    # breathy end-blown flute: soft sine body with vibrato and filtered breath
+    f = mtof(m)
+    t = t_axis(dur)
+    vib = 1 + 0.006 * np.sin(2 * np.pi * 5.0 * t) * np.minimum(1.0, t / 0.4)
+    ph = 2 * np.pi * np.cumsum(f * vib) / SR
+    body = np.sin(ph) + 0.25 * np.sin(2 * ph) + 0.08 * np.sin(3 * ph)
+    breath = noise(rng, dur, f * 0.8, min(NYQ_SAFE, f * 5.0))
+    x = body + 0.35 * breath
+    return x * env_asr(len(x), min(0.12, dur * 0.3), min(0.25, dur * 0.4)) * vel
+
+
+def doum(vel: float = 1.0) -> np.ndarray:
+    # frame drum low stroke
+    t = t_axis(0.4)
+    freq = 75 + 55 * np.exp(-t / 0.03)
+    x = np.sin(2 * np.pi * np.cumsum(freq) / SR) * np.exp(-t / 0.12)
+    return tail_fade(x * env_exp(len(t), 0.0015, 10.0) * vel)
+
+
+def tek(rng, vel: float = 1.0) -> np.ndarray:
+    # frame drum rim stroke: bright slap
+    t = t_axis(0.12)
+    x = 0.7 * noise(rng, 0.12, 1800, 7500) * np.exp(-t / 0.018)
+    x += 0.5 * np.sin(2 * np.pi * 520 * t) * np.exp(-t / 0.02)
+    return tail_fade(x * vel)
+
+
+# maqsum-like pattern in 8ths over one bar: D=doum, T=tek
+MAQSUM = [(0.0, "D", 1.0), (0.5, "T", 0.7), (1.5, "T", 0.6), (2.0, "D", 0.9), (3.0, "T", 0.7), (3.5, "T", 0.45)]
+
+
+def gen_desert_base() -> np.ndarray:
+    rng = np.random.default_rng(1101)
+    c = run_canvas()
+    beat = 60.0 / RUN_BPM
+    for bar, (chord, root) in enumerate(DESERT_CHORDS):
+        b0 = bar * 4
+        for pos, kind, v in MAQSUM:
+            c.at(doum(0.55 * v) if kind == "D" else tek(rng, 0.35 * v), b0 + pos)
+        # oud bass: root, answer on the fifth, pickup
+        c.at(oud(root + 12, beat * 1.2, 0.55), b0)
+        c.at(oud(root + 19, beat * 0.5, 0.35), b0 + 1.5)
+        c.at(oud(root + 12, beat * 0.8, 0.4), b0 + 2.5)
+        # drone (D + A) under a thin chord pad
+        c.at(pad([38, 45], beat * 4.4, 0.55, bright=500.0), b0 - 0.2)
+        c.at(pad(chord, beat * 4.4, 0.35, bright=600.0), b0 - 0.2)
+        for e in range(8):
+            if e % 2 == 1:
+                c.at(shaker(rng, 0.1), b0 + e * 0.5)
+    x = reverb(c.buf, rng, 1.4, 0.22, True)
+    return master_loop(x, 1.2)
+
+
+def gen_desert_tension() -> np.ndarray:
+    rng = np.random.default_rng(1202)
+    c = run_canvas()
+    # ornamented Hijaz runs on the oud: up in the first half, winding down after
+    run_up = [0, 1, 2, 3, 4, 3, 2, 1]
+    for bar, (chord, _root) in enumerate(DESERT_CHORDS):
+        b0 = bar * 4
+        start = {38: 0, 39: 1, 36: 6, 43: 3}.get(_root, 0)
+        if bar < 4:
+            for i, d in enumerate(run_up):
+                c.at(oud(hijaz(start + d), 0.45, 0.55 if i % 2 == 0 else 0.4), b0 + i * 0.5)
+        else:
+            for i in range(16):
+                d = run_up[i % 8] if i < 8 else run_up[(15 - i) % 8]
+                c.at(oud(hijaz(start + d), 0.3, 0.45 if i % 4 == 0 else 0.3), b0 + i * 0.25)
+        for s in range(16):
+            if s % 4 == 3:
+                c.at(tek(rng, 0.3), b0 + s * 0.25)
+        c.at(doum(0.4), b0 + 3.0)
+    x = reverb(c.buf, rng, 1.1, 0.24, True)
+    return master_loop(x, 1.0)
+
+
+HIJAZ_WARN = [(0.0, 62, 0.45), (0.5, 63, 0.45), (1.0, 66, 0.45), (1.5, 63, 1.2)]  # D Eb F# Eb
+
+
+def gen_desert_flood() -> np.ndarray:
+    rng = np.random.default_rng(1303)
+    c = run_canvas()
+    beat = 60.0 / RUN_BPM
+    for bar, (chord, root) in enumerate(DESERT_CHORDS):
+        b0 = bar * 4
+        for q in range(4):
+            c.at(kick(0.9, 115, 46, 0.36), b0 + q)
+        for pos, kind, v in MAQSUM:
+            if kind == "T":
+                c.at(tek(rng, 0.55 * v), b0 + pos)
+        c.at(snare(rng, 0.55), b0 + 3)
+        for e in range(8):
+            m = root + (12 if e == 7 else 0)
+            c.at(dist_bass(m, beat * 0.46, 0.85 if e % 2 == 0 else 0.65), b0 + e * 0.5)
+        if bar % 2 == 0:
+            for off, m, d in HIJAZ_WARN:
+                c.at(brass(m + 12, beat * d, 0.5), b0 + off)
+        else:
+            c.at(ney(rng, chord[1] + 12, beat * 1.8, 0.35), b0 + 2)
+    x = reverb(c.buf, rng, 0.9, 0.14, True)
+    return master_loop(x, 2.0)
+
+
+def gen_desert_boss() -> np.ndarray:
+    # the Sandwurm: heavy taiko under low brass, a wailing ney on the augmented second
+    rng = np.random.default_rng(1404)
+    c = run_canvas()
+    beat = 60.0 / RUN_BPM
+    for bar, (chord, root) in enumerate(DESERT_CHORDS):
+        b0 = bar * 4
+        c.at(taiko(rng, 1.0, 110, 1.0), b0)
+        c.at(doum(0.7), b0 + 1.0)
+        c.at(taiko(rng, 0.8, 130, 0.9), b0 + 2)
+        c.at(tek(rng, 0.5), b0 + 2.5)
+        c.at(taiko(rng, 0.5, 180, 0.5), b0 + 3.25)
+        if bar % 4 == 3:
+            for i, p in enumerate((200, 180, 160, 140)):
+                c.at(taiko(rng, 0.45 + 0.1 * i, p, 0.4), b0 + 3 + i * 0.25)
+        if bar % 4 == 0:
+            c.at(kick(1.0, 66, 30, 1.8), b0)  # the worm's rumble
+        c.at(brass(root + 12, beat * 3.6, 0.5, 650.0), b0 + 0.25)
+        c.at(brass(root + 19, beat * 3.6, 0.3, 650.0), b0 + 0.25)
+        if bar % 2 == 1:
+            # Eb -> F# (augmented second) wail
+            c.at(ney(rng, 75, beat * 1.0, 0.45), b0 + 1.0)
+            c.at(ney(rng, 78, beat * 1.8, 0.5), b0 + 2.0)
+    c.at(brass(38 + 12 + 6, beat * 1.0, 0.45, 1100.0), 7 * 4 + 3)
+    x = reverb(c.buf, rng, 1.5, 0.24, True, 2500.0)
+    return master_loop(x, 1.8)
+
+
 # --------------------------------------------------------------------------- menu (D Dorian)
 
 MENU_CHORDS = [
@@ -617,6 +784,10 @@ PIECES = [
     ("run_tension", gen_run_tension, True),
     ("run_flood", gen_run_flood, True),
     ("run_boss", gen_run_boss, True),
+    ("desert_base", gen_desert_base, True),
+    ("desert_tension", gen_desert_tension, True),
+    ("desert_flood", gen_desert_flood, True),
+    ("desert_boss", gen_desert_boss, True),
     ("sting_flood", gen_sting_flood, False),
     ("sting_boss", gen_sting_boss, False),
     ("sting_king", gen_sting_king, False),
@@ -629,13 +800,20 @@ def main() -> int:
     total = 0
     ok_all = True
     stem_len = set()
+    # --only=a,b: just these pieces (Etappe 23: desert stems without rewriting the rest)
+    only = set()
+    for arg in sys.argv[1:]:
+        if arg.startswith("--only="):
+            only = set(arg.split("=", 1)[1].split(","))
     for name, fn, loop in PIECES:
+        if only and name not in only:
+            continue
         x = fn()
         ok, line = analyse(name, x, loop)
         ok_all &= ok
         size = write_wav(name, x, loop)
         total += size
-        if name.startswith("run_"):
+        if name.startswith(("run_", "desert_")):
             stem_len.add(len(x))
         print(f"{line}  {size / 1024:7.0f} KiB")
     print(f"stems equal length: {len(stem_len) == 1} ({sorted(stem_len)} samples)")

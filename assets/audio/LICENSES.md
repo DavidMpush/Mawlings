@@ -57,4 +57,7 @@ Nicht übernommen (Ereignis bereits besetzt): `mutation_select` (`mutate`), `bos
 
 ## Prozedural (eigene Synthese)
 
-`hit`, `stomp`, `pickup`, `leader_hit`, `leader_swap`, `heartbeat`, `ambience_jungle` sowie die klassische Musik unter `assets/music/` (`tools/gen_music.py`). Die prozeduralen Fassungen von `bite`, `warn`, `ui`, `extinct` erzeugt `tools/gen_sfx.py` nur noch, wenn die V1-Quellen fehlen.
+`hit`, `stomp`, `pickup`, `leader_hit`, `leader_swap`, `heartbeat`, `ambience_jungle` sowie die klassische Musik unter `assets/music/` (`tools/gen_music.py`).
+
+Etappe 23 (Audio-Durchgang, 28.09.2026), alles eigene Synthese in `tools/gen_sfx.py` (`SOUNDS_23`) bzw. `tools/gen_music.py`, keine Fremdrechte:
+`collect_coin`, `cocoon_open`, `cocoon_common`, `cocoon_rare`, `cocoon_epic`, `cocoon_legendary`, `cocoon_denied`, `powerup_take`, `powerup_end`, `shrine_tick`, `shrine_done`, `ability_glutsprung`, `ability_land`, `ability_sporenbombe`, `ability_panzerstoss`, `ability_hetzjagd`, `ability_saeureschwall`, `ability_schattenschleier`, `ability_ready`, `leader_hit_heavy`, `sandworm_breach`, `sandworm_sweep`, `sandgrub_burst`, die Loops `sandworm_dig`, `sandstorm`, `quicksand`, `ambience_desert` sowie die Wüsten-Musik `assets/music/desert_base/tension/flood/boss.wav`. `leader_critical` nutzt die `heartbeat`-Dateien. Etappe 24: `ambience_glutsumpf` (Loop), `lava_warn`, `lava_burst` (`SOUNDS_24`), ebenfalls eigene Synthese. Die Stock-Sounds des Nutzers waren bereits alle vergeben; neue Aufnahmen wurden nicht importiert. Die prozeduralen Fassungen von `bite`, `warn`, `ui`, `extinct` erzeugt `tools/gen_sfx.py` nur noch, wenn die V1-Quellen fehlen.

@@ -73,7 +73,10 @@ func _run_windup(boss: Variant, swarm: Vector3, pressure: float = 1.0) -> Array:
 
 func _check_boss_flow() -> void:
 	var boss: Variant = _spawn()
-	_check(boss.state == APEX.State.ARRIVING and boss.max_health >= 2.5 * TUNING.BOSS_HEALTH, "Apex arrives with far more (base) health than the Bog King")
+	# Etappe 21: the Bog King base HP rose 230 -> 1900 (contact fight 15-25 s, x √pressure);
+	# the apex stays the longer fight through phases and vulnerability windows
+	# (25-35 s, tests/apex_duration.gd), so its base HP only has to be in the same league.
+	_check(boss.state == APEX.State.ARRIVING and boss.max_health >= 0.8 * TUNING.BOSS_HEALTH, "Apex arrives with boss-sized (base) health")
 	_check(boss.model.scale.x > 7.0 and boss.sacs.size() >= 3, "Larger own model (root antlers) with spore sacs")
 	var before: float = boss.health
 	boss.take_damage(50.0)

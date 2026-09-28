@@ -238,6 +238,9 @@ func step(delta: float, centre: Vector3, unit_points: PackedVector3Array) -> voi
 		state.left = float(state.left) - delta
 		if float(state.left) <= 0.0:
 			active.erase(id)
+			# Etappe 23: a booster running out gets its own soft falling cue.
+			if world != null and world.has_method("_sfx"):
+				world._sfx("powerup_end")
 	_apply()
 	_animate_aura(delta, centre)
 
@@ -267,7 +270,7 @@ func collect(id: String) -> void:
 		FX.ring(world, at, Color(tone["light"], 0.9), 0.4, 4.5, 0.5)
 		FX.ring(world, at, Color(Color.WHITE, 0.6), 0.2, 2.5, 0.35)
 		if world.has_method("_sfx"):
-			world._sfx("lure" if id == "brutwelle" else "alpha_core", 50)
+			world._sfx("powerup_take", 50)
 	if duration <= 0.0:
 		_brood_wave()
 		return

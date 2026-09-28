@@ -492,6 +492,10 @@ func _draw_popups(hud: Control) -> void:
 	if _loss_visible():
 		loss_zone = _loss_zone()
 		placed.append(loss_zone)
+	# Etappe 25: the speech bubble at the left edge is taken too.
+	var speech: Variant = hud.get_meta("speech_rect", Rect2()) if hud.has_meta("speech_rect") else Rect2()
+	if speech is Rect2 and (speech as Rect2).has_area():
+		placed.append(speech)
 	for popup in popups:
 		var t: float = popup.get("t", 1.0)
 		if t >= 1.0:
@@ -645,6 +649,13 @@ func _k_number(at: Vector2, value: String, size_px: int, k: float, color: Color)
 	Kit.text_outlined(self, at, value, size_px, color, -1, -1, font, Kit.LEFT | Kit.MIDDLE, maxf(1.0, width * minf(k, 1.0)))
 
 
+# _k_number as a job for Kit.texts_outlined.
+func _k_job(at: Vector2, value: String, size_px: int, k: float, color: Color) -> Array:
+	var font := UiStyle.number_font()
+	var width := font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+	return [at, value, size_px, color, font, Kit.LEFT | Kit.MIDDLE, maxf(1.0, width * minf(k, 1.0))]
+
+
 func _k_width(value: String, size_px: int, k: float) -> float:
 	return UiStyle.number_font().get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x * minf(k, 1.0)
 
@@ -660,11 +671,20 @@ func _pop_out(t: float, start: float) -> float:
 # colour; every increment restarts a short hop (HuntWorld resets the age).
 func _draw_popups_brawl(hud: Control) -> void:
 	var popups: Array = hud.get_meta("kill_popups", [])
+	# Etappe 22b: all plates in one triangle batch, then the icons, then all
+	# numbers in two text passes (popups are pushed apart, so nothing overlaps).
+	var plates := Kit.TriBatch.new()
+	var icons: Array = []
+	var numbers: Array = []
 	var placed: Array = []
 	var loss_zone := Rect2()
 	if _loss_visible():
 		loss_zone = _loss_zone()
 		placed.append(loss_zone)
+	# Etappe 25: the speech bubble at the left edge is taken too.
+	var speech: Variant = hud.get_meta("speech_rect", Rect2()) if hud.has_meta("speech_rect") else Rect2()
+	if speech is Rect2 and (speech as Rect2).has_area():
+		placed.append(speech)
 	for popup in popups:
 		var t: float = popup.get("t", 1.0)
 		if t >= 1.0:
@@ -703,11 +723,15 @@ func _draw_popups_brawl(hud: Control) -> void:
 		for index in parts.size():
 			var part: Array = parts[index]
 			var pc := Vector2(x + plate * 0.5, c.y)
-			Kit.icon_plate(self, pc, plate, part[0])
-			_icon(part[1], Rect2(Kit.plate_center(pc, plate) - Vector2.ONE * plate * 0.36, Vector2.ONE * plate * 0.72), Color.WHITE)
+			Kit.icon_plate_into(plates, pc, plate, part[0])
+			icons.append([part[1], Rect2(Kit.plate_center(pc, plate) - Vector2.ONE * plate * 0.36, Vector2.ONE * plate * 0.72)])
 			var tone: Dictionary = UiStyle.brawl_tone(part[0])
-			_k_number(Vector2(x + plate + 6.0 * k, c.y), part[2], POP_SIZE, k, tone["light"].lerp(Color.WHITE, 0.25))
+			numbers.append(_k_job(Vector2(x + plate + 6.0 * k, c.y), part[2], POP_SIZE, k, tone["light"].lerp(Color.WHITE, 0.25)))
 			x += float(widths[index]) + gap
+	plates.flush(self)
+	for icon: Array in icons:
+		_icon(icon[0], icon[1], Color.WHITE)
+	Kit.texts_outlined(self, numbers)
 
 
 # Lost Mawlings: "-N" in danger colours next to a small Mawling plate, a hop
@@ -733,9 +757,11 @@ func _draw_loss_brawl(hud: Control) -> void:
 	var pc := Vector2(x0 + plate * 0.5, c.y)
 	Kit.icon_plate(self, pc, plate, "danger")
 	_icon("mawling", Rect2(Kit.plate_center(pc, plate) - Vector2.ONE * plate * 0.36, Vector2.ONE * plate * 0.72), Color.WHITE)
-	_k_number(Vector2(x0 + plate + 8.0 * k, c.y), number, LOSS_SIZE, k, danger["light"].lerp(Color.WHITE, 0.35))
+	# Etappe 22b: number and label in one text batch (they never overlap).
+	var texts: Array = [_k_job(Vector2(x0 + plate + 8.0 * k, c.y), number, LOSS_SIZE, k, danger["light"].lerp(Color.WHITE, 0.35))]
 	if out > 0.6:
-		Kit.text_outlined(self, Vector2(c.x, c.y + 46.0 * k), "MAWLINGS", UiStyle.T_LABEL, danger["light"].lerp(Color.WHITE, 0.5), -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+		texts.append([Vector2(c.x, c.y + 46.0 * k), "MAWLINGS", UiStyle.T_LABEL, danger["light"].lerp(Color.WHITE, 0.5), null, Kit.CENTER | Kit.MIDDLE, 0.0])
+	Kit.texts_outlined(self, texts)
 
 
 # Only one Mawling left: heartbeat vignette plus a danger ribbon with outlined text.
@@ -1023,8 +1049,16 @@ func _vignette(color: Color, depth: float) -> void:
 		[e, Vector2(0, e.y), Vector2(depth, e.y - depth), Vector2(e.x - depth, e.y - depth)],
 		[Vector2(0, e.y), o, Vector2(depth, depth), Vector2(depth, e.y - depth)],
 	]
+	# Etappe 22b: the four edge quads as one triangle list (1 draw call, was 4).
+	var points := PackedVector2Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
 	for quad in edges:
-		draw_polygon(PackedVector2Array(quad), PackedColorArray([color, color, clear, clear]))
+		var base := points.size()
+		points.append_array(PackedVector2Array(quad))
+		colors.append_array([color, color, clear, clear])
+		indices.append_array([base, base + 1, base + 2, base, base + 2, base + 3])
+	RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), indices, points, colors)
 
 
 # ---------------------------------------------------------------- geometry
@@ -1389,7 +1423,9 @@ func _ensure_layers() -> void:
 	if not _b.is_empty():
 		return
 	for id in ["r_title", "r_hero", "r_stats", "r_build", "r_tasks", "r_buttons", "pause", "banner"]:
-		var layer := UiLayer.make(self, "B_" + id, Callable(self, "_paint_" + id))
+		# Etappe 22b: cached - a banner or result section that holds still is ONE
+		# texture (pop-in, slide and fade are transforms/modulate, not repaints).
+		var layer := UiLayer.make(self, "B_" + id, Callable(self, "_paint_" + id), true)
 		layer.visible = false
 		_b[id] = layer
 

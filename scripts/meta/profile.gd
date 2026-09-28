@@ -34,7 +34,7 @@ var seen_tips: Array = []
 ## KODEX: entdeckte Einträge "<art>:<id>" (scripts/meta/codex.gd), nie wieder vergessen.
 var codex_seen: Array = []
 
-const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false, "music_v1": false, "skin_calm": false, "skin_organic": false}
+const DEFAULT_SETTINGS := {"sound": true, "vibration": true, "colorblind": false, "music_v1": false, "skin_calm": false, "skin_organic": false, "speech": true}
 ## So viele Tage bleiben in daily_records erhalten (älteste fallen heraus).
 const DAILY_KEEP := 30
 
@@ -369,6 +369,11 @@ func mark_tip(id: String) -> bool:
 	seen_tips.append(id)
 	save()
 	return true
+
+## Etappe 24: alle Tipps wieder zeigen (Einstellungen „Tipps zurücksetzen“); speichert sofort.
+func reset_tips() -> void:
+	seen_tips.clear()
+	save()
 
 ## Erststart: noch kein Run gebucht und noch kein Tipp gesehen.
 func is_first_start() -> bool:

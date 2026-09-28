@@ -59,37 +59,40 @@ const MAX_POPULATION := 250
 const META_ARMOR_CAP := 0.3
 const ARMOR_CAP := 0.6
 
+## Etappe 21 (stages/21_balance.md): Stammwerte auf <= 40 % Spreizung je Schwierigkeit abgestimmt
+## (Glutmaw Rally 1,25, Sporling Wachstum 1,25, Knochenkiefer Tempo 0,9, Flinkzahn Tempo 1,12,
+## Ätzmaul Schaden 0,95 + Panzer 0,05, Nachtmaul DNA 1,3 + Wachstum 1,1; Brutal-Flut ab 210 s).
 const STRAINS := {
 	"glutmaw": {
-		"name": "Glutmaw", "description": "Ausgewogener Rudeljäger. Rally-Angriffe beißen 15 % härter.",
+		"name": "Glutmaw", "description": "Ausgewogener Rudeljäger. Rally-Angriffe beißen 25 % härter.",
 		"unlock_quest": "", "price": 0, "tint": "#d9401f", "start_population": 1,
-		"signature": "rudelbiss", "rally_damage": 1.15,
+		"signature": "rudelbiss", "rally_damage": 1.25,
 		"mods": {"damage": 1.0, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"sporling": {
 		"name": "Sporling", "description": "Wächst rasant und vernebelt Gegner, beißt aber schwächer.",
 		"unlock_quest": "", "price": 0, "tint": "#f06aa8", "start_population": 1,
 		"signature": "sporenwolke",
-		"mods": {"damage": 0.85, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.3}},
+		"mods": {"damage": 0.85, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.25}},
 	"knochenkiefer": {
 		"name": "Knochenkiefer", "description": "Gepanzert und stachelig, dafür schwerfällig.",
 		"unlock_quest": "boss_1", "price": 3, "tint": "#e9f0f8", "start_population": 1,
 		"signature": "stachelruecken",
-		"mods": {"damage": 1.0, "armor": 0.2, "speed": 0.85, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
+		"mods": {"damage": 1.0, "armor": 0.2, "speed": 0.9, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"flinkzahn": {
 		"name": "Flinkzahn", "description": "Blitzschnelles Rudel mit dünner Haut.",
 		"unlock_quest": "leaper_10", "price": 3, "tint": "#3f5cf0", "start_population": 1,
 		"signature": "rudelbiss",
-		"mods": {"damage": 1.0, "armor": -0.1, "speed": 1.25, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
+		"mods": {"damage": 1.0, "armor": -0.1, "speed": 1.12, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"aetzmaul": {
 		"name": "Ätzmaul", "description": "Spuckt Säure aus der Distanz, im Nahkampf etwas schwächer.",
 		"unlock_quest": "evo_aetzflut", "price": 5, "tint": "#f2e02a", "start_population": 1,
 		"signature": "saeurespucker",
-		"mods": {"damage": 0.9, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
+		"mods": {"damage": 0.95, "armor": 0.05, "speed": 1.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0}},
 	"nachtmaul": {
 		"name": "Nachtmaul", "description": "Expertenstamm: klein und zerbrechlich, mutiert aber schneller.",
 		"unlock_quest": "apex_3", "price": 8, "tint": "#2c2848", "start_population": 1,
 		"signature": "sporenwolke",
-		"mods": {"damage": 1.0, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.25, "growth": 1.0}},
+		"mods": {"damage": 1.0, "armor": 0.0, "speed": 1.0, "harvest": 1.0, "dna": 1.3, "growth": 1.1}},
 }
 const STRAIN_ORDER := ["glutmaw", "sporling", "knochenkiefer", "flinkzahn", "aetzmaul", "nachtmaul"]
 
@@ -105,7 +108,7 @@ const DIFFICULTIES := [
 	{"name": "Wild", "description": "Der normale Kreislauf der Jagd.", "enemy_hp": 1.0, "enemy_damage": 1.0,
 		"pressure_doubling": 80.0, "flood_start": 270.0, "reward": 1.0, "crowns": 1, "unlock_quest": ""},
 	{"name": "Brutal", "description": "Zähere, härter zuschlagende Gegner.", "enemy_hp": 1.15, "enemy_damage": 1.05,
-		"pressure_doubling": 80.0, "flood_start": 240.0, "reward": 2.0, "crowns": 2, "unlock_quest": "survive_5"},
+		"pressure_doubling": 80.0, "flood_start": 210.0, "reward": 2.0, "crowns": 2, "unlock_quest": "survive_5"},
 	{"name": "Apex", "description": "Nur für die stärksten Schwärme.", "enemy_hp": 1.2, "enemy_damage": 1.15,
 		"pressure_doubling": 60.0, "flood_start": 180.0, "reward": 3.5, "crowns": 3, "unlock_quest": "brutal_3"},
 ]

@@ -12,9 +12,8 @@ extends Control
 # cached = true: while the key keeps changing (animations, dragging) the layer
 # draws live; once the key has been stable for SETTLE seconds it renders one
 # more time into a SubViewport - at the physical pixel size of its region, with
-# the same font oversampling - copies the result into an ImageTexture (the
-# render target shrinks back to 2 x 2 px, so only the texture stays in VRAM)
-# and from then on shows it as ONE pixel-aligned texture (premultiplied
+# the same font oversampling - and from then on shows that render target
+# (kept, no GPU readback; Etappe 22) as ONE pixel-aligned texture (premultiplied
 # alpha). A static panel full of polygons, outlines and text then costs one
 # draw call per frame instead of dozens, and looks the same (probe: max. 2/255
 # difference per channel).
@@ -33,12 +32,14 @@ var _has_key := false
 var _changed_at := 0.0
 var _state := 0            # 0 live, 1 cache rendering this frame, 2 showing cache
 var _viewport: SubViewport
-var _baked: ImageTexture
+var _baked: Texture2D
 var _inner: Control
 var _shown := Rect2()
 var _place := Transform2D()
 
 static var _premult: CanvasItemMaterial
+## Perf bench (Etappe 22): number of cache renders so far.
+static var bake_count := 0
 static var _no_pixels := -1
 
 
@@ -181,22 +182,18 @@ func _bake() -> void:
 	_inner.queue_redraw()
 	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	_state = 1
+	bake_count += 1
 
 
-# The SubViewport rendered last frame: keep its picture, free the render target.
+# The SubViewport rendered last frame: show its render target from now on.
+# Etappe 22: the target stays (it keeps its picture while updates are off) and
+# is drawn directly - no GPU readback (get_image() stalled the frame for up to
+# ~30 ms on every rebake) and no new render target per bake.
 func _keep_bake() -> void:
-	var image := _viewport.get_texture().get_image()
-	if image == null or image.is_empty():
+	if _viewport == null:
 		_state = 0
 		return
-	if _baked == null or Vector2i(_baked.get_size()) != image.get_size():
-		_baked = ImageTexture.create_from_image(image)
-	else:
-		_baked.update(image)
-	# Free the render target completely; the next bake builds a new one.
-	_viewport.queue_free()
-	_viewport = null
-	_inner = null
+	_baked = _viewport.get_texture()
 	_state = 2
 	material = _premult
 	queue_redraw()

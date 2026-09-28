@@ -84,7 +84,7 @@ func _run() -> void:
 	# ---- Start time per difficulty (Wild without config).
 	_check(is_equal_approx(world.flood_start, 300.0), "Wild/no config: flood at 5:00 (got %.0f)" % world.flood_start)
 	# Etappe 17c balance: Wild floods at 4:30 (was 5:00).
-	var expected := [270.0, 240.0, 180.0]
+	var expected := [270.0, 210.0, 180.0]   # Etappe 21: Brutal 240 -> 210
 	for difficulty in 3:
 		world.config = {"difficulty": difficulty}
 		world.reset_run()
@@ -296,7 +296,7 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 		return
-	print("PASS flood: announcement 10 s, start per difficulty, x2 per 40 s with speed/wave caps, exact bites, bundled kills, extinction, pause, reset; Nibbler snap + faster enemies")
+	print("PASS flood: announcement 10 s, start per difficulty, x2 per %d s with speed/wave caps, exact bites, bundled kills, extinction, pause, reset; Nibbler snap + faster enemies" % int(TUNING.FLOOD_DOUBLING_SECONDS))
 	quit(0)
 
 

@@ -36,7 +36,8 @@ const RULES := {
 	"boss_roar": {"gap": 1500, "voices": 1, "db": -1.5},
 	"flood_warn": {"gap": 3000, "voices": 1, "db": -3.0},
 	"quake": {"gap": 1500, "voices": 1, "db": -5.0},
-	"regen": {"gap": 400, "voices": 1, "db": -9.5},
+	# Etappe 23: lifesteal/regeneration heals often - kept discreet (was -9.5 / 400).
+	"regen": {"gap": 900, "voices": 1, "db": -12.5},
 	"alpha_core": {"gap": 150, "voices": 2, "db": 0.0},
 	"fanfare": {"gap": 3000, "voices": 1, "db": -4.0},
 	"migration_whoosh": {"gap": 1500, "voices": 1, "db": -2.5},
@@ -54,9 +55,40 @@ const RULES := {
 	"collect_bio": {"gap": 65, "voices": 3, "db": -13.0},
 	"collect_dna": {"gap": 80, "voices": 2, "db": -12.5},
 	"lure": {"gap": 1500, "voices": 1, "db": -2.0},
+	# Etappe 23 (audio pass): own sounds for the systems of stages 17-20, all
+	# procedural (tools/gen_sfx.py SOUNDS_23). db values match the measured
+	# loudness (loudest 300 ms) to their peers: chains ~ -27, loot moments
+	# -22 .. -17 (rising with rarity), abilities ~ -19, desert hits -15 .. -17.
+	"collect_coin": {"gap": 60, "voices": 3, "db": -9.0},       # Bernstein chain (pitch)
+	"cocoon_open": {"gap": 300, "voices": 1, "db": -6.0},       # silk tears
+	"cocoon_common": {"gap": 300, "voices": 1, "db": -7.5},
+	"cocoon_rare": {"gap": 300, "voices": 1, "db": -7.0},
+	"cocoon_epic": {"gap": 300, "voices": 1, "db": -5.0},
+	"cocoon_legendary": {"gap": 600, "voices": 1, "db": -3.0},  # plus "fanfare"
+	"cocoon_denied": {"gap": 700, "voices": 1, "db": -7.0},     # too expensive
+	"powerup_take": {"gap": 300, "voices": 1, "db": -5.5},
+	"powerup_end": {"gap": 500, "voices": 1, "db": -11.5},
+	"shrine_tick": {"gap": 180, "voices": 1, "db": -10.0},      # pitch rises with the charge
+	"shrine_done": {"gap": 1000, "voices": 1, "db": -5.5},
+	"ability_glutsprung": {"gap": 250, "voices": 1, "db": -6.0},
+	"ability_land": {"gap": 250, "voices": 1, "db": -3.0},
+	"ability_sporenbombe": {"gap": 250, "voices": 1, "db": -3.5},
+	"ability_panzerstoss": {"gap": 250, "voices": 1, "db": -3.0},
+	"ability_hetzjagd": {"gap": 250, "voices": 1, "db": -6.5},
+	"ability_saeureschwall": {"gap": 250, "voices": 1, "db": -3.0},
+	"ability_schattenschleier": {"gap": 250, "voices": 1, "db": -5.0},
+	"ability_ready": {"gap": 800, "voices": 1, "db": -10.5},
+	"leader_hit_heavy": {"gap": 250, "voices": 1, "db": -2.0},
+	"sandworm_breach": {"gap": 800, "voices": 1, "db": -2.5},
+	"sandworm_sweep": {"gap": 800, "voices": 1, "db": -4.0},
+	"sandgrub_burst": {"gap": 400, "voices": 1, "db": -3.5},
+	# Etappe 24: Glutsumpf eruptions (scripts/eruptions.gd): the rising bubbling
+	# under the ground ring (1.6 s, like the ring) and the burst itself.
+	"lava_warn": {"gap": 400, "voices": 1, "db": -9.0},
+	"lava_burst": {"gap": 300, "voices": 1, "db": -3.0},
 }
 ## Ids that reuse the files of another id (no own recordings yet).
-const SOURCES := {"collect_bio": "pickup", "collect_dna": "dna", "lure": "evolve"}
+const SOURCES := {"collect_bio": "pickup", "collect_dna": "dna", "lure": "evolve", "leader_critical": "heartbeat"}
 ## Loops (start_loop/stop_loop), one voice each outside the pool.
 const LOOP_RULES := {
 	"heartbeat": {"db": -4.0},
@@ -65,14 +97,22 @@ const LOOP_RULES := {
 	# Callers scale them with set_loop_volume() (swarm size, speed).
 	"feed": {"db": -12.0},
 	"rustle": {"db": -16.0},
+	# Etappe 23: desert loops (scripts/desert_run.gd scales them per frame) and
+	# the leader's own heartbeat at 1 LP (the "heartbeat" loop stays the last animal's).
+	"sandworm_dig": {"db": -10.0},
+	"sandstorm": {"db": -6.0},
+	"quicksand": {"db": -12.0},
+	"leader_critical": {"db": -9.0},
 }
+## Ambience per biome (set_ambience cross-fades); db offsets on ambience_volume_db.
+const AMBIENCES := {"ambience_jungle": 0.0, "ambience_desert": 0.0, "ambience_glutsumpf": 0.0}
+const AMBIENCE_FADE_SECONDS := 1.5
 
 ## Global offset in dB applied to every effect and the ambience.
 var master_volume_db := 0.0:
 	set(value):
 		master_volume_db = clampf(value, -80.0, 12.0)
-		if _ambience != null:
-			_ambience.volume_db = _ambience_db()
+		_apply_ambience()
 		for id: String in _loops:
 			(_loops[id] as AudioStreamPlayer).volume_db = loop_volume_db(id)
 var sfx_enabled := true
@@ -87,7 +127,11 @@ var _player_ids: Array[String] = []
 var _player_started: Array[int] = []
 ## Bookkept end time per voice; independent of the audio driver (works headless).
 var _player_end: Array[int] = []
-var _ambience: AudioStreamPlayer
+var _ambience: AudioStreamPlayer   # the current biome's ambience player
+var _ambience_id := AMBIENCE_ID
+var _ambience_on := false
+var _ambience_players := {}       # id -> AudioStreamPlayer
+var _ambience_gain := {}          # id -> linear 0..1 (bookkept, also with the Dummy driver)
 var _loops := {}          # id -> AudioStreamPlayer
 var _loop_on := {}        # id -> bool (bookkept, also with the Dummy driver)
 var _loop_db := {}        # id -> caller offset in dB (start_loop / set_loop_volume)
@@ -102,7 +146,8 @@ func _ready() -> void:
 	_silent = AudioServer.get_driver_name() == "Dummy"
 	for id: String in RULES:
 		_load_variants(id)
-	_load_variants(AMBIENCE_ID)
+	for id: String in AMBIENCES:
+		_load_variants(id)
 	for id: String in LOOP_RULES:
 		_load_variants(id)
 	for i in POOL_SIZE:
@@ -156,22 +201,92 @@ func vibrate(ms: int) -> void:
 
 
 func play_ambience() -> void:
-	var variants: Array = _streams.get(AMBIENCE_ID, [])
-	if variants.is_empty():
+	var first := not _ambience_on
+	_ambience_on = true
+	var player := _ambience_player(_ambience_id)
+	if player == null:
 		return
-	if _ambience == null:
-		_ambience = AudioStreamPlayer.new()
-		_ambience.name = "Ambience"
-		add_child(_ambience)
-		_ambience.stream = _looped(variants[0])
-	_ambience.volume_db = _ambience_db()
-	if not _ambience.playing and not _silent:
-		_ambience.play()
+	_ambience = player
+	# The very first start is immediate; later switches cross-fade in _process.
+	if first and _max_ambience_gain() <= 0.0:
+		_ambience_gain[_ambience_id] = 1.0
+	_apply_ambience()
+	if not player.playing and not _silent:
+		player.play()
 
 
 func stop_ambience() -> void:
-	if _ambience != null:
-		_ambience.stop()
+	_ambience_on = false
+	for id: String in _ambience_players:
+		(_ambience_players[id] as AudioStreamPlayer).stop()
+		_ambience_gain[id] = 0.0
+
+
+## Etappe 23: switches the ambience bed (e.g. "ambience_desert" in the
+## Dürrschlund); the old one fades out over AMBIENCE_FADE_SECONDS.
+func set_ambience(id: String) -> void:
+	if not AMBIENCES.has(id) or id == _ambience_id or (_streams.get(id, []) as Array).is_empty():
+		return
+	_ambience_id = id
+	if not _ambience_on:
+		return
+	var player := _ambience_player(id)
+	_ambience = player
+	_apply_ambience()
+	if player != null and not player.playing and not _silent:
+		player.play()
+
+
+func ambience_id() -> String:
+	return _ambience_id
+
+
+## Linear gain 0..1 of an ambience bed (tests).
+func ambience_gain(id: String) -> float:
+	return float(_ambience_gain.get(id, 0.0))
+
+
+func _process(delta: float) -> void:
+	if _ambience_players.is_empty():
+		return
+	var step := delta / AMBIENCE_FADE_SECONDS
+	for id: String in _ambience_players:
+		var target := 1.0 if _ambience_on and id == _ambience_id else 0.0
+		var gain := move_toward(float(_ambience_gain.get(id, 0.0)), target, step)
+		_ambience_gain[id] = gain
+		var player: AudioStreamPlayer = _ambience_players[id]
+		if gain <= 0.0 and target <= 0.0 and player.playing:
+			player.stop()
+	_apply_ambience()
+
+
+func _ambience_player(id: String) -> AudioStreamPlayer:
+	var variants: Array = _streams.get(id, [])
+	if variants.is_empty():
+		return null
+	var player: AudioStreamPlayer = _ambience_players.get(id)
+	if player == null:
+		player = AudioStreamPlayer.new()
+		player.name = "Ambience" if id == AMBIENCE_ID else "Ambience_" + id.trim_prefix("ambience_")
+		add_child(player)
+		player.stream = _looped(variants[0])
+		_ambience_players[id] = player
+		_ambience_gain[id] = float(_ambience_gain.get(id, 0.0))
+	return player
+
+
+func _max_ambience_gain() -> float:
+	var best := 0.0
+	for id: String in _ambience_gain:
+		best = maxf(best, float(_ambience_gain[id]))
+	return best
+
+
+func _apply_ambience() -> void:
+	for id: String in _ambience_players:
+		var gain := float(_ambience_gain.get(id, 0.0))
+		var db := _ambience_db() + float(AMBIENCES.get(id, 0.0))
+		(_ambience_players[id] as AudioStreamPlayer).volume_db = db + linear_to_db(gain) if gain > 0.001 else -80.0
 
 
 ## Starts a seamless loop (e.g. "heartbeat"); calling it again keeps it running
@@ -261,8 +376,8 @@ func _exit_tree() -> void:
 	stop_all()
 	for player in _players:
 		player.stream = null
-	if _ambience != null:
-		_ambience.stream = null
+	for id: String in _ambience_players:
+		(_ambience_players[id] as AudioStreamPlayer).stream = null
 	for id: String in _loops:
 		(_loops[id] as AudioStreamPlayer).stream = null
 

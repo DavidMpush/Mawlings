@@ -158,6 +158,7 @@ func step(delta: float, swarm_position: Vector3, pressure: float) -> Array[Dicti
 			last_impacts.append(impact)
 			resolved_power = maxi(resolved_power, int(eruption.power))
 			_burst(warning, eruption.center)
+			_sound("lava_burst")
 	return last_impacts
 
 
@@ -272,7 +273,15 @@ func _schedule(swarm_position: Vector3, pressure: float) -> bool:
 	warning.top_level = true
 	warning.global_position = Vector3(center.x, TELEGRAPH_HEIGHT, center.z)
 	pending.append({"center": Vector3(center.x, 0.0, center.z), "remaining": WARNING_SECONDS, "power": damage(pressure), "node": warning})
+	_sound("lava_warn")
 	return true
+
+
+# Etappe 24: sound through HuntWorld's Sfx (the parent; absent in bare tests).
+func _sound(id: String) -> void:
+	var world := get_parent()
+	if world != null and world.has_method("_sfx"):
+		world._sfx(id)
 
 
 # Deterministic 0..1 value from the arena seed hash.

@@ -21,6 +21,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	_test_pool_limits()
+	_test_ember_pool()
 	_test_expiry_and_clear()
 	await _test_forms_hooks()
 	_test_telegraphs()
@@ -71,6 +72,19 @@ func _test_pool_limits() -> void:
 	script.enabled = true
 	_check(vfx.spawn("shock", Vector3.ZERO), "VFX nach Wiedereinschalten stumm")
 	vfx.free()
+
+
+# 17d-Politur: the strain abilities' pool tints its poison sprites in ember,
+# the weapons' pool keeps the painted colours.
+func _test_ember_pool() -> void:
+	var own: Node3D = VFX_SPRITES.create(VFX_SPRITES.ABILITY_POOL)
+	var weapons: Node3D = VFX_SPRITES.create()
+	for kind in ["acid", "spore"]:
+		_check(is_equal_approx(own.ember_amount(kind), 1.0), "Fähigkeits-%s ohne Glut-Tönung" % kind)
+		_check(is_zero_approx(weapons.ember_amount(kind)), "Waffen-%s ist getönt" % kind)
+	_check(is_zero_approx(own.ember_amount("shock")), "Schockwelle der Fähigkeiten darf nicht getönt sein")
+	own.free()
+	weapons.free()
 
 
 func _test_expiry_and_clear() -> void:

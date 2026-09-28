@@ -68,7 +68,7 @@ func _run() -> void:
 		for token in q.reward.get("unlock", []):
 			check(DATA.migrate_token(String(token)) == String(token), "Quest %s uses a current token (%s)" % [q.id, token])
 	var spore: Dictionary = p.build_run_config("sporling", "verdant_maw", 0)
-	check(spore.start_population == 1 and is_equal_approx(spore.mods.growth, 1.3) and is_equal_approx(spore.mods.damage, 0.85), "Sporling mods")
+	check(spore.start_population == 1 and is_equal_approx(spore.mods.growth, 1.25) and is_equal_approx(spore.mods.damage, 0.85), "Sporling mods")
 
 	# Gesperrte Auswahl fällt zurück
 	var locked: Dictionary = p.build_run_config("knochenkiefer", "glutsumpf", 2)
@@ -121,7 +121,7 @@ func _run() -> void:
 	check(not p.buy_strain("knochenkiefer"), "No double purchase")
 	var bone: Dictionary = p.build_run_config("knochenkiefer", "verdant_maw", 0)
 	check(bone.strain_id == "knochenkiefer" and bone.signature_attack == "stachelruecken" and bone.pool.has("stachelruecken"), "Owned strain config")
-	check(is_equal_approx(bone.mods.armor, 0.5) and is_equal_approx(bone.mods.speed, 0.85), "Strain + meta armor")
+	check(is_equal_approx(bone.mods.armor, 0.5) and is_equal_approx(bone.mods.speed, 0.9), "Strain + meta armor")
 
 	# Schwierigkeit per Quest, Belohnungsfaktor
 	result = p.record_run(_stats({"seconds": 320.0}))

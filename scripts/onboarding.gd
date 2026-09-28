@@ -29,8 +29,21 @@ const TIPS := {
 	"nest": "Brutnest! Bleib im Kreis, bis der Balken voll ist",
 	"map": "Tippe auf die Karte für die Übersicht",
 	"ability": "Stammesfähigkeit bereit! Tippe den Knopf über Rally (Q / Shift)",
+	# Etappe 24: the systems of stages 17-20.
+	"leader_low": "Anführer auf 1 LP! Lebensraub heilt beim Beißen – weich Treffern aus",
+	"boss_cocoon": "Boss-Kokon! Gratis öffnen – du wählst 1 aus 3 Beuten",
+	"cocoon": "Kokon! Bleib im Kreis, bis er aufgeht – der Preis in Bernstein steht darüber",
+	"amber": "Bernstein! Mit den Münzen kaufst du Kokons",
+	"powerup": "Power-up! Lauf hinein – es wirkt ein paar Sekunden",
+	"shrine": "Schrein! Bleib darin, bis er voll ist – er schenkt einen seltenen Wert",
+	"xp": "Der Balken oben füllt sich mit DNA – voll heißt neue Mutation",
+	"explore": "Erkunde! Der Nebel verbirgt Kokons, Schreine und Bosse",
+	"quicksand": "Treibsand bremst – raus auf festen Sand",
+	"sandstorm": "Sandsturm zieht auf – Gegner werden schneller, bleib in Bewegung",
 }
-const ORDER := ["move", "warning", "leader", "boss", "rally", "ability", "prey", "corpse", "alpha", "mutation", "nest", "map"]
+const ORDER := ["move", "warning", "leader", "leader_low", "boss", "rally", "ability", "sandstorm", "quicksand",
+	"prey", "corpse", "amber", "boss_cocoon", "cocoon", "powerup", "shrine", "alpha", "xp", "mutation", "nest",
+	"explore", "map"]
 ## Etappe 17d: the ability tip comes once the run is under way and a threat is near.
 const ABILITY_SECONDS := 20.0
 
@@ -43,6 +56,13 @@ const NEST_RANGE := 16.0
 ## oder MAP_DISTANCE vom Start, frühestens nach MAP_SECONDS Laufzeit.
 const MAP_SECONDS := 40.0
 const MAP_DISTANCE := 30.0
+## Etappe 24: ranges for the new systems ("in sight" on the phone camera).
+const COCOON_RANGE := 16.0
+const POWERUP_RANGE := 12.0
+const SHRINE_RANGE := 16.0
+const LANDMARK_RANGE := 20.0
+## Explore tip: after the start phase, with the first landmark in sight.
+const EXPLORE_SECONDS := 25.0
 
 var world: Node = null
 var hud: Object = null
@@ -63,6 +83,9 @@ var _kills_at := 0
 var _biomass_at := 0.0
 var _was_choosing := false
 var _mutation_ready := false
+var _collected_at := 0
+var _regions_at := 0
+var _cocoon: Dictionary = {}
 
 
 ## `profile_ref` ist ein Profil-Objekt oder ein Profilpfad; null/"" = inaktiv.
@@ -131,6 +154,13 @@ func _show(id: String) -> void:
 	_anchor = swarm.position
 	_kills_at = int(_model.get("kills"))
 	_biomass_at = float(_model.get("consumed_biomass"))
+	var powerups: Variant = world.get("powerups")
+	_collected_at = int(powerups.collected) if _valid(powerups) else 0
+	var regions: Variant = world.get("regions_seen")
+	_regions_at = (regions as Dictionary).size() if regions is Dictionary else 0
+	_cocoon = {}
+	if id == "cocoon" or id == "boss_cocoon":
+		_cocoon = _near_cocoon(["boss"] if id == "boss_cocoon" else ["map", "gold", "elite", "start"])
 	if id == "mutation":
 		_mutation_ready = false
 	profile.mark_tip(id)
@@ -187,6 +217,36 @@ func _wanted(id: String) -> bool:
 		"nest":
 			var nest := _nest()
 			return nest != null and not bool(nest.get("complete")) and nest.global_position.distance_to(swarm.global_position) <= NEST_RANGE
+		"leader_low":
+			return int(_model.get("leader_hp")) == 1 and int(_model.get("leader_max_hp")) > 1
+		"boss_cocoon":
+			return not _near_cocoon(["boss"]).is_empty()
+		"cocoon":
+			return not _near_cocoon(["map", "gold", "elite", "start"]).is_empty()
+		"amber":
+			var amber: Variant = _model.get("amber_collected")
+			return amber != null and int(amber) > 0
+		"powerup":
+			var powerups: Variant = world.get("powerups")
+			if not _valid(powerups):
+				return false
+			for entry: Dictionary in powerups.pickups:
+				if _flat((entry.at as Vector3)) <= POWERUP_RANGE:
+					return true
+			return false
+		"shrine":
+			return not _near_shrine().is_empty()
+		"xp":
+			var evo: Variant = world.get("evolution")
+			return evo != null and int(evo.get("level")) == 0 and int(evo.get("dna")) > 0
+		"explore":
+			return float(_model.get("elapsed")) >= EXPLORE_SECONDS and _landmark_near()
+		"quicksand":
+			var arena: Variant = _arena()
+			return _valid(arena) and arena.has_method("quicksand_factor") and float(arena.quicksand_factor(swarm.position)) < 0.95
+		"sandstorm":
+			var storm := _storm()
+			return storm != null and int(storm.get("state")) in [1, 2]
 		"map":
 			if not bool(hud.get("minimap_enabled")) or bool(hud.get("map_open")):
 				return false
@@ -222,6 +282,27 @@ func _fulfilled(id: String) -> bool:
 			return nest == null or float(nest.get("inside_share") if "inside_share" in nest else 0.0) > 0.2
 		"map":
 			return bool(hud.get("map_open"))
+		"leader_low":
+			return int(_model.get("leader_hp")) > 1
+		"cocoon", "boss_cocoon":
+			return _cocoon.is_empty() or int(_cocoon.get("state", 0)) != 0 or _flat(_cocoon.at as Vector3) > COCOON_RANGE * 1.5
+		"powerup":
+			var powerups: Variant = world.get("powerups")
+			return not _valid(powerups) or int(powerups.collected) > _collected_at
+		"shrine":
+			var shrine := _near_shrine()
+			return shrine.is_empty() or float(shrine.get("charge", 0.0)) > 0.3
+		"xp":
+			var evo: Variant = world.get("evolution")
+			return evo == null or int(evo.get("level")) > 0
+		"explore":
+			var regions: Variant = world.get("regions_seen")
+			return regions is Dictionary and (regions as Dictionary).size() > _regions_at
+		"quicksand":
+			return not _wanted("quicksand")
+		"sandstorm":
+			var storm := _storm()
+			return storm == null or int(storm.get("state")) == 0
 	return false
 
 
@@ -250,6 +331,69 @@ func _nearest(list: Variant, reach: float) -> bool:
 
 func _alive(node: Variant) -> bool:
 	return node is Node3D and is_instance_valid(node)
+
+
+# The map node sits next to HuntWorld under Main ("Arena"), like HuntWorld finds it.
+func _arena() -> Node:
+	var parent := world.get_parent() if world != null else null
+	return parent.get_node_or_null("Arena") if parent != null else null
+
+
+func _valid(node: Variant) -> bool:
+	return node is Object and is_instance_valid(node)
+
+
+func _flat(point: Vector3) -> float:
+	return Vector2(point.x - swarm.position.x, point.z - swarm.position.z).length()
+
+
+# Nearest closed cocoon of the given kinds in sight ({} = none).
+func _near_cocoon(kinds: Array) -> Dictionary:
+	var chests: Variant = world.get("chests")
+	if not _valid(chests) or not chests.has_method("nearest"):
+		return {}
+	return chests.nearest(swarm.position, COCOON_RANGE, kinds)
+
+
+# Nearest unfinished shrine in sight ({} = none).
+func _near_shrine() -> Dictionary:
+	var shrines: Variant = world.get("shrines")
+	if not _valid(shrines):
+		return {}
+	var best: Dictionary = {}
+	var best_d := SHRINE_RANGE
+	for entry: Dictionary in shrines.shrines:
+		if bool(entry.get("done", false)):
+			continue
+		var d := _flat(entry.at as Vector3)
+		if d <= best_d:
+			best_d = d
+			best = entry
+	return best
+
+
+# A landmark (root arch, fallen log, ...) standing in one of the 3 x 3 chunks
+# around the swarm and within LANDMARK_RANGE.
+func _landmark_near() -> bool:
+	var arena: Variant = _arena()
+	if not _valid(arena) or not arena.has_method("landmark") or not arena.has_method("chunk_at"):
+		return false
+	var key: Vector2i = arena.chunk_at(swarm.position)
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			var mark: Dictionary = arena.landmark(key + Vector2i(dx, dz))
+			if not mark.is_empty() and mark.has("center") and _flat(mark.center as Vector3) <= LANDMARK_RANGE:
+				return true
+	return false
+
+
+# Sandstorm of the Dürrschlund (desert_run.storm), null outside the desert.
+func _storm() -> Node:
+	var desert: Variant = world.get("desert")
+	if not _valid(desert) or not desert.has_method("active") or not desert.active():
+		return null
+	var storm: Variant = desert.get("storm")
+	return storm if _valid(storm) else null
 
 
 # Brutnest (Etappe 06, ZIELE) ist optional: erkannt wird eine Welt-Variable

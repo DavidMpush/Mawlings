@@ -60,6 +60,8 @@ const SHRINE_REACH := 70.0
 const SHRINE_SAFE := 12.0
 const SHRINE_MIN_POP := 15
 const FREE_NEAR := 25.0
+# Etappe 21: the Bog King counts as fought while it is this close (m).
+const KING_ENGAGED := 9.0
 var low_hp := false
 
 # Quick regression (~40 s): three seeded runs with wide tolerances. They catch a
@@ -75,14 +77,17 @@ var low_hp := false
 # Etappe 17 Welle 2 / 17c: Apex runs reach the flood (min_flood) but end in its
 # first seconds by the Moosschlund (now 1700 LP) or hunters, before the Moorbrut
 # bites (median 0 Moorbrut losses), so min_flood_lost is no longer required.
+# Etappe 21: the Apex spec is Sporling (seeds 2-6), run until it dies (limit 420):
+# it reaches the flood and loses Mawlings to the Moorbrut again (median ~46), so
+# min_flood_lost 3 is back; the former glutmaw/Apex spec (dies to the Moosschlund
+# at ~3:00, flood losses 0) is merged into it, which also shortens the regression.
 const REGRESS_SEEDS := 5
 const REGRESS_RUNS := [
 	{"strain": "glutmaw", "diff": 0, "seed": 1, "strategy": "greedy", "limit": 150.0,
 		"min_seconds": 120.0, "min_peak": 20, "min_kills": 15, "min_lost": 10, "min_pop120": 15, "max_pop120": 80},
-	{"strain": "sporling", "diff": 2, "seed": 2, "strategy": "attack_first", "limit": 180.0,
-		"min_seconds": 150.0, "min_peak": 25, "min_kills": 25, "min_lost": 20},
-	{"strain": "glutmaw", "diff": 2, "seed": 1, "strategy": "attack_first", "limit": 420.0,
-		"min_seconds": 150.0, "max_seconds": 330.0, "min_peak": 30, "min_kills": 40, "min_flood": 1.0, "min_flood_lost": 0},
+	{"strain": "sporling", "diff": 2, "seed": 2, "strategy": "attack_first", "limit": 420.0,
+		"min_seconds": 150.0, "max_seconds": 330.0, "min_peak": 25, "min_kills": 25, "min_lost": 20,
+		"min_flood": 1.0, "min_flood_lost": 3},
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -225,6 +230,12 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 	var fight_apex: Variant = null
 	var fight_start := 0.0
 	var fight_kind := ""
+	# Etappe 21: Bog-King-Kämpfe (erster Treffer bis Tod) als "king:<s>" in fights.
+	var fight_king := 0
+	var king_start := 0.0
+	# Seconds the engaged king spent farther than KING_ENGAGED m away (the bot
+	# walks off to loot; those seconds are not fight time).
+	var king_away := 0.0
 	var states := {}
 	var cause := "timeout"
 	var picks: Array[String] = []
@@ -300,8 +311,23 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 			if fight_apex != null:
 				fights.append("%s:%.0f" % [fight_kind, world.model.elapsed - fight_start])
 			fight_apex = apex_live
-			fight_kind = "toad" if apex_live is APEX_TOAD else "moos"
+			fight_kind = "toad" if apex_live is APEX_TOAD else ("worm" if apex_live != null and str(apex_live.get("corpse_kind")) == "apex_sandworm" else "moos")
 			fight_start = world.model.elapsed
+		# Instance ids: a freed node compares equal to null in Godot 4.
+		var king_node: Variant = world.get("boss")
+		var king_live: int = king_node.get_instance_id() if king_node != null and is_instance_valid(king_node) else 0
+		if king_live != fight_king:
+			if fight_king != 0 and king_start >= 0.0:
+				fights.append("king:%.0f" % (world.model.elapsed - king_start - king_away))
+			fight_king = king_live
+			king_start = -1.0
+			king_away = 0.0
+		elif king_live != 0 and king_start < 0.0 and float(king_node.health) < float(king_node.max_health):
+			king_start = world.model.elapsed
+		elif king_live != 0 and king_start >= 0.0 and king_node.position.distance_to(swarm.position) > KING_ENGAGED:
+			king_away += STEP
+		if OS.get_environment("BALANCE_KINGTRACE") != "" and king_live != 0 and fmod(world.model.elapsed, 2.0) < STEP:
+			print("KING t=%.0f d=%.1f hp=%.0f/%.0f pop=%d state=%d" % [world.model.elapsed, king_node.position.distance_to(swarm.position), king_node.health, king_node.max_health, world.model.population, int(king_node.state)])
 	if fight_apex != null:
 		# Still alive at the end: "+" and the health share left.
 		fights.append("%s:%.0f+%d%%" % [fight_kind, world.model.elapsed - fight_start, int(100.0 * fight_apex.health / maxf(1.0, fight_apex.max_health))])
@@ -439,7 +465,8 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 		return {"move": Vector2(dodge.x, dodge.z).normalized(), "rally": false}
 	# Stage 08: keep away from the Moorbrut; Rally (more bite) when surrounded.
 	var brood := _brood_escape(world, here)
-	if brood.surrounded or _enemies_near(world, here, ABILITY_CROWD_RANGE) >= ABILITY_CROWD:
+	# Etappe 21: a player fires the crowd ability into a boss beside the swarm, too.
+	if brood.surrounded or _enemies_near(world, here, ABILITY_CROWD_RANGE) >= ABILITY_CROWD or _boss_near(world, here, ABILITY_BOSS_RANGE):
 		_maybe_ability(world, "crowd")
 	var target := here
 	var best := INF
@@ -616,6 +643,20 @@ func _maybe_ability(world: Variant, reason: String) -> void:
 		return
 	world.request_ability()
 	ability_uses += 1
+
+
+const ABILITY_BOSS_RANGE := 7.0
+
+
+## Bog King or apex (body edge) within `reach` m of the swarm.
+func _boss_near(world: Variant, here: Vector3, reach: float) -> bool:
+	for boss in [world.get("boss"), world.get("apex")]:
+		if boss == null or not is_instance_valid(boss):
+			continue
+		var edge: float = float(boss.get("body_radius")) if "body_radius" in boss else 1.5
+		if Vector2(boss.position.x - here.x, boss.position.z - here.z).length() - edge <= reach:
+			return true
+	return false
 
 
 func _enemies_near(world: Variant, here: Vector3, reach: float) -> int:

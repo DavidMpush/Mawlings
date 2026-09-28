@@ -47,6 +47,10 @@ const TIP_ICONS := {
 	"move": "mawling_head_color", "rally": "pack", "warning": "skull", "boss": "bog_king",
 	"prey": "nibbler", "corpse": "biomass", "alpha": "alpha_core", "mutation": "dna", "nest": "brood",
 	"ability": "mawling_head_color",
+	# Etappe 24: tips for the systems of stages 17-20.
+	"leader_low": "regeneration", "boss_cocoon": "cocoon", "cocoon": "cocoon", "amber": "crown_tooth",
+	"powerup": "pu_rausch", "shrine": "shrine", "xp": "evo_badge", "explore": "g_map",
+	"quicksand": "speed", "sandstorm": "haste",
 }
 var _tip_layer: Control = null
 var _tip_text := ""
@@ -58,9 +62,14 @@ var _paint := ""
 var _layers: Dictionary = {}
 const PARTS := [
 	# name, cached
-	["hint", true], ["rally_glow", false], ["rally_base", true], ["rally_rim", false],
+	# Etappe 22: the rally glow (a fan of ~90 polygons) is cached too; its
+	# breathing is the layer's scale/modulate, not a repaint.
+	# Etappe 22b: the warning hint's pulsing halo is its own live layer, the
+	# banner itself stays baked.
+	["hint_glow", false], ["hint", true], ["rally_glow", true], ["rally_base", true], ["rally_rim", false],
 	["rally_core", false], ["rally_heads", true], ["rally_rings", false], ["rally_text", true],
-	["joy", true], ["ability", true],
+	# Etappe 22: joystick base (static, baked) under the moving part.
+	["joy_base", true], ["joy", true], ["ability", true],
 ]
 
 
@@ -96,11 +105,14 @@ func _painter(part: String) -> Callable:
 		_paint = part
 		var rally_c: Vector2 = hud._rally_center()
 		var move_c: Vector2 = hud._movement_center()
-		if part == "hint":
+		if part == "hint" or part == "hint_glow":
 			if hud.hint != "":
-				_draw_hint(hud.hint, minf(rally_c.y, move_c.y) - FRAME_R - 30.0 - BANNER_GAP)
+				_draw_hint(hud.hint, _banner_top(hud))
 		elif part == "joy":
 			_draw_joystick(move_c, hud.movement_vector)
+		elif part == "joy_base":
+			if UiStyle.is_brawl():
+				_draw_joystick_brawl(move_c, hud.movement_vector)
 		elif part == "ability":
 			if "ability_state" in hud and not (hud.ability_state as Dictionary).is_empty():
 				_draw_ability(hud._ability_center(), hud.ability_state, _ability_pressed(hud))
@@ -110,10 +122,14 @@ func _painter(part: String) -> Callable:
 		_cv = self
 
 
+## Perf bench (Etappe 22): layer names to keep hidden for A/B measurements.
+var debug_hidden: PackedStringArray = []
+
+
 func _refresh_layers(hud: Control) -> void:
 	var shown := _visible_now(hud)
 	for part in _layers:
-		_layers[part].visible = shown
+		_layers[part].visible = shown and not debug_hidden.has(part)
 	if not shown:
 		return
 	var rally_c: Vector2 = hud._rally_center()
@@ -121,10 +137,14 @@ func _refresh_layers(hud: Control) -> void:
 	var pressed: bool = hud.rally_pressed
 	var hint: String = hud.hint
 	var warn := hint != "" and _is_warning(hint)
-	var hint_top := minf(rally_c.y, move_c.y) - FRAME_R - 30.0 - BANNER_GAP
+	var hint_top := _banner_top(hud)
 	_region("hint", Rect2(0, hint_top - 40, size.x, 150))
-	_layers.hint.visible = hint != ""
-	_layers.hint.refresh([hint, int(_t() * 30.0) if warn else 0, size, hint_top])
+	_layers.hint.visible = hint != "" and not debug_hidden.has("hint")
+	var brawl := UiStyle.is_brawl()
+	_layers.hint.refresh([hint, int(_t() * 30.0) if warn and not brawl else 0, size, hint_top])
+	_layers.hint_glow.visible = brawl and warn and not debug_hidden.has("hint_glow")
+	if _layers.hint_glow.visible:
+		_layers.hint_glow.refresh([hint, int(_t() * 30.0), size, hint_top])
 	var rally_area := Rect2(rally_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0)
 	var charge := _rally_charge(hud)
 	for part in ["rally_base", "rally_heads", "rally_text"]:
@@ -132,16 +152,19 @@ func _refresh_layers(hud: Control) -> void:
 		_layers[part].refresh([pressed, rally_c, charge, _rally_count(hud)])
 	_region("joy", Rect2(move_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0))
 	_layers.joy.refresh([hud.movement_vector, move_c])
+	_region("joy_base", Rect2(move_c - Vector2.ONE * (FRAME_R + 90.0), Vector2.ONE * (FRAME_R + 90.0) * 2.0))
+	_layers.joy_base.refresh([move_c, UiStyle.is_brawl()])
 	# Stage 17d: ability button (repaints only when its state changes).
 	var ability: Dictionary = hud.ability_state if "ability_state" in hud else {}
-	_layers.ability.visible = not ability.is_empty()
+	_layers.ability.visible = not ability.is_empty() and not debug_hidden.has("ability")
 	if not ability.is_empty():
 		var ac: Vector2 = hud._ability_center()
-		_region("ability", Rect2(ac - Vector2.ONE * 110.0, Vector2.ONE * 220.0))
-		_layers.ability.refresh([ac, String(ability.get("id", "")), bool(ability.get("ready", false)), roundf(float(ability.get("share", 0.0)) * 60.0), int(ability.get("seconds", 0)), roundf(float(ability.get("active", 0.0)) * 30.0), _ability_pressed(hud), int(_t() * 6.0) if bool(ability.get("ready", false)) else 0])
+		_region("ability", Rect2(ac - Vector2.ONE * 130.0, Vector2.ONE * 260.0))
+		_layers.ability.refresh([ac, String(ability.get("id", "")), bool(ability.get("ready", false)), roundf(float(ability.get("share", 0.0)) * 60.0), int(ability.get("seconds", 0)), roundf(float(ability.get("active", 0.0)) * 30.0), _ability_pressed(hud)])
 	# Breathing without repainting: glow radius/alpha, rim and core light.
 	var breathe := _pulse(2.4)
 	var glow: Control = _layers.rally_glow
+	_region("rally_glow", rally_area)
 	glow.refresh([pressed, rally_c])
 	glow.pivot_offset = rally_c
 	glow.scale = Vector2.ONE if pressed else Vector2.ONE * (FRAME_R + 26.0 + 6.0 * breathe) / (FRAME_R + 26.0)
@@ -473,12 +496,22 @@ func _tip_accent(id: String) -> Color:
 	return UiStyle.color("cyan")
 
 
+# Top of the hint banner slot: above the claws, and (brawl) above the ability
+# button's cooldown ring when a strain ability is shown.
+func _banner_top(hud: Control) -> float:
+	var top := minf(hud._rally_center().y, hud._movement_center().y) - FRAME_R - 30.0 - BANNER_GAP
+	if UiStyle.is_brawl() and "ability_state" in hud and not (hud.ability_state as Dictionary).is_empty():
+		var ability_top: float = (hud._ability_center() as Vector2).y - ABILITY_R - 24.0
+		top = minf(top, ability_top - 14.0 - BRAWL_HINT_H)
+	return top
+
+
 # Panel rect of the tip: always above the banner slot so the screen centre stays free.
 func tip_rect() -> Rect2:
 	var hud := _hud()
 	if hud == null:
 		return Rect2()
-	var banner_top := minf(hud._rally_center().y, hud._movement_center().y) - FRAME_R - 30.0 - BANNER_GAP
+	var banner_top := _banner_top(hud)
 	var height := _tip_height()
 	var width := minf(size.x - 64.0, 800.0) if UiStyle.is_brawl() else minf(size.x - 96.0, 780.0)
 	var slide := (1.0 - _ease(_tip_alpha)) * 22.0
@@ -634,6 +667,8 @@ func _draw_hint(text: String, top: float) -> void:
 	if UiStyle.is_brawl():
 		_draw_hint_brawl(text, top)
 		return
+	if _paint == "hint_glow":
+		return
 	var warn := _is_warning(text)
 	var font := UiStyle.display_font()
 	var font_size := UiStyle.SIZE_HEAD - 4 if warn else UiStyle.SIZE_BODY
@@ -767,6 +802,7 @@ func _closed(points: PackedVector2Array) -> PackedVector2Array:
 # steering), hints and tips = pills bottom centre. The touch areas stay in the
 # parent (radius 125 around _rally_center() / _movement_center()).
 
+const ABILITY_R := 68.0         # = touch_controls.ABILITY_R (drawn radius)
 const BRAWL_RALLY_R := 100.0   # round button, 200 px across (touch radius 125)
 const BRAWL_JOY_R := 112.0     # base disc
 const BRAWL_KNOB_R := 50.0     # knob, 100 px across
@@ -837,13 +873,15 @@ func _ability_pressed(hud: Control) -> bool:
 ## soft ember glow when ready, a bright ring while the effect runs. The own
 ## colour is ember - never the danger pink.
 func _draw_ability(c: Vector2, state: Dictionary, pressed: bool) -> void:
-	var r: float = 58.0
+	var r: float = ABILITY_R
 	var ready := bool(state.get("ready", false))
 	var share := clampf(float(state.get("share", 0.0)), 0.0, 1.0)
 	var active := float(state.get("active", 0.0))
 	var light: Color = UiStyle.brawl_tone("ember")["light"]
 	if ready:
-		Kit.glow(_cv, c, r + 30.0, light, 0.35 + 0.15 * _pulse(3.0))
+		# Static glow: the layer bakes into one texture (a pulsing glow cost ~130
+		# draw calls a frame, Etappe 22).
+		Kit.glow(_cv, c, r + 30.0, light, 0.42)
 	# Cooldown track and ring.
 	Kit.circle_ring(_cv, c, r + 11.0, 11.0, Color(UiStyle.BRAWL_WELL, 0.9))
 	if share > 0.0:
@@ -867,26 +905,39 @@ func _draw_joystick_brawl(c: Vector2, move: Vector2) -> void:
 	var strength := clampf(move.length(), 0.0, 1.0)
 	var r := BRAWL_JOY_R
 	var info: Dictionary = UiStyle.brawl_tone("info")
-	# Base: translucent disc, ink contour outside, light ring inside.
-	Kit.disc(_cv, c, r, Color(UiStyle.BRAWL_INK, 0.34))
-	Kit.circle_ring(_cv, c, r + 2.0, 4.0, Color(UiStyle.BRAWL_INK, 0.55))
-	Kit.circle_ring(_cv, c, r - 1.0, 5.0, Color(1, 1, 1, 0.4))
-	Kit.circle_ring(_cv, c, r * 0.56, 2.0, Color(1, 1, 1, 0.12))
+	# Etappe 22: the static base (disc, rings, quiet arrows) lives in the baked
+	# "joy_base" layer; "joy" only draws what moves (lit rim, lit arrows, knob).
+	var base_pass := _paint == "joy_base"
+	if base_pass:
+		Kit.disc(_cv, c, r, Color(UiStyle.BRAWL_INK, 0.34))
+		Kit.circle_ring(_cv, c, r + 2.0, 4.0, Color(UiStyle.BRAWL_INK, 0.55))
+		Kit.circle_ring(_cv, c, r - 1.0, 5.0, Color(1, 1, 1, 0.4))
+		Kit.circle_ring(_cv, c, r * 0.56, 2.0, Color(1, 1, 1, 0.12))
+		for i in 4:
+			var dir := Vector2.RIGHT.rotated(i * PI * 0.5)
+			var tip := c + dir * (r - 16.0)
+			var base := c + dir * (r - 32.0)
+			var side := Vector2(-dir.y, dir.x)
+			var pts := PackedVector2Array([tip, base + side * 13.0, base - side * 13.0])
+			var closed := pts.duplicate()
+			closed.append(pts[0])
+			_cv.draw_polyline(closed, Color(UiStyle.BRAWL_INK, 0.5), 5.0, true)
+			_cv.draw_colored_polygon(pts, Color(1, 1, 1, 0.5))
+		return
 	# Steering direction lights the rim.
 	if strength > 0.05:
 		var a := move.angle()
 		_cv.draw_arc(c, r - 4.0, a - 0.55, a + 0.55, 24, Color(info["light"], 0.9 * strength), 8.0, true)
-	# Four quiet direction arrows (ink edge, white face).
+	# Lit direction arrows over the quiet ones of the base layer.
 	for i in 4:
 		var dir := Vector2.RIGHT.rotated(i * PI * 0.5)
 		var lit := clampf(move.dot(dir), 0.0, 1.0)
+		if lit <= 0.02:
+			continue
 		var tip := c + dir * (r - 16.0)
 		var base := c + dir * (r - 32.0)
 		var side := Vector2(-dir.y, dir.x)
 		var pts := PackedVector2Array([tip, base + side * 13.0, base - side * 13.0])
-		var closed := pts.duplicate()
-		closed.append(pts[0])
-		_cv.draw_polyline(closed, Color(UiStyle.BRAWL_INK, 0.5), 5.0, true)
 		_cv.draw_colored_polygon(pts, Color(1, 1, 1, 0.5).lerp(info["light"], lit))
 	# Knob: neutral at rest, info (pushed in) while steering.
 	var knob := c + move.limit_length(1.0) * KNOB_TRAVEL
@@ -918,11 +969,15 @@ func _draw_hint_brawl(text: String, top: float) -> void:
 	var text_room := width - glyph_w - pad * 2.0
 	var shown_w := minf(text_w, text_room)
 	var rect := Rect2(Vector2(roundf(size.x * 0.5 - width * 0.5), top + (BRAWL_HINT_H - h) * 0.5), Vector2(roundf(width), h))
+	if _paint == "hint_glow":
+		# Etappe 22b: only the pulsing halo repaints; the banner below is baked.
+		if warn:
+			var beat := _pulse(9.0)
+			var glow: Color = UiStyle.brawl_tone("danger")["light"]
+			for k in 3:
+				Kit.ring(_cv, rect.grow(6.0 + 5.0 * k + 3.0 * beat), h * 0.5 + 6.0 + 5.0 * k, 4.0, Color(glow, (0.55 - 0.16 * k) * (0.4 + 0.6 * beat)))
+		return
 	if warn:
-		var beat := _pulse(9.0)
-		var glow: Color = UiStyle.brawl_tone("danger")["light"]
-		for k in 3:
-			Kit.ring(_cv, rect.grow(6.0 + 5.0 * k + 3.0 * beat), h * 0.5 + 6.0 + 5.0 * k, 4.0, Color(glow, (0.55 - 0.16 * k) * (0.4 + 0.6 * beat)))
 		Kit.pill(_cv, rect, "danger")
 	else:
 		Kit.pill(_cv, rect, _hint_tone(text))
@@ -939,13 +994,13 @@ func _tip_plate_tone(id: String) -> String:
 	match id:
 		"rally":
 			return "ember"
-		"warning", "boss":
+		"warning", "boss", "leader_low", "sandstorm", "quicksand":
 			return "danger"
-		"corpse", "prey":
+		"corpse", "prey", "amber", "cocoon", "boss_cocoon":
 			return "loot"
-		"alpha", "mutation":
+		"alpha", "mutation", "shrine", "xp":
 			return "special"
-		"nest":
+		"nest", "powerup":
 			return "action"
 	return "info"
 
@@ -999,6 +1054,12 @@ func _draw_tip_pointer_brawl(layer: Control, hud: Control, rect: Rect2, tone: St
 		"rally":
 			target = hud._rally_center()
 			target_r = BRAWL_RALLY_R
+		"ability":
+			# Etappe 24: the ability tip points at its button (up-right of Rally).
+			if not ("ability_state" in hud) or (hud.ability_state as Dictionary).is_empty():
+				return
+			target = hud._ability_center()
+			target_r = ABILITY_R + 17.0
 		_:
 			return
 	var light: Color = UiStyle.brawl_tone(tone)["light"]

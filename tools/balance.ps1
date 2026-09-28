@@ -1,12 +1,13 @@
 # Runs the MAWLINGS balance matrix (tests/balance_sim.gd) in parallel and prints
 # median/min/max survival per group plus the per-difficulty target check.
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools/balance.ps1
-#          [-Strains glutmaw,sporling,knochenkiefer] [-Difficulties 0,1,2] [-Seeds 1,2,3]
+#          [-Strains glutmaw,sporling,...] [-Difficulties 0,1,2] [-Seeds 1,2,3,4,5]
 #          [-Strategies greedy,attack_first] [-Limit 900] [-Parallel 6] [-Out balance.log]
 param(
-	[string[]]$Strains = @('glutmaw', 'sporling', 'knochenkiefer'),
+	# Etappe 21: all six strains and five seeds by default (spread <= 40 % per difficulty).
+	[string[]]$Strains = @('glutmaw', 'sporling', 'knochenkiefer', 'flinkzahn', 'aetzmaul', 'nachtmaul'),
 	[string[]]$Difficulties = @('0', '1', '2'),
-	[string[]]$Seeds = @('1', '2', '3'),
+	[string[]]$Seeds = @('1', '2', '3', '4', '5'),
 	[string[]]$Strategies = @('greedy', 'attack_first'),
 	[double]$Limit = 900,
 	[int]$Parallel = 6,
@@ -30,6 +31,7 @@ $targets = @{ 0 = @(390, 510); 1 = @(300, 390); 2 = @(210, 270) }
 $wildMaxSeconds = 660
 $wildEarlyShare = 0.10
 $wildGrowth = @{ pop60 = @(6, 14); pop120 = @(25, 55); popflood = @(80, 160) }
+$maxSpread = 0.40
 
 $jobs = New-Object System.Collections.Generic.List[object]
 foreach ($d in $Difficulties) { foreach ($s in $Strains) { foreach ($st in $Strategies) { foreach ($seed in $Seeds) {
@@ -120,14 +122,14 @@ foreach ($g in ($rows | Group-Object diff | Sort-Object Name)) {
 	}
 	$early = @($g.Group | Where-Object { $_.survived -lt 120 }).Count / [math]::Max(1, $g.Count)
 	if ($d -eq 0) { $growthText += ('  under2:00={0:P0} (max {1:P0})' -f $early, $wildEarlyShare) }
-	$hit = $med -ge $range[0] -and $med -le $range[1] -and ($d -ne 0 -or ($early -le $wildEarlyShare -and $max -lt $wildMaxSeconds -and $growthOk))
+	# Etappe 21: the strain spread (max/min of the strain medians) is part of the target.
+	$meds = @($g.Group | Group-Object strain | ForEach-Object { Median @($_.Group | ForEach-Object { $_.survived }) })
+	$spread = 0
+	if ($meds.Count -gt 1) { $spread = (($meds | Measure-Object -Maximum).Maximum / [math]::Max(1, ($meds | Measure-Object -Minimum).Minimum)) - 1 }
+	$hit = $med -ge $range[0] -and $med -le $range[1] -and $spread -le $maxSpread -and ($d -ne 0 -or ($early -le $wildEarlyShare -and $max -lt $wildMaxSeconds -and $growthOk))
 	if (-not $hit) { $ok = $false }
 	Write-Output ((Summary $g.Group "diff=$d") + ("  target {0}-{1}s {2}" -f $range[0], $range[1], $(if ($hit) { 'OK' } else { 'MISS' })))
 	if ($growthText) { Write-Output ('    growth' + $growthText) }
-	$meds = @($g.Group | Group-Object strain | ForEach-Object { Median @($_.Group | ForEach-Object { $_.survived }) })
-	if ($meds.Count -gt 1) {
-		$spread = (($meds | Measure-Object -Maximum).Maximum / [math]::Max(1, ($meds | Measure-Object -Minimum).Minimum)) - 1
-		Write-Output ('    strain median spread {0:P0} (limit ~40 %)' -f $spread)
-	}
+	if ($meds.Count -gt 1) { Write-Output ('    strain median spread {0:P0} (limit {1:P0})' -f $spread, $maxSpread) }
 }
 Write-Output ('{0} runs in {1:N0} s -> {2}' -f $rows.Count, ((Get-Date) - $started).TotalSeconds, $(if ($ok) { 'TARGETS MET' } else { 'TARGETS MISSED' }))

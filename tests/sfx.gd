@@ -10,6 +10,13 @@ const V1_IDS := ["rally", "harvest", "dna", "threat", "loss"]
 const V1_LOOPS := ["feed", "rustle"]
 ## Rare one-shots may ship a single variant; every other id needs at least two.
 const SINGLE_OK := ["fanfare", "migration_whoosh"]
+## Etappe 23 (audio pass): own sounds for the systems of stages 17-20 (no borrowed ids).
+const E23_IDS := ["collect_coin", "cocoon_open", "cocoon_common", "cocoon_rare", "cocoon_epic", "cocoon_legendary",
+	"cocoon_denied", "powerup_take", "powerup_end", "shrine_tick", "shrine_done", "ability_glutsprung", "ability_land",
+	"ability_sporenbombe", "ability_panzerstoss", "ability_hetzjagd", "ability_saeureschwall", "ability_schattenschleier",
+	"ability_ready", "leader_hit_heavy", "sandworm_breach", "sandworm_sweep", "sandgrub_burst",
+	"lava_warn", "lava_burst"]  # Etappe 24: Glutsumpf eruptions
+const E23_LOOPS := ["sandworm_dig", "sandstorm", "quicksand", "leader_critical"]
 
 
 func _initialize() -> void:
@@ -157,12 +164,84 @@ func _run() -> void:
 	sfx.play_ambience()
 	sfx.stop_ambience()
 	sfx.stop_all()
+	sfx.master_volume_db = 0.0
+	if not _check_e23(sfx):
+		return
+	sfx.stop_all()
 	sfx.queue_free()
 	await process_frame
 	if not await _check_game_wiring():
 		return
-	print("SFX test passed: %d ids (%d recorded, %d V1 + %d V1 loops), bite burst=%d, spaced=%d/%d" % [SfxScript.RULES.size(), USER_IDS.size(), V1_IDS.size(), V1_LOOPS.size(), burst, spaced, limit])
+	print("SFX test passed: %d ids (%d recorded, %d V1 + %d V1 loops, %d + %d loops Etappe 23, biome ambience), bite burst=%d, spaced=%d/%d" % [SfxScript.RULES.size(), USER_IDS.size(), V1_IDS.size(), V1_LOOPS.size(), E23_IDS.size(), E23_LOOPS.size(), burst, spaced, limit])
 	quit(0)
+
+
+## Etappe 23: own files for every new id, sane levels, desert loops and the
+## biome ambience cross-fade (jungle -> desert -> jungle).
+func _check_e23(sfx: Node) -> bool:
+	for id: String in E23_IDS:
+		if not SfxScript.RULES.has(id) or SfxScript.SOURCES.has(id):
+			_fail("Etappe 23 id '%s' missing in RULES or borrowed via SOURCES" % id)
+			return false
+		var db := float(SfxScript.RULES[id]["db"])
+		if db > 0.0 or db < -14.0:
+			_fail("Etappe 23 id '%s' has an odd level (%.1f dB)" % [id, db])
+			return false
+		if sfx.variant_count(id) < 2:
+			_fail("Etappe 23 id '%s' loaded %d variant(s), expected >= 2" % [id, sfx.variant_count(id)])
+			return false
+		sfx.play(id)
+		if sfx.active_voices(id) != 1:
+			_fail("play('%s') did not start a voice" % id)
+			return false
+	# Chains stay the quietest layer: coin like the crystal chain, below the loot moments.
+	if float(SfxScript.RULES["collect_coin"]["db"]) > float(SfxScript.RULES["cocoon_common"]["db"]):
+		_fail("collect_coin is louder than the cocoon moments")
+		return false
+	for id: String in E23_LOOPS:
+		if not SfxScript.LOOP_RULES.has(id) or sfx.variant_count(id) < 1:
+			_fail("Etappe 23 loop '%s' missing (no file)" % id)
+			return false
+		sfx.start_loop(id, -3.0)
+		if not sfx.is_looping(id):
+			_fail("Loop %s did not start" % id)
+			return false
+		sfx.stop_loop(id)
+	for bed: String in ["ambience_desert", "ambience_glutsumpf"]:
+		if sfx.variant_count(bed) != 1 or not SfxScript.AMBIENCES.has(bed):
+			_fail("Ambience %s missing" % bed)
+			return false
+	sfx.play_ambience()
+	if sfx.ambience_id() != "ambience_jungle" or sfx.ambience_gain("ambience_jungle") < 1.0:
+		_fail("Ambience does not start on the jungle bed at full level")
+		return false
+	sfx.set_ambience("does_not_exist")
+	sfx.set_ambience("ambience_desert")
+	if sfx.ambience_id() != "ambience_desert":
+		_fail("set_ambience did not switch to the desert")
+		return false
+	for i in 120:
+		sfx._process(1.0 / 60.0)
+	if sfx.ambience_gain("ambience_desert") < 0.99 or sfx.ambience_gain("ambience_jungle") > 0.01:
+		_fail("Ambience cross-fade failed: desert %.2f jungle %.2f" % [sfx.ambience_gain("ambience_desert"), sfx.ambience_gain("ambience_jungle")])
+		return false
+	sfx.set_ambience("ambience_glutsumpf")
+	for i in 120:
+		sfx._process(1.0 / 60.0)
+	if sfx.ambience_gain("ambience_glutsumpf") < 0.99 or sfx.ambience_gain("ambience_desert") > 0.01:
+		_fail("Ambience does not fade to the Glutsumpf")
+		return false
+	sfx.set_ambience("ambience_jungle")
+	for i in 120:
+		sfx._process(1.0 / 60.0)
+	if sfx.ambience_gain("ambience_jungle") < 0.99 or sfx.ambience_gain("ambience_glutsumpf") > 0.01:
+		_fail("Ambience does not fade back to the jungle")
+		return false
+	sfx.stop_ambience()
+	if sfx.ambience_gain("ambience_jungle") > 0.0:
+		_fail("stop_ambience left a bed audible")
+		return false
+	return true
 
 
 ## Audio pack V1 calls inside the run scene (main.tscn): rally edge, collect

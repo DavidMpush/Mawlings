@@ -61,7 +61,35 @@ static var enabled := true
 static func create(node_name := "VFX sprites") -> Node3D:
 	var node: Node3D = load("res://scripts/vfx_sprites.gd").new()
 	node.name = node_name
+	# The strain abilities (scripts/abilities.gd) keep their own pool: its acid
+	# and spore sprites glow in the swarm's ember colours, so they never read
+	# as enemy poison. The weapons' pool keeps the painted violet/green.
+	if node_name == ABILITY_POOL:
+		node.set_ember(1.0)
 	return node
+
+
+## Name of the strain abilities' pool (see create()).
+const ABILITY_POOL := "Ability VFX"
+## Kinds that take the ember tint (the painted poison colours).
+const EMBER_KINDS := ["acid", "spore"]
+
+
+## Ember tint of this pool's poison sprites (0 = painted colours, 1 = glow).
+func set_ember(amount: float) -> void:
+	for kind in EMBER_KINDS:
+		var pool: Dictionary = _pools.get(kind, {})
+		if not pool.is_empty():
+			(pool.material as ShaderMaterial).set_shader_parameter("ember", clampf(amount, 0.0, 1.0))
+
+
+func ember_amount(kind: String) -> float:
+	var pool: Dictionary = _pools.get(kind, {})
+	if pool.is_empty():
+		return 0.0
+	# Unset shader parameters read back as null (= the shader default 0).
+	var value: Variant = (pool.material as ShaderMaterial).get_shader_parameter("ember")
+	return 0.0 if value == null else float(value)
 
 
 func _init() -> void:
@@ -104,7 +132,15 @@ func _init() -> void:
 
 ## Spawns one effect. `size` scales the kind's base size, `rotation` (rad) is
 ## random within the kind's range when NAN. Returns false when throttled.
+# Etappe 22: quality "vfx_sprites" off = no effect sprites at all.
+static var _tier_on := -1
+
+
 func spawn(kind: String, at: Vector3, size := 1.0, rotation_rad := NAN) -> bool:
+	if _tier_on < 0:
+		_tier_on = 1 if bool(QUALITY.value("vfx_sprites", true)) else 0
+	if _tier_on == 0:
+		return false
 	var pool: Dictionary = _pools.get(kind, {})
 	if not enabled or pool.is_empty() or size <= 0.0:
 		return false

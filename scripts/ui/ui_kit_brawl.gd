@@ -193,23 +193,29 @@ static func round_button(canvas: CanvasItem, center: Vector2, radius: float, ton
 	var lip := clampf(roundf(radius * 0.12), UiStyle.LIP_S, UiStyle.LIP)
 	var stroke := UiStyle.STROKE_L if radius >= 60.0 else UiStyle.STROKE_M
 	var sink := lip - 2.0 if pressed else 0.0
+	# Etappe 22b: discs and fades in one triangle list, the glint, then the outline.
+	var batch := TriBatch.new()
 	if not pressed:
-		disc(canvas, center + Vector2(0.0, UiStyle.SHADOW_Y), radius, UiStyle.BRAWL_INK_SOFT)
+		batch.disc(center + Vector2(0.0, UiStyle.SHADOW_Y), radius, UiStyle.BRAWL_INK_SOFT)
 	var c := center + Vector2(0.0, sink * 0.5)
 	var r := radius - sink * 0.5
-	disc(canvas, c, r, UiStyle.BRAWL_INK)
-	disc(canvas, c, r - stroke + 0.5, t["dark"])
+	batch.disc(c, r, UiStyle.BRAWL_INK)
+	batch.disc(c, r - stroke + 0.5, t["dark"])
 	var face_c := c - Vector2(0.0, (lip - sink) * 0.5)
 	var face_r := r - stroke - (lip - sink) * 0.5
-	disc(canvas, face_c, face_r, t["face"].darkened(0.1) if pressed else t["face"])
+	batch.disc(face_c, face_r, t["face"].darkened(0.1) if pressed else t["face"])
 	if pressed:
-		fade_disc(canvas, face_c, face_r, Color(t["light"], 0.5), 0.0, 0.6)
-		fade_disc(canvas, face_c, face_r, Color(0, 0, 0, 0.22), 0.0, 0.35)
-	else:
-		fade_disc(canvas, face_c, face_r, t["light"], 0.0, 0.66)
-		fade_disc(canvas, face_c - Vector2(0, face_r * 0.18), face_r * 0.78, Color(1, 1, 1, 0.24), 0.0, 0.6)
-		_round_glint(canvas, face_c, face_r)
-	circle_ring(canvas, c, r, stroke, UiStyle.BRAWL_INK)
+		_fade_disc_into(batch, face_c, face_r, Color(t["light"], 0.5), 0.0, 0.6)
+		_fade_disc_into(batch, face_c, face_r, Color(0, 0, 0, 0.22), 0.0, 0.35)
+		batch.ring(c, r, stroke, UiStyle.BRAWL_INK)
+		batch.flush(canvas)
+		return
+	_fade_disc_into(batch, face_c, face_r, t["light"], 0.0, 0.66)
+	_fade_disc_into(batch, face_c - Vector2(0, face_r * 0.18), face_r * 0.78, Color(1, 1, 1, 0.24), 0.0, 0.6)
+	batch.flush(canvas)
+	_round_glint(canvas, face_c, face_r)
+	batch.ring(c, r, stroke, UiStyle.BRAWL_INK)
+	batch.flush(canvas)
 
 
 # Curved glint on the upper-left of a round face: a short capsule tangent to
@@ -301,14 +307,35 @@ static func icon_plate(canvas: CanvasItem, center: Vector2, size: float, tone: V
 		top_rim(canvas, face, r_in, Color(t["light"].lightened(0.3), 0.8), 2.0)
 		ring(canvas, rect, radius, stroke, UiStyle.BRAWL_INK)
 		return
-	disc(canvas, center + Vector2(0, 4), r, UiStyle.BRAWL_INK_SOFT)
-	disc(canvas, center, r, UiStyle.BRAWL_INK)
-	disc(canvas, center, r - stroke + 0.5, t["dark"])
+	# Etappe 22b: the whole round plate is one triangle list (was ~12 draw calls).
+	var batch := TriBatch.new()
+	icon_plate_into(batch, center, size, tone)
+	batch.flush(canvas)
+
+
+## Round icon_plate added to a triangle batch (several plates, one draw call).
+## shadow = false leaves out the soft drop shadow (a plate laid over an
+## identical one that already casts it).
+static func icon_plate_into(batch: TriBatch, center: Vector2, size: float, tone: Variant = "dark", shadow: bool = true) -> void:
+	if size < 12.0:
+		return
+	var t: Dictionary
+	if tone is String and tone == "dark":
+		t = {"light": UiStyle.BRAWL_PANEL_RIM, "face": UiStyle.BRAWL_PANEL_TOP, "dark": UiStyle.BRAWL_PANEL_BOTTOM.darkened(0.3)}
+	else:
+		t = UiStyle.brawl_tone(tone)
+	var r := size * 0.5
+	var stroke := UiStyle.STROKE_M if size >= 56.0 else UiStyle.STROKE_S
+	var lip := clampf(roundf(size * 0.07), 3.0, 6.0)
+	if shadow:
+		batch.disc(center + Vector2(0, 4), r, UiStyle.BRAWL_INK_SOFT)
+	batch.disc(center, r, UiStyle.BRAWL_INK)
+	batch.disc(center, r - stroke + 0.5, t["dark"])
 	var fc := center - Vector2(0, lip * 0.5)
 	var fr := r - stroke - lip * 0.5
-	disc(canvas, fc, fr, t["face"])
-	fade_disc(canvas, fc, fr, t["light"], 0.0, 0.75)
-	circle_ring(canvas, center, r, stroke, UiStyle.BRAWL_INK)
+	batch.disc(fc, fr, t["face"])
+	_fade_disc_into(batch, fc, fr, t["light"], 0.0, 0.75)
+	batch.ring(center, r, stroke, UiStyle.BRAWL_INK)
 
 
 ## Where the icon sits on an icon_plate (the face is lifted by the lip).
@@ -342,9 +369,12 @@ static func bar(canvas: CanvasItem, rect: Rect2, fraction: float, tone: Variant 
 			rrect(canvas, gloss, gh * 0.5, Color(1, 1, 1, 0.4))
 	if segments > 1:
 		var step := inner.size.x / float(segments)
+		# Etappe 22b: all dividers in one multiline (1 draw call, was one per line).
+		var lines := PackedVector2Array()
 		for i in range(1, segments):
 			var x := roundf(inner.position.x + step * i)
-			canvas.draw_line(Vector2(x, inner.position.y), Vector2(x, inner.end.y), UiStyle.BRAWL_INK, 3.0, true)
+			lines.append_array([Vector2(x, inner.position.y), Vector2(x, inner.end.y)])
+		canvas.draw_multiline(lines, UiStyle.BRAWL_INK, 3.0, true)
 	ring(canvas, rect, radius, stroke, UiStyle.BRAWL_INK)
 
 
@@ -391,23 +421,37 @@ static func glow(canvas: CanvasItem, at: Variant, radius: float, tone: Variant =
 		var inner := _glow_ring(rect, r0)
 		var outer := _glow_ring(rect.grow(radius), r0 + radius)
 		var n := inner.size()
+		# Etappe 22b: the same quads as ONE triangle list (one draw call instead of n).
+		var points := PackedVector2Array()
+		var colors := PackedColorArray()
+		var indices := PackedInt32Array()
+		for i in n:
+			points.append_array([inner[i], outer[i]])
+			colors.append_array([core, clear])
 		for i in n:
 			var j := (i + 1) % n
-			canvas.draw_polygon(PackedVector2Array([inner[i], outer[i], outer[j], inner[j]]), PackedColorArray([core, clear, clear, core]))
+			indices.append_array([i * 2, i * 2 + 1, j * 2 + 1, i * 2, j * 2 + 1, j * 2])
+		RenderingServer.canvas_item_add_triangle_array(canvas.get_canvas_item(), indices, points, colors)
 		return
 	var c: Vector2 = at
 	var steps := clampi(int(radius * 0.5), 16, 48)
 	var half := Color(color, core.a * 0.45)
 	# Fan plus one ring: the inner ring at 45 % alpha gives a soft, eased falloff.
+	# Etappe 22b: one triangle list (was 2 x steps draw calls, up to 96).
+	var fan_points := PackedVector2Array([c])
+	var fan_colors := PackedColorArray([core])
 	for i in steps:
-		var a0 := TAU * float(i) / float(steps)
-		var a1 := TAU * float(i + 1) / float(steps)
-		var p0 := c + Vector2(cos(a0), sin(a0)) * radius * 0.45
-		var p1 := c + Vector2(cos(a1), sin(a1)) * radius * 0.45
-		var q0 := c + Vector2(cos(a0), sin(a0)) * radius
-		var q1 := c + Vector2(cos(a1), sin(a1)) * radius
-		canvas.draw_polygon(PackedVector2Array([c, p0, p1]), PackedColorArray([core, half, half]))
-		canvas.draw_polygon(PackedVector2Array([p0, q0, q1, p1]), PackedColorArray([half, clear, clear, half]))
+		var a := TAU * float(i) / float(steps)
+		var dir := Vector2(cos(a), sin(a))
+		fan_points.append_array([c + dir * radius * 0.45, c + dir * radius])
+		fan_colors.append_array([half, clear])
+	var fan := PackedInt32Array()
+	for i in steps:
+		var j := (i + 1) % steps
+		var p0 := 1 + i * 2
+		var p1 := 1 + j * 2
+		fan.append_array([0, p0, p1, p0, p0 + 1, p1 + 1, p0, p1 + 1, p1])
+	RenderingServer.canvas_item_add_triangle_array(canvas.get_canvas_item(), fan, fan_points, fan_colors)
 
 
 # Rounded outline with a fixed point count (8 per corner), so an inner and an
@@ -457,17 +501,20 @@ static func chevron(canvas: CanvasItem, center: Vector2, direction: Vector2, siz
 	var face_w := maxf(4.0, size * 0.3)
 	var ink_w := face_w + maxf(4.0, size * 0.16)
 	var drop := Vector2(0, maxf(2.0, size * 0.1))
-	_stroke(canvas, _moved(pts, drop), ink_w, UiStyle.BRAWL_INK_SOFT)
-	_stroke(canvas, pts, ink_w, UiStyle.BRAWL_INK)
-	_stroke(canvas, pts, face_w, t["face"])
-	_stroke(canvas, _moved(pts, Vector2(0, -face_w * 0.18)), face_w * 0.3, t["light"])
+	# Etappe 22b: all four strokes in one triangle list (1 draw call, was 16).
+	var batch := TriBatch.new()
+	_stroke_into(batch, _moved(pts, drop), ink_w, UiStyle.BRAWL_INK_SOFT)
+	_stroke_into(batch, pts, ink_w, UiStyle.BRAWL_INK)
+	_stroke_into(batch, pts, face_w, t["face"])
+	_stroke_into(batch, _moved(pts, Vector2(0, -face_w * 0.18)), face_w * 0.3, t["light"])
+	batch.flush(canvas)
 
 
 # Polyline with round caps and joints (discs at every point).
-static func _stroke(canvas: CanvasItem, pts: PackedVector2Array, width: float, color: Color) -> void:
-	canvas.draw_polyline(pts, color, width, true)
+static func _stroke_into(batch: TriBatch, pts: PackedVector2Array, width: float, color: Color) -> void:
+	batch.strip(pts, width, color)
 	for p in pts:
-		disc(canvas, p, width * 0.5, color)
+		batch.disc(p, width * 0.5, color)
 
 
 static func _moved(pts: PackedVector2Array, by: Vector2) -> PackedVector2Array:
@@ -507,13 +554,17 @@ static func text_outlined(canvas: CanvasItem, pos: Vector2, value: String, size:
 	if align & MIDDLE:
 		origin.y += cap_height(face, size) * k * 0.5
 	canvas.draw_set_transform(origin, 0.0, Vector2(k, k))
-	if shadow > 0:
-		var drop := Vector2(0.0, shadow / k)
-		if outline > 0:
-			canvas.draw_string_outline(face, drop, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, outline, UiStyle.BRAWL_INK)
-		canvas.draw_string(face, drop, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, UiStyle.BRAWL_INK)
+	# Etappe 22b: both outline passes first, then both fills, so glyphs of the
+	# same atlas follow each other and batch (2 draw calls instead of 4). Same
+	# picture: the shadow fill and the outline are the same opaque ink, and
+	# ink over ink composes the same in either order.
+	var drop := Vector2(0.0, shadow / k)
 	if outline > 0:
+		if shadow > 0:
+			canvas.draw_string_outline(face, drop, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, outline, UiStyle.BRAWL_INK)
 		canvas.draw_string_outline(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, outline, UiStyle.BRAWL_INK)
+	if shadow > 0:
+		canvas.draw_string(face, drop, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, UiStyle.BRAWL_INK)
 	canvas.draw_string(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
 	canvas.draw_set_transform(Vector2.ZERO)
 	return width * k
@@ -521,6 +572,56 @@ static func text_outlined(canvas: CanvasItem, pos: Vector2, value: String, size:
 
 ## Numbers with tabular digits (timers and counters don't jitter). int values
 ## get German thousands dots ("12.345").
+## Etappe 22b: several outlined texts at once - all outlines, then all fills,
+## so the glyphs batch into about two draw calls in total. Only for texts that
+## do not overlap each other. job = [pos, value, size, color, font, align, max_width].
+static func texts_outlined(canvas: CanvasItem, jobs: Array) -> void:
+	var prepared: Array = []
+	for job: Array in jobs:
+		var value: String = job[1]
+		if value == "":
+			continue
+		var size: int = job[2]
+		var face: Font = job[4] if job[4] != null else UiStyle.display_font()
+		var outline := int(UiStyle.OUTLINE_TEXT.get(size, roundf(size * 0.26)))
+		var shadow := int(UiStyle.SHADOW_TEXT.get(size, maxf(2.0, roundf(size * 0.08))))
+		var width := face.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		var k := 1.0
+		var max_width: float = job[6]
+		if max_width > 0.0 and width > max_width:
+			k = max_width / width
+		var origin: Vector2 = job[0]
+		var align: int = job[5]
+		match align & 3:
+			CENTER:
+				origin.x -= width * k * 0.5
+			RIGHT:
+				origin.x -= width * k
+		if align & MIDDLE:
+			origin.y += cap_height(face, size) * k * 0.5
+		prepared.append([face, origin, k, value, size, outline, shadow, job[3]])
+	for fill in [false, true]:
+		for item: Array in prepared:
+			var face: Font = item[0]
+			var k: float = item[2]
+			var value: String = item[3]
+			var size: int = item[4]
+			var outline: int = item[5]
+			var shadow: int = item[6]
+			var drop := Vector2(0.0, shadow / k)
+			canvas.draw_set_transform(item[1], 0.0, Vector2(k, k))
+			if not fill:
+				if outline > 0:
+					if shadow > 0:
+						canvas.draw_string_outline(face, drop, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, outline, UiStyle.BRAWL_INK)
+					canvas.draw_string_outline(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, outline, UiStyle.BRAWL_INK)
+				continue
+			if shadow > 0:
+				canvas.draw_string(face, drop, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, UiStyle.BRAWL_INK)
+			canvas.draw_string(face, Vector2.ZERO, value, HORIZONTAL_ALIGNMENT_LEFT, -1, size, item[7])
+	canvas.draw_set_transform(Vector2.ZERO)
+
+
 static func number(canvas: CanvasItem, pos: Vector2, value: Variant, size: int, color: Color = Color.WHITE, align: int = LEFT, max_width: float = 0.0) -> float:
 	var s := format_int(value) if value is int else str(value)
 	return text_outlined(canvas, pos, s, size, color, -1, -1, UiStyle.number_font(), align, max_width)
@@ -687,18 +788,132 @@ static func _push(out: PackedVector2Array, p: Vector2) -> void:
 
 
 ## Solid anti-aliased disc.
+## Etappe 22b: every round shape is built as one triangle list with a thin
+## feathered rim (the anti-aliasing), so a disc costs one draw call instead of
+## two and a whole plate (shadow, rim, faces, fade, outline) only one.
 static func disc(canvas: CanvasItem, center: Vector2, radius: float, color: Color) -> void:
 	if radius > 0.0:
-		canvas.draw_circle(center, radius, color, true, -1.0, true)
+		var batch := TriBatch.new()
+		batch.disc(center, radius, color)
+		batch.flush(canvas)
 
 
 ## Anti-aliased circle outline of `width` inside `radius`.
 static func circle_ring(canvas: CanvasItem, center: Vector2, radius: float, width: float, color: Color) -> void:
-	canvas.draw_circle(center, radius - width * 0.5, color, false, width, true)
+	var batch := TriBatch.new()
+	batch.ring(center, radius, width, color)
+	batch.flush(canvas)
+
+
+## Triangle batch for round shapes: collect, then draw in ONE command. The rim
+## feather is FEATHER base pixels wide (about one screen pixel on phones).
+class TriBatch:
+	const FEATHER := 1.2
+	var points := PackedVector2Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+
+	static func segments(radius: float) -> int:
+		return clampi(int(radius * 0.9), 20, 96)
+
+	func disc(c: Vector2, r: float, color: Color) -> void:
+		if r <= 0.0 or color.a <= 0.0:
+			return
+		var n := segments(r)
+		var inner := maxf(0.0, r - FEATHER * 0.5)
+		var outer := r + FEATHER * 0.5
+		var clear := Color(color, 0.0)
+		var base := points.size()
+		points.append(c)
+		colors.append(color)
+		for i in n:
+			var dir := Vector2.from_angle(TAU * float(i) / float(n))
+			points.append_array([c + dir * inner, c + dir * outer])
+			colors.append_array([color, clear])
+		for i in n:
+			var j := (i + 1) % n
+			var a := base + 1 + i * 2
+			var b := base + 1 + j * 2
+			indices.append_array([base, a, b, a, a + 1, b + 1, a, b + 1, b])
+
+	# Band from radius - width to radius, feathered on both edges.
+	func ring(c: Vector2, radius: float, width: float, color: Color) -> void:
+		if width <= 0.0 or color.a <= 0.0:
+			return
+		var n := segments(radius)
+		var r_in := maxf(0.0, radius - width)
+		var clear := Color(color, 0.0)
+		var f := FEATHER * 0.5
+		var radii := [maxf(0.0, r_in - f), r_in + f, radius - f, radius + f]
+		var cols := [clear, color, color, clear]
+		if width <= FEATHER:
+			radii = [maxf(0.0, r_in - f), (r_in + radius) * 0.5, (r_in + radius) * 0.5, radius + f]
+		var base := points.size()
+		for i in n:
+			var dir := Vector2.from_angle(TAU * float(i) / float(n))
+			for k in 4:
+				points.append(c + dir * float(radii[k]))
+				colors.append(cols[k])
+		for i in n:
+			var j := (i + 1) % n
+			for k in 3:
+				var a := base + i * 4 + k
+				var b := base + j * 4 + k
+				indices.append_array([a, b, a + 1, a + 1, b, b + 1])
+
+	# Thick polyline like draw_polyline(..., antialiased): per point the averaged
+	# normal of its segments (Godot's joint), feathered on both edges.
+	func strip(pts: PackedVector2Array, width: float, color: Color) -> void:
+		var n := pts.size()
+		if n < 2 or width <= 0.0 or color.a <= 0.0:
+			return
+		var hw := width * 0.5
+		var f := FEATHER * 0.5
+		var clear := Color(color, 0.0)
+		var base := points.size()
+		var prev := Vector2.ZERO
+		for i in n:
+			var t: Vector2 = prev if i == n - 1 else (pts[i + 1] - pts[i]).normalized().orthogonal()
+			if i == 0:
+				prev = t
+			var nrm := (t + prev).normalized()
+			prev = t
+			var p := pts[i]
+			points.append_array([p + nrm * (hw + f), p + nrm * maxf(0.0, hw - f), p - nrm * maxf(0.0, hw - f), p - nrm * (hw + f)])
+			colors.append_array([clear, color, color, clear])
+		for i in n - 1:
+			for k in 3:
+				var a := base + i * 4 + k
+				var b := a + 4
+				indices.append_array([a, b, a + 1, a + 1, b, b + 1])
+
+	# Filled polygon with per-vertex colours, triangulated like draw_polygon().
+	func polygon(pts: PackedVector2Array, cols: PackedColorArray) -> void:
+		var tris := Geometry2D.triangulate_polygon(pts)
+		if tris.is_empty():
+			return
+		var base := points.size()
+		points.append_array(pts)
+		colors.append_array(cols)
+		for index in tris:
+			indices.append(base + index)
+
+	func flush(canvas: CanvasItem) -> void:
+		if not indices.is_empty():
+			RenderingServer.canvas_item_add_triangle_array(canvas.get_canvas_item(), indices, points, colors)
+		points = PackedVector2Array()
+		colors = PackedColorArray()
+		indices = PackedInt32Array()
 
 
 ## Vertical fade overlay in a disc (same rules as fade_rrect).
 static func fade_disc(canvas: CanvasItem, center: Vector2, radius: float, color: Color, from: float, to: float) -> void:
+	var batch := TriBatch.new()
+	_fade_disc_into(batch, center, radius, color, from, to)
+	batch.flush(canvas)
+
+
+static func _fade_disc_into(batch: TriBatch, center: Vector2, radius: float, color: Color, from: float, to: float) -> void:
 	# Tiny discs (shrinking popups) would collapse the polygon.
 	if radius < 2.0:
 		return
@@ -714,7 +929,7 @@ static func fade_disc(canvas: CanvasItem, center: Vector2, radius: float, color:
 		var y := (p.y - top) / span
 		var k := 0.0 if y <= from else clampf((y - from) / maxf(to - from, 0.001), 0.0, 1.0)
 		cols.append(color.lerp(Color(color, 0.0), k))
-	canvas.draw_polygon(pts, cols)
+	batch.polygon(pts, cols)
 
 
 ## Outline of a rounded rect with per-corner radii (tl, tr, br, bl), clockwise.

@@ -68,6 +68,7 @@ func _run() -> void:
 	_check_determinism(arena, scene)
 	_check_multiplayer(arena)
 	_check_arrival(arena)
+	_check_prefetch(arena)
 	_check_graph_style(arena)
 	arena.configure_map(4, 1)
 	arena.set_seed(0)
@@ -354,6 +355,31 @@ func _check_arrival(arena: Variant) -> void:
 	check(arena.clearing_at(arrival) >= 0 and arena.is_open(arrival, 3.0), "Migration arrival is an open place on the new map")
 	arena.finish_flow(arrival)
 	check(is_finite(arena.flow_distance(arena.poi_slots("boss")[0])), "Arrival is connected to the boss arena")
+	arena.set_biome("verdant_maw")
+
+
+# Stage 22: the next map built on a worker thread equals the one built on the spot.
+func _check_prefetch(arena: Variant) -> void:
+	var point := Vector3(-100.0, 0.0, 90.0)
+	arena.set_biome("verdant_maw")
+	arena.set_seed(SEEDS[1])
+	arena.prepare_arrival(point)
+	var started := Time.get_ticks_usec()
+	arena.set_biome("glutsumpf")
+	var direct_ms := float(Time.get_ticks_usec() - started) / 1000.0
+	var direct := _fingerprint(arena)
+	arena.set_biome("verdant_maw")
+	arena.set_seed(SEEDS[1])
+	arena.prefetch_layout("glutsumpf", point)
+	OS.delay_msec(50)
+	arena.prepare_arrival(point)
+	arena._finish_prefetch()
+	started = Time.get_ticks_usec()
+	arena.set_biome("glutsumpf")
+	var switch_ms := float(Time.get_ticks_usec() - started) / 1000.0
+	check(_fingerprint(arena) == direct, "Prefetched map = map built on the spot")
+	check(String(arena._prefetch_key) == "", "Prefetch consumed by the switch")
+	print("Map switch: %.0f ms on the spot, %.0f ms with a prefetched map" % [direct_ms, switch_ms])
 	arena.set_biome("verdant_maw")
 
 

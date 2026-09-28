@@ -126,6 +126,7 @@ func _run() -> void:
 	_advance(again, ONBOARDING.GAP_SECONDS + ONBOARDING.SHOW_SECONDS + 0.5)
 	check(again.shown.has("mutation"), "Mutation tip after the first choice (shown %s)" % [again.shown])
 	again.queue_free()
+	await _check_e24(scene, world, hud, swarm)
 	scene.queue_free()
 	await process_frame
 
@@ -167,6 +168,16 @@ func _run() -> void:
 	root.add_child(menu2)
 	await process_frame
 	check(menu2.try_first_start().is_empty() and SESSION.pending_config.is_empty(), "Menu shows normally after the first run")
+	# Etappe 24: the settings reset brings every tip back (profile saved at once).
+	menu2.profile.mark_tip("cocoon")
+	menu2.size = Vector2(1080, 1920)
+	menu2.tap(menu2.settings_button_rect().get_center())
+	check(menu2.settings_open and menu2.settings_panel_rect().encloses(menu2.settings_tips_rect()), "Tips reset button inside the settings panel")
+	check(menu2.settings_tips_rect().size.y >= 96.0, "Tips reset button is a full touch target")
+	check(not menu2.settings_panel_rect().has_point(menu2.daily_rect().get_center()), "TAGES-BRUT still outside the settings panel")
+	menu2.tap(menu2.settings_tips_rect().get_center())
+	check(PROFILE.load_or_create(MENU_PROFILE).seen_tips.is_empty(), "TIPPS ZURÜCKSETZEN clears the seen tips")
+	check(menu2.toast != "", "Reset confirms with a toast")
 	menu2.queue_free()
 	SESSION.pending_config = {}
 
@@ -178,6 +189,83 @@ func _run() -> void:
 		return
 	print("Onboarding test passed")
 	quit(0)
+
+
+# Etappe 24: every new tip appears at its moment, one at a time, and hides once
+# fulfilled. Each check uses a fresh profile so only the tip under test is due.
+func _check_e24(scene: Node, world: Node, hud: Object, swarm: Node3D) -> void:
+	var base_seen := ["move", "warning", "leader", "boss", "rally", "ability", "prey", "corpse", "alpha", "mutation", "nest", "map"]
+	var new_ids: Array = ["leader_low", "boss_cocoon", "cocoon", "amber", "powerup", "shrine", "xp", "explore", "quicksand", "sandstorm"]
+	for id: String in new_ids:
+		check(ONBOARDING.TIPS.has(id) and ONBOARDING.ORDER.has(id), "Tip '%s' defined and ordered" % id)
+		var icon: String = load("res://scripts/ui/hud_controls.gd").TIP_ICONS.get(id, "")
+		check(icon != "" and load("res://scripts/ui/ui_icons.gd").has(icon), "Tip '%s' has an existing icon ('%s')" % [id, icon])
+	hud.hint = ""
+	# Move every cocoon, shrine and pickup far away; each check places its own.
+	world.chests.cocoons.clear()
+	world.shrines.shrines.clear()
+	world.powerups.pickups.clear()
+	swarm.position = Vector3(0, 0, 0)
+	var cases := [
+		["amber", func() -> void: world.model.amber_collected = 3, func() -> void: pass],
+		["cocoon", func() -> void: world.chests.spawn("map", swarm.position + Vector3(8, 0, 0)), func() -> void: world.chests.cocoons.clear()],
+		["boss_cocoon", func() -> void: world.chests.spawn("boss", swarm.position + Vector3(0, 0, 9)), func() -> void: world.chests.cocoons.clear()],
+		["powerup", func() -> void: world.powerups.drop(swarm.position + Vector3(6, 0, 0), "rausch"), func() -> void: world.powerups.collect("rausch")],
+		["shrine", func() -> void: world.shrines.spawn(swarm.position + Vector3(0, 0, 10)), func() -> void: world.shrines.shrines.clear()],
+		["xp", func() -> void: world.evolution.dna = 3, func() -> void: world.evolution.level = 1],
+		["leader_low", func() -> void: world.model.leader_hp = 1, func() -> void: world.model.leader_hp = world.model.leader_max_hp],
+	]
+	for case: Array in cases:
+		var id: String = case[0]
+		var tips := _fresh_tips(scene, world, hud, swarm, base_seen, id)
+		_advance(tips, ONBOARDING.FIRST_DELAY + 0.3)
+		check(tips.current == "", "Tip '%s' not shown before its moment (got '%s')" % [id, tips.current])
+		(case[1] as Callable).call()
+		_advance(tips, 0.3)
+		check(tips.current == id, "Tip '%s' at its moment (got '%s')" % [id, tips.current])
+		check(_tip(hud) == ONBOARDING.TIPS[id] and _icon(hud) == id, "HUD shows tip '%s'" % id)
+		(case[2] as Callable).call()
+		_advance(tips, ONBOARDING.SHOW_SECONDS + 0.2)
+		check(tips.current == "", "Tip '%s' hides again (fulfilled or timed out)" % id)
+		check(tips.shown.count(id) == 1, "Tip '%s' shown once" % id)
+		tips.queue_free()
+	world.model.leader_hp = world.model.leader_max_hp
+	world.evolution.dna = 0
+	world.evolution.level = 0
+	world.model.amber_collected = 0
+	# Never two at once: two due tips -> the higher one first, the other after the gap.
+	var both := _fresh_tips(scene, world, hud, swarm, base_seen, "")
+	world.model.amber_collected = 3
+	world.chests.spawn("map", swarm.position + Vector3(8, 0, 0))
+	_advance(both, ONBOARDING.FIRST_DELAY + 0.2)
+	check(both.current == "amber", "Priority: Bernstein before the cocoon (got '%s')" % both.current)
+	_advance(both, ONBOARDING.SHOW_SECONDS + 0.1)
+	check(both.current == "", "Gap after the first tip")
+	_advance(both, ONBOARDING.GAP_SECONDS + 0.1)
+	check(both.current == "cocoon", "Second due tip after the gap (got '%s')" % both.current)
+	both.queue_free()
+	world.chests.cocoons.clear()
+	world.model.amber_collected = 0
+	# Desert tips only in the Dürrschlund.
+	var storm_tip := _fresh_tips(scene, world, hud, swarm, base_seen, "sandstorm")
+	world.desert.storm.state = 1
+	_advance(storm_tip, ONBOARDING.FIRST_DELAY + 0.3)
+	check(storm_tip.current == "", "No sandstorm tip outside the desert")
+	storm_tip.queue_free()
+	world.desert.storm.state = 0
+
+
+func _fresh_tips(scene: Node, world: Node, hud: Object, swarm: Node3D, seen: Array, keep: String) -> Node:
+	_delete(TEST_PROFILE)
+	var profile: RefCounted = PROFILE.load_or_create(TEST_PROFILE)
+	for id: String in ONBOARDING.TIPS:
+		if id != keep and (keep != "" or seen.has(id)):
+			profile.seen_tips.append(id)
+	var tips: Node = ONBOARDING.new()
+	tips.set_process(false)
+	scene.add_child(tips)
+	tips.setup(world, hud, swarm, profile)
+	return tips
 
 
 func _advance(node: Node, seconds: float) -> void:

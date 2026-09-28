@@ -40,8 +40,16 @@ const TIER_NAMES := ["NIEDRIG", "MITTEL", "HOCH"]
 ## msaa_3d            int   MSAA des Spiel-Viewports (Viewport.MSAA_*).
 ## scaling_3d_scale   float 3D-Renderskalierung des Spiel-Viewports (HUD bleibt scharf).
 ## max_fps            int   Bildraten-Obergrenze (0 = unbegrenzt/Vsync).
+## Etappe 22:
+## wall_detail        float Dichte der Wand-Requisiten tief im Inneren der Wände und am
+##                          Kartenrand (1 = alle). Wandränder (Kollision = Optik) bleiben immer.
+## minimap_bake_us    int   Backzeit der Minimap je Frame (µs).
+## vfx_sprites        bool  Effekt-Sprites (vfx_sprites.gd); Warnflächen sind nie betroffen.
 const PRESETS := {
 	Tier.LOW: {
+		"wall_detail": 0.55,
+		"minimap_bake_us": 300,
+		"vfx_sprites": true,
 		"visible_mawlings": 80,
 		"unit_shadows": false,
 		"swarm_multimesh": true,
@@ -58,6 +66,9 @@ const PRESETS := {
 		"max_fps": 60,
 	},
 	Tier.MEDIUM: {
+		"wall_detail": 0.8,
+		"minimap_bake_us": 450,
+		"vfx_sprites": true,
 		"visible_mawlings": 100,
 		"unit_shadows": true,
 		"swarm_multimesh": true,
@@ -74,6 +85,9 @@ const PRESETS := {
 		"max_fps": 60,
 	},
 	Tier.HIGH: {
+		"wall_detail": 1.0,
+		"minimap_bake_us": 600,
+		"vfx_sprites": true,
 		"visible_mawlings": 120,
 		"unit_shadows": true,
 		"swarm_multimesh": true,

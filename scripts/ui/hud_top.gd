@@ -678,13 +678,20 @@ func _draw_medallions(y: float) -> void:
 const BRAWL_LAYERS := [
 	["xp", false, Rect2()],
 	["leader", false, Rect2()],
+	# Etappe 22b: swarm pill and boss bar split into a baked still picture
+	# (pill, portrait, panel, name) and the parts that change during a fight
+	# (count, LP strip, health bar; the pulse rings behind them).
+	["swarm_back", false, Rect2()],
 	["swarm", true, Rect2()],
+	["swarm_live", true, Rect2()],
 	["time_glow", false, Rect2()],
 	["time", true, Rect2()],
 	["dna", true, Rect2()],
 	["alpha", true, Rect2()],
 	["pause", true, Rect2()],
+	["boss_back", false, Rect2()],
 	["boss", true, Rect2()],
+	["boss_live", true, Rect2()],
 	["context", true, Rect2()],
 	["medals", true, Rect2()],
 	["boosts", false, Rect2()],
@@ -731,7 +738,7 @@ func _paint_brawl(part: String) -> void:
 	match part:
 		"leader":
 			_draw_leader()
-		"swarm":
+		"swarm", "swarm_back", "swarm_live":
 			_b_draw_swarm()
 		"time_glow":
 			# Full alpha; the layer's modulate breathes it.
@@ -748,7 +755,7 @@ func _paint_brawl(part: String) -> void:
 			Kit.round_button(_cv, _b_pause_c, _b_pause_r, "neutral")
 			var c := Kit.round_label_center(_b_pause_c, _b_pause_r)
 			_icon(["pause"], Rect2(c - Vector2(17, 17), Vector2(34, 34)), Color.WHITE)
-		"boss":
+		"boss", "boss_back", "boss_live":
 			if _boss_y >= 0.0:
 				_draw_boss_bar(_boss_y)
 		"context":
@@ -804,17 +811,25 @@ func _brawl_refresh() -> void:
 	var pop := int(_hud_value("population", 0))
 	var extinct := bool(_hud_value("extinct", false))
 	_region("swarm", _b_swarm.grow(24))
+	_region("swarm_live", _b_swarm.grow(24))
 	_region("time", _b_time.merge(_b_bar).grow(16))
 	_region("dna", _b_dna.grow(32))
 	var pad := Vector2.ONE * (_b_pause_r + 14.0)
 	_region("pause", Rect2(_b_pause_c - pad, pad * 2.0))
 	_region("alpha", _b_alpha.grow(24))
 	_region("boss", Rect2(0, _boss_y - 24, size.x, _boss_stack_h + 48))
+	_region("boss_live", Rect2(0, _boss_y - 24, size.x, _boss_stack_h + 48))
 	_region("context", _b_context.grow(20))
 	_region("medals", Rect2(size.x - MEDAL_SIZE - 56, _b_medal_y - 12, MEDAL_SIZE + 56, maxf(1.0, size.y - _b_medal_y)))
 	_refresh_leader()
 	var shaking := _pop_pulse > 0.0 and _pop_delta < 0
-	_layers.swarm.refresh([pop, _pop_delta, _pop_pulse, int(_time * 60.0) if shaking else 0, _b_swarm, _strain_head(), _leader_hp(), _leader_max_hp()])
+	var hurt := _swarm_hurt()
+	var swarm_back: Control = _layers.swarm_back
+	swarm_back.visible = hurt > 0.0
+	if swarm_back.visible:
+		swarm_back.refresh([hurt, _b_swarm])
+	_layers.swarm.refresh([_b_swarm, _strain_head()])
+	_layers.swarm_live.refresh([pop, _pop_delta, _pop_pulse, int(_time * 60.0) if shaking else 0, _b_swarm, _strain_head(), _leader_hp(), _leader_max_hp(), _leader_hp() * 4 < _leader_max_hp()])
 	_layers.time.refresh([int(float(_hud_value("elapsed", 0.0))), danger_q, _b_time])
 	var glow: Control = _layers.time_glow
 	glow.visible = hot > 0.0
@@ -837,10 +852,14 @@ func _brawl_refresh() -> void:
 	alpha.visible = cores > 0
 	if alpha.visible:
 		alpha.refresh([cores, _b_alpha])
-	var boss: Control = _layers.boss
-	boss.visible = _boss_y >= 0.0
-	if boss.visible:
-		boss.refresh(_boss_key())
+	var boss_on := _boss_y >= 0.0
+	for part in ["boss_back", "boss", "boss_live"]:
+		(_layers[part] as Control).visible = boss_on
+	if boss_on:
+		var keys := _boss_keys()
+		_layers.boss_back.refresh(keys[0])
+		_layers.boss.refresh(keys[1])
+		_layers.boss_live.refresh(keys[2])
 	var context: Control = _layers.context
 	context.visible = not _ctx_current.is_empty() and not extinct
 	if context.visible:
@@ -928,19 +947,30 @@ func _b_draw_swarm() -> void:
 	var cy := rect.get_center().y
 	var pop := int(_hud_value("population", 0))
 	var gain := _pop_delta >= 0
-	var hurt := 0.0 if gain else _loss_strength * _pop_pulse
+	var hurt := _swarm_hurt()
 	var danger: Dictionary = UiStyle.brawl_tone("danger")
 	var action: Dictionary = UiStyle.brawl_tone("action")
-	if hurt > 0.0:
-		Kit.ring(_cv, rect.grow(6), rect.size.y * 0.5 + 6.0, 7.0, Color(danger["face"], 0.9 * hurt))
-	Kit.pill(_cv, rect)
+	# Etappe 22b: three layers - back (hurt ring), still (pill, dark plate, head)
+	# and live (red plate while hurt, count, change pulse, LP strip).
+	if _paint == "swarm_back":
+		if hurt > 0.0:
+			Kit.ring(_cv, rect.grow(6), rect.size.y * 0.5 + 6.0, 7.0, Color(danger["face"], 0.9 * hurt))
+		return
 	var plate_c := Vector2(rect.position.x + B_PLATE * 0.5 + 2.0, cy)
-	var plate_tone: Variant = "ember"
+	var head_rect := Rect2(Kit.plate_center(plate_c, B_PLATE) - Vector2(26, 26), Vector2(52, 52))
+	if _paint == "swarm":
+		Kit.pill(_cv, rect)
+		# The painted strain portrait head on a dark plate (turns red while hurt).
+		Kit.icon_plate(_cv, plate_c, B_PLATE, "dark")
+		_icon([_strain_head(), "mawling_head_color"], head_rect, Color.WHITE)
+		return
 	if hurt > 0.0:
-		plate_tone = (UiStyle.brawl_tone("ember")["face"] as Color).lerp(danger["face"], hurt)
-	# The painted strain portrait head on a dark plate (turns red while hurt).
-	Kit.icon_plate(_cv, plate_c, B_PLATE, plate_tone if hurt > 0.0 else "dark")
-	_icon([_strain_head(), "mawling_head_color"], Rect2(Kit.plate_center(plate_c, B_PLATE) - Vector2(26, 26), Vector2(52, 52)), Color.WHITE)
+		var plate_tone: Color = (UiStyle.brawl_tone("ember")["face"] as Color).lerp(danger["face"], hurt)
+		# Over the baked dark plate, which already casts the drop shadow.
+		var batch := Kit.TriBatch.new()
+		Kit.icon_plate_into(batch, plate_c, B_PLATE, plate_tone, false)
+		batch.flush(_cv)
+		_icon([_strain_head(), "mawling_head_color"], head_rect, Color.WHITE)
 	var x := plate_c.x + B_PLATE * 0.5 + 10.0
 	var pulse_color: Color = action["light"] if gain else danger["light"]
 	var at := Vector2(x, cy)
@@ -961,6 +991,11 @@ func _b_draw_swarm() -> void:
 	# Etappe 17c: the leader's LP as a small strip along the pill.
 	var hp_rect := Rect2(x, rect.end.y - 24.0, rect.end.x - 22.0 - x, 12.0)
 	_hp_strip(hp_rect, _leader_hp(), _leader_max_hp())
+
+
+# How strongly the swarm pill shows a loss (0 = calm).
+func _swarm_hurt() -> float:
+	return 0.0 if _pop_delta >= 0 else _loss_strength * _pop_pulse
 
 
 func _b_draw_time() -> void:
@@ -1298,17 +1333,67 @@ func _boss_entries() -> Array:
 	return list
 
 
-# Repaint key of the boss layer; animates at 30 Hz only during the entrance,
-# the rising warning and while a boss is vulnerable.
-func _boss_key() -> Array:
-	var key: Array = [_boss_y, size, _b_left_x()]
-	var animating := false
+# Etappe 22b: keys of the three boss layers [back, still, live]. The still
+# picture (panel, portrait, name, tag chip) only repaints during the entrance
+# slide or when its text layout changes; health and warning only touch the
+# live layer (numbers, bar, phase marks), the pulse rings sit behind in back.
+func _boss_keys() -> Array:
+	var base: Array = [_boss_y, size, _b_left_x()]
+	var back: Array = base.duplicate()
+	var still: Array = base.duplicate()
+	var live: Array = base.duplicate()
+	var ringing := false
+	var sliding := false
+	var compact := _boss_list.size() > 1
+	var left := _b_left_x()
 	for entry: Dictionary in _boss_list:
-		key.append([entry.id, entry.name, int(ceil(float(entry.health))), int(entry.max), entry.vulnerable, snappedf(float(entry.warning), 0.005), entry.phase])
-		if entry.vulnerable or float(entry.warning) >= 0.0 or _time - float(_boss_seen.get(entry.id, -100.0)) < BOSS_PULSE:
-			animating = true
-	key.append(int(_time * 30.0) if animating else 0)
-	return key
+		var t := _time - float(_boss_seen.get(entry.id, -100.0))
+		var vulnerable := bool(entry.vulnerable)
+		var warning := float(entry.warning)
+		if vulnerable or warning >= 0.0 or t < BOSS_PULSE:
+			ringing = true
+		if t < BOSS_INTRO:
+			sliding = true
+		back.append([entry.id, vulnerable, warning >= 0.0])
+		var layout := _boss_text_layout(entry, size.x - 16.0 - left, compact)
+		still.append([entry.id, entry.name, int(entry.max), vulnerable, warning >= 0.0, entry.phase, int(entry.phases), layout])
+		live.append([entry.id, int(ceil(float(entry.health))), int(entry.max), vulnerable, snappedf(warning, 0.005), entry.phase, int(entry.phases)])
+	back.append(int(_time * 30.0) if ringing else -1)
+	still.append(int(_time * 30.0) if sliding else -1)
+	live.append(int(_time * 30.0) if sliding else -1)
+	return [back, still, live]
+
+
+# Width-dependent parts of a boss entry's text row that the still picture
+# depends on: the name's squeeze and where the phase chip goes. The numbers'
+# width (live) decides how much room the name has. width = panel width.
+func _boss_text_layout(entry: Dictionary, width: float, compact: bool) -> Array:
+	var h := BOSS_COMPACT_H if compact else BOSS_FULL_H
+	var plate := h + (6.0 if compact else 10.0)
+	var room := width - (plate - 6.0) - 12.0 - 18.0
+	var slot_w := _boss_slot_width(entry, room)
+	var name_room := room - slot_w - 14.0
+	var name_size := UiStyle.T_BODY if compact else UiStyle.T_HEAD
+	var natural := _b_text_width(String(entry.name), name_size)
+	var name_w := minf(natural, name_room)
+	var chip_fits := false
+	if int(entry.phases) > 1 and int(entry.phase) > 1 and float(entry.warning) < 0.0:
+		var pw := _b_text_width("PHASE %d" % int(entry.phase), UiStyle.T_LABEL) + 24.0
+		chip_fits = not compact and name_w + 14.0 + pw <= name_room
+	return [snappedf(name_room, 0.25) if natural > name_room else -1.0, chip_fits]
+
+
+# Right slot width of a boss entry: tag chip or exact numbers; room = x1 - x0.
+func _boss_slot_width(entry: Dictionary, room: float) -> float:
+	var tag := ""
+	if bool(entry.vulnerable):
+		tag = "JETZT ANGREIFEN"
+	elif float(entry.warning) >= 0.0:
+		tag = "ERWACHT"
+	if tag != "":
+		return minf(_b_text_width(tag, UiStyle.T_LABEL) + 40.0, room * 0.62)
+	var numbers := "%s / %s" % [Kit.format_int(int(ceil(float(entry.health)))), Kit.format_int(int(entry.max))]
+	return minf(UiStyle.number_font().get_string_size(numbers, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x, room * 0.5)
 
 
 # Lays out (paint "") or draws (paint "boss") the boss stack from y; returns the bottom.
@@ -1320,7 +1405,7 @@ func _draw_boss_bar(y: float) -> float:
 	for i in _boss_list.size():
 		var rect := Rect2(left, y + i * (h + BOSS_GAP), size.x - 16.0 - left, h)
 		bottom = rect.end.y
-		if _paint == "boss":
+		if _paint.begins_with("boss"):
 			_draw_boss_entry(_boss_list[i], rect, compact)
 	_boss_stack_h = bottom - y
 	return bottom
@@ -1338,7 +1423,12 @@ func _draw_boss_entry(entry: Dictionary, rect: Rect2, compact: bool) -> void:
 	var warning := float(entry.warning)
 	var radius := UiStyle.R_M if compact else UiStyle.R_L
 	var beat := 0.5 + 0.5 * sin(_time * 7.0)
-	if vulnerable:
+	# Etappe 22b: "boss_back" = pulse ring, "boss" = still picture, "boss_live" = numbers and bar.
+	var still := _paint == "boss"
+	var live := _paint == "boss_live"
+	if _paint != "boss_back":
+		pass
+	elif vulnerable:
 		Kit.ring(_cv, rect.grow(6), radius + 6.0, 7.0, Color(loot["face"], 0.35 + 0.6 * beat))
 	elif t < BOSS_PULSE and k >= 1.0:
 		var fade := 1.0 - (t - BOSS_INTRO) / (BOSS_PULSE - BOSS_INTRO)
@@ -1346,15 +1436,18 @@ func _draw_boss_entry(entry: Dictionary, rect: Rect2, compact: bool) -> void:
 		Kit.ring(_cv, rect.grow(5.0 + 4.0 * swell), radius + 5.0 + 4.0 * swell, 6.0, Color(danger["face"], fade * (0.3 + 0.55 * swell)))
 	elif warning >= 0.0:
 		Kit.ring(_cv, rect.grow(5), radius + 5.0, 5.0, Color(danger["face"], 0.2 + 0.45 * beat))
-	Kit.panel(_cv, rect, "dark", radius)
+	if not still and not live:
+		return
 	# Portrait plate: a little taller than the panel, so it reads as a medallion.
 	var plate := rect.size.y + (6.0 if compact else 10.0)
 	var plate_c := Vector2(rect.position.x + plate * 0.5 - 6.0, rect.get_center().y)
-	Kit.icon_plate(_cv, plate_c, plate, "danger", "square")
-	var face := Kit.plate_center(plate_c, plate)
-	var icon := roundf(plate * 0.76)
-	if not _icon(entry.icon, Rect2(face - Vector2(icon, icon) * 0.5, Vector2(icon, icon)), Color.WHITE):
-		Kit.text_outlined(_cv, face, String(entry.name).left(1), UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	if still:
+		Kit.panel(_cv, rect, "dark", radius)
+		Kit.icon_plate(_cv, plate_c, plate, "danger", "square")
+		var face := Kit.plate_center(plate_c, plate)
+		var icon := roundf(plate * 0.76)
+		if not _icon(entry.icon, Rect2(face - Vector2(icon, icon) * 0.5, Vector2(icon, icon)), Color.WHITE):
+			Kit.text_outlined(_cv, face, String(entry.name).left(1), UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 	var x0 := plate_c.x + plate * 0.5 + 12.0
 	var x1 := rect.end.x - 18.0
 	var name_size := UiStyle.T_BODY if compact else UiStyle.T_HEAD
@@ -1373,13 +1466,18 @@ func _draw_boss_entry(entry: Dictionary, rect: Rect2, compact: bool) -> void:
 	if tag != "":
 		slot_w = minf(_b_text_width(tag, UiStyle.T_LABEL) + 40.0, (x1 - x0) * 0.62)
 		var tag_rect := Rect2(x1 - slot_w, chip_y, slot_w, chip_h)
-		Kit.chip(_cv, tag_rect, tag_tone)
-		Kit.text_outlined(_cv, tag_rect.get_center(), tag, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, slot_w - 16.0)
+		if still:
+			Kit.chip(_cv, tag_rect, tag_tone)
+			Kit.text_outlined(_cv, tag_rect.get_center(), tag, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, slot_w - 16.0)
 	else:
 		var numbers := "%s / %s" % [Kit.format_int(int(ceil(float(entry.health)))), Kit.format_int(int(entry.max))]
 		slot_w = UiStyle.number_font().get_string_size(numbers, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x
 		slot_w = minf(slot_w, (x1 - x0) * 0.5)
-		Kit.number(_cv, Vector2(x1, name_y - 2.0), numbers, UiStyle.T_LABEL, (danger["light"] as Color).lerp(Color.WHITE, 0.6), Kit.RIGHT, slot_w)
+		if live:
+			Kit.number(_cv, Vector2(x1, name_y - 2.0), numbers, UiStyle.T_LABEL, (danger["light"] as Color).lerp(Color.WHITE, 0.6), Kit.RIGHT, slot_w)
+	if live:
+		_draw_boss_bar_fill(entry, x0, x1, rect, compact, vulnerable, warning)
+		return
 	var name_room := x1 - x0 - slot_w - 14.0
 	var name_w := Kit.text_outlined(_cv, Vector2(x0, name_y), String(entry.name), name_size, Color.WHITE, -1, -1, null, Kit.LEFT, name_room)
 	# Phase 2: a chip after the name when it fits, else a badge on the plate.
@@ -1393,18 +1491,30 @@ func _draw_boss_entry(entry: Dictionary, rect: Rect2, compact: bool) -> void:
 			Kit.text_outlined(_cv, phase_rect.get_center(), label, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, pw - 12.0)
 		else:
 			Kit.badge(_cv, plate_c + Vector2(plate * 0.4, plate * 0.36), str(phase), "ember", UiStyle.T_LABEL)
+
+
+# Live part of a boss entry: the health (or warning) bar with its phase marks.
+func _draw_boss_bar_fill(entry: Dictionary, x0: float, x1: float, rect: Rect2, compact: bool, vulnerable: bool, warning: float) -> void:
 	var bar := Rect2(x0, rect.position.y + 38.0, x1 - x0, 20.0) if compact else Rect2(x0, rect.position.y + 50.0, x1 - x0, 28.0)
 	var fraction := warning if warning >= 0.0 else clampf(float(entry.health) / float(entry.max), 0.0, 1.0)
 	var phases := int(entry.phases)
 	Kit.bar(_cv, bar, fraction, "loot" if vulnerable else "danger", phases if phases > 1 else 0)
-	if warning < 0.0:
+	if warning < 0.0 and phases > 1:
+		# Etappe 22b: shadows and faces of all marks in one triangle list
+		# (the marks never overlap), then the outlines.
+		var batch := Kit.TriBatch.new()
+		var outlines: Array = []
 		for i in range(1, phases):
-			_boss_phase_mark(bar, float(i) / float(phases), fraction, compact)
+			outlines.append(_boss_phase_mark(batch, bar, float(i) / float(phases), fraction, compact))
+		batch.flush(_cv)
+		for outline: PackedVector2Array in outlines:
+			_cv.draw_polyline(outline, UiStyle.BRAWL_INK, UiStyle.STROKE_S, true)
 
 
 # Phase marker: a diamond on the bar's top edge at the phase threshold, lit
-# while it is still ahead, dark once the boss has passed it.
-func _boss_phase_mark(bar: Rect2, at: float, fraction: float, compact: bool) -> void:
+# while it is still ahead, dark once the boss has passed it. Adds shadow and
+# face to `batch` and returns the outline.
+func _boss_phase_mark(batch: Kit.TriBatch, bar: Rect2, at: float, fraction: float, compact: bool) -> PackedVector2Array:
 	var r := 10.0 if compact else 12.0
 	var c := Vector2(roundf(bar.position.x + 3.0 + (bar.size.x - 6.0) * at), bar.position.y - 1.0)
 	var pts := PackedVector2Array([c + Vector2(0, -r), c + Vector2(r, 0), c + Vector2(0, r), c + Vector2(-r, 0)])
@@ -1412,11 +1522,11 @@ func _boss_phase_mark(bar: Rect2, at: float, fraction: float, compact: bool) -> 
 	var shadow := PackedVector2Array()
 	for p in pts:
 		shadow.append(p + Vector2(0, 3))
-	_cv.draw_colored_polygon(shadow, UiStyle.BRAWL_INK_SOFT)
-	_cv.draw_colored_polygon(pts, fill)
+	batch.polygon(shadow, PackedColorArray([UiStyle.BRAWL_INK_SOFT, UiStyle.BRAWL_INK_SOFT, UiStyle.BRAWL_INK_SOFT, UiStyle.BRAWL_INK_SOFT]))
+	batch.polygon(pts, PackedColorArray([fill, fill, fill, fill]))
 	var outline := pts.duplicate()
 	outline.append(pts[0])
-	_cv.draw_polyline(outline, UiStyle.BRAWL_INK, UiStyle.STROKE_S, true)
+	return outline
 
 
 # Reserves the flood pill row below the boss stack; returns the next free y.

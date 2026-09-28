@@ -21,9 +21,11 @@ var rally_pointer := -1
 var ability_state: Dictionary = {}
 var ability_requests := 0
 var ability_pressed_at := -100000
-const ABILITY_R := 58.0          # drawn button radius (brawl skin)
-const ABILITY_TOUCH_R := 70.0    # touch radius (140 px across)
-const ABILITY_OFFSET := Vector2(178.0, -62.0)  # from the Rally centre: up-right
+# Etappe 17d-Politur: 58 -> 68 px, so it holds its own next to Rally (100 px);
+# the offset grows with it (gap to the Rally disc ~17 px, cooldown ring included).
+const ABILITY_R := 68.0          # drawn button radius (brawl skin)
+const ABILITY_TOUCH_R := 80.0    # touch radius (160 px across)
+const ABILITY_OFFSET := Vector2(190.0, -68.0)  # from the Rally centre: up-right
 var population := 25
 var biomass_bank := 0.0
 var corpse_count := 0
@@ -67,6 +69,8 @@ const COMPONENTS := [
 	["res://scripts/ui/hud_top.gd", ["top", "badges"]],
 	["res://scripts/ui/hud_minimap.gd", ["minimap"]],
 	["res://scripts/ui/hud_controls.gd", ["controls"]],
+	# Etappe 25: speech bubbles (left edge) and the boss-entrance vignette.
+	["res://scripts/ui/hud_speech.gd", ["speech"]],
 	["res://scripts/ui/mutation_screen.gd", ["mutations"]],
 	["res://scripts/ui/hud_overlays.gd", ["result", "banner", "feedback", "pointer"]],
 ]

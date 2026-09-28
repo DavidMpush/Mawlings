@@ -460,6 +460,482 @@ def s_leader_swap(rng, v):
     return finish(out, 0.003, 0.12)
 
 
+# --------------------------------------------------------------------------- Etappe 23 (audio pass)
+
+def tone(freq: float, dur: float, partials=((1.0, 1.0),), tau: float = 0.2, attack: float = 0.004) -> np.ndarray:
+    t = t_axis(dur)
+    out = np.zeros_like(t)
+    for ratio, amp in partials:
+        out += amp * np.sin(2 * np.pi * freq * ratio * t)
+    return out * env_exp(len(t), attack, tau)
+
+
+def noise_burst(rng, dur: float, lo: float, hi: float, attack: float = 0.002, tau: float = 0.05) -> np.ndarray:
+    n = int(dur * SR)
+    return band_noise(rng, dur, lo, hi) * env_exp(n, attack, tau)
+
+
+def s_collect_coin(rng, v):
+    # Bernstein coin: short bright clink (two inharmonic metal partials) plus a
+    # tiny tick; the HUD chain raises its pitch step by step (play(..., pitch)).
+    dur = 0.28
+    out = silence(dur)
+    f = [2350.0, 2640.0, 2090.0][v]
+    clink = tone(f, 0.26, ((1.0, 1.0), (2.41, 0.45), (3.93, 0.18)), 0.055, 0.001)
+    place(out, clink, 0.0, 0.8)
+    place(out, tone(f * 1.5, 0.2, ((1.0, 1.0), (2.7, 0.3)), 0.04, 0.001), 0.035, 0.45)
+    place(out, noise_burst(rng, 0.012, 3000, 9000, 0.0005, 0.003), 0.0, 0.35)
+    return finish(out, 0.002, 0.04)
+
+
+def s_cocoon_open(rng, v):
+    # silk tearing: crackly rising noise band, then a soft wet pop
+    dur = 0.45
+    out = silence(dur)
+    n = int(0.32 * SR)
+    t = np.arange(n) / SR
+    crackle = band_noise(rng, 0.32, 900, 5200) * (0.35 + 0.65 * (rng.random(n) > 0.82))
+    crackle *= np.linspace(0.3, 1.0, n) ** 1.5 * np.hanning(n) ** 0.4
+    place(out, crackle, 0.0, 0.55)
+    pop = sweep(420 + 60 * v, 150, 0.12, 0.5) * env_exp(int(0.12 * SR), 0.002, 0.035)
+    place(out, pop, 0.3, 0.8)
+    return finish(out, 0.004, 0.05)
+
+
+def _pop(rng, at: float, out: np.ndarray, gain: float = 0.7) -> None:
+    pop = sweep(520, 180, 0.1, 0.5) * env_exp(int(0.1 * SR), 0.001, 0.03)
+    place(out, pop, at, gain)
+    place(out, noise_burst(rng, 0.04, 600, 3000, 0.001, 0.012), at, 0.25 * gain)
+
+
+def s_cocoon_common(rng, v):
+    # common loot: pop + one soft bell
+    out = silence(0.7)
+    _pop(rng, 0.0, out)
+    place(out, bell([880.0, 987.8][v], 0.6, 0.16), 0.05, 0.6)
+    return finish(out, 0.002, 0.1)
+
+
+def s_cocoon_rare(rng, v):
+    # rare: pop + two bells a major third up
+    out = silence(0.9)
+    _pop(rng, 0.0, out)
+    root = [880.0, 932.3][v]
+    place(out, bell(root, 0.6, 0.16), 0.05, 0.55)
+    place(out, bell(root * 2 ** (4 / 12), 0.7, 0.2), 0.16, 0.65)
+    return finish(out, 0.002, 0.14)
+
+
+def s_cocoon_epic(rng, v):
+    # epic: pop + quick major arpeggio + airy shimmer
+    out = silence(1.3)
+    _pop(rng, 0.0, out, 0.8)
+    root = [659.3, 698.5][v]
+    for i, st in enumerate((0, 4, 7, 12)):
+        place(out, bell(root * 2 ** (st / 12), 0.8, 0.22), 0.05 + i * 0.08, 0.45 + 0.08 * i)
+    n = int(1.0 * SR)
+    shimmer = band_noise(rng, 1.0, 5000, 10000) * env_ad(n, 0.25, 2.0)
+    place(out, shimmer, 0.2, 0.12)
+    return finish(out, 0.002, 0.2)
+
+
+def s_cocoon_legendary(rng, v):
+    # legendary: low boom, rising five-note arpeggio, bright chord bloom, sparkle tail
+    out = silence(2.0)
+    boom = sweep(90, 42, 0.6, 0.5) * env_exp(int(0.6 * SR), 0.003, 0.16)
+    place(out, boom, 0.0, 0.9)
+    _pop(rng, 0.0, out, 0.7)
+    root = [523.25, 587.3][v]
+    for i, st in enumerate((0, 4, 7, 11, 12)):
+        place(out, bell(root * 2 ** (st / 12), 1.0, 0.3), 0.08 + i * 0.07, 0.4 + 0.06 * i)
+    for st in (12, 16, 19):
+        f = root * 2 ** (st / 12)
+        place(out, tone(f, 1.4, ((1.0, 1.0), (2.0, 0.3), (3.0, 0.12)), 0.45, 0.05), 0.45, 0.22)
+    for k in range(9):
+        place(out, bell(rng.uniform(2600, 4200), 0.25, 0.06), 0.55 + k * 0.1, 0.12)
+    return finish(out, 0.002, 0.35)
+
+
+def s_cocoon_denied(rng, v):
+    # too expensive: dull double knock, second one a semitone lower, muffled
+    out = silence(0.42)
+    f = [210.0, 190.0][v]
+    for i, at in enumerate((0.0, 0.14)):
+        ff = f * (2 ** (-1 / 12)) ** i
+        knock = tone(ff, 0.2, ((1.0, 1.0), (2.0, 0.25), (3.0, 0.12)), 0.05, 0.002)
+        place(out, knock, at, 0.8)
+        place(out, noise_burst(rng, 0.05, 150, 900, 0.001, 0.015), at, 0.3)
+    return finish(out, 0.002, 0.05)
+
+
+def s_powerup_take(rng, v):
+    # booster picked up: quick upward sweep into a bright chord
+    out = silence(0.8)
+    rise = sweep(330, 1320, 0.22, 1.6) * env_ad(int(0.22 * SR), 0.01, 0.8)
+    place(out, rise, 0.0, 0.35)
+    root = [784.0, 880.0, 698.5][v]
+    for i, st in enumerate((0, 4, 7)):
+        place(out, bell(root * 2 ** (st / 12), 0.55, 0.18), 0.18 + i * 0.03, 0.4)
+    return finish(out, 0.003, 0.12)
+
+
+def s_powerup_end(rng, v):
+    # booster runs out: two soft notes falling, a little breath
+    out = silence(0.5)
+    root = [659.3, 587.3][v]
+    place(out, tone(root, 0.22, ((1.0, 1.0), (2.0, 0.2)), 0.07, 0.006), 0.0, 0.55)
+    place(out, tone(root * 2 ** (-5 / 12), 0.3, ((1.0, 1.0), (2.0, 0.2)), 0.1, 0.006), 0.12, 0.5)
+    return finish(out, 0.003, 0.08)
+
+
+def s_shrine_tick(rng, v):
+    # shrine charging: small glass tick; the shrine raises the pitch with the charge
+    out = silence(0.22)
+    upper = [(2.9, 0.25), (3.4, 0.2)][v]
+    place(out, bell(1480.0, 0.2, 0.05, ((1.0, 1.0), upper)), 0.0, 0.8)
+    return finish(out, 0.002, 0.04)
+
+
+def s_shrine_done(rng, v):
+    # shrine full: soft chord swell (choir-ish) under a clear bell
+    out = silence(1.6)
+    root = [440.0, 466.2][v]
+    for st in (0, 7, 12, 16):
+        f = root * 2 ** (st / 12)
+        t = t_axis(1.4)
+        vib = 1 + 0.004 * np.sin(2 * np.pi * 5.2 * t)
+        ph = 2 * np.pi * np.cumsum(f * vib) / SR
+        voice = (np.sin(ph) + 0.3 * np.sin(2 * ph) + 0.12 * np.sin(3 * ph)) * env_ad(len(t), 0.35, 1.8)
+        place(out, voice, 0.0, 0.18)
+    place(out, bell(root * 4, 1.0, 0.3), 0.3, 0.5)
+    place(out, bell(root * 4 * 2 ** (7 / 12), 0.9, 0.25), 0.42, 0.35)
+    return finish(out, 0.01, 0.3)
+
+
+def s_ability_glutsprung(rng, v):
+    # ember leap: rising whoosh with crackling sparks
+    out = silence(0.55)
+    n = int(0.45 * SR)
+    whoosh = band_noise(rng, 0.45, 300, 3500) * env_ad(n, 0.18, 1.5)
+    place(out, whoosh, 0.0, 0.6)
+    place(out, sweep(160, 520 + 60 * v, 0.35, 1.3) * env_ad(int(0.35 * SR), 0.05, 1.2), 0.0, 0.3)
+    for k in range(10):
+        place(out, noise_burst(rng, 0.01, 2000, 8000, 0.0005, 0.002), 0.05 + k * rng.uniform(0.025, 0.045), rng.uniform(0.2, 0.45))
+    return finish(out, 0.004, 0.06)
+
+
+def s_ability_land(rng, v):
+    # landing: warm thump plus ember crackle
+    out = silence(0.5)
+    thump = sweep(140, 48, 0.3, 0.5) * env_exp(int(0.3 * SR), 0.002, 0.08)
+    place(out, thump, 0.0, 1.0)
+    place(out, noise_burst(rng, 0.2, 200, 1800, 0.002, 0.05), 0.0, 0.35)
+    for k in range(7):
+        place(out, noise_burst(rng, 0.008, 2500, 8000, 0.0005, 0.002), 0.04 + k * rng.uniform(0.02, 0.05), rng.uniform(0.15, 0.3))
+    return finish(out, 0.002, 0.08)
+
+
+def s_ability_sporenbombe(rng, v):
+    # spore bomb: deep soft puff plus bubbly pops rising out of it
+    out = silence(0.8)
+    n = int(0.5 * SR)
+    puff = band_noise(rng, 0.5, 120, 1400) * env_ad(n, 0.02, 2.2)
+    place(out, puff, 0.0, 0.8)
+    place(out, sweep(95, 55, 0.35, 0.5) * env_exp(int(0.35 * SR), 0.004, 0.1), 0.0, 0.6)
+    for k in range(8):
+        f = rng.uniform(500, 1100)
+        bub = sweep(f, f * 1.6, 0.05, 0.7) * env_ad(int(0.05 * SR), 0.004, 1.5)
+        place(out, bub, 0.12 + k * rng.uniform(0.04, 0.07), rng.uniform(0.15, 0.3))
+    return finish(out, 0.004, 0.1)
+
+
+def s_ability_panzerstoss(rng, v):
+    # armour shove: heavy low impact with a short plated ring
+    out = silence(0.7)
+    boom = sweep(110, 38, 0.45, 0.5) * env_exp(int(0.45 * SR), 0.002, 0.12)
+    place(out, boom, 0.0, 1.0)
+    place(out, noise_burst(rng, 0.15, 150, 2500, 0.001, 0.03), 0.0, 0.5)
+    ring_f = [410.0, 370.0][v]
+    place(out, tone(ring_f, 0.6, ((1.0, 1.0), (2.33, 0.5), (3.71, 0.25)), 0.14, 0.001), 0.005, 0.35)
+    return finish(out, 0.002, 0.1)
+
+
+def s_ability_hetzjagd(rng, v):
+    # hunting call: short rising horn with a fast trill of footfalls under it
+    out = silence(0.7)
+    f0 = [392.0, 440.0][v]
+    t = t_axis(0.45)
+    contour = f0 * (1 + 0.5 * np.minimum(1.0, t / 0.2))
+    ph = 2 * np.pi * np.cumsum(contour) / SR
+    horn = (np.sin(ph) + 0.55 * np.sin(2 * ph) + 0.3 * np.sin(3 * ph) + 0.12 * np.sin(4 * ph)) * env_ad(len(t), 0.03, 1.6)
+    place(out, horn, 0.0, 0.5)
+    for k in range(8):
+        place(out, noise_burst(rng, 0.03, 200, 1500, 0.001, 0.008), k * 0.06, 0.35)
+    return finish(out, 0.004, 0.08)
+
+
+def s_ability_saeureschwall(rng, v):
+    # acid surge: wet spray (hiss) with fizzing bubbles
+    out = silence(0.8)
+    n = int(0.6 * SR)
+    spray = band_noise(rng, 0.6, 1800, 9000) * env_ad(n, 0.03, 2.0)
+    place(out, spray, 0.0, 0.55)
+    place(out, band_noise(rng, 0.3, 200, 900) * env_exp(int(0.3 * SR), 0.004, 0.06), 0.0, 0.5)
+    for k in range(14):
+        f = rng.uniform(1400, 3200)
+        fizz = tone(f, 0.03, ((1.0, 1.0),), 0.008, 0.001)
+        place(out, fizz, 0.08 + k * rng.uniform(0.025, 0.045), rng.uniform(0.1, 0.25))
+    return finish(out, 0.004, 0.1)
+
+
+def s_ability_schattenschleier(rng, v):
+    # shadow veil: reversed dark whoosh into a low hushed shimmer
+    out = silence(0.9)
+    n = int(0.5 * SR)
+    rev = band_noise(rng, 0.5, 200, 2200) * (np.linspace(0.0, 1.0, n) ** 2.5)
+    place(out, rev, 0.0, 0.6)
+    t = t_axis(0.5)
+    f = [196.0, 174.6][v]
+    hush = (np.sin(2 * np.pi * f * t) + 0.5 * np.sin(2 * np.pi * f * 1.5 * t)) * env_ad(len(t), 0.08, 1.8)
+    place(out, hush, 0.42, 0.3)
+    place(out, band_noise(rng, 0.4, 3000, 7000) * env_ad(int(0.4 * SR), 0.05, 2.0), 0.45, 0.1)
+    return finish(out, 0.004, 0.12)
+
+
+def s_ability_ready(rng, v):
+    # ability ready again: tiny warm two-note chime (ember, not the loot bell)
+    out = silence(0.45)
+    root = [698.5, 784.0][v]
+    place(out, tone(root, 0.3, ((1.0, 1.0), (2.0, 0.25), (3.0, 0.08)), 0.09, 0.003), 0.0, 0.5)
+    place(out, tone(root * 2 ** (7 / 12), 0.35, ((1.0, 1.0), (2.0, 0.25), (3.0, 0.08)), 0.12, 0.003), 0.08, 0.55)
+    return finish(out, 0.002, 0.08)
+
+
+def s_leader_hit_heavy(rng, v):
+    # heavy leader hit (boss, lost several LP): deeper thud, bigger crack, lower cry
+    dur = 0.7
+    out = silence(dur)
+    place(out, band_noise(rng, 0.012, 1500, 8000) * env_ad(int(0.012 * SR), 0.0004, 3), 0.0, 1.0)
+    for g in range(8):
+        gl = rng.uniform(0.005, 0.012)
+        place(out, band_noise(rng, gl, 1200, 6000) * env_ad(int(gl * SR), 0.0004, 2.5), 0.008 + g * rng.uniform(0.006, 0.014), rng.uniform(0.35, 0.8))
+    f0 = [72, 64][v]
+    place(out, sweep(f0 * 1.6, f0 * 0.5, 0.35, 0.6) * env_exp(int(0.35 * SR), 0.002, 0.1), 0.0, 1.0)
+    ln = 0.34
+    t = t_axis(ln)
+    x = t / ln
+    contour = [560, 500][v] * (1 + 0.45 * np.sin(np.pi * np.minimum(1, x * 1.4)) - 0.45 * x)
+    ph = 2 * np.pi * np.cumsum(contour * (1 + 0.05 * np.sin(2 * np.pi * 20 * t))) / SR
+    cry = (np.sin(ph) + 0.5 * np.sin(2 * ph) + 0.25 * np.sin(3 * ph)) * env_ad(len(t), 0.02, 1.5)
+    place(out, cry, 0.09, 0.45)
+    return finish(out, 0.002, 0.08)
+
+
+def _loop_mod(t: np.ndarray, dur: float, cycles: int, phase: float = 0.0) -> np.ndarray:
+    return np.sin(2 * np.pi * cycles / dur * t + phase)
+
+
+def s_sandworm_dig(rng, v):
+    # loop 4 s: the worm burrowing - low grinding rumble, sand hiss, gritty grains
+    dur = 4.0
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    rumble = pink_noise(rng, n, 30, 240) * (0.7 + 0.3 * _loop_mod(t, dur, 3))
+    hiss = band_noise(rng, dur, 1500, 6000, n) * (0.5 + 0.5 * _loop_mod(t, dur, 5, 0.7)) ** 2
+    out = 0.9 * rumble + 0.18 * hiss
+    for _ in range(40):
+        at = rng.uniform(0.05, dur - 0.1)
+        gl = rng.uniform(0.004, 0.012)
+        place(out, band_noise(rng, gl, 800, 5000) * env_ad(int(gl * SR), 0.0005, 2), at, rng.uniform(0.08, 0.2))
+    out -= np.mean(out)
+    return out * (PEAK / np.max(np.abs(out)))
+
+
+def s_sandworm_breach(rng, v):
+    # breakthrough: deep boom, a wall of spraying sand, falling debris
+    out = silence(1.3)
+    place(out, sweep(80, 30, 0.9, 0.5) * env_exp(int(0.9 * SR), 0.004, 0.25), 0.0, 1.0)
+    n = int(0.8 * SR)
+    spray = band_noise(rng, 0.8, 400, 7000) * env_exp(n, 0.01, 0.2)
+    place(out, spray, 0.0, 0.7)
+    for k in range(26):
+        gl = rng.uniform(0.005, 0.015)
+        place(out, band_noise(rng, gl, 700, 5000) * env_ad(int(gl * SR), 0.0005, 2), 0.2 + rng.uniform(0.0, 0.9), rng.uniform(0.08, 0.25))
+    return finish(out, 0.003, 0.2)
+
+
+def s_sandworm_sweep(rng, v):
+    # tail sweep: heavy air-and-sand whoosh passing through, band moving up and down
+    dur = 0.9
+    out = silence(dur)
+    n = int(0.75 * SR)
+    x = np.linspace(0, 1, n)
+    low = band_noise(rng, 0.75, 120, 900)
+    high = band_noise(rng, 0.75, 900, 5000)
+    body = (low * (1 - x) + high * np.sin(np.pi * x)) * np.sin(np.pi * x) ** 1.5
+    place(out, body, 0.0, 0.8)
+    place(out, sweep(70, 45, 0.5, 0.7) * env_ad(int(0.5 * SR), 0.12, 1.5), 0.1, 0.5)
+    return finish(out, 0.01, 0.1)
+
+
+def s_sandgrub_burst(rng, v):
+    # sand grubs breaking out: small sand puff plus clicky chitter
+    out = silence(0.5)
+    place(out, noise_burst(rng, 0.25, 400, 4000, 0.004, 0.06), 0.0, 0.6)
+    for k in range(6 + v):
+        f = rng.uniform(2500, 4200)
+        click = tone(f, 0.015, ((1.0, 1.0), (1.5, 0.4)), 0.004, 0.0005)
+        place(out, click, 0.06 + k * rng.uniform(0.025, 0.05), rng.uniform(0.25, 0.5))
+    return finish(out, 0.003, 0.06)
+
+
+def s_sandstorm(rng, v):
+    # loop 8 s: howling wind - moving band noise, sand hiss, two whistling tones
+    dur = 8.0
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    wind = pink_noise(rng, n, 80, 2500) * (0.6 + 0.4 * _loop_mod(t, dur, 2) * _loop_mod(t, dur, 3, 1.0))
+    sand = band_noise(rng, dur, 2500, 9000, n) * (0.55 + 0.45 * _loop_mod(t, dur, 4, 0.4)) ** 2
+    out = 0.8 * wind + 0.22 * sand
+    for f, cyc, g in ((640.0, 2, 0.05), (910.0, 3, 0.035)):
+        ph = 2 * np.pi * f * t + 3.0 * np.sin(2 * np.pi * 1 / dur * t)
+        out += g * np.sin(ph) * np.clip(_loop_mod(t, dur, cyc, 0.5), 0, 1) ** 2
+    out -= np.mean(out)
+    return out * (PEAK / np.max(np.abs(out)))
+
+
+def s_quicksand(rng, v):
+    # loop 3 s: sifting, sucking sand under the swarm - soft low churn with slow gulps
+    dur = 3.0
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    churn = band_noise(rng, dur, 150, 1400, n) * (0.6 + 0.4 * _loop_mod(t, dur, 2))
+    grains = band_noise(rng, dur, 2000, 6000, n) * 0.15
+    out = churn * 0.8 + grains
+    for at in (0.6, 1.7, 2.4):
+        gulp = sweep(180, 90, 0.18, 0.6) * env_ad(int(0.18 * SR), 0.03, 1.5)
+        place(out, gulp, at, 0.35)
+    out -= np.mean(out)
+    return out * (PEAK / np.max(np.abs(out)))
+
+
+def s_ambience_desert(rng, v):
+    # loop 10 s: dry desert air - soft low wind, fine sand sifting, sparse crickets
+    # and a far bird call; all modulations complete whole cycles (seamless)
+    dur = 10.0
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    wind = pink_noise(rng, n, 50, 900) * (0.55 + 0.25 * _loop_mod(t, dur, 2) + 0.2 * _loop_mod(t, dur, 5, 1.3))
+    sift = band_noise(rng, dur, 3000, 8000, n) * (np.clip(_loop_mod(t, dur, 3, 0.2), 0, 1) ** 3 + 0.1)
+    out = 0.6 * wind + 0.1 * sift
+    for _ in range(4):
+        start = rng.uniform(0.4, dur - 1.4)
+        f = rng.uniform(4200, 5200)
+        for p in range(int(rng.integers(4, 8))):
+            pl = 0.03
+            chirp = np.sin(2 * np.pi * f * t_axis(pl)) * np.hanning(int(pl * SR))
+            place(out, chirp, start + p * 0.11, rng.uniform(0.025, 0.045))
+    start = rng.uniform(3.0, 6.0)
+    for k, (f0, f1) in enumerate(((1900, 2500), (2500, 1700))):
+        call = sweep(f0, f1, 0.18, 1.0) * np.hanning(int(0.18 * SR))
+        place(out, call, start + k * 0.22, 0.03)
+    out -= np.mean(out)
+    return out * (PEAK / np.max(np.abs(out)))
+
+
+SOUNDS_23 = {
+    "collect_coin": (s_collect_coin, 3),
+    "cocoon_open": (s_cocoon_open, 2),
+    "cocoon_common": (s_cocoon_common, 2),
+    "cocoon_rare": (s_cocoon_rare, 2),
+    "cocoon_epic": (s_cocoon_epic, 2),
+    "cocoon_legendary": (s_cocoon_legendary, 2),
+    "cocoon_denied": (s_cocoon_denied, 2),
+    "powerup_take": (s_powerup_take, 3),
+    "powerup_end": (s_powerup_end, 2),
+    "shrine_tick": (s_shrine_tick, 2),
+    "shrine_done": (s_shrine_done, 2),
+    "ability_glutsprung": (s_ability_glutsprung, 2),
+    "ability_land": (s_ability_land, 2),
+    "ability_sporenbombe": (s_ability_sporenbombe, 2),
+    "ability_panzerstoss": (s_ability_panzerstoss, 2),
+    "ability_hetzjagd": (s_ability_hetzjagd, 2),
+    "ability_saeureschwall": (s_ability_saeureschwall, 2),
+    "ability_schattenschleier": (s_ability_schattenschleier, 2),
+    "ability_ready": (s_ability_ready, 2),
+    "leader_hit_heavy": (s_leader_hit_heavy, 2),
+    "sandworm_dig": (s_sandworm_dig, 1),
+    "sandworm_breach": (s_sandworm_breach, 2),
+    "sandworm_sweep": (s_sandworm_sweep, 2),
+    "sandgrub_burst": (s_sandgrub_burst, 3),
+    "sandstorm": (s_sandstorm, 1),
+    "quicksand": (s_quicksand, 1),
+    "ambience_desert": (s_ambience_desert, 1),
+}
+
+
+# --------------------------------------------------------------------------- Etappe 24 (Glutsumpf)
+
+def _blub(rng, f: float, dur: float = 0.09) -> np.ndarray:
+    # one lava bubble: short upward pitch pop with a soft wet tail
+    return sweep(f, f * 1.9, dur, 0.6) * env_ad(int(dur * SR), 0.006, 1.8)
+
+
+def s_ambience_glutsumpf(rng, v):
+    # loop 10 s: glowing swamp - deep lava rumble, slow bubbling, steam hiss,
+    # a little crackle; all modulations complete whole cycles (seamless)
+    dur = 10.0
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    rumble = pink_noise(rng, n, 25, 180) * (0.7 + 0.3 * np.sin(2 * np.pi * 2 / dur * t))
+    steam = band_noise(rng, dur, 2500, 8000, n) * np.clip(np.sin(2 * np.pi * 3 / dur * t + 0.8), 0, 1) ** 4
+    out = 0.8 * rumble + 0.1 * steam
+    for _ in range(26):
+        place(out, _blub(rng, rng.uniform(140, 320), rng.uniform(0.06, 0.12)), rng.uniform(0.2, dur - 0.3), rng.uniform(0.05, 0.12))
+    for _ in range(30):
+        gl = rng.uniform(0.003, 0.008)
+        place(out, band_noise(rng, gl, 2000, 7000) * env_ad(int(gl * SR), 0.0004, 2), rng.uniform(0.1, dur - 0.1), rng.uniform(0.03, 0.07))
+    out -= np.mean(out)
+    return out * (PEAK / np.max(np.abs(out)))
+
+
+def s_lava_warn(rng, v):
+    # eruption announced (1.6 s like the ground ring): rising rumble and faster bubbling
+    dur = 1.6
+    out = silence(dur)
+    n = int(dur * SR)
+    x = np.linspace(0, 1, n)
+    rumble = band_noise(rng, dur, 40, 320) * (0.15 + 0.85 * x ** 1.6)
+    place(out, rumble, 0.0, 0.8)
+    place(out, sweep(55, 95 + 10 * v, dur, 1.4) * (x ** 1.2), 0.0, 0.35)
+    at = 0.1
+    while at < dur - 0.12:
+        k = at / dur
+        place(out, _blub(rng, rng.uniform(160, 260) * (1 + 0.6 * k)), at, 0.12 + 0.3 * k)
+        at += 0.22 - 0.16 * k + rng.uniform(0.0, 0.03)
+    return finish(out, 0.01, 0.04)
+
+
+def s_lava_burst(rng, v):
+    # eruption: deep boom, a hot whoosh upwards, splattering lava and hiss
+    out = silence(1.2)
+    place(out, sweep(95, 34, 0.7, 0.5) * env_exp(int(0.7 * SR), 0.003, 0.18), 0.0, 1.0)
+    n = int(0.6 * SR)
+    whoosh = band_noise(rng, 0.6, 250, 4000) * env_ad(n, 0.03, 1.8)
+    place(out, whoosh, 0.0, 0.6)
+    for k in range(14):
+        place(out, _blub(rng, rng.uniform(220, 480), rng.uniform(0.04, 0.08)), 0.12 + rng.uniform(0.0, 0.8), rng.uniform(0.12, 0.3))
+    place(out, band_noise(rng, 0.8, 3000, 9000) * env_exp(int(0.8 * SR), 0.05, 0.3), 0.15, 0.18)
+    return finish(out, 0.003, 0.15)
+
+
+SOUNDS_24 = {
+    "ambience_glutsumpf": (s_ambience_glutsumpf, 1),
+    "lava_warn": (s_lava_warn, 2),
+    "lava_burst": (s_lava_burst, 2),
+}
+
+
 SOUNDS = {
     "bite": (s_bite, 4),
     "kill": (s_kill, 4),
@@ -480,7 +956,9 @@ SOUNDS = {
     "leader_hit": (s_leader_hit, 2),
     "leader_swap": (s_leader_swap, 2),
 }
-LOOPS = ("ambience", "heartbeat")
+SOUNDS.update(SOUNDS_23)
+SOUNDS.update(SOUNDS_24)
+LOOPS = ("ambience", "heartbeat", "sandworm_dig", "sandstorm", "quicksand")
 
 
 def analyse(name: str, x: np.ndarray, loop: bool) -> str:
@@ -488,7 +966,10 @@ def analyse(name: str, x: np.ndarray, loop: bool) -> str:
     dc = float(np.mean(x))
     first = abs(x[0]) if not loop else abs(x[-1] - x[0])
     last = abs(x[-1])
-    ok = peak_db <= -2.9 and abs(dc) < 1e-3 and first < 0.01 and (loop or last < 0.01)
+    # Loops of noise (Etappe 23): the seam only has to look like any other
+    # neighbouring-sample step (as in tools/gen_music.py).
+    limit = max(0.01, float(np.percentile(np.abs(np.diff(x)), 99.5))) if loop else 0.01
+    ok = peak_db <= -2.9 and abs(dc) < 1e-3 and first < limit and (loop or last < 0.01)
     return f"{name:22s} {len(x) / SR:5.2f}s peak {peak_db:6.2f} dBFS dc {dc:+.5f} edge {first:.4f}/{last:.4f} {'OK' if ok else 'CHECK'}"
 
 
@@ -507,7 +988,14 @@ def main() -> int:
     total = 0
     bad = 0
     skip = set() if "--force" in sys.argv else user_ids()
+    # --only a,b,c: just these ids (Etappe 23: new sounds without touching the rest)
+    only = set()
+    for arg in sys.argv[1:]:
+        if arg.startswith("--only="):
+            only = set(arg.split("=", 1)[1].split(","))
     for sid, (fn, count) in SOUNDS.items():
+        if only and sid not in only:
+            continue
         if sid in skip:
             print(f"{sid:22s} user sound (tools/import_user_sfx.py) - skipped")
             continue

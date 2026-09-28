@@ -19,7 +19,9 @@ const TUNING = preload("res://scripts/tuning.gd")
 const SANDGRUB = preload("res://scripts/sandgrub.gd")
 const SANDSTORM = preload("res://scripts/sandstorm.gd")
 const BROOD_PAIR = preload("res://scripts/brood_pair.gd")
+const APEX_SANDWORM = preload("res://scripts/apex_sandworm.gd")
 const DESERT_ID := "duerrschlund"
+const GLUTSUMPF_ID := "glutsumpf"
 # Same bite reach as HuntWorld.MELEE_REACH.
 const MELEE_REACH := 1.2
 
@@ -36,6 +38,12 @@ var grub_kills := 0
 var quicksand_seconds := 0.0
 var _bundle_clock := 0.0
 var _rng := RandomNumberGenerator.new()
+# Etappe 23 (audio): desert loops follow the frames in which the world really
+# steps (pause, choices, migration, extinction = silence), see _process.
+const LOOPS := ["sandstorm", "sandworm_dig", "quicksand"]
+var _stepped := false
+var _loops_on := {}
+var _apex_state := -1
 
 
 func setup(world_node: Node3D, swarm_node: Node3D, arena_node: Node3D) -> void:
@@ -61,6 +69,11 @@ func setup(world_node: Node3D, swarm_node: Node3D, arena_node: Node3D) -> void:
 func _process(_delta: float) -> void:
 	if storm != null and world != null and world.get("model") != null and bool(world.model.extinct) and storm.strength > 0.0:
 		storm.clear()
+	# HuntWorld (the parent) steps before its children: no step this frame =
+	# the world holds still, so the desert loops go quiet.
+	if not _stepped:
+		_loops_off()
+	_stepped = false
 
 
 func active() -> bool:
@@ -85,6 +98,8 @@ func grub_stats() -> Dictionary:
 func spawn_grubs(center: Vector3, amount: int) -> int:
 	var made: int = grubs.spawn_burst(Vector3(center.x, 0.0, center.z), amount, grub_stats())
 	grubs_spawned += made
+	if made > 0:
+		_sound("sandgrub_burst")
 	return made
 
 
@@ -92,7 +107,10 @@ func step(delta: float, damage: float, message: String) -> Dictionary:
 	var result := {"ended": false, "message": message}
 	var desert := active()
 	var hint: String = storm.step(delta, desert)
+	_stepped = true
+	_biome_audio(desert)
 	if not desert:
+		_loops_off()
 		if grubs.count() > 0:
 			grubs.clear()
 		return result
@@ -121,6 +139,7 @@ func step(delta: float, damage: float, message: String) -> Dictionary:
 	var in_sand: bool = arena != null and arena.has_method("quicksand_factor") and float(arena.quicksand_factor(swarm.position)) < 0.95
 	if in_sand:
 		quicksand_seconds += delta
+	_desert_audio(apex, in_sand)
 	if world._is_calm(String(result.message)):
 		if hint != "":
 			result.message = hint
@@ -177,7 +196,70 @@ func _collect_kills() -> void:
 		world._note_kills(count, 1.0)
 
 
+# ------------------------------------------------------------------ audio (Etappe 23)
+
+func _sfx_node() -> Node:
+	return world._sfx_node() if world != null and world.has_method("_sfx_node") else null
+
+
+func _sound(id: String, vibrate_ms: int = 0) -> void:
+	if world != null and world.has_method("_sfx"):
+		world._sfx(id, vibrate_ms)
+
+
+# Ambience bed and music set of the current biome (both ignore repeats).
+func _biome_audio(desert: bool) -> void:
+	var sfx := _sfx_node()
+	if sfx != null and sfx.has_method("set_ambience"):
+		# Etappe 24: the Glutsumpf has its own bed (lava rumble, bubbling, steam).
+		var bed := "ambience_jungle"
+		if desert:
+			bed = "ambience_desert"
+		elif String(world.get("biome_id")) == GLUTSUMPF_ID:
+			bed = "ambience_glutsumpf"
+		sfx.set_ambience(bed)
+	var music: Node = world._music_node() if world != null and world.has_method("_music_node") else null
+	if music != null and music.has_method("set_biome"):
+		music.set_biome("desert" if desert else "verdant")
+
+
+# Loops scaled per frame: storm by its strength, the worm while it burrows,
+# quicksand under the swarm; one-shots on the worm's strikes.
+func _desert_audio(apex: Variant, in_sand: bool) -> void:
+	var worm: Node = apex if apex != null and is_instance_valid(apex) and apex is APEX_SANDWORM else null
+	_loop("sandstorm", float(storm.strength) > 0.02, linear_to_db(maxf(0.02, float(storm.strength))))
+	_loop("sandworm_dig", worm != null and bool(worm.is_buried()), 0.0)
+	_loop("quicksand", in_sand, 0.0)
+	var state: int = int(worm.get("state")) if worm != null else -1
+	if worm != null and state != _apex_state and state == APEX_SANDWORM.State.STRIKE:
+		var breach: bool = int(worm.get("current_pattern")) == APEX_SANDWORM.Pattern.BREACH
+		_sound("sandworm_breach" if breach else "sandworm_sweep", 60 if breach else 30)
+	_apex_state = state
+
+
+func _loop(id: String, on: bool, volume_db: float) -> void:
+	var sfx := _sfx_node()
+	if sfx == null or not sfx.has_method("start_loop"):
+		return
+	if on:
+		if bool(_loops_on.get(id, false)):
+			sfx.set_loop_volume(id, volume_db)
+		else:
+			sfx.start_loop(id, volume_db)
+		_loops_on[id] = true
+	elif bool(_loops_on.get(id, false)):
+		sfx.stop_loop(id)
+		_loops_on[id] = false
+
+
+func _loops_off() -> void:
+	for id: String in LOOPS:
+		_loop(id, false, 0.0)
+
+
 func clear() -> void:
+	_loops_off()
+	_apex_state = -1
 	if grubs != null:
 		grubs.clear()
 	if storm != null:

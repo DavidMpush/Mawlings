@@ -53,6 +53,9 @@ var last_world_us := 0
 var last_swarm_us := 0
 var last_horde_us := 0
 var last_horde_other_us := 0
+var _last_bakes := 0
+var _last_chunks := 0
+var _last_map_bakes := 0
 
 
 func _initialize() -> void:
@@ -89,6 +92,19 @@ func _run() -> void:
 			await process_frame
 			_build_worst_case()
 			_build_flood()
+		# Etappe 22: more situations.
+		"mid", "travel":
+			_build_game()
+			await process_frame
+			_build_mid()
+		"apex":
+			_build_game()
+			await process_frame
+			_build_apex(String(args.get("kind", "apex")))
+		"desert":
+			_build_game()
+			await process_frame
+			_build_desert()
 		_:
 			_build_game()
 			await process_frame
@@ -162,6 +178,39 @@ func _build_worst_case() -> void:
 		world._add_remains(origin + Vector3(cos(angle), 0.0, sin(angle)) * 9.0, ["hunter", "skitter", "prey", "leaper"][index % 4])
 
 
+# Etappe 22: a mid run - 60 Mawlings, two hunters and a skitter, nothing tough.
+func _build_mid() -> void:
+	world.model.population = 60
+	swarm.set_population(60, false)
+	var origin: Vector3 = swarm.position
+	for index in 2:
+		_toughen(world._spawn_hunter(origin + Vector3(7.0 * (index * 2 - 1), 0.0, -4.0)))
+	_toughen(world._spawn_skitter(origin + Vector3(0.0, 0.0, 9.0)))
+
+
+# Etappe 22: an apex fight (kind apex / apex_toad / apex_sandworm) in its biome,
+# 80 Mawlings, the apex cannot die; its attacks resolve normally.
+func _build_apex(kind: String) -> void:
+	var biome: String = {"apex": "verdant_maw", "apex_toad": "glutsumpf", "apex_sandworm": "duerrschlund"}.get(kind, "verdant_maw")
+	world._set_world_biome(biome, false)
+	arena.finish_rebuild()
+	world.model.population = 80
+	swarm.set_population(80, false)
+	var target: Node3D = world.spawn_apex(swarm.position + Vector3(0.0, 0.0, -12.0), kind)
+	_toughen(target)
+
+
+# Etappe 22: desert with a running sandstorm, quicksand map and a grub ambush.
+func _build_desert() -> void:
+	world._set_world_biome("duerrschlund", false)
+	arena.finish_rebuild()
+	world.model.population = 100
+	swarm.set_population(100, false)
+	if world.get("desert") != null:
+		world.desert.storm.force(0.0)
+		world.desert.spawn_grubs(swarm.position + Vector3(6.0, 0.0, -6.0), 12)
+
+
 # Full flood at stage ~3 (k = 120 s / 40 s): the horde is kept at its cap of 160
 # with real stats, so bites, deaths, bundled corpses and popups all happen.
 func _build_flood() -> void:
@@ -209,7 +258,17 @@ func _drive(delta: float) -> void:
 	# Slow circle; Rally on for 1.5 s of every 3 s.
 	var angle := clock * 0.9
 	controls.movement_vector = Vector2(cos(angle), sin(angle)) * (0.35 if scene_name == "calm" else 0.8)
-	if scene_name != "calm":
+	if scene_name == "travel":
+		# Straight lines across the map (new chunks, walls, minimap bakes); turns at the edge.
+		var play: Rect2 = arena.playable_rect()
+		var heading := Vector2(cos(clock * 0.07), sin(clock * 0.07 + 1.3)).normalized()
+		controls.movement_vector = heading
+		swarm.position = arena.clamp_inside(swarm.position + Vector3(heading.x, 0.0, heading.y) * 14.0 * delta, 2.0)
+		if not play.grow(-20.0).has_point(Vector2(swarm.position.x, swarm.position.z)):
+			swarm.position = arena.clamp_inside(arena.map_center(), 2.0)
+	if scene_name in ["mid", "travel", "apex", "desert"]:
+		_keep_alive()
+	elif scene_name != "calm":
 		_drive_worst_case(delta)
 	if scene_name == "flood":
 		world.flood_state = 2
@@ -269,6 +328,21 @@ func _drive_worst_case(delta: float) -> void:
 		world._add_collect_popup(randf_range(4.0, 20.0), 10 + randi() % 30)
 
 
+func _keep_alive() -> void:
+	world.paused = false
+	world.evolution.offers.clear()
+	world.evolution.chest_offers.clear()
+	_hold_spawn_clocks()
+	world.model.leader_invulnerable = 5.0
+	world.model.extinct = false
+	var wanted: int = int({"mid": 60, "travel": 60, "apex": 80, "desert": 100}.get(scene_name, 60))
+	if world.model.population < int(wanted) / 2:
+		world.model.population = int(wanted)
+		swarm.set_population(int(wanted))
+	if scene_name == "desert" and world.get("desert") != null and world.desert.storm.state == 0:
+		world.desert.storm.force(0.0)
+
+
 func _hold_spawn_clocks() -> void:
 	world.hunter_clock = 1.0e6
 	world.skitter_clock = 1.0e6
@@ -304,6 +378,30 @@ func _apply_switches_to_tree(node: Node) -> void:
 		return
 	if _is_off("hud"):
 		scene.get_node("HUD").visible = false
+	# Etappe 22: hide single HUD components (hide=hud_top,hud_minimap,...).
+	if args.has("hide"):
+		for component in String(args.hide).split(",", false):
+			var part: Node = controls.get_node_or_null(component)
+			if part is CanvasItem:
+				(part as CanvasItem).visible = false
+	# Etappe 22b: mute single UiLayers (their painter draws nothing):
+	# mute=hud_top/Swarm,hud_overlays/B_banner ...
+	if args.has("mute"):
+		for path in String(args.mute).split(",", false):
+			var layer: Node = controls.get_node_or_null(path)
+			if layer != null and "painter" in layer:
+				layer.set("painter", Callable())
+				layer.queue_redraw()
+	if args.has("list_layers"):
+		for component in controls.get_children():
+			var names := PackedStringArray()
+			for child in component.get_children():
+				names.append("%s%s" % [child.name, "*" if "painter" in child else ""])
+			print("PERF_LAYERS %s: %s" % [component.name, ", ".join(names)])
+	if args.has("layers"):
+		var hc: Node = controls.get_node_or_null("hud_controls")
+		if hc != null and "debug_hidden" in hc:
+			hc.set("debug_hidden", PackedStringArray(String(args.layers).split(",", false)))
 	if _is_off("arena"):
 		arena.visible = false
 	if _is_off("shadows"):
@@ -386,6 +484,16 @@ func _measure() -> void:
 		elapsed += dt
 		_drive(dt)
 		frames.append(dt * 1000.0)
+		# Etappe 22: what happened in a slow frame (the previous frame's work shows up here).
+		var bakes: int = load("res://scripts/ui/ui_layer.gd").bake_count
+		var chunk_count: int = int(arena.get("chunk_builds")) if arena != null else 0
+		var minimap: Node = controls.get_node_or_null("hud_minimap") if controls != null else null
+		var map_bakes: int = int(minimap.get("bakes")) if minimap != null and minimap.get("bakes") != null else 0
+		if dt * 1000.0 > 12.0 and args.has("spikes"):
+			print("PERF_SPIKE ms=%.1f world_ms=%.2f swarm_ms=%.2f ui_bakes=%d chunks=%d map_bakes=%d" % [dt * 1000.0, float(last_world_us) / 1000.0, float(last_swarm_us) / 1000.0, bakes - _last_bakes, chunk_count - _last_chunks, map_bakes - _last_map_bakes])
+		_last_bakes = bakes
+		_last_chunks = chunk_count
+		_last_map_bakes = map_bakes
 		if args.has("trace") and int(elapsed / 5.0) != int((elapsed - dt) / 5.0):
 			print("PERF_TRACE t=%.0f mem_mb=%.1f vram_mb=%.1f objs=%d nodes=%d draw_calls=%d" % [elapsed,
 				Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0, Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
@@ -409,23 +517,39 @@ func _measure() -> void:
 	for value in frames:
 		total += value
 	var p95: float = sorted[mini(sorted.size() - 1, int(sorted.size() * 0.95))] if not sorted.is_empty() else 0.0
+	# Etappe 22: hitches = frames above 8 ms (chunk builds, bakes), worst frame.
+	var hitches := 0
+	for value in frames:
+		if value > 8.0:
+			hitches += 1
+	var worst_ms: float = sorted[sorted.size() - 1] if not sorted.is_empty() else 0.0
 	var label := scene_name
 	if args.has("loot"):
 		label += "-loot_%s" % String(args.loot)
 	if args.has("quality"):
 		label += "-q_%s" % String(args.quality)
+	if args.has("kind"):
+		label += "-%s" % String(args.kind)
+	if args.has("pop"):
+		label += "-pop_%s" % String(args.pop)
 	if not off.is_empty():
 		label += "-off_" + "+".join(off)
 	for key in ["res", "cap", "scale3d", "msaa"]:
 		if args.has(key):
 			label += "-%s_%s" % [key, String(args[key])]
-	print("PERF scene=%s tier=%s avg_ms=%.2f p95_ms=%.2f fps=%.0f process_max_ms=%.2f world_ms=%.2f swarm_ms=%.2f horde_ms=%.2f horde_other_ms=%.2f render_cpu_ms=%.2f gpu_ms=%.2f draw_calls=%.0f objects=%.0f prims=%.0f objs=%d nodes=%d mem_mb=%.1f vram_mb=%.1f mem_start_mb=%.1f vram_start_mb=%.1f frames=%d res=%dx%d" % [
-		label, QUALITY.tier_id(QUALITY.current_tier()), total / n, p95, 1000.0 / maxf(0.001, total / n), process_ms / n, world_ms / n, swarm_ms / n, horde_ms / n, horde_other_ms / n, render_cpu_ms / n, gpu_ms / n,
+	if world != null:
+		print("PERF_CHUNKS scene=%s builds=%d build_max_ms=%.1f" % [scene_name, int(arena.get("chunk_builds")), float(arena.get("chunk_build_ms_max"))])
+	print("PERF scene=%s tier=%s avg_ms=%.2f p95_ms=%.2f max_ms=%.1f hitches=%d fps=%.0f process_max_ms=%.2f world_ms=%.2f swarm_ms=%.2f horde_ms=%.2f horde_other_ms=%.2f render_cpu_ms=%.2f gpu_ms=%.2f draw_calls=%.0f objects=%.0f prims=%.0f objs=%d nodes=%d mem_mb=%.1f vram_mb=%.1f mem_start_mb=%.1f vram_start_mb=%.1f frames=%d res=%dx%d" % [
+		label, QUALITY.tier_id(QUALITY.current_tier()), total / n, p95, worst_ms, hitches, 1000.0 / maxf(0.001, total / n), process_ms / n, world_ms / n, swarm_ms / n, horde_ms / n, horde_other_ms / n, render_cpu_ms / n, gpu_ms / n,
 		draws / n, objects / n, prims / n,
 		int(Performance.get_monitor(Performance.OBJECT_COUNT)), int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0, Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
 		mem_start, vram_start, samples, root.size.x, root.size.y])
 	_print_node_breakdown(label)
+	# Etappe 22b: screenshot of the last frame (HUD before/after comparisons).
+	if args.has("shot"):
+		await RenderingServer.frame_post_draw
+		root.get_texture().get_image().save_png("res://previews/%s.png" % String(args.shot))
 
 
 # Visible geometry per subsystem at the end of the run (where the draw calls come from).

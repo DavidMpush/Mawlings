@@ -188,6 +188,52 @@ func _run() -> void:
 	music.set_style("classic")
 	music.play_run()
 
+	# Etappe 23: the desert stem set - same length as the classic stems, a
+	# biome change cross-fades the sets, the boss layer is the Sandwurm fight.
+	for id: String in music.desert_ids():
+		var desert_stream: AudioStream = music.stream(id)
+		if desert_stream == null or absf(desert_stream.get_length() - stem_length) > 0.01:
+			_fail("Desert stem %s missing or not %.2f s long" % [id, stem_length])
+			return
+	music.set_intensity(1.0, false, false)
+	for i in 150:
+		music._process(1.0 / 60.0)
+	music.set_biome("desert")
+	if music.biome() != "desert" or music.desert_target("desert_base") != 1.0 or not _targets(music, [0.0, 0.0, 0.0, 0.0]):
+		_fail("set_biome('desert') targets wrong")
+		return
+	for i in 150:
+		music._process(1.0 / 60.0)
+	if music.desert_gain("desert_base") < 0.999 or music.stem_gain("run_base") > 0.001:
+		_fail("Desert fade wrong: desert %.2f base %.2f" % [music.desert_gain("desert_base"), music.stem_gain("run_base")])
+		return
+	music.set_intensity(4.0, false, true)
+	if music.desert_target("desert_boss") != 1.0 or music.desert_target("desert_tension") < 0.99 or music.desert_target("desert_flood") != 0.0:
+		_fail("Sandwurm fight: desert boss/tension targets wrong")
+		return
+	music.set_biome("tundra")
+	if music.biome() != "desert":
+		_fail("Unknown biome changed the biome")
+		return
+	music.set_intensity(1.0, false, false)
+	music.set_biome("verdant")
+	if music.desert_target("desert_base") != 0.0 or music.desert_target("desert_boss") != 0.0 or not _targets(music, [1.0, 0.0, 0.0, 0.0]):
+		_fail("Back to verdant: targets wrong")
+		return
+	for i in 400:
+		music._process(1.0 / 60.0)
+	if music.desert_gain("desert_base") > 0.0 or music.desert_gain("desert_boss") > 0.0 or music.stem_gain("run_base") < 0.999:
+		_fail("Back to verdant: fades wrong")
+		return
+	# Style v1 ignores the biome (no desert variant of the user's loops).
+	music.set_style("v1")
+	music.set_biome("desert")
+	if music.desert_target("desert_base") != 0.0 or music.v1_target("v1_arena") != 1.0:
+		_fail("Style v1 must keep its loops in the desert")
+		return
+	music.set_biome("verdant")
+	music.set_style("classic")
+
 	# Disable / enable keeps the mode; stop fades to silence.
 	music.set_enabled(false)
 	music.stinger("boss")
@@ -207,7 +253,7 @@ func _run() -> void:
 	music.queue_free()
 	await process_frame
 	await process_frame
-	print("MUSIC TEST PASSED (stems %.2f s, styles classic+v1, silent driver: %s)" % [stem_length, str(AudioServer.get_driver_name() == "Dummy")])
+	print("MUSIC TEST PASSED (stems %.2f s, styles classic+v1, biomes verdant+desert, silent driver: %s)" % [stem_length, str(AudioServer.get_driver_name() == "Dummy")])
 	quit(0)
 
 

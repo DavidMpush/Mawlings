@@ -91,7 +91,7 @@ const HASTE_MULT := 1.7
 # Säureschwall
 const ACID_REACH := 9.0
 const ACID_HALF_ANGLE := 0.5
-const ACID_DAMAGE := 25.0
+const ACID_DAMAGE := 35.0
 const ACID_PUDDLES := [3.0, 6.0, 8.5]
 const ACID_PUDDLE_RADIUS := 1.8
 const ACID_DPS := 10.0
@@ -266,7 +266,11 @@ func step(delta: float, move := Vector3.ZERO) -> void:
 	if delta <= 0.0:
 		return
 	remember_direction(move)
+	var was_cooling := cooldown_left > 0.0
 	cooldown_left = maxf(0.0, cooldown_left - delta)
+	# Etappe 23: a small ember chime when the ability is ready again.
+	if was_cooling and cooldown_left <= 0.0 and ability_id != "":
+		_sound("ability_ready")
 	active_left = maxf(0.0, active_left - delta)
 	grace_left = maxf(0.0, grace_left - delta)
 	if _leap_t < 1.0:
@@ -541,6 +545,13 @@ func _release_slows() -> void:
 		if is_instance_valid(target) and "slow_factor" in target:
 			target.set("slow_factor", 1.0)
 	_slowed.clear()
+
+
+# Etappe 23: sound through HuntWorld's Sfx (absent in bare tests).
+func _sound(id: String) -> void:
+	var world := _world_parent()
+	if world != null and world.has_method("_sfx"):
+		world._sfx(id)
 
 
 func _vfx_spawn(kind: String, at: Vector3, size: float) -> void:

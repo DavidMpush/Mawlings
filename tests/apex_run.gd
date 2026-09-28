@@ -80,7 +80,7 @@ func _steps(seconds: float) -> void:
 
 
 func _check_spawn_times() -> void:
-	var expected := [225.0, 180.0, 135.0]
+	var expected := [225.0, 165.0, 135.0]
 	for difficulty in 3:
 		var flood: float = float(DATA.DIFFICULTIES[difficulty].flood_start)
 		_fresh(difficulty, 40, expected[difficulty] - 0.5)

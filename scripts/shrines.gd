@@ -105,6 +105,7 @@ func step(delta: float, centre: Vector3) -> bool:
 		var inside := Vector2(entry.at.x - centre.x, entry.at.z - centre.z).length() <= RADIUS
 		if inside:
 			entry.charge = minf(1.0, float(entry.charge) + delta / CHARGE_SECONDS)
+			_charge_tick(entry)
 			if float(entry.charge) >= 1.0:
 				entry.pending = true
 				opened = _fire(entry) or opened
@@ -133,10 +134,25 @@ func _finish(entry: Dictionary) -> void:
 	FX.ring(world, entry.at, Color(tone["light"], 0.9), 0.5, RADIUS * 2.2, 0.6)
 	FX.ring(world, entry.at, Color(Color.WHITE, 0.6), 0.3, RADIUS * 1.2, 0.4)
 	if world.has_method("_sfx"):
-		world._sfx("milestone", 60)
+		world._sfx("shrine_done", 60)
 	if entry.crystal != null:
 		entry.crystal.visible = false
 	_light(entry, SEGMENTS, true)
+
+
+# Etappe 23: while the swarm charges a shrine, a glass tick every eighth of
+# the charge, one step higher each time (a pentatonic run up to "shrine_done").
+const TICK_STEPS := [0, 2, 4, 7, 9, 12, 14, 16]
+
+
+func _charge_tick(entry: Dictionary) -> void:
+	var step := mini(TICK_STEPS.size() - 1, int(floor(float(entry.charge) * TICK_STEPS.size())))
+	if step <= int(entry.get("tick", -1)):
+		return
+	entry["tick"] = step
+	var sfx: Node = world._sfx_node() if world != null and world.has_method("_sfx_node") else null
+	if sfx != null and sfx.has_method("play"):
+		sfx.play("shrine_tick", 0.0, 0.0, pow(2.0, float(TICK_STEPS[step]) / 12.0))
 
 
 ## Charges a shrine to full at once (tests/captures). Returns true when the choice opened.

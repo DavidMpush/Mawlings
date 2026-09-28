@@ -29,8 +29,9 @@ const DESERT_RUN = preload("res://scripts/desert_run.gd")
 # Etappe 17d: tribe ability (one per strain, button above Rally, Q / Shift).
 const ABILITIES = preload("res://scripts/abilities.gd")
 const ABILITY_SFX := {
-	"glutsprung": ["leaper_windup", "stomp"], "sporenbombe": ["mutate", ""], "panzerstoss": ["quake", ""],
-	"hetzjagd": ["rally", ""], "saeureschwall": ["split", ""], "schattenschleier": ["migration_whoosh", ""],
+	# Etappe 23: own sounds per ability (tools/gen_sfx.py SOUNDS_23).
+	"glutsprung": ["ability_glutsprung", "ability_land"], "sporenbombe": ["ability_sporenbombe", ""], "panzerstoss": ["ability_panzerstoss", ""],
+	"hetzjagd": ["ability_hetzjagd", ""], "saeureschwall": ["ability_saeureschwall", ""], "schattenschleier": ["ability_schattenschleier", ""],
 }
 const MIGRATION_MAW = preload("res://scripts/migration_maw.gd")
 const BIOMES = preload("res://scripts/biomes.gd")
@@ -321,6 +322,7 @@ func reset_run() -> void:
 		horde.clear()
 	horde = null
 	_portal_hum(false)
+	_leader_critical(false)
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
@@ -834,6 +836,7 @@ func toggle_pause() -> void:
 	paused = not paused
 	# The portal hum has no pause of its own: stop it while paused, resume after.
 	_portal_hum(not paused and portal != null and migration_state != 1)
+	_leader_critical(not paused and _leader_in_danger())
 	hud.clear_pointers()
 	swarm.set_controls(Vector2.ZERO, false)
 	_update_hud("")
@@ -1110,7 +1113,7 @@ func step(delta: float) -> void:
 
 # Stage 09: attack forms grow with the swarm (a lone Mawling is no pack).
 func form_population_scale() -> float:
-	return clampf(float(model.population) / TUNING.FORM_FULL_POPULATION, TUNING.FORM_MIN_SHARE, 1.0)
+	return TUNING.form_population_scale(model.population)
 
 
 # Living, hittable creatures for the attack forms (same rules as melee).
@@ -1998,6 +2001,10 @@ func open_portal(location: Vector3) -> Node3D:
 	portal_point = portal.position
 	portal_clock = -1.0
 	apex_state = maxi(apex_state, 3)
+	# Etappe 22: build the next map on a worker thread while the maw is open.
+	var map: Node3D = get_parent().get_node_or_null("Arena") if get_parent() != null else null
+	if map != null and map.has_method("prefetch_layout"):
+		map.prefetch_layout(portal.target_biome, portal_point)
 	FX.ring(self, portal.position, Color(1.0, 0.8, 0.5, 0.9), 0.6, TUNING.MIGRATION_RADIUS + 3.0, 0.9)
 	FX.ring(self, portal.position, Color(0.7, 0.3, 0.55, 0.8), 0.4, TUNING.MIGRATION_RADIUS + 1.0, 1.2)
 	_sfx("portal_open", 60)
@@ -2725,7 +2732,7 @@ func _credit_loot(got: Dictionary) -> void:
 		model.amber += amber
 		model.amber_collected += amber
 	_add_collect_popup(taken, dna, amber)
-	_collect_sound(int(got.bio_crystals) + int(got.get("coins", 0)), int(got.dna_crystals))
+	_collect_sound(int(got.bio_crystals), int(got.dna_crystals), int(got.get("coins", 0)))
 	if attack_forms != null and attack_forms.has_method("pickup_fx"):
 		attack_forms.pickup_fx(int(got.bio_crystals), int(got.dna_crystals))  # VFX V1
 	if dna > 0:
@@ -2734,7 +2741,7 @@ func _credit_loot(got: Dictionary) -> void:
 
 # Rising collect chain: every sound in quick succession one pentatonic step
 # higher (at most one per COLLECT_SOUND_MS; biomass and DNA alternate).
-func _collect_sound(bio_crystals: int, dna_crystals: int) -> void:
+func _collect_sound(bio_crystals: int, dna_crystals: int, coins: int = 0) -> void:
 	var now_ms := Time.get_ticks_msec()
 	if now_ms - collect_sound_ms < COLLECT_SOUND_MS:
 		return
@@ -2748,7 +2755,12 @@ func _collect_sound(bio_crystals: int, dna_crystals: int) -> void:
 	var player := _sfx_node()
 	if player == null:
 		return
-	var id := "collect_dna" if dna_crystals > 0 and (bio_crystals == 0 or collect_chain % 2 == 1) else "collect_bio"
+	# Etappe 23: Bernstein coins have their own clink in the same rising chain.
+	var id := "collect_bio"
+	if dna_crystals > 0 and (bio_crystals + coins == 0 or collect_chain % 2 == 1):
+		id = "collect_dna"
+	elif coins > 0 and (bio_crystals == 0 or collect_chain % 2 == 0):
+		id = "collect_coin"
 	player.play(id, 0.0, 0.02, pitch)
 
 
@@ -2835,7 +2847,11 @@ func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3
 	if leader_lost_hp:
 		if swarm.has_method("leader_hit"):
 			swarm.leader_hit(impact)
-		_sfx("leader_hit", 45)
+		# Etappe 23: heavier hits (2+ LP, bosses) sound heavier.
+		if leader_loss >= 2:
+			_sfx("leader_hit_heavy", 70)
+		else:
+			_sfx("leader_hit", 45)
 	if leader_state == "swap":
 		_sfx("leader_swap", 80)
 	if last_loss > 0:
@@ -2866,6 +2882,7 @@ func _apply_hit(loss: int, impact: Vector3, shake_amount: float, attacker: Node3
 			attack_forms.clear()
 		_store_result()
 		_sfx("extinct", 120)
+		_leader_critical(false)
 		var player := _sfx_node()
 		if player != null and player.has_method("stop_ambience"):
 			player.stop_ambience()
@@ -3082,7 +3099,24 @@ func _portal_hum(on: bool) -> void:
 
 
 # Sound cues from state changes, so enemy scripts stay free of audio code.
+# Etappe 23: the leader's own heartbeat ("leader_critical", the heartbeat
+# files, quieter) while it stands at its last LP; off in pause, reset, extinction.
+func _leader_in_danger() -> bool:
+	return not model.extinct and model.leader_hp == 1 and model.leader_max_hp > 1
+
+
+func _leader_critical(on: bool) -> void:
+	var player := _sfx_node()
+	if player == null or not player.has_method("start_loop") or bool(player.is_looping("leader_critical")) == on:
+		return
+	if on:
+		player.start_loop("leader_critical")
+	else:
+		player.stop_loop("leader_critical")
+
+
 func _audio_step(delta: float, population_before: int) -> void:
+	_leader_critical(_leader_in_danger())
 	# Stage 09: with cell division _on_growth() plays "split" instead.
 	if model.population > population_before and not swarm.has_method("split_new_units"):
 		_sfx("grow")
