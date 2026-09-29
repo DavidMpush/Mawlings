@@ -82,6 +82,8 @@ const UiStyle := preload("res://scripts/ui/ui_style.gd")
 
 # Stage 04 components; order matters: overlays and the mutation dimmer sit on top.
 const COMPONENTS := [
+	# Etappe 37: damage numbers under every other HUD element.
+	["res://scripts/ui/hud_damage.gd", []],
 	["res://scripts/ui/hud_top.gd", ["top", "badges"]],
 	["res://scripts/ui/hud_minimap.gd", ["minimap"]],
 	["res://scripts/ui/hud_controls.gd", ["controls"]],
