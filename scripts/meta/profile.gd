@@ -38,6 +38,9 @@ var codex_seen: Array = []
 ## Stage 31 B: sealed stat/weapon/relic ids (SIEGEL sheet); never offered in a run.
 ## At most seal_limit() entries; old profiles load with [].
 var sealed: Array[String] = []
+## Stage 33: unlocked Mutationskern ids (first six of Cores.ORDER from the start,
+## the rest via trophies "core:<id>"); every unlocked core is also in codex_seen.
+var cores_unlocked: Array[String] = []
 
 ## Lautstärke-Regler (volume_*, 0,0-1,0 in 5-%-Schritten, scripts/audio_settings.gd)
 ## ersetzen den alten Schalter "sound"; get_setting("sound") = Gesamt > 0.
@@ -76,6 +79,8 @@ func _reset_defaults() -> void:
 	seen_tips = []
 	codex_seen = []
 	sealed.clear()
+	cores_unlocked.clear()
+	_sync_cores()
 
 static func _default_records() -> Dictionary:
 	return {
@@ -91,6 +96,8 @@ static func _default_records() -> Dictionary:
 		"total_worms": 0,
 		# Moosschlund-Siege allein (Trophäe „Moosschlund bezwungen“).
 		"total_moss": 0,
+		# Stage 33: best world reached in one run (migrations + 1), overdrive picks.
+		"best_world": 0, "total_overdrives": 0,
 	}
 
 # --- Laden / Speichern -------------------------------------------------------
@@ -124,7 +131,7 @@ func to_dict() -> Dictionary:
 		"unlocked_mutations": unlocked_mutations, "bonus_rerolls": bonus_rerolls,
 		"bonus_banishes": bonus_banishes, "bonus_skips": bonus_skips, "next_seed": next_seed,
 		"daily_records": daily_records, "settings": settings, "seen_tips": seen_tips,
-		"codex_seen": codex_seen, "sealed": sealed,
+		"codex_seen": codex_seen, "sealed": sealed, "cores_unlocked": cores_unlocked,
 	}
 
 func _apply(d: Dictionary) -> void:
@@ -223,11 +230,26 @@ func _apply(d: Dictionary) -> void:
 		if not saved_records.has("total_moss"):
 			records.total_moss = maxi(0, int(records.total_apex) - int(records.total_toads))
 	_merge_strings(codex_seen, d.get("codex_seen"), [])
+	# Stage 33: unlocked cores (known ids only) plus the unlocks of trophies that
+	# were completed before cores existed (endbosses, 15 minutes).
+	var saved_cores: Variant = d.get("cores_unlocked")
+	if saved_cores is Array:
+		for item in saved_cores:
+			if item is String and CODEX.CORES.has(item) and not cores_unlocked.has(item):
+				cores_unlocked.append(item)
+	for q in DATA.QUESTS:
+		if completed_quests.has(q.id):
+			for token in q.reward.get("unlock", []):
+				if String(token).begins_with("core:"):
+					_apply_unlock(String(token))
+	_sync_cores()
 	# Stage 31 B: seals (known ids only, no duplicates, at most seal_limit()).
 	var saved_sealed: Variant = d.get("sealed")
 	if saved_sealed is Array:
 		var known := seal_ids()
 		for item in saved_sealed:
+			if item is String and CODEX.CORES.has(item) and not cores_unlocked.has(item):
+				continue
 			if item is String and known.has(item) and not sealed.has(item) and sealed.size() < seal_limit():
 				sealed.append(item)
 	# Ältere Profile: Evolutionen und besiegte Bosse aus den Rekorden nachtragen.
@@ -293,9 +315,12 @@ func buy_upgrade(id: String) -> bool:
 
 # --- Seals (stage 31 B) ----------------------------------------------------------
 
-## Every id that can be sealed: all stats, base weapons (no evolutions) and relics.
+## Every id that can be sealed: all stats, base weapons (no evolutions), relics
+## and (stage 33) Mutationskerne; a core only once it is unlocked (toggle_seal).
 static func seal_ids() -> Array:
 	var out: Array = []
+	for id in CODEX.CORES.ORDER:
+		out.append(String(id))
 	for d in STATS.STATS:
 		out.append(String(d.id))
 	for row in DATA.ARSENAL.WEAPONS:
@@ -323,11 +348,34 @@ func toggle_seal(id: String, strain_id: String = "") -> bool:
 		return true
 	if not seal_ids().has(id) or sealed.size() >= seal_limit():
 		return false
+	if CODEX.CORES.has(id) and not cores_unlocked.has(id):
+		return false
 	if strain_id != "" and String(DATA.STRAINS.get(strain_id, {}).get("signature", "")) == id:
 		return false
 	sealed.append(id)
 	save()
 	return true
+
+# --- Mutationskerne (stage 33) ---------------------------------------------------
+
+func is_core_unlocked(id: String) -> bool:
+	return cores_unlocked.has(id)
+
+
+## Default cores always count as unlocked; every unlocked core is a known
+## ("discovered") codex entry "core:<id>". Keeps catalogue order.
+func _sync_cores() -> void:
+	for id in CODEX.default_cores():
+		if not cores_unlocked.has(id):
+			cores_unlocked.append(id)
+	var ordered: Array[String] = []
+	for id in CODEX.CORES.ORDER:
+		if cores_unlocked.has(String(id)):
+			ordered.append(String(id))
+	cores_unlocked = ordered
+	for id in cores_unlocked:
+		if not codex_seen.has("core:" + id):
+			codex_seen.append("core:" + id)
 
 # --- Stämme / Schwierigkeit / Biome --------------------------------------------
 
@@ -500,6 +548,8 @@ func build_run_config(strain_id: String, biome_id: String, difficulty: int, run_
 			seals.append(id)
 	return {
 		"sealed": seals,
+		# Stage 33: Mutationskern pool (unlocked ids; sealed ones are in "sealed").
+		"cores_unlocked": cores_unlocked.duplicate(),
 		"strain_id": strain_id, "biome_id": biome_id, "difficulty": difficulty,
 		"start_population": mini(DATA.MAX_POPULATION, int(strain.start_population) + mini(upgrade_rank("brood_size"), int(DATA.UPGRADES.brood_size.max))),
 		"tint": Color(String(strain.tint)),
@@ -597,6 +647,12 @@ func _apply_unlock(token: String) -> bool:
 			if arg != "" and not unlocked_mutations.has(arg):
 				unlocked_mutations.append(arg)
 				return true
+		"core":
+			# Stage 33: the core joins the pool of Mutationskern offers.
+			if CODEX.CORES.has(arg) and not cores_unlocked.has(arg):
+				cores_unlocked.append(arg)
+				_sync_cores()
+				return true
 		"reroll":
 			bonus_rerolls += 1
 			return true
@@ -607,7 +663,7 @@ func _apply_unlock(token: String) -> bool:
 			bonus_skips += 1
 			return true
 	# Known kinds that were already unlocked simply change nothing.
-	if not parts[0] in ["strain", "difficulty", "upgrade", "mutation", "weapon", "relic"]:
+	if not parts[0] in ["strain", "difficulty", "upgrade", "mutation", "weapon", "relic", "core"]:
 		push_warning("Unbekannte Freischaltung: %s" % token)
 	return false
 
@@ -648,6 +704,13 @@ func _update_records(stats: Dictionary) -> void:
 	var moss_kills := _int(stats.get("moss_kills"), _int(stats.get("apex_kills"), 0) - toad_kills - worm_kills)
 	records.total_moss += maxi(0, moss_kills)
 	records.total_migrations += maxi(0, _int(stats.get("migrations"), 0))
+	# Stage 33: world reached (world 1 + one per migration) and overdrive picks.
+	records.best_world = maxi(int(records.best_world), maxi(_int(stats.get("world"), 0), 1 + maxi(0, _int(stats.get("migrations"), 0))))
+	var picks: Variant = stats.get("picks", [])
+	if picks is Array:
+		for p in picks:
+			if p is Array and p.size() >= 3 and String(p[2]).begins_with("od_") and String(p[2]) != "od_heal":
+				records.total_overdrives += 1
 	var biome_seconds: Variant = stats.get("biome_seconds", {})
 	if biome_seconds is Dictionary:
 		for id in biome_seconds:

@@ -18,6 +18,7 @@ const UiStyleRef := preload("res://scripts/ui/ui_style.gd")
 const UiFramesRef := preload("res://scripts/ui/ui_frames.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
+const CorePlaqueRef := preload("res://scripts/ui/core_plaque.gd")
 
 const TAB_TITLE := {"upgrades": "BRUTKAMMER", "seals": "SIEGEL", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK", "codex": "KODEX"}
 const TAB_ACCENT := {"upgrades": S.GOLD, "seals": S.VIOLET, "trophies": S.VIOLET, "instinct": S.CYAN, "chronicle": S.VIOLET, "codex": S.GOLD}
@@ -1399,6 +1400,18 @@ func _b_width(value: String, font_size: int, font: Font = null) -> float:
 
 
 func _b_icon(id: String, center: Vector2, side: float, tint: Color = Color.WHITE) -> bool:
+	# Stage 33: "core:<id>" = procedural core plaque (white tint), dimmed plaque
+	# (greyed tint: sealed) or only the glyph (dark tint: silhouette); "core:"
+	# alone is the generic core sparkle (KODEX segment).
+	if id.begins_with("core:"):
+		var core := id.substr(5)
+		if core == "":
+			CorePlaqueRef.draw_glyph(self, "spark", center, side * 0.9, tint)
+		elif tint.v < 0.5 or tint.a < 0.6:
+			CorePlaqueRef.draw_glyph(self, String(CorePlaqueRef.motif(core)[0]), center, side * 0.7, tint, core)
+		else:
+			CorePlaqueRef.draw_plaque(self, center, side * 1.22, core, tint.s < 0.3 and tint.v < 0.9)
+		return true
 	if _icons == null or id == "" or not _icons.has(id):
 		return false
 	_icons.draw(self, id, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), tint)

@@ -1544,6 +1544,8 @@ func _result_data(hud: Control) -> Dictionary:
 		"build": _build(hud, stats),
 		"sources": _damage_rows(stats.get("damage", {})),
 		"picks": stats.get("picks", []) if stats.get("picks", []) is Array else [],
+		# Stage 33: Mutationskerne of the run (ids, in pick order).
+		"cores": Array(stats.get("cores", [])).map(func(v): return String(v)) if stats.get("cores", []) is Array else [],
 		"level": int(stats.get("level", 0)),
 		"record": false, "record_peak": false, "tasks": [],
 		"essence": 0, "crowns": 0, "context": "",
@@ -1732,6 +1734,8 @@ const ABILITIES_PATH := "res://scripts/abilities.gd"
 const DMG_ROWS := 7              # more sources are merged into "Sonstige"
 const DMG_TOP := 418.0           # page area (900 x 1600 grid) between hero and buttons
 const DMG_BOTTOM := 1228.0
+const CORE_ROW_H := 128.0        # stage 33: KERNE panel on the BUILD page
+const CorePlaque := preload("res://scripts/ui/core_plaque.gd")
 const RANK_COLORS := [Color("ffd34d"), Color("dfe6f5"), Color("f0a468")]
 # Bar colour per weapon (evolutions: special, relics: their rarity).
 const SOURCE_COLOR := {
@@ -1775,6 +1779,9 @@ func _source_info(id: String) -> Dictionary:
 		info = {"name": "Nahkampf", "icon": "jaws", "kind": "SCHWARM", "tone": SOURCE_COLOR.melee}
 	elif id == "other":
 		info = {"name": "Sonstige", "icon": "branch_special", "kind": "", "tone": "neutral"}
+	elif id == "giftblut":
+		# Etappe 33: poison clouds of the core Giftblut.
+		info = {"name": "Giftblut", "icon": "sporenwolke", "kind": "KERN", "tone": "special"}
 	elif id.begins_with("ability:"):
 		var aid := id.substr(8)
 		var d: Dictionary = (_script_const(ABILITIES_PATH, "DEFS", {}) as Dictionary).get(aid, {})
@@ -1906,11 +1913,39 @@ func _paint_r_dmg(c: CanvasItem) -> void:
 			if kind != "" and name_room - nw > 90.0:
 				Kit.text_outlined(c, Vector2(x + nw + 12.0, y + 19.0), kind, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.LEFT | Kit.MIDDLE, name_room - nw - 12.0)
 			Kit.bar(c, Rect2(x, y + 35.0, right - x, 20.0), fill * float(row.damage) / top_value, info.tone)
+	# Stage 33: the run's Mutationskerne under the damage bars.
+	var after := rect.end.y
+	var cores: Array = _res.get("cores", [])
+	if not cores.is_empty():
+		var cr := Rect2(cx - 390.0, after + UiStyle.SPACE_L, 780.0, CORE_ROW_H)
+		_paint_cores(c, cr, cores)
+		after = cr.end.y
 	# Choices of the run below, down to the buttons.
-	var tl_top := rect.end.y + UiStyle.SPACE_L
+	var tl_top := after + UiStyle.SPACE_L
 	var tl := Rect2(cx - 390.0, tl_top, 780.0, _oy() + DMG_BOTTOM - tl_top)
 	if tl.size.y >= 120.0:
 		_paint_picks(c, tl, _res.get("picks", []))
+
+
+## Stage 33: panel "KERNE" with one round plaque and name per taken core
+## (up to 3 side by side, the name under the plaque).
+func _paint_cores(c: CanvasItem, rect: Rect2, cores: Array) -> void:
+	Kit.panel(c, rect, "dark", UiStyle.R_L)
+	Kit.ring(c, rect.grow(-3.0), UiStyle.R_L - 3.0, 3.0, Color(CorePlaque.ACCENT, 0.7))
+	var n := mini(3, cores.size())
+	var label_w := 150.0
+	Kit.text_outlined(c, Vector2(rect.position.x + 26.0, rect.get_center().y - 14.0), "KERNE", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+	Kit.text_outlined(c, Vector2(rect.position.x + 26.0, rect.get_center().y + 22.0), "%d / 3" % n, UiStyle.T_LABEL, CorePlaque.ACCENT.lightened(0.3), -1, -1, UiStyle.number_font(), Kit.LEFT | Kit.MIDDLE)
+	var x0 := rect.position.x + label_w
+	var cw := (rect.end.x - 16.0 - x0) / 3.0
+	var plate := 70.0
+	for i in n:
+		var id := String(cores[i])
+		var info := CorePlaque.info(id)
+		var cx := x0 + (i + 0.5) * cw
+		var pc := Vector2(cx, rect.position.y + 14.0 + plate * 0.5)
+		CorePlaque.draw_plaque(c, pc, plate, id, false, false, String(info.name))
+		Kit.text_outlined(c, Vector2(cx, rect.end.y - 24.0), String(info.name).to_upper(), UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, cw - 10.0)
 
 
 func _paint_picks(c: CanvasItem, rect: Rect2, picks: Array) -> void:
@@ -1976,11 +2011,15 @@ func _paint_picks(c: CanvasItem, rect: Rect2, picks: Array) -> void:
 		var rarity := String(p[3]) if p.size() > 3 else "common"
 		var cocoon := kind in ["weapon", "relic", "evolution"]
 		var tone: Variant = "special" if kind == "evolution" else (rarity if UiStyle.RARITY_TONES.has(rarity) else "common")
-		Kit.icon_plate(c, center, plate, tone, "square" if cocoon else "round")
-		_b_icon(c, String(_source_info(id).icon), Kit.plate_center(center, plate), plate * 0.74)
+		if kind == "core":
+			# Stage 33: a core pick shows its own plaque.
+			CorePlaque.draw_plaque(c, center, plate, id)
+		else:
+			Kit.icon_plate(c, center, plate, tone, "square" if cocoon else "round")
+			_b_icon(c, String(_source_info(id).icon), Kit.plate_center(center, plate), plate * 0.74)
 		if labelled:
 			var label := ""
-			if cocoon or kind == "shrine" or p.size() < 5:
+			if cocoon or kind in ["shrine", "core"] or p.size() < 5:
 				label = _short_time(float(p[0]))
 			else:
 				label = "L%d" % int(p[4])

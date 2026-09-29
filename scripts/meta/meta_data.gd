@@ -9,6 +9,7 @@ extends RefCounted
 ##   "mutation:<id>"    Wert (Level-Spur) kommt in den Angebots-Pool
 ##   "weapon:<id>"      Waffe kommt in die Kokon-Beute (Etappe 17)
 ##   "relic:<id>"       Relikt kommt in die Kokon-Beute (Etappe 17)
+##   "core:<id>"        Mutationskern kommt in den Kern-Pool (Etappe 33)
 ##   "reroll" / "banish" / "skip"   +1 pro Run
 ## unlock_label(token) liefert die deutsche Anzeige. Alte Token/IDs (Anlagen der
 ## Etappen 03–16, z. B. "mutation:graeber", "jaws") bildet migrate_id() bzw.
@@ -23,6 +24,7 @@ extends RefCounted
 ## Glutmaws Rally-Bonus steht zusätzlich als mods.rally_damage (Multiplikator, sonst 1.0).
 
 const ARSENAL = preload("res://scripts/progression/arsenal.gd")
+const CORES = preload("res://scripts/progression/cores.gd")
 
 ## Etappe 17: Start-Pools der beiden Spuren. Werte: alle außer Regeneration
 ## (Trophäe „Zähes Herz“). Waffen/Relikte wie Arsenal.START_WEAPONS/UNLOCK_*.
@@ -147,12 +149,13 @@ const INSTINCT := {"name": "Urinstinkt", "description": "Endlos: je Stufe +1 % S
 ##   best_seconds, best_peak, best_no_rally_seconds, runs,
 ##   total_kills, total_prey, total_hunters, total_skitters, total_leapers, total_bosses,
 ##   total_evolutions, total_biomass, evo:<id>, diff_time:<n>, strain_time:<id>
+##   best_world (Welt im Run), total_overdrives (Etappe 33)
 const QUESTS := [
 	{"id": "survive_1", "name": "Erste Minute", "description": "Überlebe 60 Sekunden.", "stat": "best_seconds", "target": 60, "reward": {"essence": 50}},
 	{"id": "survive_3", "name": "Zäher Schwarm", "description": "Überlebe 3 Minuten.", "stat": "best_seconds", "target": 180, "reward": {"essence": 100}},
 	{"id": "survive_5", "name": "Fünf Minuten Hunger", "description": "Überlebe 5 Minuten.", "stat": "best_seconds", "target": 300, "reward": {"crowns": 1, "unlock": ["difficulty:1"]}},
 	{"id": "survive_10", "name": "Unersättlich", "description": "Überlebe 10 Minuten.", "stat": "best_seconds", "target": 600, "reward": {"crowns": 2, "unlock": ["upgrade:attack_slot"]}},
-	{"id": "survive_15", "name": "Uralter Schwarm", "description": "Überlebe 15 Minuten.", "stat": "best_seconds", "target": 900, "reward": {"crowns": 3}},
+	{"id": "survive_15", "name": "Uralter Schwarm", "description": "Überlebe 15 Minuten.", "stat": "best_seconds", "target": 900, "reward": {"crowns": 3, "unlock": ["core:flutfresser"]}},
 	{"id": "peak_50", "name": "Rudel", "description": "Erreiche 50 Mawlings gleichzeitig.", "stat": "best_peak", "target": 50, "reward": {"essence": 80}},
 	{"id": "peak_100", "name": "Horde", "description": "Erreiche 100 Mawlings gleichzeitig.", "stat": "best_peak", "target": 100, "reward": {"unlock": ["weapon:stachelruecken"]}},
 	{"id": "peak_200", "name": "Flut", "description": "Erreiche 200 Mawlings gleichzeitig.", "stat": "best_peak", "target": 200, "reward": {"crowns": 2}},
@@ -198,11 +201,15 @@ const QUESTS := [
 	{"id": "biomass_10000", "name": "Nimmersatt", "description": "Sammle insgesamt 10000 Biomasse.", "stat": "total_biomass", "target": 10000, "reward": {"crowns": 1}},
 	{"id": "runs_10", "name": "Zehn Bruten", "description": "Spiele 10 Runs.", "stat": "runs", "target": 10, "reward": {"unlock": ["reroll"]}},
 	# Etappe 10 (APEX): Moosschlund, Migration, Glutsumpf.
-	{"id": "apex_moosschlund", "name": "Moosschlund bezwungen", "description": "Besiege den Moosschlund.", "stat": "total_moss", "target": 1, "reward": {"crowns": 2, "essence": 200, "unlock": ["relic:schlundherz"]}},
+	{"id": "apex_moosschlund", "name": "Moosschlund bezwungen", "description": "Besiege den Moosschlund.", "stat": "total_moss", "target": 1, "reward": {"crowns": 2, "essence": 200, "unlock": ["relic:schlundherz", "core:koenigsjaeger"]}},
 	{"id": "migration_1", "name": "Migration", "description": "Wandere durch den Migrationsschlund in ein neues Biom.", "stat": "total_migrations", "target": 1, "reward": {"crowns": 1, "essence": 150}},
 	{"id": "glutsumpf_2", "name": "Glutherz", "description": "Überlebe 2 Minuten im Glutsumpf.", "stat": "biome_time:glutsumpf", "target": 120, "reward": {"crowns": 2}},
-	{"id": "apex_sandwurm", "name": "Sandwurm bezwungen", "description": "Besiege den Sandwurm im Dürrschlund.", "stat": "total_worms", "target": 1, "reward": {"crowns": 3, "essence": 250}},
-	{"id": "apex_aschenkroete", "name": "Aschenkröte bezwungen", "description": "Besiege die Aschenkröte im Glutsumpf.", "stat": "total_toads", "target": 1, "reward": {"crowns": 3, "essence": 300}},
+	{"id": "apex_sandwurm", "name": "Sandwurm bezwungen", "description": "Besiege den Sandwurm im Dürrschlund.", "stat": "total_worms", "target": 1, "reward": {"crowns": 3, "essence": 250, "unlock": ["core:giftblut"]}},
+	{"id": "apex_aschenkroete", "name": "Aschenkröte bezwungen", "description": "Besiege die Aschenkröte im Glutsumpf.", "stat": "total_toads", "target": 1, "reward": {"crowns": 3, "essence": 300, "unlock": ["core:letzter_biss"]}},
+	# Stage 33: Mutationskerne. Six cores are unlocked from the start; the other six
+	# come from trophies ("core:<id>"): the three endbosses, 15 minutes and these two.
+	{"id": "world_3", "name": "Dritte Welt", "description": "Erreiche in einem Run Welt 3.", "stat": "best_world", "target": 3, "reward": {"crowns": 2, "unlock": ["core:wandernde_brut"]}},
+	{"id": "overdrive_5", "name": "Überladen", "description": "Wähle insgesamt 5 Überladungen.", "stat": "total_overdrives", "target": 5, "reward": {"essence": 200, "unlock": ["core:schwarmgedaechtnis"]}},
 ]
 
 static func quest(id: String) -> Dictionary:
@@ -229,6 +236,8 @@ static func unlock_label(token: String) -> String:
 			return "Neue Waffe: %s" % MUTATION_NAMES.get(arg, arg)
 		"relic":
 			return "Neues Relikt: %s" % MUTATION_NAMES.get(arg, arg)
+		"core":
+			return "Neuer Kern: %s" % CORES.display_name(arg)
 		"reroll":
 			return "+1 Neu würfeln pro Run"
 		"banish":

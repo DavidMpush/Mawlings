@@ -43,6 +43,9 @@ var milestones_reached: Array[int] = []
 # Neuester erstmals erreichter Meilenstein seit dem letzten take_milestone() (0 = keiner).
 var pending_milestone := 0
 var heal_steps := 0
+## Stage 33 (Letzter Biss): share of the old maximum a successor leads with;
+## HuntWorld sets it from the cores (default LEADER_SUCCESSOR_SHARE).
+var successor_share: float = TUNING.LEADER_SUCCESSOR_SHARE
 
 
 func _init() -> void:
@@ -93,7 +96,7 @@ func _note_growth() -> void:
 # leader die (never the leader: at most population - 1). Etappe 17c: a struck
 # leader loses `leader_damage` LP (real hit points, start TUNING.LEADER_HP)
 # unless invulnerable; a `nonlethal` source never takes its last LP. At 0 LP the
-# leader dies: the next animal leads with LEADER_SUCCESSOR_SHARE of the old
+# leader dies: the next animal leads with successor_share (LEADER_SUCCESSOR_SHARE) of the old
 # maximum, fully healed, or the run ends when it was the last one.
 # Result: {"lost": animals lost, "leader": "none" | "blocked" | "hit" | "swap" | "extinct", "damage": LP taken}.
 func apply_hit(followers: int, leader_struck: bool, nonlethal: bool = false, leader_damage: int = 1) -> Dictionary:
@@ -126,7 +129,7 @@ func apply_hit(followers: int, leader_struck: bool, nonlethal: bool = false, lea
 					extinct = true
 					leader = "extinct"
 				else:
-					leader_max_hp = maxi(1, int(round(float(leader_max_hp) * TUNING.LEADER_SUCCESSOR_SHARE)))
+					leader_max_hp = maxi(1, int(round(float(leader_max_hp) * successor_share)))
 					leader_hp = leader_max_hp
 					leader_swaps += 1
 					leader = "swap"

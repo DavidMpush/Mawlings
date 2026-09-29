@@ -15,6 +15,7 @@ extends RefCounted
 
 const STATS = preload("res://scripts/progression/stats.gd")
 const ARSENAL = preload("res://scripts/progression/arsenal.gd")
+const CORES = preload("res://scripts/progression/cores.gd")
 
 # Werte im alten Format [id, Name, Beschreibung] (Texte = Stats.describe_step).
 const TRAITS = [
@@ -122,6 +123,8 @@ const SEAL_MINIMUM := 3
 ## Etappe 17 Welle 2: Die Startwaffe beginnt auf Rang 1; weitere Ränge kommen
 ## nur aus Kokons (Welle 1 hatte sie ohne Kokons auf Rang 4 gesetzt).
 const SIGNATURE_START_RANK = 1
+## Stage 33 (Giftblut): base chance per hit on top of the crit chance.
+const CORE_POISON_BASE: float = preload("res://scripts/tuning.gd").CORE_POISON_BASE_CHANCE
 
 signal leader_regenerated(amount: int)
 
@@ -184,6 +187,18 @@ var offer_overdrive := false
 ## Shrines charged with every stat maxed while another choice was open; they
 ## open their overdrive choice once that one closes.
 var queued_shrines := 0
+## Stage 33 - Mutationskerne: taken cores (max CORES.MAX_PER_RUN), the open
+## core choice ([id, Name, "+ …\n− …", "legendary", {kind:"core", …}]; the world
+## pauses like for every choice), unlocked ids (RunConfig "cores_unlocked",
+## default the first six) and sealed core ids. cores_enabled is true when the
+## RunConfig names "cores_unlocked" (menu runs): only then HuntWorld opens the
+## start and endboss offers by itself (tests without that key stay untouched).
+var cores: Array[String] = []
+var core_offers: Array = []
+var cores_unlocked: Array[String] = CORES.default_unlocked()
+var cores_enabled := false
+var core_sealed: Array[String] = []
+var core_rng := RandomNumberGenerator.new()
 ## Returns the leader's LP share (0..1); HuntWorld sets it. Invalid = full LP
 ## (no heal card).
 var leader_share_source: Callable
@@ -210,6 +225,7 @@ func _init() -> void:
 	rng.randomize()
 	chest_rng.randomize()
 	hook_rng.randomize()
+	core_rng.randomize()
 	stats.ranks = ranks
 	arsenal.ranks = ranks
 	arsenal.relics = relics
@@ -271,6 +287,7 @@ func configure(config: Dictionary) -> void:
 		var run_seed := int(config.get("seed", 0))
 		chest_rng.seed = hash([run_seed, "chest"])
 		hook_rng.seed = hash([run_seed, "hook"])
+		core_rng.seed = hash([run_seed, "core"])
 	# Die Startwaffe des Stammes (Welle 1: einzige Waffe ohne Kokons).
 	signature = str(config.get("signature_attack", ""))
 	if signature != "" and kind_of(signature) == "attack":
@@ -280,6 +297,7 @@ func configure(config: Dictionary) -> void:
 		if not arsenal.weapon_pool.has(signature):
 			arsenal.weapon_pool.append(signature)
 	_configure_seals(config.get("sealed", []))
+	_configure_cores(config)
 	revision += 1
 
 
@@ -313,13 +331,44 @@ func is_sealed(id: String) -> bool:
 	return sealed.has(id)
 
 
+# Stage 33: unlocked cores (RunConfig "cores_unlocked", default the first six)
+# and sealed core ids (RunConfig "sealed"; ignored when fewer than SEAL_MINIMUM
+# unlocked cores would stay open).
+func _configure_cores(config: Dictionary) -> void:
+	cores_enabled = config.has("cores_unlocked")
+	cores_unlocked = []
+	var raw: Variant = config.get("cores_unlocked", CORES.default_unlocked())
+	if raw is Array:
+		for entry in raw:
+			var id := str(entry)
+			if CORES.has(id) and not cores_unlocked.has(id):
+				cores_unlocked.append(id)
+	core_sealed = []
+	var wanted: Array[String] = []
+	var seals: Variant = config.get("sealed", [])
+	if seals is Array:
+		for entry in seals:
+			var id := str(entry)
+			if CORES.has(id) and cores_unlocked.has(id) and not wanted.has(id):
+				wanted.append(id)
+	if wanted.is_empty():
+		return
+	if cores_unlocked.size() - wanted.size() < SEAL_MINIMUM:
+		seals_ignored = true
+		return
+	core_sealed = wanted
+
+
 # ---------------------------------------------------------------- Level (Werte)
 
 ## DNA for the next level. Stage 28 addendum (user: "man levelt zu schnell und
 ## zu oft von Anfang an"): 60 + 25 L + 6 L² (was 20 + 10 L + 1,5 L²); the first
 ## level costs 60 DNA, level 10 needs ~3435 DNA in total (old curve: ~level 16).
 func threshold() -> int:
-	return 60 + 25 * level + 6 * level * level
+	var base := 60 + 25 * level + 6 * level * level
+	# Stage 33: Schwarmgedächtnis makes the level curve 10 % steeper.
+	var curve := float(core_value("level_curve"))
+	return base if is_equal_approx(curve, 1.0) else int(round(float(base) * curve))
 
 
 # True when no further stat can ever be offered in this run (every owned stat
@@ -485,7 +534,7 @@ func _apply_overdrive(card_id: String, rarity: String) -> bool:
 
 # A shrine that charged while another choice was open (every stat maxed).
 func _open_queued_shrine() -> bool:
-	if queued_shrines <= 0 or not offers.is_empty() or not chest_offers.is_empty():
+	if queued_shrines <= 0 or not offers.is_empty() or not chest_offers.is_empty() or not core_offers.is_empty():
 		return false
 	queued_shrines -= 1
 	return open_shrine()
@@ -501,14 +550,14 @@ func open_shrine() -> bool:
 		if overdrive_candidates().is_empty():
 			max_heals += 1
 			return false
-		if not offers.is_empty() or not chest_offers.is_empty():
+		if not offers.is_empty() or not chest_offers.is_empty() or not core_offers.is_empty():
 			queued_shrines += 1
 			return false
 		offers = overdrive_offers([], SHRINE_MINIMUM)
 		offer_overdrive = not offers.is_empty()
 		offer_source = "shrine" if not offers.is_empty() else "level"
 		return not offers.is_empty()
-	if not offers.is_empty() or not chest_offers.is_empty():
+	if not offers.is_empty() or not chest_offers.is_empty() or not core_offers.is_empty():
 		return false
 	offer_overdrive = false
 	offers = _roll_stats([], SHRINE_MINIMUM)
@@ -667,7 +716,10 @@ func grant(item: Dictionary, force: bool = false) -> Dictionary:
 
 
 func chest_price() -> int:
-	return arsenal.chest_price(luck())
+	var price: int = arsenal.chest_price(luck())
+	# Stage 33: Bernsteinblut makes map cocoons cheaper.
+	var factor := float(core_value("chest_price"))
+	return price if is_equal_approx(factor, 1.0) else maxi(1, int(round(float(price) * factor)))
 
 
 
@@ -691,6 +743,131 @@ func debug_grant(id: String, rarity: String = "common") -> Dictionary:
 		"evolved":
 			return grant(arsenal.evolution_item(id))
 	return {"applied": false}
+
+
+# ---------------------------------------------------------------- Mutationskerne (Etappe 33)
+
+## Cores still offerable (unlocked, unsealed, not taken).
+func core_candidates() -> Array[String]:
+	return CORES.candidates(cores_unlocked, core_sealed, cores)
+
+
+## Opens the core choice (1 of 3): false when one is open, the run already has
+## CORES.MAX_PER_RUN cores or no candidate is left.
+func offer_core() -> bool:
+	if not core_offers.is_empty() or cores.size() >= CORES.MAX_PER_RUN:
+		return false
+	core_offers = CORES.roll_offers(core_rng, cores_unlocked, core_sealed, cores)
+	return not core_offers.is_empty()
+
+
+## Takes core `slot` of the open choice. Returns its id ("" for an invalid slot).
+func choose_core(slot: int) -> String:
+	if slot < 0 or slot >= core_offers.size():
+		return ""
+	var id := String(core_offers[slot][0])
+	core_offers.clear()
+	add_core(id)
+	_open_queued_shrine()
+	return id
+
+
+## Gives a core directly (choose_core(), tests, debug). False when unknown,
+## already taken or the run is full. Rerolls/skips (Schwarmgedächtnis) are
+## granted at once.
+func add_core(id: String) -> bool:
+	if not CORES.has(id) or cores.has(id) or cores.size() >= CORES.MAX_PER_RUN:
+		return false
+	cores.append(id)
+	var fx := CORES.effects(id)
+	rerolls += int(fx.get("rerolls", 0))
+	skips += int(fx.get("skips", 0))
+	revision += 1
+	return true
+
+
+func has_core(id: String) -> bool:
+	return cores.has(id)
+
+
+## Combined effect of the taken cores (see cores.gd; neutral without cores).
+func core_value(key: String) -> Variant:
+	return CORES.combined(cores, key)
+
+
+## Melee damage: damage_multiplier x cores (Rudelgeist/Arsenal-Kult, Königsjäger
+## "normal" share; bosses/elites get major_target_factor() on top).
+func melee_multiplier(rally: bool) -> float:
+	return damage_multiplier(rally) * float(core_value("melee")) * float(core_value("normal_damage"))
+
+
+## Weapon (attack form) damage scale: damage_multiplier x cores.
+func form_multiplier() -> float:
+	return damage_multiplier(false) * float(core_value("forms")) * float(core_value("normal_damage"))
+
+
+## Extra factor against bosses and elites (Königsjäger: 1.35 / 0.9).
+func major_target_factor() -> float:
+	return float(core_value("major_damage")) / maxf(0.01, float(core_value("normal_damage")))
+
+
+## Share of the rally damage bonus that stays (Wandernde Brut 0.5).
+func rally_bonus_scale() -> float:
+	return float(core_value("rally_bonus"))
+
+
+## Factor on the strain ability's cooldown (Wandernde Brut 0.75).
+func ability_cooldown_scale() -> float:
+	return float(core_value("ability_cooldown"))
+
+
+## Factor on the LP a leader hit costs (Panzerherz 0.7).
+func leader_hit_scale() -> float:
+	return float(core_value("leader_hit"))
+
+
+## Factor on every leader heal (Panzerherz 0.5).
+func heal_scale() -> float:
+	return float(core_value("heal"))
+
+
+## Factor on Bernstein picked up (Bernsteinblut 1.5).
+func amber_multiplier() -> float:
+	return float(core_value("amber"))
+
+
+## Factor on Moorbrut kill crystals (Flutfresser 2).
+func brood_reward_multiplier() -> float:
+	return float(core_value("brood_crystals"))
+
+
+## Seconds added to the flood start (Flutfresser −20).
+func flood_offset() -> float:
+	return float(core_value("flood_offset"))
+
+
+## Seconds between free Lockrufe (Magnetsturm-Herz 90; 0 = none).
+func lure_interval() -> float:
+	return float(core_value("lure_every"))
+
+
+## Share of the old max LP a successor leads with (`default_share` without core).
+func successor_share(default_share: float) -> float:
+	var share := float(core_value("successor_share"))
+	return share if share > 0.0 else default_share
+
+
+## True when crits leave a poison cloud (Giftblut).
+func poison_crits() -> bool:
+	return bool(core_value("poison_crit"))
+
+
+## Giftblut: chance that a hit is a crit that leaves a poison cloud (base
+## chance + crit chance; 0 without the core).
+func poison_cloud_chance() -> float:
+	if not poison_crits():
+		return 0.0
+	return clampf(CORE_POISON_BASE + crit_chance(), 0.0, 1.0)
 
 
 # ---------------------------------------------------------------- Alt-Aufrufer
@@ -746,6 +923,8 @@ func kind_of(id: String) -> String:
 		return "relic"
 	if id == OVERDRIVE_HEAL_ID or overdrive_stat(id) != "":
 		return "overdrive"
+	if CORES.has(id):
+		return "core"
 	return ""
 
 
@@ -754,6 +933,8 @@ func info(id: String) -> Array:
 		return STATS.info(id)
 	if id == OVERDRIVE_HEAL_ID:
 		return heal_card().slice(0, 3)
+	if CORES.has(id):
+		return [id, CORES.display_name(id), CORES.describe(id)]
 	var stat_id := overdrive_stat(id)
 	if stat_id != "":
 		var d := overdrive_def(stat_id)
@@ -806,13 +987,14 @@ func luck() -> float:
 
 ## Kritbiss als Erwartungswert (jeder Treffer ×2 mit Chance crit).
 func crit_chance() -> float:
-	return clampf(stats.amount("crit"), 0.0, 1.0)
+	return clampf(stats.amount("crit") + float(core_value("crit")), 0.0, 1.0)
 
 
 func damage_multiplier(rally: bool) -> float:
 	var value := (1.0 + stats.amount("bite")) * (1.0 + crit_chance())
 	if rally:
-		value *= (1.0 + stats.amount("rally")) * float(mods.rally_damage)
+		# Stage 33: Wandernde Brut keeps only part of the rally bonus.
+		value *= 1.0 + ((1.0 + stats.amount("rally")) * float(mods.rally_damage) - 1.0) * rally_bonus_scale()
 	value *= 1.0 + RELIC.scharfe_zaehne * stacks("scharfe_zaehne")
 	value *= 1.0 + RELIC.blutmond * stacks("blutmond")
 	value *= 1.0 + overdrive_amount("bite")
@@ -827,7 +1009,7 @@ func speed_multiplier(rally: bool = false) -> float:
 	if rally:
 		value *= 1.0 + RELIC.rudelhorn * stacks("rudelhorn")
 	value *= 1.0 + overdrive_amount("speed")
-	return value * float(boosts.speed)
+	return value * float(core_value("speed")) * float(boosts.speed)
 
 
 ## Faktor auf alle Waffen-Abklingzeiten (Angriffstempo, Power-up).
@@ -842,12 +1024,12 @@ func area_scale() -> float:
 
 # Biomasse je eingesammeltem Kristall (Brutrate, Hungerstein, Meta "harvest" = Verdauung).
 func harvest_multiplier() -> float:
-	return (1.0 + stats.amount("brood")) * (1.0 + RELIC.hungerstein_harvest * stacks("hungerstein")) * (1.0 + overdrive_amount("brood")) * float(mods.harvest)
+	return (1.0 + stats.amount("brood")) * (1.0 + RELIC.hungerstein_harvest * stacks("hungerstein")) * (1.0 + overdrive_amount("brood")) * float(mods.harvest) * float(core_value("harvest"))
 
 
 # Magnetradius-Faktor (Lockduft, Witterungsnase, Meta "magnet" = Witterung, Power-up).
 func magnet_multiplier() -> float:
-	return (1.0 + stats.amount("magnet")) * (1.0 + RELIC.witterungsnase * stacks("witterungsnase")) * (1.0 + overdrive_amount("magnet")) * float(mods.magnet) * float(boosts.magnet)
+	return (1.0 + stats.amount("magnet")) * (1.0 + RELIC.witterungsnase * stacks("witterungsnase")) * (1.0 + overdrive_amount("magnet")) * float(mods.magnet) * float(core_value("magnet")) * float(boosts.magnet)
 
 
 # Biomasse künftiger Kills (Stamm "growth"; Vielfraß ist in Brutrate aufgegangen).
@@ -856,7 +1038,7 @@ func biomass_multiplier() -> float:
 
 
 func dna_multiplier() -> float:
-	return (1.0 + stats.amount("gene")) * (1.0 + RELIC.dna_splitter * stacks("dna_splitter")) * float(mods.dna)
+	return (1.0 + stats.amount("gene")) * (1.0 + RELIC.dna_splitter * stacks("dna_splitter")) * float(mods.dna) * float(core_value("dna"))
 
 
 ## Lockruf-Chance (Magnetkern: doppelt so oft je Stapel).
@@ -868,7 +1050,7 @@ func lure_multiplier() -> float:
 ## Wert, Blutmond −BLOODMOON_LP je Stapel; stage 31 A: overdrive "vigor" adds its
 ## share of the base.
 func leader_hp_bonus(base: int = 100) -> int:
-	return int(round(float(base) * (stats.amount("vigor") + overdrive_amount("vigor")))) - BLOODMOON_LP * stacks("blutmond")
+	return int(round(float(base) * (stats.amount("vigor") + overdrive_amount("vigor") + float(core_value("leader_hp"))))) - BLOODMOON_LP * stacks("blutmond")
 
 
 ## Anteil des ausgeteilten Schwarm-Schadens, der den Anführer heilt (Lebensraub + Blutzahn).
@@ -885,7 +1067,7 @@ func loss_after_armor(amount: int, rally: bool) -> int:
 	if amount <= 0:
 		return 0
 	var reduction := stats.amount("armor") + (0.0 if rally else stats.amount("evade")) + RELIC.zaehe_haut * stacks("zaehe_haut") + float(mods.armor)
-	var scaled := float(amount) * (1.0 - clampf(reduction, -0.5, 0.85)) * (1.0 - overdrive_amount("armor")) * float(boosts.loss)
+	var scaled := float(amount) * (1.0 - clampf(reduction, -0.5, 0.85)) * (1.0 - overdrive_amount("armor")) * float(core_value("loss")) * float(boosts.loss)
 	return maxi(1, ceili(scaled - 0.0001))
 
 
@@ -898,6 +1080,9 @@ func form_modifiers() -> Dictionary:
 		"dig_radius": RELIC.grabkralle * stacks("grabkralle"),
 		"chain_chance": 1.0 - pow(1.0 - RELIC.gewitterfell, stacks("gewitterfell")),
 		"burn": stacks("glutdruese"),
+		# Stage 33: Königsjäger (extra factor vs. bosses/elites), Giftblut (cloud chance per hit).
+		"major_damage": major_target_factor(),
+		"poison_cloud": poison_cloud_chance(),
 	}
 
 

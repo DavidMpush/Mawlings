@@ -713,6 +713,10 @@ const RELIC_SIZE := 42.0
 const RELIC_GAP := 10.0
 const RELIC_COLS := 2
 const RELIC_MAX := 8
+## Stage 33: Mutationskerne as a column of round plaques under the relic strip.
+const CorePlaque := preload("res://scripts/ui/core_plaque.gd")
+const CORE_SIZE := 48.0
+const CORE_GAP := 6.0
 const BOOST_SIZE := 50.0
 const BOOST_GAP := 12.0
 
@@ -872,7 +876,7 @@ func _brawl_refresh() -> void:
 	var medals: Control = _layers.medals
 	medals.visible = not extinct
 	if medals.visible:
-		medals.refresh([_medal_key(evo), _relic_key(evo), _b_medal_y, size])
+		medals.refresh([_medal_key(evo), _relic_key(evo), _core_key(evo), _b_medal_y, size])
 	var boosts: Control = _layers.boosts
 	var active := _boost_list()
 	boosts.visible = not extinct and not active.is_empty()
@@ -1108,11 +1112,14 @@ func _b_draw_medals() -> void:
 				Kit.disc(_cv, p, 4.0, fill if i < rank else UiStyle.BRAWL_WELL)
 		c.y += MEDAL_SIZE + 28.0
 	var relics := _relic_key(_evolution())
-	if relics.is_empty():
-		return
 	var shown := mini(relics.size(), RELIC_MAX)
 	var right := size.x - 16.0
 	var top_y := c.y - MEDAL_SIZE * 0.5 - 4.0
+	# Stage 33: the core strip sits under the relic rows (or the weapons).
+	var rows := ceili(float(shown) / float(RELIC_COLS))
+	_b_draw_cores(right, top_y + float(rows) * (RELIC_SIZE + RELIC_GAP) + (4.0 if rows > 0 else 0.0))
+	if relics.is_empty():
+		return
 	for index in shown:
 		var col := index % RELIC_COLS
 		var row := index / RELIC_COLS
@@ -1143,6 +1150,32 @@ func _item_icon(id: String) -> String:
 	if evo != null and evo.has_method("icon_id"):
 		return String(evo.icon_id(id))
 	return id
+
+
+# Stage 33: taken Mutationskerne (at most 3) as round plaques in a column,
+# top edge `top_y`, on a dark violet-rimmed capsule.
+func _b_draw_cores(right: float, top_y: float) -> void:
+	var cores := _core_key(_evolution())
+	if cores.is_empty():
+		return
+	# A vertical capsule under the relics, centred on the weapon column (the
+	# medals layer is only MEDAL_SIZE + 56 px wide).
+	var n := mini(3, cores.size())
+	var cx := right - MEDAL_SIZE * 0.5
+	var h := n * CORE_SIZE + (n - 1) * CORE_GAP
+	var pill := Rect2(cx - CORE_SIZE * 0.5 - 6.0, top_y, CORE_SIZE + 12.0, h + 12.0)
+	Kit.veil_pill(_cv, pill, "dark", 0.55)
+	Kit.ring(_cv, pill, pill.size.x * 0.5, 2.5, Color(CorePlaque.ACCENT, 0.85))
+	for i in n:
+		CorePlaque.draw_plaque(_cv, Vector2(cx, top_y + 6.0 + CORE_SIZE * 0.5 + i * (CORE_SIZE + CORE_GAP)), CORE_SIZE, String(cores[i]))
+
+
+# Taken core ids (evolution.cores, stage 33); [] without the field.
+func _core_key(evo: Object) -> Array:
+	if evo == null or not ("cores" in evo):
+		return []
+	var taken: Variant = evo.get("cores")
+	return Array(taken).map(func(v): return String(v)) if taken is Array else []
 
 
 # Owned relics [id, stacks, rarity tone] in catalogue order.

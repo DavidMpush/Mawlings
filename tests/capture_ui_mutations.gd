@@ -13,6 +13,8 @@ extends SceneTree
 #   flash        pick flash on the middle card
 #   chest        Boss-Kokon (mode "chest"): new weapon, legendary relic, evolution
 #   chest_ranks  weapon rank-up that completes an evolution (gold), relic stack, weapon new
+#   core         stage 33: Mutationskern choice (core, core_start) and the HUD
+#                core strip (core_hud)
 #   columns_*    the rejected side-by-side layout, for comparison
 # Output: res://preview_ui_mutations_<scene>[_540].png
 
@@ -109,6 +111,42 @@ func _scenes(suffix: String, only: String) -> void:
 			evo.arsenal.weapon_item("schallbrueller", "legendary")])
 		await _save("preview_ui_mutations_chest_ranks%s.png" % suffix)
 		evo.chest_offers = []
+	if only == "" or only == "core":
+		# Stage 33: Mutationskern choice (mode "core") with three cores; one
+		# core already taken (ribbon "KERN 2 / 3", HUD strip shows it).
+		await _core(["rudelgeist"], ["giftblut", "schwarmgedaechtnis", "panzerherz"])
+		await _save("preview_ui_mutations_core%s.png" % suffix)
+		await _core([], ["hungrige_brut", "magnetsturm", "letzter_biss"])
+		await _save("preview_ui_mutations_core_start%s.png" % suffix)
+		# HUD core strip with three cores under weapons and relics (choice closed).
+		evo.core_offers = []
+		evo.cores.assign(["koenigsjaeger", "flutfresser", "bernsteinblut"])
+		evo.ranks = {"rudelbiss": 3, "giftbiss": 1}
+		evo.relics = {"hungerstein": 2, "blutzahn": 1, "rudelhorn": 1}
+		world._update_hud("")
+		await create_timer(0.6).timeout
+		await _save("preview_ui_mutations_core_hud%s.png" % suffix)
+		evo.cores.clear()
+		evo.relics = {}
+
+
+func _core(taken: Array, ids: Array, wait: float = 1.6) -> void:
+	evo.offers = []
+	evo.chest_offers = []
+	evo.core_offers = []
+	world._update_hud("")
+	await create_timer(0.5).timeout
+	evo.ranks = {"rudelbiss": 1}
+	evo.relics = {}
+	evo.evolutions.clear()
+	evo.cores.assign(taken)
+	var cores_script: Script = load("res://scripts/progression/cores.gd")
+	var offers: Array = []
+	for id in ids:
+		offers.append(cores_script.card(id))
+	evo.core_offers = offers
+	world._update_hud("")
+	await create_timer(wait).timeout
 
 
 func _show(ranks: Dictionary, cards: Array, rerolls: int, banishes: int, skips: int, wait: float = 0.9) -> void:

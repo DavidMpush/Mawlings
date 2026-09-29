@@ -380,6 +380,7 @@ const SPORE_MOTES := 10
 
 const FX_BATCH = preload("res://scripts/fx_batch.gd")
 const QUALITY = preload("res://scripts/quality.gd")
+const TUNING = preload("res://scripts/tuning.gd")
 # VFX-Paket V1: gepoolte Effekt-Sprites (Biss, Säure, Sporen, Schockwelle, Pickups).
 const VFX_SPRITES = preload("res://scripts/vfx_sprites.gd")
 # Kontaktbisse: höchstens ein Biss-Sprite je Intervall (klein -> groß werdender Schwarm).
@@ -400,7 +401,9 @@ var ranks := {}
 # Summe des verursachten Schadens je Form (für Statistik/Tests).
 var damage_dealt := {}
 # Etappe 17: Waffen-Modifikatoren aus Werten und Relikten (Evolution.form_modifiers()).
-var modifiers := {"cooldown": 1.0, "area": 1.0, "acid_damage": 1.0, "dig_radius": 0.0, "chain_chance": 0.0, "burn": 0}
+var modifiers := {"cooldown": 1.0, "area": 1.0, "acid_damage": 1.0, "dig_radius": 0.0, "chain_chance": 0.0, "burn": 0, "major_damage": 1.0, "poison_cloud": 0.0}
+## Stage 33 (Giftblut): cooldown between two poison clouds from weapon hits.
+var _poison_cloud_cd := 0.0
 
 var _enemy_scale := 1.0
 var _clock := 0.0
@@ -550,6 +553,10 @@ func set_modifiers(values: Dictionary) -> void:
 		"dig_radius": float(values.get("dig_radius", 0.0)),
 		"chain_chance": clampf(float(values.get("chain_chance", 0.0)), 0.0, 1.0),
 		"burn": int(values.get("burn", 0)),
+		# Stage 33: Königsjäger (factor vs. bosses/elites, asks world.is_major_target)
+		# and Giftblut (chance per direct hit to leave a poison cloud).
+		"major_damage": maxf(0.0, float(values.get("major_damage", 1.0))),
+		"poison_cloud": clampf(float(values.get("poison_cloud", 0.0)), 0.0, 1.0),
 	}
 
 
@@ -579,6 +586,7 @@ func step(delta: float, targets: Array, rally: bool, enemy_scale: float) -> void
 	_slow_wanted = {}
 	_spine_horde_cd = maxf(0.0, _spine_horde_cd - delta)
 	_spark_cd = maxf(0.0, _spark_cd - delta)
+	_poison_cloud_cd = maxf(0.0, _poison_cloud_cd - delta)
 	_step_bite(delta, origin, living, rally)
 	_step_spores(delta, origin, living)
 	_step_spit(delta, origin, living)
@@ -851,8 +859,24 @@ func spore_burst(at: Vector3) -> void:
 	entry.at = _flat(at)
 	entry.radius = _area(PUFF_RADIUS)
 	entry.dps = PUFF_DPS
+	entry.source = "sporenherz"
 	_ring(entry.at, Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.9), 0.3, entry.radius * 1.1, 0.35, true)
 	vfx.spawn("spore", entry.at, entry.radius / 1.6)
+
+
+## Stage 33 - Giftblut: a crit leaves a small poison cloud (PUFF_SECONDS = 2 s,
+## venom green, source "giftblut"); weapon hits (_on_hit) and HuntWorld's melee
+## crit roll call it.
+func poison_cloud(at: Vector3) -> void:
+	_build()
+	var entry: Dictionary = _take(_puffs, MAX_PUFFS, _make_puff)
+	entry.active = true
+	entry.age = 0.0
+	entry.at = _flat(at)
+	entry.radius = _area(TUNING.CORE_POISON_RADIUS)
+	entry.dps = TUNING.CORE_POISON_DPS
+	entry.source = "giftblut"
+	_ring(entry.at, Color(VENOM_COLOR.r, VENOM_COLOR.g, VENOM_COLOR.b, 0.85), 0.3, entry.radius * 1.1, 0.35, true)
 
 
 # --- Rudelbiss / Meute ---------------------------------------------------
@@ -1944,6 +1968,11 @@ func _step_dots(delta: float) -> void:
 
 # Gewitterfell: Treffer lösen mit Chance einen kleinen Kettenblitz aus.
 func _on_hit(target: Node3D, source: String) -> void:
+	# Stage 33 - Giftblut: a direct hit may count as a crit and leave a poison cloud.
+	var cloud := float(modifiers.get("poison_cloud", 0.0))
+	if cloud > 0.0 and _poison_cloud_cd <= 0.0 and source != "giftblut" and is_instance_valid(target) and _rng.randf() < cloud:
+		_poison_cloud_cd = TUNING.CORE_POISON_COOLDOWN
+		poison_cloud(target.global_position)
 	var chance := float(modifiers.chain_chance)
 	if chance <= 0.0 or _spark_cd > 0.0 or source == "gewitterfell" or not is_instance_valid(target):
 		return
@@ -1965,13 +1994,17 @@ func _step_puffs(delta: float) -> void:
 			entry.active = false
 			continue
 		var dps: float = float(entry.dps) * _enemy_scale
+		# Stage 33: Giftblut clouds share the puff pool (own source, no slow).
+		var source := String(entry.get("source", "sporenherz"))
+		var slows := source == "sporenherz"
 		for target in _current:
 			if _valid_target(target) and _target_distance(target, entry.at) <= entry.radius:
-				_hurt(target, dps * delta, "sporenherz", true)
-				_want_slow(target, PUFF_SLOW)
+				_hurt(target, dps * delta, source, true)
+				if slows:
+					_want_slow(target, PUFF_SLOW)
 		if _has_horde():
 			horde.damage_circle(entry.at, entry.radius, dps * delta)
-			_note_horde("sporenherz", dps * delta)
+			_note_horde(source, dps * delta)
 
 
 # --- Zeichnen der neuen Formen (je Batch ein Draw-Call) -------------------
@@ -2172,7 +2205,8 @@ func _draw_new(hide_all := false) -> void:
 				var r: float = float(entry.radius) * (0.25 + 0.6 * grow) * (0.7 + 0.3 * float(m % 3) / 2.0)
 				var lift := 0.4 + 0.5 * t + 0.2 * float(m % 2)
 				var size := (2.4 + 0.8 * float(m % 3)) * (0.5 + 0.5 * grow)
-				_puff_batch.add(Transform3D(Basis.from_scale(Vector3.ONE * size), entry.at + Vector3(cos(ang) * r, lift, sin(ang) * r)), Color(SPORE_COLOR.r, SPORE_COLOR.g, SPORE_COLOR.b, 0.4 * fade))
+				var puff_tint: Color = VENOM_COLOR if String(entry.get("source", "sporenherz")) == "giftblut" else SPORE_COLOR
+				_puff_batch.add(Transform3D(Basis.from_scale(Vector3.ONE * size), entry.at + Vector3(cos(ang) * r, lift, sin(ang) * r)), Color(puff_tint.r, puff_tint.g, puff_tint.b, 0.4 * fade))
 		var drawn := 0
 		for key in _dots:
 			if drawn >= MAX_MARKS:
@@ -2384,6 +2418,10 @@ func _draw_rings() -> void:
 func _hurt(target, amount: float, source: String, tick: bool = false) -> void:
 	if amount <= 0.0 or not is_instance_valid(target):
 		return
+	# Stage 33 - Königsjäger: bosses and elites take the extra factor.
+	var major := float(modifiers.get("major_damage", 1.0))
+	if not is_equal_approx(major, 1.0) and world != null and world.has_method("is_major_target") and bool(world.is_major_target(target)):
+		amount *= major
 	if target.has_method("take_damage"):
 		target.call("take_damage", amount)
 	elif "health" in target:

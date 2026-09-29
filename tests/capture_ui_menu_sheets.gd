@@ -73,12 +73,14 @@ func _capture_size(window: Vector2i, suffix: String) -> void:
 	await _settle(8)
 	await _shot("res://previews/preview_ui_menu_sheets_upgrades_end%s.png" % suffix)
 	# Stage 31 B: SIEGEL sheet with two seals, some discovered entries and the
-	# start weapon tag (Glutmaw: Rudelbiss); then scrolled to the relics.
+	# start weapon tag (Glutmaw: Rudelbiss); then scrolled to the end (relics and
+	# stage 33 KERNE: six unlocked, six locked).
 	menu.profile.codex_seen.append_array(["stat:bite", "stat:crit", "stat:haste", "stat:armor", "stat:vigor", "stat:magnet", "stat:speed",
 		"weapon:rudelbiss", "weapon:sporenwolke", "weapon:giftbiss", "relic:hungerstein", "relic:scharfe_zaehne", "relic:blutzahn", "relic:magnetkern"])
 	menu.select_strain(-menu.strain_index)
 	menu.toggle_seal("crit")
-	menu.toggle_seal("sporenwolke")
+	# Stage 33: one sealed Mutationskern (group KERNE at the end of the list).
+	menu.toggle_seal("panzerherz")
 	menu.open_tab("seals")
 	menu.toast_time = 0.0
 	await _settle(8)

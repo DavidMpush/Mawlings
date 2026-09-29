@@ -23,6 +23,7 @@ const DATA = preload("res://scripts/meta/meta_data.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const STATS = preload("res://scripts/progression/stats.gd")
 const ARSENAL = preload("res://scripts/progression/arsenal.gd")
+const CORES = preload("res://scripts/progression/cores.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
 const SKITTER = preload("res://scripts/skitter.gd")
 const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
@@ -117,6 +118,10 @@ var no_apex := false
 # "noflood" argument: no flood (measures late fights such as the Aschenkröte,
 # which most bot runs never reach before the flood ends them; not for targets).
 var no_flood := false
+# Stage 33 "core" argument: "" = the profile's unlocked cores, the bot picks
+# (smart: _pick_core_smart); "none" = no cores; "<id>" = that core forced at the
+# start, no further cores (the per-core matrix of stages/33 section 6).
+var core_mode := ""
 
 
 func _initialize() -> void:
@@ -125,7 +130,7 @@ func _initialize() -> void:
 
 func _args() -> Dictionary:
 	var result := {"strain": "glutmaw", "diff": "0", "seed": "1", "strategy": "greedy", "limit": "900", "runs": "1", "react": str(REACT), "miss": str(MISS)}
-	for key in result.keys() + ["regress"]:
+	for key in result.keys() + ["regress", "core"]:
 		var env := OS.get_environment("BALANCE_" + String(key).to_upper())
 		if env != "":
 			result[key] = env
@@ -145,7 +150,14 @@ func _run() -> void:
 	no_apex = args.has("noapex") or OS.get_environment("BALANCE_NOAPEX") != ""
 	no_flood = args.has("noflood") or OS.get_environment("BALANCE_NOFLOOD") != ""
 	miss = float(args.miss)
+	core_mode = String(args.get("core", ""))
 	if args.has("regress"):
+		# Stage 33: the regression measures the base balance without Mutationskerne
+		# (core=none), so its tolerances keep their stage 32 meaning. With the
+		# default cores the smart bot mostly takes Hungrige Brut and grows past
+		# the too-easy guard (peak ~400-460 vs. 99-208); see stages/33 result.
+		if core_mode == "":
+			core_mode = "none"
 		for spec in REGRESS_RUNS:
 			# Stage 09: the lone start makes single runs chaotic (tiny process drift
 			# decides an early dodge), so each spec checks the median of three seeds.
@@ -201,6 +213,8 @@ func _simulate_process(strain: String, difficulty: int, run_seed: int, strategy:
 	var args := PackedStringArray(["--headless", "--audio-driver", "Dummy", "--fixed-fps", "60", "--path", ProjectSettings.globalize_path("res://"),
 		"--script", "res://tests/balance_sim.gd", "--", "strain=%s" % strain, "diff=%d" % difficulty, "seed=%d" % run_seed,
 		"strategy=%s" % strategy, "limit=%s" % str(limit)])
+	if core_mode != "":
+		args.append("core=%s" % core_mode)
 	var output: Array = []
 	OS.execute(OS.get_executable_path(), args, output, true)
 	for chunk in output:
@@ -260,7 +274,16 @@ func _config(strain: String, difficulty: int, run_seed: int) -> Dictionary:
 	profile.unlocked_strains = DATA.STRAIN_ORDER.duplicate()
 	profile.unlocked_difficulties = [0, 1, 2]
 	profile.unlocked_mutations = DATA.MUTATION_NAMES.keys()
-	return profile.build_run_config(strain, "verdant_maw", difficulty, run_seed)
+	var config: Dictionary = profile.build_run_config(strain, "verdant_maw", difficulty, run_seed)
+	# Stage 33: a fresh profile offers its default cores; "core=none" plays
+	# without, "core=<id>" forces that start core (every core unlocked).
+	if core_mode == "none":
+		config.erase("cores_unlocked")
+	elif CORES.has(core_mode):
+		config["cores_unlocked"] = CORES.ORDER.duplicate()
+	elif not config.has("cores_unlocked"):
+		config["cores_unlocked"] = CORES.default_unlocked()
+	return config
 
 
 func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String, limit: float) -> Dictionary:
@@ -318,6 +341,16 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		# Main resets time_scale when a scene leaves the tree (Königsmoment safety).
 		Engine.time_scale = TIME_SCALE
 		if world.choosing():
+			# Stage 33: the core choice (run start, after each endboss) comes first.
+			if not world.evolution.core_offers.is_empty():
+				if CORES.has(core_mode):
+					# Forced start core, no further cores in this run.
+					world.evolution.core_offers = [CORES.card(core_mode)]
+					world.evolution.cores_enabled = false
+				var core_slot := _pick_core_smart(world) if strategy == "smart" else 0
+				picks.append("core:" + String(world.evolution.core_offers[core_slot][0]))
+				world.choose_mutation(core_slot)
+				continue
 			# Etappe 28: every cocoon (start/map/elite/gold/boss) offers 1 of 3.
 			if not world.evolution.chest_offers.is_empty():
 				var chest_slot := _pick_chest(world.evolution, strategy)
@@ -428,12 +461,13 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"world": int(world.get("migrations")) + 1,
 		"first_fight": apex_killed - apex_seen if apex_killed >= 0.0 else -1.0,
 		"first_apex": 1 if first_apex_death else 0,
+		"cores": Array(world.evolution.cores),
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d ability=%s:%d surges=%d kpm_w1=%.0f kpm_after=%.0f world=%d firstapex=%d wall=%.1f lv=%s" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d ability=%s:%d surges=%d kpm_w1=%.0f kpm_after=%.0f world=%d firstapex=%d wall=%.1f lv=%s cores=%s" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
 		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop60, pop120, pop_flood, stats.swaps, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
-		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, String(world.abilities.ability_id) if world.get("abilities") != null else "-", int(world.abilities.uses) if world.get("abilities") != null else 0, int(world.get("surge_total")) if world.get("surge_total") != null else 0, (float(kills_migrated if migrated >= 0.0 else world.model.kills) * 60.0 / maxf(1.0, migrated if migrated >= 0.0 else world.model.elapsed)), (float(world.model.kills - kills_migrated) * 60.0 / maxf(1.0, world.model.elapsed - migrated) if migrated >= 0.0 else -1.0), int(world.get("migrations")) + 1, 1 if first_apex_death else 0, (Time.get_ticks_msec() - wall) / 1000.0, "/".join([60, 120, 240, 420].map(func(mark): return str(level_at.get(mark, -1))))])
+		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, String(world.abilities.ability_id) if world.get("abilities") != null else "-", int(world.abilities.uses) if world.get("abilities") != null else 0, int(world.get("surge_total")) if world.get("surge_total") != null else 0, (float(kills_migrated if migrated >= 0.0 else world.model.kills) * 60.0 / maxf(1.0, migrated if migrated >= 0.0 else world.model.elapsed)), (float(world.model.kills - kills_migrated) * 60.0 / maxf(1.0, world.model.elapsed - migrated) if migrated >= 0.0 else -1.0), int(world.get("migrations")) + 1, 1 if first_apex_death else 0, (Time.get_ticks_msec() - wall) / 1000.0, "/".join([60, 120, 240, 420].map(func(mark): return str(level_at.get(mark, -1)))), ",".join(world.evolution.cores) if not world.evolution.cores.is_empty() else "-"])
 	print("STATS " + JSON.stringify(stats))
 	sim_world = null
 	root.remove_child(scene)
@@ -552,6 +586,59 @@ func _pick_smart(evolution: Variant) -> int:
 			# A low leader wants its heart and lifesteal first.
 			if share < SMART_LOW_HP and id in ["vigor", "lifesteal", "regen"]:
 				score += 6.0
+		if score > best_score:
+			best_score = score
+			best = slot
+	return best
+
+
+# Stage 33 - core choice: simple build scoring like a player. Melee share of
+# the damage so far (0.5 before any fight) steers Rudelgeist vs. Arsenal-Kult
+# (3+ weapons favour the Kult); Panzerherz on Apex or with a low leader;
+# economy cores early, Königsjäger after the first endboss; Giftblut with crit.
+func _pick_core_smart(world: Variant) -> int:
+	var evolution: Variant = world.evolution
+	var offers: Array = evolution.core_offers
+	var forms_total := 0.0
+	if world.attack_forms != null:
+		for value in (world.attack_forms.damage_dealt as Dictionary).values():
+			forms_total += float(value)
+	var melee: float = float(world.melee_total)
+	var melee_share := melee / (melee + forms_total) if melee + forms_total > 1.0 else 0.5
+	var weapons: int = evolution.arsenal.weapons().size()
+	var start: bool = evolution.cores.is_empty()
+	var difficulty := int(world.config.get("difficulty", 0))
+	var low := _leader_share() < 0.5
+	var best := 0
+	var best_score := -INF
+	for slot in offers.size():
+		var id := String(offers[slot][0])
+		var score := rng.randf() * 0.1
+		match id:
+			"hungrige_brut":
+				score += 6.0 if start else 3.5
+			"rudelgeist":
+				score += 3.0 + 8.0 * melee_share - 1.5 * float(maxi(0, weapons - 1))
+			"arsenal_kult":
+				score += 1.0 + 8.0 * (1.0 - melee_share) + 2.0 * float(weapons - 2)
+			"panzerherz":
+				score += 5.0 + (3.0 if difficulty >= 2 else 0.0) + (2.0 if low else 0.0)
+			"bernsteinblut":
+				score += 5.0 if start else 3.0
+			"magnetsturm":
+				score += 4.0
+			"giftblut":
+				score += 3.0 + 20.0 * float(evolution.crit_chance())
+			"koenigsjaeger":
+				score += 4.0 if start else 6.0
+			"wandernde_brut":
+				score += 3.5
+			"flutfresser":
+				score += 2.0
+			"schwarmgedaechtnis":
+				score += 2.5
+			"letzter_biss":
+				score += 4.0 + (1.5 if low else 0.0)
 		if score > best_score:
 			best_score = score
 			best = slot

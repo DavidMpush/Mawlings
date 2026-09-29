@@ -114,6 +114,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/export_android.ps1    
   - [19 Wüste](stages/19_desert.md)
   - [20 Gefahren-Lesbarkeit](stages/20_danger_readability.md)
   - [21 Große Balance-Runde](stages/21_balance.md)
+  - [33 Mutationskerne](stages/33_mutation_cores.md) · [32 Balance Welten](stages/32_balance_worlds.md)
   - [31 Überladung, Siegel, Auswertung, Glutpilze](stages/31_limit_seals_items.md)
   - [30 Karte, Tor, Endboss](stages/30_map_gate_boss.md): weicher Kartennebel, keine falschen POI-Symbole, versiegeltes Tor an der Endboss-Arena, Endboss ≥ 3× Bog King, keine Hain-Knollen; Slots 4 Waffen / 6 Werte / 6 Relikte und langsamere Levelkurve (Nachtrag in Etappe 28)
   - [28 Seltenheit + Build-Kontrolle](stages/28_tiers_choice.md) · [29 Wasser](stages/29_water.md): Seen/Moore mit bremsendem Flachufer und blockierender Tiefe

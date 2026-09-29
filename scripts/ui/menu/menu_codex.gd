@@ -2,7 +2,7 @@ extends "res://scripts/ui/menu/menu_sheets.gd"
 ## Menü-Komponente KODEX (Sammlung): Inhalt des Blatts "codex".
 ##
 ## Wie menu_chronicle.gd: menu_sheets zeichnet Rahmen, Titel und Schließen-Knopf;
-## diese Komponente zeichnet die fünf Kategorie-Segmente (Waffen, Relikte, Werte,
+## diese Komponente zeichnet die Kategorie-Segmente (Waffen, Relikte, Kerne, Werte,
 ## Power-ups, Bosse), die Zählerleiste und – in einem zweiten Exemplar (role
 ## "codex_list", clip_contents) – die scrollbare Liste. Entdeckte Einträge zeigen
 ## Symbol, Seltenheit bzw. Art und Text; unentdeckte eine Tinten-Silhouette mit
@@ -163,9 +163,11 @@ func _cx_row(e: Dictionary, row: Rect2) -> void:
 		if boss_line != "":
 			sub = sub + ("  ·  " if sub != "" else "") + boss_line
 		var lines := 1 if sub != "" else 2
-		var y := Kit.paragraph(self, Vector2(x, ny + 44), String(e.text), text_w, S.T_LABEL, Color.WHITE, false, Kit.LEFT, lines)
+		# Stage 33: a core reads "+ bonus" in green and "− price" in red.
+		var core := String(e.key).begins_with("core:")
+		var y := Kit.paragraph(self, Vector2(x, ny + 44), String(e.text), text_w, S.T_LABEL, CorePlaqueRef.PLUS if core else Color.WHITE, core, Kit.LEFT, lines)
 		if sub != "":
-			_b_label(Vector2(x, y - 2), sub, _b_light(tone), Kit.LEFT | Kit.MIDDLE, text_w)
+			_b_label(Vector2(x, y - 2), sub, CorePlaqueRef.MINUS if core else _b_light(tone), Kit.LEFT | Kit.MIDDLE, text_w)
 	else:
 		Kit.paragraph(self, Vector2(x, ny + 44), String(e.get("hint", "")), text_w, S.T_LABEL, S.BRAWL_TEXT_DIM, false, Kit.LEFT, 2)
 

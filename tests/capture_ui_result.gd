@@ -145,7 +145,10 @@ func _seed_build() -> void:
 	world.melee_total = 31870.0
 	if world.abilities != null:
 		world.abilities.damage_dealt = 6240.0
-	var picks: Array = [[0.0, "weapon", "saeurespucker", "rare", 0]]
+	# Stage 33: a start core and one after the first endboss (KERNE panel, core picks).
+	if "cores" in world.evolution:
+		world.evolution.cores.assign(["arsenal_kult", "koenigsjaeger"])
+	var picks: Array = [[0.0, "core", "arsenal_kult", "legendary", 0], [0.5, "weapon", "saeurespucker", "rare", 0], [300.0, "core", "koenigsjaeger", "legendary", 14]]
 	var stats := ["bite", "crit", "haste", "rally", "vigor", "reach", "bite", "crit", "speed", "bite", "haste", "crit", "vigor", "luck", "bite", "reach", "gene"]
 	var cocoons := {3: ["weapon", "rudelbiss", "common"], 6: ["relic", "aetzdruese", "rare"], 8: ["weapon", "sporenwolke", "uncommon"],
 		10: ["weapon", "saeurespucker", "epic"], 12: ["relic", "glutdruese", "epic"], 13: ["weapon", "blitzbiss", "rare"],

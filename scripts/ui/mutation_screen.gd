@@ -41,6 +41,7 @@ const STATS := preload("res://scripts/progression/stats.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 const FORMS_PATH := "res://scripts/attack_forms.gd"
+const CorePlaque := preload("res://scripts/ui/core_plaque.gd")
 
 const DIM_IN := 0.2
 const DIM_OUT := 0.3
@@ -254,8 +255,11 @@ func _evolution() -> RefCounted:
 
 
 ## Stage 17: "chest" while a Boss-Kokon choice is open, else "level".
+## Stage 33: "core" while a Mutationskern choice is open (wins over both).
 func mode() -> String:
 	var evo := _evolution()
+	if evo != null and "core_offers" in evo and not evo.core_offers.is_empty():
+		return "core"
 	if evo != null and "chest_offers" in evo and not evo.chest_offers.is_empty():
 		return "chest"
 	return "level"
@@ -282,14 +286,19 @@ func entries() -> Array:
 	var evo := _evolution()
 	if evo == null:
 		return []
-	return evo.chest_offers if mode() == "chest" else evo.offers
+	match mode():
+		"core":
+			return evo.core_offers
+		"chest":
+			return evo.chest_offers
+	return evo.offers
 
 
 # Reroll/skip/banish counters; none in the chest choice, no banish for
 # overdrive cards (stage 31 A: evolution.offer_overdrive).
 func _counter(counter: String) -> int:
 	var hud := _hud()
-	if hud == null or mode() == "chest":
+	if hud == null or mode() != "level":
 		return 0
 	if counter == "banishes":
 		var evo := _evolution()
@@ -1347,7 +1356,7 @@ func _process_brawl(now: float, open: bool) -> void:
 		_ribbon.pivot_offset = rr.size * 0.5
 		_ribbon.scale = Vector2.ONE * lerpf(1.35, 1.0, _back(e))
 		_ribbon.modulate = Color(1, 1, 1, clampf(e * 3.0, 0.0, 1.0))
-		_ribbon.refresh([rr.size, int(evo.level), mode(), _shrine(), chest_title()])
+		_ribbon.refresh([rr.size, int(evo.level), mode(), _shrine(), chest_title(), _cores_taken()])
 		_footer.position = Vector2.ZERO
 		_footer.size = size
 		_footer.modulate = Color(1, 1, 1, clampf((t - 0.34) / 0.22, 0.0, 1.0))
@@ -1501,6 +1510,13 @@ func _draw_beam(k: float) -> void:
 func _paint_ribbon(c: CanvasItem) -> void:
 	var evo := _evolution()
 	var r := Rect2(Vector2.ZERO, B_RIBBON)
+	if mode() == "core":
+		# Stage 33: violet ribbon with a violet halo; which core of the run this is.
+		Kit.glow(c, r.grow(-10.0), 22.0, CorePlaque.ACCENT, 0.5)
+		Kit.ribbon(c, r, "special")
+		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.size.y * 0.5 - 3.0), "MUTATIONSKERN", UI.T_TITLE, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, r.size.x - 44.0)
+		Kit.text_outlined(c, Vector2(r.size.x * 0.5, r.end.y + 36.0), "KERN %d / 3  ·  WÄHLE 1 AUS 3" % mini(3, _cores_taken() + 1), UI.T_BODY, UI.rarity_tone("legendary")["light"], -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+		return
 	var chest := mode() == "chest"
 	# Etappe 17 Welle 2: a charged shrine opens the same stat choice (rare or better).
 	var shrine := not chest and _shrine()
@@ -1525,7 +1541,12 @@ func _paint_footer(c: CanvasItem) -> void:
 	if skips > 0:
 		_brawl_button(c, skip_rect(), "skip", "ÜBERSPRINGEN", skips)
 	var g := _geometry()
-	var hint := "BEUTE ANTIPPEN ZUM WÄHLEN" if mode() == "chest" else "KARTE ANTIPPEN ZUM WÄHLEN"
+	var hint := "KARTE ANTIPPEN ZUM WÄHLEN"
+	match mode():
+		"chest":
+			hint = "BEUTE ANTIPPEN ZUM WÄHLEN"
+		"core":
+			hint = "EIN KERN GILT FÜR DEN GANZEN RUN"
 	Kit.text_outlined(c, Vector2(size.x * 0.5, g.hint_y), hint, UI.T_LABEL, UI.BRAWL_TEXT_DIM, -1, -1, null, Kit.CENTER | Kit.MIDDLE, size.x - 2.0 * B_SIDE)
 
 
@@ -1544,6 +1565,9 @@ func _brawl_button(c: CanvasItem, r: Rect2, icon_id: String, label: String, coun
 # ------------------------------------------------------------------ brawl card
 
 func _brawl_card(c: CanvasItem, _slot: int, entry: Array, rank: int, flash: float) -> void:
+	if _is_core(entry):
+		_core_card(c, entry, flash)
+		return
 	var evo := _evolution()
 	var id := str(entry[0])
 	var s: Vector2 = c.size
@@ -1930,3 +1954,85 @@ static func _percent(sign: String, value: float) -> String:
 		return "0 %"
 	var digits := str(int(value)) if is_equal_approx(value, roundf(value)) else String.num(value, 1).replace(".", ",")
 	return "%s%s %%" % [sign, digits]
+
+# ------------------------------------------------------------------ core card (stage 33)
+
+## Cores already taken this run (evolution.cores), 0 without the field.
+func _cores_taken() -> int:
+	var evo := _evolution()
+	if evo == null or not ("cores" in evo):
+		return 0
+	var taken: Variant = evo.cores
+	return (taken as Array).size() if taken is Array else 0
+
+
+## A core card: entry[4] {kind: "core"}, or any card while the core choice is open.
+func _is_core(entry: Array) -> bool:
+	if entry.size() > 4 and entry[4] is Dictionary and String(entry[4].get("kind", "")) == "core":
+		return true
+	return mode() == "core"
+
+
+# Mutationskern: gold (legendary) outer rim with a violet accent ring, violet
+# card, round core plaque instead of the icon plate, "+ ..." (green) and
+# "- ..." (red) as two blocks; category tab "MUTATIONSKERN", chip LEGENDÄR.
+func _core_card(c: CanvasItem, entry: Array, flash: float) -> void:
+	var id := str(entry[0])
+	var info := CorePlaque.info(id, str(entry[2]) if entry.size() > 2 else "")
+	var name := str(entry[1]) if entry.size() > 1 and str(entry[1]) != "" else String(info.name)
+	var s: Vector2 = c.size
+	var rect := Rect2(Vector2.ZERO, s)
+	var gold: Dictionary = UI.rarity_tone("legendary")
+	Kit.glow(c, rect.grow(6.0), 28.0, CorePlaque.ACCENT, 0.5 + 0.15 * sin(_now() * 3.0))
+	Kit.rrect(c, rect.grow(13.0), UI.R_L + 13.0, Color(gold["light"], 0.32))
+	Kit.ring(c, rect.grow(10.0), UI.R_L + 10.0, 6.0, gold["face"])
+	Kit.ring(c, rect.grow(4.0), UI.R_L + 4.0, 4.0, CorePlaque.ACCENT)
+	Kit.card(c, rect, "special", "selected" if flash > 0.0 else "normal", B_HEADER)
+	var inset := UI.STROKE_L + 7.0
+	var head := Rect2(Vector2(inset, inset), Vector2(s.x - 2.0 * inset, B_HEADER))
+	var body := Rect2(Vector2(inset, inset + B_HEADER), Vector2(s.x - 2.0 * inset, s.y - 2.0 * inset - B_HEADER))
+	var st := {"rarity": "legendary"}
+	var head_right := _rarity_chip(c, Vector2(head.end.x - 12.0, head.get_center().y), st) - 14.0
+	if layout == "columns":
+		var plate := 150.0
+		var cx := s.x * 0.5
+		Kit.text_outlined(c, Vector2((head.position.x + 14.0 + head_right) * 0.5, head.get_center().y), name.to_upper(), UI.T_HEAD, UI.BRAWL_TEXT, -1, -1, null, Kit.CENTER | Kit.MIDDLE, head_right - head.position.x - 14.0)
+		var pc := Vector2(cx, body.position.y + 24.0 + plate * 0.5)
+		CorePlaque.draw_plaque(c, pc, plate, id, false, true, String(info.name))
+		var y := pc.y + plate * 0.5 + 44.0
+		var width := body.size.x - 28.0
+		y = _core_line(c, Vector2(body.position.x + 14.0, y), "+", String(info.plus), CorePlaque.PLUS, width, 3)
+		_core_line(c, Vector2(body.position.x + 14.0, y + 10.0), "−", String(info.minus), CorePlaque.MINUS, width, 3)
+	else:
+		var plate := minf(156.0, body.size.y - 8.0)
+		var title_x := head.position.x + 18.0
+		Kit.text_outlined(c, Vector2(title_x, head.get_center().y), name.to_upper(), UI.T_HEAD, UI.BRAWL_TEXT, -1, -1, null, Kit.LEFT | Kit.MIDDLE, head_right - title_x)
+		var pc := Vector2(body.position.x + 16.0 + plate * 0.5, body.get_center().y + 2.0)
+		CorePlaque.draw_plaque(c, pc, plate, id, false, true, String(info.name))
+		var x0 := pc.x + plate * 0.5 + 22.0
+		var width := body.end.x - 18.0 - x0
+		# Two blocks, vertically centred in the body (2 lines each at most).
+		var plus_lines := mini(2, Kit.wrap_lines(String(info.plus), UI.body_bold_font(), UI.T_BODY, width - 46.0).size())
+		var minus_lines := mini(2, Kit.wrap_lines(String(info.minus), UI.body_bold_font(), UI.T_BODY, width - 46.0).size())
+		var line_h := roundf(UI.T_BODY * 1.28)
+		var total := (plus_lines + minus_lines) * line_h + 14.0
+		var y := body.get_center().y - total * 0.5 + UI.T_BODY * 0.8
+		y = _core_line(c, Vector2(x0, y), "+", String(info.plus), CorePlaque.PLUS, width, 2)
+		_core_line(c, Vector2(x0, y + 14.0), "−", String(info.minus), CorePlaque.MINUS, width, 2)
+	_category_tab(c, rect, {"kind_label": "KERN", "rarity": "epic"})
+	_legend_glint(c, rect)
+	if flash > 0.0:
+		Kit.rrect(c, rect.grow(-UI.STROKE_L), UI.R_L - UI.STROKE_L, Color(gold["light"], 0.25 * flash))
+
+
+# One effect block: round sign badge (+ green, - red) and the text in that
+# colour, wrapped to `max_lines`; returns the baseline y below the block.
+func _core_line(c: CanvasItem, at: Vector2, sign: String, text: String, tint: Color, width: float, max_lines: int) -> float:
+	if text == "":
+		return at.y
+	var badge_c := Vector2(at.x + 17.0, at.y - UI.T_BODY * 0.36)
+	Kit.disc(c, badge_c + Vector2(0, 2), 17.0, UI.BRAWL_INK_SOFT)
+	Kit.disc(c, badge_c, 17.0, UI.BRAWL_INK)
+	Kit.disc(c, badge_c, 13.5, tint.darkened(0.35))
+	Kit.text_outlined(c, badge_c + Vector2(0, -1), sign, UI.T_BODY, Color.WHITE, -1, -1, UI.number_font(), Kit.CENTER | Kit.MIDDLE)
+	return Kit.paragraph(c, Vector2(at.x + 46.0, at.y), text, width - 46.0, UI.T_BODY, tint, true, Kit.LEFT, max_lines, 6)

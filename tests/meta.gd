@@ -50,7 +50,7 @@ func _run() -> void:
 	# Config vollständig
 	var config: Dictionary = p.build_run_config("glutmaw", "verdant_maw", 0)
 	for key in ["strain_id", "biome_id", "difficulty", "start_population", "tint", "signature_attack", "mods",
-			"enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool", "sealed"]:
+			"enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool", "sealed", "cores_unlocked"]:
 		check(config.has(key), "Config key %s" % key)
 	for key in ["damage", "armor", "speed", "harvest", "dna", "growth"]:
 		check(config.mods.has(key), "Mods key %s" % key)
@@ -206,7 +206,7 @@ func _run() -> void:
 	_clean()
 	var sp = PROFILE.load_or_create(TEST_PATH)
 	check(sp.sealed.is_empty() and sp.seal_limit() == 2 and sp.build_run_config("glutmaw", "verdant_maw", 0).sealed.is_empty(), "Fresh profile: no seals, limit 2")
-	check(PROFILE.seal_ids().size() == PROFILE.STATS.STATS.size() + DATA.ARSENAL.WEAPONS.size() + DATA.ARSENAL.RELICS.size() and PROFILE.seal_ids().has("bite") and PROFILE.seal_ids().has("graeber") and PROFILE.seal_ids().has("urmutter") and not PROFILE.seal_ids().has("meute"), "Every stat, weapon and relic is sealable, no evolutions")
+	check(PROFILE.seal_ids().size() == PROFILE.STATS.STATS.size() + DATA.ARSENAL.WEAPONS.size() + DATA.ARSENAL.RELICS.size() + DATA.CORES.ORDER.size() and PROFILE.seal_ids().has("bite") and PROFILE.seal_ids().has("graeber") and PROFILE.seal_ids().has("urmutter") and not PROFILE.seal_ids().has("meute"), "Every stat, weapon and relic is sealable, no evolutions")
 	check(not sp.toggle_seal("rudelbiss", "glutmaw") and not sp.toggle_seal("meute") and not sp.toggle_seal("nonsense"), "Start weapon / evolution / unknown id refused")
 	check(sp.toggle_seal("bite") and sp.toggle_seal("hungerstein") and not sp.toggle_seal("crit"), "Two seals, the third is refused")
 	check(sp.toggle_seal("bite") and not sp.is_sealed("bite") and sp.toggle_seal("rudelbiss", "sporling"), "Unseal frees a seal; another strain may seal Rudelbiss")
@@ -230,6 +230,7 @@ func _run() -> void:
 	file.close()
 	var sp3 = PROFILE.load_or_create(TEST_PATH)
 	check(sp3.sealed.size() == 2 and sp3.sealed[0] == "bite" and sp3.sealed[1] == "crit", "Loaded seals: known ids only, no duplicates, clamped to the limit: %s" % [sp3.sealed])
+	_check_cores()
 	_clean()
 	var missing = PROFILE.load_or_create(TEST_PATH)
 	check(missing.essence == 0 and not FileAccess.file_exists(TEST_PATH), "Missing file is not an error")
@@ -239,5 +240,64 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 	else:
-		print("PASS meta: data, config fields, upgrades, quests once, strain unlock+buy, difficulty lock, save/load, broken file, apex trophies + total_moss migration, stage 17 pools + unlock migration, volume sliders + sound migration, seals")
+		print("PASS meta: data, config fields, upgrades, quests once, strain unlock+buy, difficulty lock, save/load, broken file, apex trophies + total_moss migration, stage 17 pools + unlock migration, volume sliders + sound migration, seals, cores")
 		quit(0)
+
+
+## Stage 33: Mutationskerne - six unlocked from the start, six by trophies
+## (endbosses, 15 minutes, world 3, 5 overdrives), RunConfig, codex, seals.
+func _check_cores() -> void:
+	var CODEX = PROFILE.CODEX
+	var order: Array = DATA.CORES.ORDER
+	check(order.size() == 12, "12 cores in the catalogue")
+	_clean()
+	var cp = PROFILE.load_or_create(TEST_PATH)
+	var first: Array = order.slice(0, 6)
+	check(cp.cores_unlocked == first, "Fresh profile: the first six cores: %s" % [cp.cores_unlocked])
+	for id in first:
+		check(cp.codex_seen.has("core:" + id), "Unlocked core %s is known in the codex" % id)
+	var config: Dictionary = cp.build_run_config("glutmaw", "verdant_maw", 0)
+	check(config.cores_unlocked == first, "RunConfig carries cores_unlocked")
+	config.cores_unlocked.append("x")
+	check(cp.cores_unlocked.size() == 6, "RunConfig gets a copy of the cores")
+	# Every locked core has exactly one trophy.
+	var sources := {}
+	for q in DATA.QUESTS:
+		for token in q.reward.get("unlock", []):
+			if String(token).begins_with("core:"):
+				var id := String(token).substr(5)
+				check(DATA.CORES.has(id) and not first.has(id), "Core trophy %s unlocks a locked core" % q.id)
+				check(not sources.has(id), "Core %s has one trophy" % id)
+				sources[id] = q.id
+				check(DATA.unlock_label(String(token)).begins_with("Neuer Kern: "), "Core unlock label")
+	check(sources.size() == 6, "Six core trophies: %s" % [sources])
+	check(not CODEX.core_quest("giftblut").is_empty() and CODEX.core_quest("hungrige_brut").is_empty(), "Codex finds the core trophy")
+	# Locked cores cannot be sealed; unlocked ones can.
+	check(not cp.toggle_seal("giftblut") and cp.toggle_seal("rudelgeist") and cp.is_sealed("rudelgeist"), "Only unlocked cores are sealable")
+	check(cp.build_run_config("glutmaw", "verdant_maw", 0).sealed.has("rudelgeist"), "Sealed core reaches the RunConfig")
+	# Trophies: world 3 (two migrations), toad, overdrives.
+	var picks: Array = []
+	for k in 5:
+		picks.append([10.0 * k, "stat", "od_bite", "rare", 30 + k])
+	picks.append([60.0, "stat", "od_heal", "common", 40])
+	var result: Dictionary = cp.record_run(_stats({"seconds": 400.0, "migrations": 2, "apex_kills": 1, "toad_kills": 1, "picks": picks, "cores": ["rudelgeist"]}))
+	check(cp.records.best_world == 3 and cp.records.total_overdrives == 5, "best_world 3, 5 overdrives (heal not counted): %s / %s" % [cp.records.best_world, cp.records.total_overdrives])
+	for id in ["wandernde_brut", "schwarmgedaechtnis", "letzter_biss"]:
+		check(cp.cores_unlocked.has(id) and result.unlocked.has("core:" + id) and cp.codex_seen.has("core:" + id), "Trophy unlocks core %s" % id)
+	check(not cp.cores_unlocked.has("giftblut") and cp.cores_unlocked.size() == 9, "Other cores stay locked")
+	var sorted: Array = order.filter(func(id): return cp.cores_unlocked.has(id))
+	check(cp.cores_unlocked == sorted, "Unlocked cores keep catalogue order")
+	var reread = PROFILE.load_or_create(TEST_PATH)
+	check(reread.cores_unlocked == cp.cores_unlocked and reread.is_sealed("rudelgeist"), "Cores saved and loaded")
+	# Old profile: completed endboss trophy before stage 33 -> its core; unknown ids dropped;
+	# a sealed locked core is dropped.
+	var file := FileAccess.open(TEST_PATH, FileAccess.WRITE)
+	file.store_string("{\"version\":1,\"completed_quests\":[\"apex_moosschlund\"],\"cores_unlocked\":[\"erfunden\",\"flutfresser\"],\"sealed\":[\"giftblut\",\"arsenal_kult\"]}")
+	file.close()
+	var old = PROFILE.load_or_create(TEST_PATH)
+	check(old.cores_unlocked.has("koenigsjaeger") and old.cores_unlocked.has("flutfresser") and not old.cores_unlocked.has("erfunden") and old.cores_unlocked.size() == 8, "Old profile: trophy cores added, unknown dropped: %s" % [old.cores_unlocked])
+	check(old.sealed == ["arsenal_kult"], "Locked core seal dropped on load: %s" % [old.sealed])
+	# Codex: category KERNE with every core, icon "core:<id>", run cores are discovered.
+	var entries: Array = CODEX.entries("cores")
+	check(CODEX.CATEGORIES.has("cores") and entries.size() == 12 and String(entries[0].icon) == "core:" + String(order[0]), "Codex KERNE lists every core")
+	check(CODEX.keys_from_result({"cores": ["giftblut"]}).has("core:giftblut"), "A core taken in a run is discovered")

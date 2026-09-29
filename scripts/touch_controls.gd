@@ -197,8 +197,11 @@ func _press(pointer: int, location: Vector2) -> void:
 		# hit areas it draws. The legacy rects below stay as they are (in the
 		# organic/calm skins mutation_screen calls them itself).
 		var ms := get_node_or_null("mutation_screen")
-		if _chest_choosing():
-			for slot in evolution.chest_offers.size():
+		# Stage 33: a Mutationskern choice (evolution.core_offers) wins like the
+		# cocoon choice: pick only; HuntWorld.choose_mutation dispatches it.
+		if _core_choosing() or _chest_choosing():
+			var picks: Array = evolution.core_offers if _core_choosing() else evolution.chest_offers
+			for slot in picks.size():
 				var chest_area: Rect2 = ms.card_rect(slot) if ms != null else _mutation_rect(slot)
 				if chest_area.has_point(location):
 					_tap_sound()
@@ -463,7 +466,11 @@ func _skip_rect() -> Rect2:
 	return Rect2(Vector2(size.x * 0.5 + (22 if both else -160), size.y * 0.5 + 440), Vector2(300 if both else 320, 72))
 
 func _choosing() -> bool:
-	return evolution != null and (not evolution.offers.is_empty() or _chest_choosing())
+	return evolution != null and (not evolution.offers.is_empty() or _chest_choosing() or _core_choosing())
+
+# Stage 33: an open Mutationskern choice (evolution.core_offers); pick only.
+func _core_choosing() -> bool:
+	return evolution != null and "core_offers" in evolution and not evolution.core_offers.is_empty()
 
 # Etappe 17: an open boss-cocoon choice (evolution.chest_offers) uses the same
 # cards; only picking is allowed there (no banish/reroll/skip).

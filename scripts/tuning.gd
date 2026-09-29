@@ -568,3 +568,17 @@ const MAP_ITEM_CLEARANCE := 2.2
 # Darstellung: Korbgröße (x ~1,6 m Breite) und Item-Symbol.
 const MAP_ITEM_SIZE := 1.25
 const MAP_ITEM_ICON_SIZE := 1.5
+
+# Etappe 33: Mutationskerne (scripts/progression/cores.gd). Die Wirkungen stehen im
+# Katalog; hier nur die Hooks in HuntWorld/AttackForms.
+# Giftblut: Grundchance je Treffer (plus Krit-Chance), dass ein Treffer als Kritbiss
+# eine Giftwolke hinterlässt (ohne Grundchance wäre der Kern ohne Kritbiss wirkungslos).
+const CORE_POISON_BASE_CHANCE := 0.08
+# Höchstens eine Wolke je so viele Sekunden (Waffen-Treffer bzw. Nahkampf-Takt).
+const CORE_POISON_COOLDOWN := 0.4
+const CORE_POISON_MELEE_SECONDS := 0.5
+# Giftwolke: Schaden je Sekunde (× Druck-Skala der Waffen), Radius (m), Dauer steht in PUFF_SECONDS (2 s).
+const CORE_POISON_DPS := 10.0
+const CORE_POISON_RADIUS := 1.8
+# Flutfresser: die Flut beginnt höchstens so früh (Weltzeit in s).
+const CORE_FLOOD_MIN_START := 30.0

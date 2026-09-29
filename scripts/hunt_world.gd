@@ -1,6 +1,7 @@
 extends Node3D
 
 const EVOLUTION = preload("res://scripts/evolution.gd")
+const CORES = preload("res://scripts/progression/cores.gd")
 const RUN_MODEL = preload("res://scripts/run_model.gd")
 const PREY = preload("res://scripts/prey.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
@@ -132,6 +133,13 @@ var collect_chain := 0
 var collect_chain_at := -INF
 var collect_sound_ms := 0
 var lure_flash := 0.0
+# Stage 33 - Mutationskerne: the start offer opens at the first step of a run
+# (menu runs only, evolution.cores_enabled); Magnetsturm-Herz Lockruf clock and
+# Giftblut melee crit clock.
+var core_start_pending := false
+var core_lure_clock := 0.0
+var core_poison_clock := 0.0
+var core_amber_carry := 0.0
 # Seconds the collect hint stays after the last arrival (no flicker between frames).
 var collect_hint := 0.0
 var _map_loot_count := -1
@@ -430,6 +438,10 @@ func _configure_run() -> void:
 	enemy_hp = 1.0
 	enemy_damage = 1.0
 	flood_start = _difficulty_flood_start()
+	core_start_pending = false
+	core_lure_clock = 0.0
+	core_poison_clock = 0.0
+	core_amber_carry = 0.0
 	if config.is_empty():
 		# Etappe 17: Waffen gibt es nur noch als Startwaffe und über Kokons. Ohne
 		# RunConfig (F5, Tests) trägt der Schwarm deshalb die Startwaffe des
@@ -440,6 +452,8 @@ func _configure_run() -> void:
 	evolution.configure(config)
 	enemy_hp = maxf(0.1, float(config.get("enemy_hp", 1.0)))
 	enemy_damage = maxf(0.1, float(config.get("enemy_damage", 1.0)))
+	# Stage 33: the start core choice opens at the first step (before anything happens).
+	core_start_pending = evolution.cores_enabled
 
 
 func _create_attack_forms() -> void:
@@ -467,6 +481,8 @@ var _progression_model: RefCounted = null
 
 func _sync_attack_forms() -> void:
 	progression_revision = evolution.revision
+	# Stage 33 - Letzter Biss: the successor leads with 100 % of the old maximum.
+	model.successor_share = evolution.successor_share(TUNING.LEADER_SUCCESSOR_SHARE)
 	if attack_forms != null and attack_forms.has_method("set_ranks"):
 		attack_forms.set_ranks(evolution.attack_ranks())
 		if attack_forms.has_method("set_modifiers"):
@@ -541,12 +557,16 @@ func _step_abilities(delta: float) -> void:
 	var key := ""
 	for id in ABILITIES.RELIC_HOOKS:
 		key += "%s%d," % [id, evolution.stacks(id)]
+	# Stage 33 - Wandernde Brut: the ability cooldown scale is part of the key.
+	var core_cooldown: float = evolution.ability_cooldown_scale()
+	key += "core%.3f" % core_cooldown
 	if key != _ability_relic_key:
 		_ability_relic_key = key
 		abilities.modifiers = {"cooldown": 1.0, "duration": 1.0, "radius": 1.0, "power": 1.0, "fire_trail": false}
 		for id in ABILITIES.RELIC_HOOKS:
 			for count in evolution.stacks(id):
 				abilities.apply_relic(id)
+		abilities.modifiers.cooldown = float(abilities.modifiers.cooldown) * core_cooldown
 	if _ability_wanted:
 		_ability_wanted = false
 		abilities.use(move)
@@ -669,9 +689,14 @@ func _difficulty_flood_start() -> float:
 # so migrating before the flood is no endless escape. flood_start stays the
 # difficulty's first-world value (tests may set it directly).
 func world_flood_start() -> float:
-	if arrivals <= 0:
-		return flood_start
-	return maxf(minf(flood_start, TUNING.FLOOD_WORLD_MIN), flood_start * pow(TUNING.FLOOD_WORLD_FACTOR, float(arrivals)))
+	var start := flood_start
+	if arrivals > 0:
+		start = maxf(minf(flood_start, TUNING.FLOOD_WORLD_MIN), flood_start * pow(TUNING.FLOOD_WORLD_FACTOR, float(arrivals)))
+	# Stage 33 - Flutfresser: the flood starts earlier (never before CORE_FLOOD_MIN_START).
+	var offset: float = evolution.flood_offset() if evolution != null else 0.0
+	if offset != 0.0:
+		start = maxf(minf(start, TUNING.CORE_FLOOD_MIN_START), start + offset)
+	return start
 
 
 # Seconds since the flood started (0 before).
@@ -987,12 +1012,14 @@ func flush_flood_bundles() -> bool:
 		var bundle: Dictionary = flood_bundles[key]
 		var location: Vector3 = get_parent().get_node("Arena").safe_spawn(bundle.sum / float(bundle.n), 0.4)
 		location.y = 0.0
-		var amount: float = float(bundle.biomass) * evolution.biomass_multiplier() * reward_multiplier()
+		# Stage 33 - Flutfresser: Moorbrut kills give double crystals (biomass and DNA).
+		var brood_factor: float = evolution.brood_reward_multiplier()
+		var amount: float = float(bundle.biomass) * evolution.biomass_multiplier() * reward_multiplier() * brood_factor
 		_add_remains(location, "horde")
 		# The horde draws its own death effect; the crystals show the reward.
 		# One crystal per bundle: its DNA is saved up and drops as one DNA
 		# crystal once a whole LOOT_DNA_CHUNK has come together (value kept).
-		flood_dna_pending += _reward_dna(int(bundle.dna))
+		flood_dna_pending += _reward_dna(int(round(float(bundle.dna) * brood_factor)))
 		var dna := 0
 		if flood_dna_pending >= int(TUNING.LOOT_DNA_CHUNK):
 			dna = flood_dna_pending
@@ -1046,6 +1073,12 @@ func _process(delta: float) -> void:
 
 
 func step(delta: float) -> void:
+	# Stage 33: the run starts with the core choice (1 of 3) before anything happens.
+	if core_start_pending and not paused and not model.extinct:
+		core_start_pending = false
+		if evolution.offer_core():
+			swarm.set_controls(Vector2.ZERO, false)
+			_update_hud("Wähle einen Mutationskern")
 	if paused or model.extinct or choosing():
 		swarm.clear_focus()
 		return
@@ -1088,8 +1121,12 @@ func step(delta: float) -> void:
 	var small_bonus := TUNING.SMALL_SWARM_BITE * clampf(1.0 - float(model.population - 1) / 24.0, 0.0, 1.0)
 	# Etappe 17b: melee power grows linearly with the population (the old cap of
 	# 32 at ~260 animals is gone; the flood is the exponential counterweight).
-	var damage := (1.0 + float(model.population) * 0.12 + small_bonus) * (1.55 if swarm.rally_pressed else 1.0)
-	damage *= evolution.damage_multiplier(swarm.rally_pressed)
+	# Stage 33: Wandernde Brut keeps only part of the rally bonus.
+	var damage := (1.0 + float(model.population) * 0.12 + small_bonus) * ((1.0 + 0.55 * evolution.rally_bonus_scale()) if swarm.rally_pressed else 1.0)
+	# Stage 33: melee and weapons scale apart (Rudelgeist / Arsenal-Kult); bosses
+	# and elites take major_damage (Königsjäger) on top.
+	damage *= evolution.melee_multiplier(swarm.rally_pressed)
+	var major_damage: float = damage * evolution.major_target_factor()
 	focus_mode = 0
 	focus_distance = INF
 	melee_contact = false
@@ -1097,7 +1134,7 @@ func step(delta: float) -> void:
 	# Attack forms only reduce health; every death below is resolved exactly once,
 	# whatever dealt the damage.
 	if attack_forms != null and attack_forms.has_method("step"):
-		attack_forms.step(delta, _living_targets(), swarm.rally_pressed, sqrt(pressure) * evolution.damage_multiplier(false) * form_population_scale())
+		attack_forms.step(delta, _living_targets(), swarm.rally_pressed, sqrt(pressure) * evolution.form_multiplier() * form_population_scale())
 	# Etappe 17d: after the forms (they reset slow_factor), before the enemies.
 	_step_abilities(delta)
 	for target in prey.duplicate():
@@ -1145,8 +1182,9 @@ func step(delta: float) -> void:
 		_consider_focus(hunter.position, 3.4)
 		var hunter_bite := 0.0 if hunter.get("state") == HUNTER.State.ARRIVING else melee_factor(hunter.position, "elite" if hunter.elite else "hunter", attack_range)
 		if hunter_bite > 0.0:
-			hunter.call("take_damage", damage * hunter_bite * delta)
-			melee_dealt += damage * hunter_bite * delta
+			var hunter_damage: float = major_damage if hunter.elite else damage
+			hunter.call("take_damage", hunter_damage * hunter_bite * delta)
+			melee_dealt += hunter_damage * hunter_bite * delta
 			melee_contact = true
 			message = "Jäger angreifen · vor dem Ring ausweichen"
 			if _resolve_death(hunter, "hunter"):
@@ -1217,8 +1255,8 @@ func step(delta: float) -> void:
 			_consider_focus(boss.position, 6.0)
 		var boss_bite := 0.0 if boss.state == BOG_KING.State.ARRIVING else melee_factor(boss.position, "boss", 3.5)
 		if boss_bite > 0.0:
-			boss.take_damage(damage * boss_bite * delta)
-			melee_dealt += damage * boss_bite * delta
+			boss.take_damage(major_damage * boss_bite * delta)
+			melee_dealt += major_damage * boss_bite * delta
 			melee_contact = true
 			message = "BOG KING · RALLY ZUM ANGRIFF"
 			if _resolve_death(boss, "boss") and choosing():
@@ -1235,7 +1273,7 @@ func step(delta: float) -> void:
 			elif boss.state == BOG_KING.State.ARRIVING:
 				message = "DER BOG KING TAUCHT AUF!"
 	# Stage 10: apex (Moosschlund / Aschenkröte) - melee, attack forms and its locked areas.
-	var apex_result := _step_apex(delta, damage, pressure, message)
+	var apex_result := _step_apex(delta, major_damage, pressure, message)
 	if apex_result.ended:
 		return
 	message = apex_result.message
@@ -1260,6 +1298,7 @@ func step(delta: float) -> void:
 	_audio_threat()
 	message = _step_loot(delta, message)
 	_step_leader_heal(delta)
+	_step_core_hooks(delta)
 	if _step_arsenal_world(delta):
 		return
 	_step_remains(delta)
@@ -1325,6 +1364,37 @@ func step(delta: float) -> void:
 	if freeze_left > 0.0:
 		message = "ZEITSTARRE · %d s · jetzt zubeißen!" % ceili(freeze_left)
 	_update_hud(message)
+
+
+# Stage 33 - core hooks inside step(): Magnetsturm-Herz calls a free Lockruf
+# every evolution.lure_interval() s; Giftblut rolls a melee crit every
+# CORE_POISON_MELEE_SECONDS while the swarm bites (chance = crit + base) and
+# leaves a poison cloud at the bitten target.
+func _step_core_hooks(delta: float) -> void:
+	var every: float = evolution.lure_interval()
+	if every > 0.0 and loot != null:
+		core_lure_clock += delta
+		if core_lure_clock >= every:
+			core_lure_clock = 0.0
+			_lure_moment()
+	if not evolution.poison_crits():
+		return
+	core_poison_clock -= delta
+	if not melee_contact or core_poison_clock > 0.0:
+		return
+	core_poison_clock = TUNING.CORE_POISON_MELEE_SECONDS
+	if attack_forms != null and attack_forms.has_method("poison_cloud") and drop_rng.randf() < evolution.poison_cloud_chance():
+		attack_forms.poison_cloud(focus_point if focus_mode != 0 else swarm.position)
+
+
+## Stage 33 - Königsjäger: bosses (Bog King, endboss) and elite hunters count as
+## major targets (AttackForms asks for its major_damage factor).
+func is_major_target(target: Object) -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+	if target == boss or target == apex:
+		return true
+	return target is HUNTER and bool(target.get("elite"))
 
 
 # Stage 09: attack forms grow with the swarm (a lone Mawling is no pack).
@@ -1698,12 +1768,20 @@ func leader_damage(attacker: Node3D, source: String = "") -> int:
 		else:
 			key = "apex_puddle"
 	var base := float(TUNING.LEADER_HIT.get(key, TUNING.LEADER_HIT["default"]))
+	# Stage 33 - Panzerherz: hits on the leader cost less LP.
+	base *= evolution.leader_hit_scale()
 	return maxi(1, int(round(base * pow(model.pressure(), TUNING.LEADER_HIT_PRESSURE) * difficulty_scale(enemy_damage))))
 
 
 # Heals the leader (Lebensraub, Regeneration, Königszahnkette) and remembers the
 # amount for the small green "+N" over the leader. Returns LP gained.
-func _heal_leader(amount: int) -> int:
+# Stage 33 - Panzerherz halves every heal (`scaled` false: already scaled,
+# e.g. the Lebensraub pool).
+func _heal_leader(amount: int, scaled: bool = true) -> int:
+	if scaled and amount > 0:
+		var factor: float = evolution.heal_scale()
+		if not is_equal_approx(factor, 1.0):
+			amount = maxi(1, int(round(float(amount) * factor)))
 	var gained: int = model.heal_leader(amount)
 	if gained > 0:
 		if model.elapsed - leader_heal_at > 0.8:
@@ -1729,11 +1807,11 @@ func _step_leader_heal(delta: float) -> void:
 	if model.extinct or model.leader_hp >= model.leader_max_hp:
 		_heal_pool = 0.0
 		return
-	_heal_pool += dealt * evolution.lifesteal() + evolution.regen_rate() * delta
+	_heal_pool += (dealt * evolution.lifesteal() + evolution.regen_rate() * delta) * evolution.heal_scale()
 	if _heal_pool >= 1.0:
 		var whole := int(floor(_heal_pool))
 		_heal_pool -= float(whole)
-		_heal_leader(whole)
+		_heal_leader(whole, false)
 
 
 # ---------------------------------------------------------------- Kokons, Power-ups, Schreine (Etappe 17 Welle 2)
@@ -2211,6 +2289,10 @@ func _apex_defeated(location: Vector3, toad: bool = false) -> void:
 		toad_kills += 1
 	apex_victories += 1
 	apex_state = 3
+	# Stage 33: every endboss kill opens the core choice (before the boss cocoon
+	# on the ground is picked up; at most CORES.MAX_PER_RUN per run).
+	if evolution.cores_enabled and evolution.offer_core():
+		swarm.set_controls(Vector2.ZERO, false)
 	var away: Vector3 = location - swarm.position
 	away.y = 0.0
 	if away.length_squared() < 0.01:
@@ -3058,6 +3140,12 @@ func _credit_loot(got: Dictionary) -> void:
 			loot.drop(LOOT.Kind.BIOMASS, biomass - taken, swarm.position, swarm.position + Vector3(drop_rng.randf_range(-1.0, 1.0), 0.0, drop_rng.randf_range(-1.0, 1.0)) * 1.5)
 	var dna: int = got.dna
 	var amber := int(got.get("amber", 0))
+	# Stage 33 - Bernsteinblut: more Bernstein (fractions carried over).
+	var amber_factor: float = evolution.amber_multiplier()
+	if amber > 0 and not is_equal_approx(amber_factor, 1.0):
+		core_amber_carry += float(amber) * amber_factor
+		amber = int(floor(core_amber_carry + 0.0001))
+		core_amber_carry -= float(amber)
 	if amber > 0:
 		model.amber += amber
 		model.amber_collected += amber
@@ -3359,6 +3447,8 @@ func run_stats() -> Dictionary:
 		"damage": _damage_by_source(),
 		"picks": run_picks.duplicate(true),
 		"level": evolution.level,
+		# Stage 33: Mutationskerne taken this run (ids in pick order).
+		"cores": Array(evolution.cores),
 	}
 
 
@@ -3531,8 +3621,9 @@ func _shake(amount: float) -> void:
 
 
 # Etappe 17/28: auch eine offene Kokon-Wahl (evolution.chest_offers, jede Kokon-Art) hält die Welt an.
+# Stage 33: the core choice (evolution.core_offers) pauses the world as well.
 func choosing() -> bool:
-	return not evolution.offers.is_empty() or not evolution.chest_offers.is_empty()
+	return not evolution.offers.is_empty() or not evolution.chest_offers.is_empty() or not evolution.core_offers.is_empty()
 
 
 func _award_dna(amount: int) -> void:
@@ -3594,6 +3685,10 @@ func _max_heal_message(message: String, delta: float) -> String:
 
 
 func choose_mutation(slot: int) -> void:
+	# Stage 33: an open core choice comes first (same card taps as every choice).
+	if not evolution.core_offers.is_empty():
+		choose_core(slot)
+		return
 	# Etappe 17/28: während einer Kokon-Wahl wählt dieselbe Karte die Beute; die
 	# Beutekarte (hud_loot über chests.show_card) zeigt danach das gewählte Teil.
 	if not evolution.chest_offers.is_empty():
@@ -3622,6 +3717,19 @@ func choose_mutation(slot: int) -> void:
 	_sfx("mutate")
 	# A stored Alpha-Kern evolves as soon as the rules are met.
 	_try_evolve()
+
+
+## Stage 33: takes core `slot` of the open core choice (mutation_screen mode
+## "core"); its effects apply at once (multipliers, leader LP, successor share).
+func choose_core(slot: int) -> void:
+	if paused or model.extinct or evolution.core_offers.is_empty():
+		return
+	var id: String = evolution.choose_core(slot)
+	if id == "":
+		return
+	_record_pick("core", id, CORES.RARITY)
+	_after_offer_change("Kern %s aktiv!" % CORES.display_name(id))
+	_sfx("mutate")
 
 
 ## Stage 31 C: one entry of the pick timeline on the result screen.

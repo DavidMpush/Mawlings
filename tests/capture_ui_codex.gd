@@ -53,6 +53,10 @@ func _capture() -> void:
 	menu.open_codex("relics")
 	await _settle(10)
 	await _shot("res://previews/preview_ui_codex_relics_540.png")
+	# Stage 33: KERNE tab at phone size.
+	menu.select_codex_view("cores")
+	await _settle(10)
+	await _shot("res://previews/preview_ui_codex_cores_540.png")
 	menu.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROFILE))

@@ -18,20 +18,26 @@ const ARSENAL = preload("res://scripts/progression/arsenal.gd")
 const STATS = preload("res://scripts/progression/stats.gd")
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const DATA = preload("res://scripts/meta/meta_data.gd")
+## Stage 33: Mutationskerne catalogue (ORDER, CORES, DEFAULT_UNLOCKED).
+const CORES = preload("res://scripts/progression/cores.gd")
 const POWERUPS_PATH := "res://scripts/powerups.gd"
 const ABILITIES_PATH := "res://scripts/abilities.gd"
 const EVOLUTION_PATH := "res://scripts/evolution.gd"
 
-const CATEGORIES := ["weapons", "relics", "stats", "powerups", "bosses"]
-const CATEGORY_NAMES := {"weapons": "WAFFEN", "relics": "RELIKTE", "stats": "WERTE", "powerups": "POWER-UPS", "bosses": "BOSSE"}
+## Stage 33: "cores" (Mutationskerne); a core counts as discovered once it is
+## unlocked (Profile.cores_unlocked keeps codex_seen in sync) or taken in a run.
+## Core icons are "core:<id>" (drawn procedurally by ui/core_plaque.gd).
+const CATEGORIES := ["weapons", "relics", "cores", "stats", "powerups", "bosses"]
+const CATEGORY_NAMES := {"weapons": "WAFFEN", "relics": "RELIKTE", "cores": "KERNE", "stats": "WERTE", "powerups": "POWER-UPS", "bosses": "BOSSE"}
 ## Symbol und Kit-Ton je Kategorie (Segmente im KODEX-Blatt).
-const CATEGORY_ICONS := {"weapons": "rudelbiss", "relics": "crown", "stats": "jaws", "powerups": "pu_raserei", "bosses": "bog_king"}
-const CATEGORY_TONES := {"weapons": "ember", "relics": "loot", "stats": "info", "powerups": "action", "bosses": "danger"}
+const CATEGORY_ICONS := {"weapons": "rudelbiss", "relics": "crown", "cores": "core:", "stats": "jaws", "powerups": "pu_raserei", "bosses": "bog_king"}
+const CATEGORY_TONES := {"weapons": "ember", "relics": "loot", "cores": "special", "stats": "info", "powerups": "action", "bosses": "danger"}
 ## Wo man Unentdecktes findet (Text unter „???“).
 const CATEGORY_HINTS := {
 	"weapons": "Steckt in Kokons.",
 	"evolved": "Entsteht aus Waffe Rang 5 + passendem Relikt.",
 	"relics": "Steckt in Kokons und Boss-Kokons.",
+	"cores": "Wird über eine Trophäe freigeschaltet.",
 	"stats": "Kommt mit der Werte-Wahl beim Level-Aufstieg.",
 	"powerups": "Lassen Mini-Bosse fallen.",
 	"bosses": "Wartet im Biom %s.",
@@ -120,6 +126,11 @@ static func entries(category: String) -> Array:
 				var rarity := String(row[3])
 				# Stage 28: chip and tone from the central rarity token (rarity id = kit tone).
 				out.append(_entry("relic", row[0], row[1], row[2], UiStyle.rarity_name(rarity), rarity if UiStyle.RARITY_TONES.has(rarity) else "common", icon_for(row[0]), ""))
+		"cores":
+			# Stage 33: "+ bonus" as text, "− price" as the coloured sub line.
+			for id in CORES.ORDER:
+				var d: Dictionary = CORES.definition(id)
+				out.append(_entry("core", id, String(d.get("name", id)), "+ " + String(d.get("plus", "")), "KERN", "legendary", "core:" + String(id), "− " + String(d.get("minus", ""))))
 		"stats":
 			for d in STATS.STATS:
 				var cat: Array = STAT_CATEGORY.get(String(d.cat), ["WERT", "info"])
@@ -144,8 +155,26 @@ static func entries(category: String) -> Array:
 			hint = CATEGORY_HINTS.evolved
 		elif category == "bosses":
 			hint = hint % String(e.sub).trim_prefix("Biom: ")
+		elif category == "cores":
+			var q := core_quest(String(e.id))
+			if not q.is_empty():
+				hint = "Trophäe „%s“: %s" % [String(q.name), String(q.description)]
 		e["hint"] = hint
 	return out
+
+
+## Stage 33: the trophy (DATA.QUESTS row) whose reward unlocks core `id`; {} for
+## a core that is unlocked from the start.
+static func core_quest(id: String) -> Dictionary:
+	for q in DATA.QUESTS:
+		if (q.reward.get("unlock", []) as Array).has("core:" + id):
+			return q
+	return {}
+
+
+## Stage 33: core ids unlocked in a fresh profile (first DEFAULT_UNLOCKED).
+static func default_cores() -> Array[String]:
+	return CORES.default_unlocked()
 
 
 static func _entry(kind: String, id: String, name: String, text: String, chip: String, tone: String, icon: String, sub: String) -> Dictionary:
@@ -192,6 +221,10 @@ static func keys_from_result(stats: Dictionary) -> Array:
 	for id in _ids(stats.get("powerups_taken", [])):
 		if defs.has(id):
 			_add(out, "powerup:" + id)
+	# Stage 33: cores taken in the run.
+	for id in _ids(stats.get("cores", [])):
+		if CORES.has(id):
+			_add(out, "core:" + id)
 	for id in _ids(stats.get("bosses_seen", [])):
 		_add(out, "boss:" + id)
 	var worms := int(stats.get("worm_kills", 0))

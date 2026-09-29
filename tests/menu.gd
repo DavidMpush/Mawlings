@@ -6,7 +6,7 @@ extends SceneTree
 const TEST_PROFILE := "user://test_menu_profile.json"
 const TEST_CHRONICLE := "user://test_menu_chronicle.json"
 const TEST_SHARES := "user://test_menu_shares/"
-const CONFIG_KEYS := ["strain_id", "biome_id", "difficulty", "start_population", "tint", "signature_attack", "mods", "enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool", "sealed"]
+const CONFIG_KEYS := ["strain_id", "biome_id", "difficulty", "start_population", "tint", "signature_attack", "mods", "enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool", "sealed", "cores_unlocked"]
 const MOD_KEYS := ["damage", "armor", "speed", "harvest", "dna", "growth"]
 
 var session: Variant
@@ -347,8 +347,8 @@ func _check_codex(menu: Control) -> bool:
 		return false
 	var sheet: Rect2 = menu.sheet_rect()
 	var cats: Array = menu.codex.CATEGORIES
-	if cats.size() != 5:
-		_fail("KODEX needs five categories: %s" % [cats])
+	if cats.size() != 6 or not cats.has("cores"):
+		_fail("KODEX needs six categories incl. KERNE: %s" % [cats])
 		return false
 	for i in cats.size():
 		var seg: Rect2 = menu.codex_segment_rect(i)
@@ -427,14 +427,14 @@ func _check_seals(menu: Control) -> bool:
 		_fail("SIEGEL tab did not open (tab %s)" % menu.tab)
 		return false
 	var entries: Array = menu.seal_entries()
-	var counts := {"stats": 0, "weapons": 0, "relics": 0}
+	var counts := {"stats": 0, "weapons": 0, "relics": 0, "cores": 0}
 	for e in entries:
 		counts[e.group] += 1
 		if arsenal.is_evolved(String(e.id)):
 			_fail("Evolutions must not be sealable: %s" % e.id)
 			return false
-	if counts.stats != stats_script.STATS.size() or counts.weapons != arsenal.WEAPONS.size() or counts.relics != arsenal.RELICS.size():
-		_fail("SIEGEL must list every stat, weapon and relic: %s" % counts)
+	if counts.stats != stats_script.STATS.size() or counts.weapons != arsenal.WEAPONS.size() or counts.relics != arsenal.RELICS.size() or counts.cores != menu.codex.CORES.ORDER.size():
+		_fail("SIEGEL must list every stat, weapon, relic and core: %s" % counts)
 		return false
 	var area: Rect2 = menu.seal_list_rect()
 	var sheet: Rect2 = menu.sheet_rect()
@@ -502,6 +502,21 @@ func _check_seals(menu: Control) -> bool:
 		_fail("RunConfig sealed wrong: %s" % [sealed])
 		return false
 	menu.profile.sealed.erase(signature)
+	# Stage 33: group KERNE - unlocked cores are seen and sealable, locked ones refused.
+	var cores: Array = menu.seal_entries().filter(func(e: Dictionary) -> bool: return e.group == "cores")
+	var seen_cores: Array = cores.filter(func(e: Dictionary) -> bool: return e.seen)
+	if seen_cores.size() != menu.profile.cores_unlocked.size() or seen_cores.size() == cores.size():
+		_fail("KERNE: exactly the unlocked cores must be seen: %d of %d" % [seen_cores.size(), cores.size()])
+		return false
+	menu.toggle_seal("speed")
+	var locked := String(cores.filter(func(e: Dictionary) -> bool: return not e.seen)[0].id)
+	if menu.toggle_seal(locked) or menu.profile.is_sealed(locked):
+		_fail("A locked core must not be sealable: %s" % locked)
+		return false
+	if not menu.toggle_seal(String(seen_cores[0].id)) or not menu.profile.build_run_config(menu.current_strain(), "verdant_maw", 0).sealed.has(String(seen_cores[0].id)):
+		_fail("An unlocked core must be sealable and reach the RunConfig")
+		return false
+	menu.toggle_seal(String(seen_cores[0].id))
 	menu.tap(menu.sheet_close_rect().get_center())
 	if menu.tab != "":
 		_fail("Close did not close the SIEGEL sheet")

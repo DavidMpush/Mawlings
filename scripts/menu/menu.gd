@@ -667,7 +667,9 @@ func toggle_seal(id: String) -> bool:
 		_toast("Startwaffe des Stamms – nicht versiegelbar")
 		return false
 	if not bool(entry.seen) and not bool(entry.sealed):
-		_toast("Erst entdecken, dann versiegeln")
+		# Stage 33: a locked core names the trophy that unlocks it.
+		var quest: Dictionary = codex.core_quest(id) if String(entry.group) == "cores" else {}
+		_toast("Kern gesperrt · Trophäe „%s“" % String(quest.name) if not quest.is_empty() else "Erst entdecken, dann versiegeln")
 		return false
 	if not bool(entry.sealed) and profile.sealed.size() >= profile.seal_limit():
 		_toast("Alle Siegel vergeben · mehr mit dem Siegelring")
@@ -1232,7 +1234,8 @@ func codex_row_rect(i: int) -> Rect2:
 # ---------------------------------------------------------------- seals layout
 
 ## SIEGEL sheet (stage 31 B): groups in list order, [codex category, header].
-const SEAL_GROUPS := [["stats", "WERTE"], ["weapons", "WAFFEN"], ["relics", "RELIKTE"]]
+## Stage 33: Mutationskerne as the last group (only unlocked cores are "seen").
+const SEAL_GROUPS := [["stats", "WERTE"], ["weapons", "WAFFEN"], ["relics", "RELIKTE"], ["cores", "KERNE"]]
 const SEAL_COLS := 4
 const SEAL_TILE_H := 184.0
 const SEAL_GAP := 12.0

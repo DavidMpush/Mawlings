@@ -34,6 +34,20 @@ Wenige, **regelverändernde** Karten, die dem Run eine Identität geben: nicht �
 - `evolution.cores: Array[String]`; `evolution.core_offers`; `evolution.choose_core(slot)`; die Wirkung läuft über die vorhandenen Multiplikatoren (`damage_multiplier`, `melee_multiplier`, `harvest_multiplier` …) und ein paar Hooks in `hunt_world` (Lockruf-Takt, Flutbeginn, Nachfolger-LP, Giftwolke).
 - `mutation_screen` Modus „core“; RunConfig `sealed` enthält Kern-Ids; Profil speichert freigeschaltete Kerne.
 
-## Ergebnis
+## Ergebnis (29.09.2026)
 
-(offen, Umsetzung nach Etappe 32)
+- **Logik:**
+  - `scripts/progression/cores.gd` enthält 12 Kerne (6 von Anfang an frei).
+  - `evolution.cores/core_offers/choose_core`, Start-Wahl beim ersten Schritt, eine Wahl nach jedem Endboss vor dem Boss-Kokon, höchstens 3.
+  - Die Wirkungen laufen über getrennte Multiplikatoren (Nahkampf/Waffen), Boss-Faktor und Hooks: Lockruf-Takt, Flutbeginn, Nachfolger-LP, Anführer-Treffer/Heilung, Bernstein, Fähigkeit.
+  - Giftblut: Waffentreffer und Nahkampf haben eine Chance von 8 % + Kritchance auf eine Giftwolke.
+  - Angebote öffnen nur mit `cores_unlocked` in der RunConfig (Menü-Runs); Tests ohne Config bleiben ohne Kern-Wahl.
+- **UI/Meta:**
+  - Kern-Karten mit Plakette, grünem Plus und rotem Minus.
+  - Kern-Spalte im HUD, Kerne auf der Seite „DEIN BUILD“.
+  - Gruppe KERNE im SIEGEL-Blatt und Kodex-Tab KERNE.
+  - 6 Trophäen schalten die übrigen Kerne frei (3 Endbosse, 15 min, Welt 3, 5 Überladungen).
+- **Balance:**
+  - Reduzierte Matrix (Knochenkiefer/Brutal, 3 Seeds, je Start-Kern): Panzerherz +11 %, Giftblut +5 %, die meisten Kerne ±10 %. Rudelgeist, Arsenal-Kult, Königsjäger und Bernsteinblut lagen bei etwa −50 %; ihr Preis wurde abgeschwächt (Waffen −10 %, Nahkampf −15 %, normale Gegner −5 % bei Bossen +50 %, DNA −8 %).
+  - `balance_regress` läuft ohne Kerne (`core=none`), prüft also die Grundbalance.
+- **Offen:** Kern-Matrix mit 5–7 Seeds; Hungrige Brut verdreifacht die Spitzenpopulation (Leistung am S25 prüfen).
