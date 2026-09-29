@@ -240,11 +240,11 @@ const ELITE_DNA := 40
 const FLOOD_START_SECONDS := 300.0
 const FLOOD_WARNING_SECONDS := 10.0
 # Etappe 27 (Nutzerentscheidung c): in Welt n beginnt die Flut bei Weltzeit
-# flood_start x FLOOD_WORLD_FACTOR^(n-1), frühestens FLOOD_WORLD_MIN (Wild: 270 -> 162 -> 97 -> 60 s).
-const FLOOD_WORLD_FACTOR := 0.6
+# flood_start x FLOOD_WORLD_FACTOR^(n-1), frühestens FLOOD_WORLD_MIN.
+const FLOOD_WORLD_FACTOR := 0.42   # Etappe 32: 0.6 -> 0.42 (Wild 330 -> 139 -> 60 s; later worlds end runs again)
 const FLOOD_WORLD_MIN := 60.0
-# ... und startet dort FLOOD_WORLD_STAGE Stufen höher je Welt (Welt 2 x2,8, Welt 3 x8, Welt 4 x22).
-const FLOOD_WORLD_STAGE := 1.5
+# ... und startet dort FLOOD_WORLD_STAGE Stufen höher je Welt.
+const FLOOD_WORLD_STAGE := 1.95   # Etappe 32: 1.5 -> 1.95 (world 2 x3.9, world 3 x15)
 const FLOOD_DOUBLING_SECONDS := 24.0     # Etappe 21: 40 -> 24 (Waffen wachsen jetzt ohne Deckel, stages/21_balance.md)
 const FLOOD_WAVE_SECONDS := 3.0
 const FLOOD_WAVE_COUNT := 8          # Brut pro Welle bei Stufe 0; x 2^k bis FLOOD_WAVE_MAX
@@ -301,10 +301,10 @@ static func recovery(base: float, pressure: float, minimum: float) -> float:
 # lebender Bog King schiebt ihn auf (höchstens bis Flutbeginn - APEX_FLOOD_MARGIN).
 # APEX_WARNING_SECONDS vorher bebt der Boden an der Auftauchstelle (Ankündigung, nichts
 # trifft). Solange der Apex lebt, kommt kein neuer Bog King.
-const APEX_SPAWN_SECONDS := [225.0, 165.0, 135.0]   # Etappe 21: Brutal 180 -> 165 (Flut jetzt ab 210 s)
-const APEX_MIN_POPULATION := 30
-const APEX_LATEST_EXTRA := 30.0
-const APEX_FLOOD_MARGIN := 15.0
+const APEX_SPAWN_SECONDS := [235.0, 210.0, 180.0]   # Etappe 32: 225/165/135 -> 235/210/180 (floods now 330/300/270 s)
+const APEX_MIN_POPULATION := 45   # Etappe 32: 30 -> 45 (population gate: the endboss meets a real swarm)
+const APEX_LATEST_EXTRA := 45.0   # Etappe 32: 30 -> 45
+const APEX_FLOOD_MARGIN := 40.0   # Etappe 32: 15 -> 40 (a living Bog King no longer pushes the endboss into the flood)
 const APEX_WARNING_SECONDS := 3.0
 const APEX_SPAWN_DISTANCE := 12.0
 # HP = APEX_HEALTH x APEX_HEALTH_DIFFICULTY (Wild/Brutal/Apex; Brutal/Apex bringen ihn
@@ -335,7 +335,7 @@ const APEX_PHASE_SHIFT_SECONDS := 1.8
 const APEX_ATTACK_RANGE := 14.0
 const APEX_KEEP_DISTANCE := 6.0
 const APEX_COOLDOWN := [2.2, 1.4]
-const APEX_EXHAUSTED_SECONDS := [4.0, 3.0]
+const APEX_EXHAUSTED_SECONDS := [5.0, 4.0]   # Etappe 32: 4/3 -> 5/4 s recovery window
 const APEX_EXHAUSTED_VULNERABILITY := 1.5
 const APEX_ROOT_WINDUP := [1.5, 1.25]
 const APEX_ROOT_DAMAGE := 7.0
@@ -388,12 +388,12 @@ const APEX_LOOP_HEALTH := 1.6
 const APEX_LOOP_DAMAGE := 1.25
 # Etappe 26: der Apex ist der Endgegner des Bioms - Verluste x APEX_DAMAGE_MULTIPLIER,
 # in Phase 2 zusätzlich x APEX_PHASE_TWO_DAMAGE.
-const APEX_DAMAGE_MULTIPLIER := 1.2
-const APEX_PHASE_TWO_DAMAGE := 1.3
+const APEX_DAMAGE_MULTIPLIER := 0.85   # Etappe 32: 1.2 -> 0.85 (fewer deaths at the first endboss)
+const APEX_PHASE_TWO_DAMAGE := 1.1   # Etappe 32: 1.3 -> 1.1
 # Etappe 26 (Nutzerentscheidung): jede Migration startet Druck, Flut und Spawn-Direktor
 # neu (Weltzeit 0); jede erreichte Welt nach der ersten macht Gegner, Flut und Bosse
 # um WORLD_BONUS stärker (HP, Anführer-Treffer, Apex-LP und -Verluste).
-const WORLD_BONUS := 0.25
+const WORLD_BONUS := 0.32   # Etappe 32: 0.25 -> 0.32
 # Etappe 27 (S25-Feedback): der Direktor startet in Welt n mit Vorsprung, damit der
 # Grunddruck nach einer Migration zur erreichten Welt passt (Weltzeit läuft trotzdem neu).
 const WORLD_HUNTER_HEADSTART := 2     # Jäger-Budget +2 je erreichter Welt
@@ -411,7 +411,7 @@ const WORLD_SIDE_DELAY := 15.0        # Skitter/Leaper ab Weltzeit 15 s statt 50
 const SURGE_FIRST_SECONDS := 100.0
 const SURGE_FIRST_LATER := 35.0
 const SURGE_INTERVAL := 50.0
-const SURGE_INTERVAL_WORLD := 6.0
+const SURGE_INTERVAL_WORLD := 7.5   # Etappe 32: 6 -> 7.5
 const SURGE_INTERVAL_MIN := 32.0
 const SURGE_WARNING_SECONDS := 3.0
 const SURGE_MIN_POPULATION := 12      # Welt 1: erst ab so vielen Tieren
@@ -420,13 +420,13 @@ const SURGE_MIN_POPULATION := 12      # Welt 1: erst ab so vielen Tieren
 # FLOOD_MAX_ACTIVE lebende Brut zusammen mit der Flut: S25-Leistung).
 const SURGE_COUNT := 14
 const SURGE_COUNT_GROWTH := 1.2
-const SURGE_COUNT_WORLD := 0.35
+const SURGE_COUNT_WORLD := 0.45   # Etappe 32: 0.35 -> 0.45
 const SURGE_POP_REF := 40.0
 const SURGE_MAX := 70
 # Stärke wie Flutstufe k: Biss und Tempo mit k = SURGE_LEVEL_WORLD x Welten +
 # SURGE_LEVEL_STEP x Welle (Bissverluste skalieren ohnehin mit P); die LP zusätzlich
 # mit SURGE_HP_POP x log2(P/25), damit ein großer Schwarm sie nicht nur streift.
-const SURGE_LEVEL_WORLD := 0.5
+const SURGE_LEVEL_WORLD := 0.65   # Etappe 32: 0.5 -> 0.65
 const SURGE_LEVEL_STEP := 0.15
 const SURGE_HP_POP := 0.8
 const SURGE_LEVEL_MAX := 6.0

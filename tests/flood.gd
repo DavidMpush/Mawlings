@@ -84,7 +84,7 @@ func _run() -> void:
 	# ---- Start time per difficulty (Wild without config).
 	_check(is_equal_approx(world.flood_start, 300.0), "Wild/no config: flood at 5:00 (got %.0f)" % world.flood_start)
 	# Etappe 17c balance: Wild floods at 4:30 (was 5:00).
-	var expected := [270.0, 210.0, 180.0]   # Etappe 21: Brutal 240 -> 210
+	var expected := [330.0, 300.0, 270.0]   # Etappe 32: 270/210/180 -> 330/300/270 (first endboss before the flood)
 	for difficulty in 3:
 		world.config = {"difficulty": difficulty}
 		world.reset_run()

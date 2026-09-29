@@ -107,13 +107,16 @@ const BIOMES := {
 const BIOME_ORDER := ["verdant_maw", "duerrschlund", "glutsumpf"]
 
 ## flood_start: Sekunden bis "Die Flut" (Etappe 08); die Ankündigung kommt 10 s vorher.
+## Etappe 32 (stages/32_balance_worlds.md): floods 270/210/180 -> 330/300/270 s so the
+## first endboss is fought before the flood; Apex pressure_doubling 60 -> 80 and
+## enemy_hp/enemy_damage 1.2/1.15 -> 1.15/1.1 (Apex = earlier flood, harder hits).
 const DIFFICULTIES := [
 	{"name": "Wild", "description": "Der normale Kreislauf der Jagd.", "enemy_hp": 1.0, "enemy_damage": 1.0,
-		"pressure_doubling": 80.0, "flood_start": 270.0, "reward": 1.0, "crowns": 1, "unlock_quest": ""},
+		"pressure_doubling": 80.0, "flood_start": 330.0, "reward": 1.0, "crowns": 1, "unlock_quest": ""},
 	{"name": "Brutal", "description": "Zähere, härter zuschlagende Gegner.", "enemy_hp": 1.15, "enemy_damage": 1.05,
-		"pressure_doubling": 80.0, "flood_start": 210.0, "reward": 2.0, "crowns": 2, "unlock_quest": "survive_5"},
-	{"name": "Apex", "description": "Nur für die stärksten Schwärme.", "enemy_hp": 1.2, "enemy_damage": 1.15,
-		"pressure_doubling": 60.0, "flood_start": 180.0, "reward": 3.5, "crowns": 3, "unlock_quest": "brutal_3"},
+		"pressure_doubling": 80.0, "flood_start": 300.0, "reward": 2.0, "crowns": 2, "unlock_quest": "survive_5"},
+	{"name": "Apex", "description": "Nur für die stärksten Schwärme.", "enemy_hp": 1.15, "enemy_damage": 1.1,
+		"pressure_doubling": 80.0, "flood_start": 270.0, "reward": 3.5, "crowns": 3, "unlock_quest": "brutal_3"},
 ]
 
 ## Kosten eines Rangs r (0-basiert, also der nächste Kauf) = round(base * growth^r).

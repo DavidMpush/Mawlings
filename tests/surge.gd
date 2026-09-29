@@ -144,7 +144,10 @@ func _run() -> void:
 	for arrived in 5:
 		world.arrivals = arrived
 		starts.append(world.world_flood_start())
-	_check(is_equal_approx(starts[0], 270.0) and absf(starts[1] - 162.0) < 0.01 and absf(starts[2] - 97.2) < 0.01 and is_equal_approx(starts[3], TUNING.FLOOD_WORLD_MIN) and is_equal_approx(starts[4], TUNING.FLOOD_WORLD_MIN), "Flood start per world 270 -> 162 -> 97 -> %.0f (got %s)" % [TUNING.FLOOD_WORLD_MIN, starts])
+	# Etappe 32: FLOOD_WORLD_FACTOR 0.6 -> 0.42 (270 -> 113 -> 60 -> 60).
+	var second := 270.0 * TUNING.FLOOD_WORLD_FACTOR
+	var third := maxf(TUNING.FLOOD_WORLD_MIN, 270.0 * pow(TUNING.FLOOD_WORLD_FACTOR, 2.0))
+	_check(is_equal_approx(starts[0], 270.0) and absf(starts[1] - second) < 0.01 and absf(starts[2] - third) < 0.01 and starts[1] < starts[0] and starts[2] <= starts[1] and is_equal_approx(starts[3], TUNING.FLOOD_WORLD_MIN) and is_equal_approx(starts[4], TUNING.FLOOD_WORLD_MIN), "Flood start per world 270 -> %.0f -> %.0f -> %.0f (got %s)" % [second, third, TUNING.FLOOD_WORLD_MIN, starts])
 	world.arrivals = 2
 	world.model.world_start = world.model.elapsed
 	world.model.elapsed += starts[2] - TUNING.FLOOD_WARNING_SECONDS + 0.01

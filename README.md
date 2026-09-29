@@ -26,7 +26,7 @@ In Godot den Ordner als Projekt öffnen und **F5** drücken. Das Spiel startet i
 ## Spielablauf
 
 - **Start:** Ein Run beginnt mit einem einzelnen **Anführer**. Neue Mawlings entstehen per Zellteilung aus Biomasse. Die Population hat **kein Limit**; bis 120 Tiere sind einzeln sichtbar, darüber steht jedes Modell für mehrere Tiere.
-- **Kampf und Ende:** Der Schwarm greift in der Nähe automatisch an; der Nahkampf wächst linear mit der Population, Waffen und Fähigkeit ab 25 Tieren ohne Deckel mit √(P/25) (Etappe 21). Warnflächen treffen nur die Tiere, die darin stehen. Der Zeitdruck verdoppelt sich regelmäßig. Ab 4:30 / 3:30 / 3:00 (Wild / Brutal / Apex) kommt **„Die Flut“**, Horden, deren Stärke sich alle 24 s verdoppelt. Vorher und nach jeder Migration kommen **Hordenwellen** (Etappe 27): angekündigt (3 s, „HORDE NAHT“, Warnringe) und aus einer Richtung, in Welt 1 ab 1:40, danach ab 0:35 Weltzeit, stärker je Welt, Welle und Schwarmgröße. **Nur Aussterben beendet einen Run.**
+- **Kampf und Ende:** Der Schwarm greift in der Nähe automatisch an; der Nahkampf wächst linear mit der Population, Waffen und Fähigkeit ab 25 Tieren ohne Deckel mit √(P/25) (Etappe 21). Warnflächen treffen nur die Tiere, die darin stehen. Der Zeitdruck verdoppelt sich regelmäßig. Ab 5:30 / 5:00 / 4:30 (Wild / Brutal / Apex) kommt **„Die Flut“**, Horden, deren Stärke sich alle 24 s verdoppelt. Vorher und nach jeder Migration kommen **Hordenwellen** (Etappe 27): angekündigt (3 s, „HORDE NAHT“, Warnringe) und aus einer Richtung, in Welt 1 ab 1:40, danach ab 0:35 Weltzeit, stärker je Welt, Welle und Schwarmgröße. **Nur Aussterben beendet einen Run.**
 - **Anführer:** Er hat **100 LP** mit einem Balken über dem Kopf. Treffer kosten je Angriff LP, danach ist er kurz unverwundbar. Heilung gibt es über Lebensraub, Regeneration und Meilensteine. Fällt er, übernimmt ein Nachfolger mit 80 % des Maximums.
 - **Meta:** Menü **Brutstätte** mit 6 Stämmen (Glutmaw, Sporling, Knochenkiefer, Flinkzahn, Ätzmaul, Nachtmaul), 3 Schwierigkeiten, Brutkammer-Upgrades, Trophäen, Chronik, Tages-Brut und Einstellungen (Lautstärke-Regler GESAMT/MUSIK/EFFEKTE 0–100 % in 5er-Schritten auf eigenen Audio-Bussen, `scripts/audio_settings.gd`; GESAMT 0 = stumm). Die Meta-Währung ist Essenz; Bosse geben Königszähne.
 - **Kodex:** Sammlung mit den Tabs Waffen, Relikte, Werte, Power-ups und Bosse; der Knopf KODEX steht im Trophäen-Blatt. Ein Eintrag gilt als entdeckt, sobald er einmal in einem Run erhalten oder besiegt wurde. Das Profil speichert ihn in `codex_seen`; unentdeckte Einträge erscheinen als Silhouette mit „???“ und Fundort. Katalog: `scripts/meta/codex.gd`.
@@ -98,7 +98,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/export_android.ps1    
 
 - Godot-Läufe starten immer mit `--audio-driver Dummy`; Fenster-Läufe mit `--screen 1`.
 - Captures (`tests/capture_*.gd`) laufen ohne `--headless` und schreiben nach **`previews/`**. Der Ordner ist git-ignoriert und wird von Godot per `.gdignore` nicht importiert.
-- Der Balance-Bot `tests/balance_sim.gd` misst die Zielkurven: Wild 390–510 s, Brutal 300–390 s, Apex 210–270 s.
+- Der Balance-Bot `tests/balance_sim.gd` (Standard-Strategie `smart`, 6 Stämme × Seeds 1–3, Limit 25 min) misst die Zielkurven aus Etappe 32: Tod im Median Wild 11–17 min / Brutal 8–12 min / Apex 5–9 min, erreichte Welt 3 / 2–3 / 2, Tod am ersten Endboss höchstens 25 / 30 / 35 %, Stamm-Spreizung ≤ 50 %, Endboss-Kampf 45–90 s.
 
 ## Etappen
 

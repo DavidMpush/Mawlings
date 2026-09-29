@@ -80,10 +80,11 @@ func _steps(seconds: float) -> void:
 
 
 func _check_spawn_times() -> void:
-	var expected := [225.0, 165.0, 135.0]
+	# Etappe 32: 225/165/135 -> 235/210/180 s (floods 330/300/270 s).
+	var expected := [235.0, 210.0, 180.0]
 	for difficulty in 3:
 		var flood: float = float(DATA.DIFFICULTIES[difficulty].flood_start)
-		_fresh(difficulty, 40, expected[difficulty] - 0.5)
+		_fresh(difficulty, TUNING.APEX_MIN_POPULATION + 5, expected[difficulty] - 0.5)
 		_check(is_equal_approx(world.apex_spawn_seconds(), expected[difficulty]), "Apex due at %.0f s on difficulty %d" % [expected[difficulty], difficulty])
 		_check(world.apex_spawn_seconds() + TUNING.APEX_WARNING_SECONDS + TUNING.APEX_LATEST_EXTRA < flood, "Apex (latest) comes before the flood on difficulty %d" % difficulty)
 		_steps(0.3)
@@ -103,14 +104,15 @@ func _check_spawn_times() -> void:
 			_check(music.last_stinger() == "boss", "Stinger 'boss' at the apex spawn")
 			_check(music.stem_target("run_boss") == 1.0, "Boss music while the apex lives")
 	# Population gate: a small swarm gets APEX_LATEST_EXTRA more seconds.
-	_fresh(0, 5, 225.2)
+	var due: float = TUNING.APEX_SPAWN_SECONDS[0]
+	_fresh(0, 5, due + 0.2)
 	_steps(0.2)
 	_check(world.apex_state == 0, "Small swarm: apex waits for the population gate")
-	world.model.elapsed = 225.0 + TUNING.APEX_LATEST_EXTRA + 0.1
+	world.model.elapsed = due + TUNING.APEX_LATEST_EXTRA + 0.1
 	_steps(0.1)
 	_check(world.apex_state == 1, "Apex comes at the latest APEX_LATEST_EXTRA later")
 	# A living Bog King delays it; no new Bog King while the apex lives.
-	_fresh(0, 40, 226.0)
+	_fresh(0, TUNING.APEX_MIN_POPULATION + 5, due + 1.0)
 	var king: Variant = world._spawn_boss(swarm.position + Vector3(12, 0, 0))
 	_steps(0.2)
 	_check(world.apex_state == 0, "A living Bog King delays the apex")

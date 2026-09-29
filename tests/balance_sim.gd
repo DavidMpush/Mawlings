@@ -8,7 +8,8 @@ extends SceneTree
 # exactly one 0.05 s gameplay step (the clamp in HuntWorld/Swarm), i.e. 3x speed:
 #   godot --headless --fixed-fps 60 --path . --script res://tests/balance_sim.gd -- strain=glutmaw diff=0 seed=1 strategy=greedy limit=900
 # Arguments (after "--", or as env BALANCE_<KEY>): strain, diff, seed, strategy
-# (greedy | random | attack_first | form:<id>), limit (game seconds), runs (seeds seed..seed+runs-1),
+# (smart | greedy | random | attack_first | best | form:<id>; Etappe 32: "smart" builds like a
+# good player and is the matrix default), limit (game seconds), runs (seeds seed..seed+runs-1),
 # react (seconds before the bot reacts to a telegraph), miss (chance to overlook one),
 # regress (quick tolerance test, exit 1 on failure).
 #
@@ -21,6 +22,7 @@ const PROFILE = preload("res://scripts/meta/profile.gd")
 const DATA = preload("res://scripts/meta/meta_data.gd")
 const TUNING = preload("res://scripts/tuning.gd")
 const STATS = preload("res://scripts/progression/stats.gd")
+const ARSENAL = preload("res://scripts/progression/arsenal.gd")
 const HUNTER = preload("res://scripts/hunter.gd")
 const SKITTER = preload("res://scripts/skitter.gd")
 const MIRE_LEAPER = preload("res://scripts/mire_leaper.gd")
@@ -82,13 +84,23 @@ var low_hp := false
 # it reaches the flood and loses Mawlings to the Moorbrut again (median ~46), so
 # min_flood_lost 3 is back; the former glutmaw/Apex spec (dies to the Moosschlund
 # at ~3:00, flood losses 0) is merged into it, which also shortens the regression.
+# Etappe 32: both specs use the "smart" build bot (the matrix default). Spec 1 is
+# the lone-start curve on Wild (5 seeds, 2:00; the smart bot loses only 0-3 animals
+# by then except in seed 1, so min_lost is 2). Spec 2 is the first endboss on
+# Brutal: Knochenkiefer seeds 1-3 to 420 s - the Moosschlund rises ~263 s, just
+# before the flood (300 s); matrix: killed in all three seeds at 301-380 s (fight
+# 38-117 s), so at least two of three must win it (the stage 32 goal: fewer deaths
+# at the first endboss), the median run is alive at the limit, the Moorbrut bites
+# (the flood-seconds counter restarts per world, so min_flood is not used) and
+# the swarm stays below a too-easy peak (matrix 99-199). Every seed runs in its
+# own process (_simulate_process), so it equals the matrix run. Runtime ~3.5 min.
 const REGRESS_SEEDS := 5
 const REGRESS_RUNS := [
-	{"strain": "glutmaw", "diff": 0, "seed": 1, "strategy": "greedy", "limit": 150.0,
-		"min_seconds": 120.0, "min_peak": 20, "min_kills": 15, "min_lost": 10, "min_pop120": 15, "max_pop120": 80},
-	{"strain": "sporling", "diff": 2, "seed": 2, "strategy": "attack_first", "limit": 420.0,
-		"min_seconds": 150.0, "max_seconds": 330.0, "min_peak": 25, "min_kills": 25, "min_lost": 20,
-		"min_flood": 1.0, "min_flood_lost": 3},
+	{"strain": "glutmaw", "diff": 0, "seed": 1, "strategy": "smart", "limit": 150.0,
+		"min_seconds": 120.0, "min_peak": 20, "min_kills": 15, "min_lost": 2, "min_pop120": 15, "max_pop120": 80},
+	{"strain": "knochenkiefer", "diff": 1, "seed": 1, "seeds": 3, "strategy": "smart", "limit": 420.0,
+		"min_seconds": 400.0, "min_peak": 80, "max_peak": 400, "min_kills": 300, "min_lost": 50,
+		"min_flood_lost": 3, "min_apex_kills": 2, "min_fight": 25.0, "max_fight": 130.0},
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -138,12 +150,30 @@ func _run() -> void:
 			# Stage 09: the lone start makes single runs chaotic (tiny process drift
 			# decides an early dodge), so each spec checks the median of three seeds.
 			var runs: Array[Dictionary] = []
-			for offset in REGRESS_SEEDS:
-				runs.append(await _simulate(spec.strain, spec.diff, int(spec.seed) + offset, spec.strategy, spec.limit))
+			for offset in int(spec.get("seeds", REGRESS_SEEDS)):
+				var run := _simulate_process(spec.strain, spec.diff, int(spec.seed) + offset, spec.strategy, spec.limit)
+				if run.is_empty():
+					_check(false, "%s/%d seed %d: child run printed no STATS line" % [spec.strain, spec.diff, int(spec.seed) + offset])
+					_finish("")
+					return
+				runs.append(run)
 			var stats := _median_stats(runs)
 			_check(stats.seconds >= spec.min_seconds, "%s/%d survives at least %.0f s (got %.1f)" % [spec.strain, spec.diff, spec.min_seconds, stats.seconds])
 			_check(stats.seconds <= spec.get("max_seconds", INF), "%s/%d dies before %.0f s (got %.1f)" % [spec.strain, spec.diff, spec.get("max_seconds", INF), stats.seconds])
 			_check(stats.peak >= spec.min_peak, "%s/%d grows to %d (peak %d)" % [spec.strain, spec.diff, spec.min_peak, stats.peak])
+			_check(stats.peak <= spec.get("max_peak", 1000000), "%s/%d stays below a too-easy peak of %d (peak %d)" % [spec.strain, spec.diff, spec.get("max_peak", 1000000), stats.peak])
+			# Etappe 32: the first endboss must fall in enough seeds, in a fight of sane length.
+			var apex_kills := 0
+			var fight_lengths: Array = []
+			for run in runs:
+				if float(run.apex_killed) >= 0.0:
+					apex_kills += 1
+					fight_lengths.append(float(run.first_fight))
+			_check(apex_kills >= spec.get("min_apex_kills", 0), "%s/%d kills the first endboss in at least %d seeds (got %d)" % [spec.strain, spec.diff, spec.get("min_apex_kills", 0), apex_kills])
+			if not fight_lengths.is_empty():
+				fight_lengths.sort()
+				var fight: float = fight_lengths[fight_lengths.size() / 2]
+				_check(fight >= spec.get("min_fight", 0.0) and fight <= spec.get("max_fight", INF), "%s/%d first endboss fight %.0f-%.0f s (median %.0f)" % [spec.strain, spec.diff, spec.get("min_fight", 0.0), spec.get("max_fight", INF), fight])
 			_check(stats.lost >= spec.get("min_lost", 0), "%s/%d loses at least %d Mawlings (got %d)" % [spec.strain, spec.diff, spec.get("min_lost", 0), stats.lost])
 			_check(stats.kills >= spec.min_kills, "%s/%d kills at least %d (got %d)" % [spec.strain, spec.diff, spec.min_kills, stats.kills])
 			_check(stats.pop120 <= spec.get("max_pop120", 1000), "%s/%d population at 2:00 at most %d (got %d)" % [spec.strain, spec.diff, spec.get("max_pop120", 1000), stats.pop120])
@@ -155,12 +185,33 @@ func _run() -> void:
 			for run in runs:
 				flood_bite = maxi(flood_bite, int(run.flood_lost))
 			_check(flood_bite >= spec.get("min_flood_lost", 0), "%s/%d loses at least %d Mawlings to the Moorbrut in one seed (best %d)" % [spec.strain, spec.diff, spec.get("min_flood_lost", 0), flood_bite])
-		_finish("PASS balance_sim regress: %d specs x %d seeds (median) within tolerance in %.1f s" % [REGRESS_RUNS.size(), REGRESS_SEEDS, (Time.get_ticks_msec() - started) / 1000.0])
+		_finish("PASS balance_sim regress: %d specs (median of 3-5 seeds, strategy smart) within tolerance in %.1f s" % [REGRESS_RUNS.size(), (Time.get_ticks_msec() - started) / 1000.0])
 		return
 	var first := int(args.seed)
 	for offset in maxi(1, int(args.runs)):
 		await _simulate(String(args.strain), int(args.diff), first + offset, String(args.strategy), float(args.limit))
 	_finish("")
+
+
+# Etappe 32: each regress seed runs in its own Godot process, exactly like one
+# matrix run of tools/balance.ps1. Several runs in one process drift apart
+# (state such as the global RNG carries over), so a seed played a different
+# run than in the matrix. Returns the child's stats ({} when it failed).
+func _simulate_process(strain: String, difficulty: int, run_seed: int, strategy: String, limit: float) -> Dictionary:
+	var args := PackedStringArray(["--headless", "--audio-driver", "Dummy", "--fixed-fps", "60", "--path", ProjectSettings.globalize_path("res://"),
+		"--script", "res://tests/balance_sim.gd", "--", "strain=%s" % strain, "diff=%d" % difficulty, "seed=%d" % run_seed,
+		"strategy=%s" % strategy, "limit=%s" % str(limit)])
+	var output: Array = []
+	OS.execute(OS.get_executable_path(), args, output, true)
+	for chunk in output:
+		for line in String(chunk).split("\n"):
+			if line.begins_with("BALANCE "):
+				print(line.strip_edges())
+			elif line.begins_with("STATS "):
+				var parsed: Variant = JSON.parse_string(line.substr(6))
+				if parsed is Dictionary:
+					return parsed
+	return {}
 
 
 # Median of every numeric stat over several runs.
@@ -199,6 +250,11 @@ func _check(condition: bool, message: String) -> void:
 # Fresh profile with every strain, difficulty and attack form available, but no
 # meta upgrades: the balance target is a new account on each difficulty.
 func _config(strain: String, difficulty: int, run_seed: int) -> Dictionary:
+	# Etappe 32: every run starts from a fresh profile, also the later runs of a
+	# regress process (a finished run saves trophies/unlocks into the profile,
+	# which changed the loot pools of the following seeds).
+	if FileAccess.file_exists(profile_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(profile_path))
 	var profile: RefCounted = PROFILE.load_or_create(profile_path)
 	profile.owned_strains = DATA.STRAIN_ORDER.duplicate()
 	profile.unlocked_strains = DATA.STRAIN_ORDER.duplicate()
@@ -220,6 +276,8 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 	var world: Variant = scene.get_node("HuntWorld")
 	var swarm: Variant = scene.get_node("Swarm")
 	var hud: Variant = scene.get_node("HUD/Controls")
+	sim_world = world
+	smart_bot = strategy == "smart"
 	world.evolution.rng.seed = run_seed
 	world.drop_rng.seed = run_seed + 101
 	if no_apex and world.get("apex_state") != null:
@@ -347,6 +405,8 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		fights.append("%s:%.0f+%d%%" % [fight_kind, world.model.elapsed - fight_start, int(100.0 * fight_apex.health / maxf(1.0, fight_apex.max_health))])
 	if world.model.extinct and cause == "timeout":
 		cause = "other"
+	# Etappe 32: died while the first endboss of the run was up (never killed).
+	var first_apex_death: bool = world.model.extinct and apex_seen >= 0.0 and apex_killed < 0.0
 	var forms: Array = world.attack_forms.damage_dealt.keys() if world.attack_forms != null else []
 	var dealt := PackedStringArray()
 	for id in forms:
@@ -365,12 +425,17 @@ func _simulate(strain: String, difficulty: int, run_seed: int, strategy: String,
 		"apex_killed": apex_killed,
 		"migrated": migrated,
 		"fights": fights,
+		"world": int(world.get("migrations")) + 1,
+		"first_fight": apex_killed - apex_seen if apex_killed >= 0.0 else -1.0,
+		"first_apex": 1 if first_apex_death else 0,
 	}
-	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d ability=%s:%d surges=%d kpm_w1=%.0f kpm_after=%.0f wall=%.1f lv=%s" % [
+	print("BALANCE strain=%s diff=%d seed=%d strategy=%s survived=%.1f peak=%d kills=%d cause=%s extinct=%s bosses=%d level=%d nests=%d losses=h%d/s%d/l%d/b%d/o%d/f%d pop60=%d pop120=%d popflood=%d swaps=%d lost120=%d bio120=%.0f flood=%.0f kinds=%s build=%s forms=%s apex=%.0f apexkill=%.0f migrated=%.0f lossa=%d lava=%d fights=%s migrations=%d cocoons=%s boosts=%d shrines=%d amber=%d ability=%s:%d surges=%d kpm_w1=%.0f kpm_after=%.0f world=%d firstapex=%d wall=%.1f lv=%s" % [
 		strain, difficulty, run_seed, strategy, world.model.elapsed, world.model.peak_population, world.model.kills,
 		cause, world.model.extinct, world.model.bosses, world.evolution.level, stats.nests,
 		losses.hunter, losses.skitter, losses.leaper, losses.boss, losses.other, losses.flood, pop60, pop120, pop_flood, stats.swaps, lost120, bio120, float(world.call("flood_seconds")) if world.has_method("flood_seconds") else 0.0,
-		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, String(world.abilities.ability_id) if world.get("abilities") != null else "-", int(world.abilities.uses) if world.get("abilities") != null else 0, int(world.get("surge_total")) if world.get("surge_total") != null else 0, (float(kills_migrated if migrated >= 0.0 else world.model.kills) * 60.0 / maxf(1.0, migrated if migrated >= 0.0 else world.model.elapsed)), (float(world.model.kills - kills_migrated) * 60.0 / maxf(1.0, world.model.elapsed - migrated) if migrated >= 0.0 else -1.0), (Time.get_ticks_msec() - wall) / 1000.0, "/".join([60, 120, 240, 420].map(func(mark): return str(level_at.get(mark, -1))))])
+		_kinds(world.model.kills_by_type), _build(world.evolution), ",".join(dealt), apex_seen, apex_killed, migrated, int(losses.apex), int(losses.lava), ",".join(fights) if not fights.is_empty() else "-", int(world.get("migrations")), _cocoon_text(world), int(world.powerups.collected) if world.get("powerups") != null else 0, int(world.shrines.completed) if world.get("shrines") != null else 0, int(world.model.get("amber_collected")) if world.model.get("amber_collected") != null else 0, String(world.abilities.ability_id) if world.get("abilities") != null else "-", int(world.abilities.uses) if world.get("abilities") != null else 0, int(world.get("surge_total")) if world.get("surge_total") != null else 0, (float(kills_migrated if migrated >= 0.0 else world.model.kills) * 60.0 / maxf(1.0, migrated if migrated >= 0.0 else world.model.elapsed)), (float(world.model.kills - kills_migrated) * 60.0 / maxf(1.0, world.model.elapsed - migrated) if migrated >= 0.0 else -1.0), int(world.get("migrations")) + 1, 1 if first_apex_death else 0, (Time.get_ticks_msec() - wall) / 1000.0, "/".join([60, 120, 240, 420].map(func(mark): return str(level_at.get(mark, -1))))])
+	print("STATS " + JSON.stringify(stats))
+	sim_world = null
 	root.remove_child(scene)
 	scene.free()
 	await process_frame
@@ -399,6 +464,8 @@ func _pick(evolution: Variant, strategy: String) -> int:
 	var offers: Array = evolution.offers
 	if strategy == "random":
 		return rng.randi_range(0, offers.size() - 1)
+	if strategy == "smart":
+		return _pick_smart(evolution)
 	var best := 0
 	var best_score := -INF
 	for slot in offers.size():
@@ -429,6 +496,121 @@ func _pick(evolution: Variant, strategy: String) -> int:
 	return best
 
 
+# Etappe 32 - "smart": the bot builds like a good player.
+# Stats: bite / attack speed / reach / leader heart / lifesteal before niche
+# stats; higher rarity is preferred (one rarity step = SMART_RARITY points).
+# Overdrive: bite first, the heal card while the leader is low.
+const SMART_STAT_WEIGHT := {
+	"bite": 10.0, "haste": 9.5, "reach": 9.0, "vigor": 8.5, "lifesteal": 8.5,
+	"crit": 6.0, "armor": 6.0, "rally": 5.0, "regen": 5.0, "evade": 4.5, "speed": 4.0,
+	"brood": 2.5, "gene": 2.0, "luck": 1.5, "magnet": 1.0, "lockduft": 0.5,
+}
+const SMART_OVERDRIVE_WEIGHT := {
+	"od_bite": 10.0, "od_haste": 8.0, "od_reach": 7.0, "od_lifesteal": 6.0, "od_vigor": 5.5,
+	"od_armor": 5.0, "od_speed": 2.0, "od_brood": 1.5, "od_magnet": 1.0,
+}
+const SMART_RARITY := 2.0
+# Leader share of max LP below which heal / survival cards win.
+const SMART_LOW_HP := 0.45
+# Economy relics a good player takes only when nothing combat-relevant is offered.
+const SMART_ECONOMY_RELICS := ["hungerstein", "witterungsnase", "dna_splitter", "gluecksknochen", "magnetkern", "schlundherz"]
+var sim_world: Variant = null
+# True while the "smart" strategy runs: it also travels across the map to
+# affordable cocoons and shrines (SMART_TRAVEL_REACH) like a good player.
+var smart_bot := false
+const SMART_TRAVEL_REACH := 400.0
+
+
+func _leader_share() -> float:
+	if sim_world == null:
+		return 1.0
+	var max_hp := float(sim_world.model.get("leader_max_hp")) if sim_world.model.get("leader_max_hp") != null else 0.0
+	return float(sim_world.model.leader_hp) / max_hp if max_hp > 0.0 else 1.0
+
+
+func _rarity_rank(rarity: String) -> float:
+	return float(maxi(0, STATS.RARITIES.find(rarity)))
+
+
+# Level, shrine and overdrive cards.
+func _pick_smart(evolution: Variant) -> int:
+	var offers: Array = evolution.offers
+	var share := _leader_share()
+	var best := 0
+	var best_score := -INF
+	for slot in offers.size():
+		var id: String = offers[slot][0]
+		var rarity: String = str(offers[slot][3]) if offers[slot].size() > 3 else "common"
+		var score := _rarity_rank(rarity) * SMART_RARITY + rng.randf() * 0.1
+		if evolution.kind_of(id) == "overdrive":
+			if id == "od_heal":
+				score += 30.0 if share < SMART_LOW_HP else 0.0
+			else:
+				score += float(SMART_OVERDRIVE_WEIGHT.get(id, 1.0))
+		else:
+			score += float(SMART_STAT_WEIGHT.get(id, 3.0))
+			# A low leader wants its heart and lifesteal first.
+			if share < SMART_LOW_HP and id in ["vigor", "lifesteal", "regen"]:
+				score += 6.0
+		if score > best_score:
+			best_score = score
+			best = slot
+	return best
+
+
+# Cocoon offers: an evolution at once; new weapons until the slots are full,
+# then rank-ups of the strongest weapon (most damage dealt); relics that are the
+# evolution partner of an owned weapon first; higher rarity preferred.
+func _pick_chest_smart(evolution: Variant) -> int:
+	var offers: Array = evolution.chest_offers
+	var owned: Array = evolution.arsenal.weapons()
+	var free: bool = owned.size() < int(evolution.slot_limit("attack"))
+	var dealt: Dictionary = {}
+	if sim_world != null and sim_world.attack_forms != null:
+		dealt = sim_world.attack_forms.damage_dealt
+	var strongest := ""
+	var strongest_value := -1.0
+	for id in owned:
+		var value := float(dealt.get(id, 0.0)) + float(evolution.rank(String(id))) * 0.001
+		if value > strongest_value:
+			strongest_value = value
+			strongest = String(id)
+	var best := 0
+	var best_score := -INF
+	for slot in offers.size():
+		var entry: Array = offers[slot]
+		var item: Dictionary = entry[4] if entry.size() > 4 else {}
+		var id := String(item.get("id", ""))
+		var score := _rarity_rank(String(item.get("rarity", "common"))) * SMART_RARITY - 0.01 * float(slot)
+		match String(item.get("type", "")):
+			"evolution":
+				score += 100.0
+			"weapon":
+				if int(item.get("from", 0)) == 0:
+					score += 40.0 if free else 10.0
+				else:
+					score += 30.0 + float(int(item.get("gain", 1))) * 2.0
+					if id == strongest:
+						score += 6.0
+					# Towards an evolution whose partner relic is already there.
+					for rule in ARSENAL.EVOLUTION_RULES:
+						if rule.base == id and evolution.stacks(rule.partner) > 0:
+							score += 4.0
+			"relic":
+				score += 20.0
+				for rule in ARSENAL.EVOLUTION_RULES:
+					if rule.partner == id and evolution.rank(rule.base) > 0 and evolution.stacks(id) == 0:
+						score += 16.0 + (4.0 if rule.base == strongest else 0.0)
+				if id == "urmutter":
+					score += 12.0
+				elif id in SMART_ECONOMY_RELICS:
+					score -= 8.0
+		if score > best_score:
+			best_score = score
+			best = slot
+	return best
+
+
 # Opened cocoons per kind "map/gold/elite/boss/start" (Etappe 17 Welle 2).
 func _cocoon_text(world: Variant) -> String:
 	var chests: Variant = world.get("chests")
@@ -446,6 +628,8 @@ func _cocoon_text(world: Variant) -> String:
 # stage 28. Measured 28.09.2026: a weapon-preferring pick made the Sporling/Apex
 # spec survive to the 420 s limit in 3 of 5 seeds (targets: dies by 330 s).
 func _pick_chest(evolution: Variant, strategy: String = "greedy") -> int:
+	if strategy == "smart":
+		return _pick_chest_smart(evolution)
 	var offers: Array = evolution.chest_offers
 	var best := 0
 	var best_score := -INF
@@ -561,6 +745,9 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 	# Cocoons: free ones always, map cocoons when biomass > 2 x price and pop >= 20;
 	# shrines when nothing threatens. The bot stands still inside until it opens.
 	var calm: bool = not _any_armed(world) and world.get("apex") == null
+	# Etappe 32: the smart bot compares cocoons and shrines only with each other
+	# (nearest trip wins), not with the next crystal - it crosses the map for them.
+	var trip := INF
 	var cocoons: Variant = world.get("chests")
 	if cocoons != null and calm and (best == INF or best > 6.0):
 		for entry in cocoons.cocoons:
@@ -573,8 +760,12 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 			var distance: float = Vector2(entry.at.x - here.x, entry.at.z - here.z).length()
 			# A small swarm only takes free cocoons close by (no long trips into guarded zones).
 			var reach: float = COCOON_REACH if world.model.population >= CHEST_MIN_POP or entry.kind in ["start", "map"] else FREE_NEAR
-			if distance < minf(best, reach):
+			# Etappe 32: a good player ("smart") crosses the map for a cocoon it can open.
+			if smart_bot and reach == COCOON_REACH:
+				reach = SMART_TRAVEL_REACH
+			if distance < minf(trip if smart_bot else best, reach):
 				best = distance
+				trip = distance
 				target = entry.at
 				harvesting = false
 				holding = true
@@ -584,8 +775,9 @@ func _bot(world: Variant, swarm: Variant) -> Dictionary:
 			if entry.done:
 				continue
 			var distance: float = Vector2(entry.at.x - here.x, entry.at.z - here.z).length()
-			if distance < minf(best, SHRINE_REACH):
+			if distance < (minf(trip, SMART_TRAVEL_REACH) if smart_bot else minf(best, SHRINE_REACH)):
 				best = distance
+				trip = distance
 				target = entry.at
 				harvesting = false
 				holding = true
