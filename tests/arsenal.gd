@@ -28,6 +28,7 @@ func _run() -> void:
 	_test_chests()
 	_test_evolution()
 	_test_hooks()
+	_test_seals()
 	if not failures.is_empty():
 		for failure in failures:
 			push_error(failure)
@@ -35,6 +36,22 @@ func _run() -> void:
 		return
 	print("PASS arsenal: 10 weapons, 25 relics (5 tiers), 6 evolutions, slots + Urmutter, rank-ups, stacks, 1-of-3 for every cocoon kind with floors, refund, evolution ready, relic hooks")
 	quit(0)
+
+
+# Stage 31 B: sealed weapons and relics never come from any cocoon.
+func _test_seals() -> void:
+	var arsenal = ARSENAL.new()
+	arsenal.sealed = ["giftbiss", "klauenwirbel", "zaehe_haut", "scharfe_zaehne", "flinke_beine", "koenigszahnkette"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	for kind in ["start", "map", "elite", "gold", "boss"]:
+		for round_index in 40:
+			for item in arsenal.roll_chest(rng, 0.0, kind).items:
+				_check(not arsenal.sealed.has(String(item.id)), "Sealed %s never in a %s cocoon" % [item.id, kind])
+	# A sealed common relic falls through to the other common tiers / higher.
+	for round_index in 20:
+		var relic: Dictionary = arsenal._pick_relic(rng, "common", [], true)
+		_check(relic.is_empty() or not arsenal.sealed.has(String(relic.id)), "_pick_relic skips sealed (%s)" % str(relic.get("id", "")))
 
 
 func _test_catalog() -> void:

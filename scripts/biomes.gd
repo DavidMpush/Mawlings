@@ -127,8 +127,8 @@ const DATA := {
 		# with glowing cracks (slows), molten lava with drifting plates inside.
 		"water": {
 			"lava": true, "rim": Color("3c3033"), "crust": Color("2e2327"), "crack": Color("ff8a2c"),
-			"lava_core": Color("ffe27a"), "lava_mid": Color("ff9a2e"), "lava_crust": Color("5a2014"),
-			"plates": 0.85, "pads": 0.0,
+			"lava_core": Color("fff2a0"), "lava_mid": Color("ff7a1c"), "lava_crust": Color("2a0c0a"),
+			"plates": 0.78, "pads": 0.0,
 		},
 		"light": {"color": Color(1.0, 0.86, 0.74), "energy": 1.2},
 		# Shader look of arena.gd (only biomes with this block use it).

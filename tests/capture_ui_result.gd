@@ -67,11 +67,18 @@ func _capture() -> void:
 	await create_timer(0.2).timeout
 	# Result, no record: long-time player with a 10-minute best.
 	overlays.result_profile = _profile(600.0, 240, 22)
+	_seed_build()
 	_extinct()
 	await create_timer(1.0).timeout
 	await _save("preview_ui_result_count%s.png" % suffix)
 	await create_timer(2.8).timeout
 	await _save("preview_ui_result%s.png" % suffix)
+	# Stage 31 C: page "DEIN BUILD" via the real BUILD button.
+	controls._press(-2, controls._build_rect().get_center())
+	await create_timer(0.9).timeout
+	await _save("preview_ui_result_build%s.png" % suffix)
+	controls._press(-2, controls._build_rect().get_center())
+	await create_timer(0.3).timeout
 	# Result with a new record (time and peak) and a task completed by the run.
 	world.reset_run()
 	await create_timer(0.3).timeout
@@ -126,3 +133,29 @@ func _extinct() -> void:
 func _save(file_name: String) -> void:
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://previews/" + file_name)
+
+
+# Stage 31 C: a realistic late build - four weapons (one evolved), relic
+# procs, melee and the Glutmaw ability - plus the choices that led there.
+func _seed_build() -> void:
+	var forms: Variant = world.attack_forms
+	if forms != null:
+		forms.damage_dealt = {"aetzflut": 48210.0, "rudelbiss": 23120.0, "sporenwolke": 17450.0, "blitzbiss": 9340.0,
+			"glutdruese": 3880.0, "gewitterfell": 1460.0, "dornenhaut": 620.0}
+	world.melee_total = 31870.0
+	if world.abilities != null:
+		world.abilities.damage_dealt = 6240.0
+	var picks: Array = [[0.0, "weapon", "saeurespucker", "rare", 0]]
+	var stats := ["bite", "crit", "haste", "rally", "vigor", "reach", "bite", "crit", "speed", "bite", "haste", "crit", "vigor", "luck", "bite", "reach", "gene"]
+	var cocoons := {3: ["weapon", "rudelbiss", "common"], 6: ["relic", "aetzdruese", "rare"], 8: ["weapon", "sporenwolke", "uncommon"],
+		10: ["weapon", "saeurespucker", "epic"], 12: ["relic", "glutdruese", "epic"], 13: ["weapon", "blitzbiss", "rare"],
+		15: ["evolution", "aetzflut", "legendary"], 16: ["relic", "gewitterfell", "rare"]}
+	var rarities := ["common", "common", "uncommon", "rare", "common", "epic", "uncommon"]
+	var t := 0.0
+	for level in range(1, stats.size() + 1):
+		t += 14.0 + level * 2.5
+		picks.append([t, "stat", stats[level - 1], rarities[level % rarities.size()], level])
+		if cocoons.has(level):
+			var c: Array = cocoons[level]
+			picks.append([t + 6.0, c[0], c[1], c[2], level])
+	world.run_picks = picks

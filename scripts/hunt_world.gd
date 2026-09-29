@@ -16,6 +16,8 @@ const QUALITY = preload("res://scripts/quality.gd")
 const CORPSE_VISUALS = preload("res://scripts/corpse_visuals.gd")
 const LOOT = preload("res://scripts/loot.gd")
 const LOOT_NODES = preload("res://scripts/loot_nodes.gd")
+# Etappe 31 D: Glutpilze with instant items (Heilpilz, Zeitstarre, Bildschirm-Biss, Lockruf).
+const MAP_ITEMS = preload("res://scripts/map_items.gd")
 # Etappe 17 Welle 2: Kokons, Power-ups und Schreine (je ein Knoten unter HuntWorld).
 const CHESTS = preload("res://scripts/chests.gd")
 const POWERUPS = preload("res://scripts/powerups.gd")
@@ -109,6 +111,10 @@ var corpse_view: Node3D
 var loot: Node3D
 # Stage 18c: breakable amber nodes of the exploration map (scripts/loot_nodes.gd).
 var loot_nodes: Node3D
+# Etappe 31 D: Glutpilze (scripts/map_items.gd); freeze_left > 0 = Zeitstarre:
+# every enemy, boss, the brood and the eruptions hold still (no step, no attack).
+var map_items: Node3D
+var freeze_left := 0.0
 var chests: Node3D
 var powerups: Node3D
 var shrines: Node3D
@@ -351,6 +357,8 @@ func reset_run() -> void:
 	corpse_view = null
 	loot = null
 	loot_nodes = null
+	map_items = null
+	freeze_left = 0.0
 	chests = null
 	powerups = null
 	shrines = null
@@ -390,6 +398,8 @@ func reset_run() -> void:
 	flood_dna_pending = 0
 	flood_amber_pending = 0.0
 	melee_dealt = 0.0
+	melee_total = 0.0
+	run_picks.clear()
 	_forms_dealt_seen = 0.0
 	_heal_pool = 0.0
 	leader_heal_shown = 0
@@ -744,7 +754,15 @@ func _step_horde(delta: float, damage: float) -> bool:
 	var points := _unit_points()
 	if horde.has_method("melee") and horde.count() > 0 and not points.is_empty():
 		horde.melee(points, MELEE_REACH, damage, delta)
-	var result: Dictionary = horde.step(delta, points) if horde.has_method("step") else {}
+	var result: Dictionary = {}
+	if freeze_left > 0.0:
+		# Etappe 31 D: Zeitstarre - the brood stands and does not bite; only kills
+		# and hit flashes are drawn.
+		if horde.has_method("_draw"):
+			horde._step_fx(delta)
+			horde._draw()
+	elif horde.has_method("step"):
+		result = horde.step(delta, points)
 	if _flood_kills(delta):
 		return true
 	return _flood_bites(result, points)
@@ -1051,6 +1069,8 @@ func step(delta: float) -> void:
 	if milestone_timer <= 0.0:
 		milestone_value = 0
 	snap_gap = maxf(0.0, snap_gap - delta)
+	# Etappe 31 D: Zeitstarre runs down (see frozen()).
+	freeze_left = maxf(0.0, freeze_left - delta)
 	_sync_leader()
 	_music_step()
 	if swarm.rally_pressed:
@@ -1095,12 +1115,14 @@ func step(delta: float) -> void:
 		var was_snapping := int(target.get("snap_state")) == 1
 		if "snap_blocked" in target:
 			target.set("snap_blocked", snap_gap > 0.0 or _nibbler_snapping(target))
-		target.call("step", delta, swarm.position, pressure)
-		if was_snapping and int(target.get("snap_state")) == 0:
-			snap_gap = TUNING.recovery(TUNING.NIBBLER_SNAP_GLOBAL_GAP, pressure, 0.6)
-		# Nibbler snap (stage 08): announced small circle, per-animal hit.
-		if _resolve_area_hit(target, target.get("snap_center"), 0.12):
-			return
+		# Etappe 31 D: Zeitstarre - no movement, no attack (melee still hits it).
+		if freeze_left <= 0.0:
+			target.call("step", delta, swarm.position, pressure)
+			if was_snapping and int(target.get("snap_state")) == 0:
+				snap_gap = TUNING.recovery(TUNING.NIBBLER_SNAP_GLOBAL_GAP, pressure, 0.6)
+			# Nibbler snap (stage 08): announced small circle, per-animal hit.
+			if _resolve_area_hit(target, target.get("snap_center"), 0.12):
+				return
 		if int(target.get("snap_state")) == 1 and not message.begins_with("RAUS"):
 			message = "Nibbler schnappt · kurz ausweichen"
 		_consider_focus(target.position, 3.2)
@@ -1132,9 +1154,10 @@ func step(delta: float) -> void:
 					return
 				continue
 		var velocity: Vector3 = Vector3(swarm.movement_vector.x, 0.0, swarm.movement_vector.y) * swarm.move_speed()
-		hunter.call("step", delta, _aim_point(), pressure, velocity)
-		if _resolve_area_hit(hunter, hunter.attack_center, 0.35):
-			return
+		if freeze_left <= 0.0:
+			hunter.call("step", delta, _aim_point(), pressure, velocity)
+			if _resolve_area_hit(hunter, hunter.attack_center, 0.35):
+				return
 		if hunter.get("state") == HUNTER.State.WARNING:
 			message = "RAUS AUS DEM ROTEN RING!"
 	for skitter in skitters.duplicate():
@@ -1153,9 +1176,10 @@ func step(delta: float) -> void:
 				if choosing():
 					return
 				continue
-		skitter.step(delta, _aim_point(), pressure)
-		if _resolve_area_hit(skitter, skitter.position, 0.3):
-			return
+		if freeze_left <= 0.0:
+			skitter.step(delta, _aim_point(), pressure)
+			if _resolve_area_hit(skitter, skitter.position, 0.3):
+				return
 		if skitter.state in [SKITTER.State.WARNING, SKITTER.State.DASH]:
 			message = "SPRINT! SEITLICH AUSWEICHEN"
 	for leaper in leapers.duplicate():
@@ -1178,9 +1202,10 @@ func step(delta: float) -> void:
 					if choosing():
 						return
 					continue
-		leaper.step(delta, _aim_point(), pressure)
-		if _resolve_area_hit(leaper, leaper.landing_center, 0.35):
-			return
+		if freeze_left <= 0.0:
+			leaper.step(delta, _aim_point(), pressure)
+			if _resolve_area_hit(leaper, leaper.landing_center, 0.35):
+				return
 		if leaper.state in [MIRE_LEAPER.State.WARNING, MIRE_LEAPER.State.LEAP]:
 			message = "RAUS AUS DER SPRUNGZONE!"
 		elif leaper.state == MIRE_LEAPER.State.EXHAUSTED and not message.begins_with("RAUS") and not message.begins_with("SPRINT"):
@@ -1199,9 +1224,10 @@ func step(delta: float) -> void:
 			if _resolve_death(boss, "boss") and choosing():
 				return
 		if boss != null:
-			boss.step(delta, _aim_point(), pressure)
-			if _resolve_area_hit(boss, boss.attack_center, 0.45):
-				return
+			if freeze_left <= 0.0:
+				boss.step(delta, _aim_point(), pressure)
+				if _resolve_area_hit(boss, boss.attack_center, 0.45):
+					return
 			if boss.state == BOG_KING.State.WARNING:
 				message = "BOG KING STAMPFT · RAUS AUS DEM KREIS!"
 			elif boss.state == BOG_KING.State.RECOVERY and not message.begins_with("RAUS"):
@@ -1215,7 +1241,7 @@ func step(delta: float) -> void:
 	message = apex_result.message
 	# Glutsumpf lava eruptions: announced ground rings, then one area hit each
 	# (same per-animal path and leader-LP rule as the enemy areas).
-	if eruptions != null:
+	if eruptions != null and freeze_left <= 0.0:
 		var impacts: Array[Dictionary] = eruptions.step(delta, swarm.position, pressure)
 		if not impacts.is_empty():
 			_sfx("stomp", 60)
@@ -1225,7 +1251,8 @@ func step(delta: float) -> void:
 			message = "LAVA BRICHT AUS!"
 	if _step_flood(delta, damage):
 		return
-	if desert != null:
+	# Zeitstarre also holds the sand grubs and the sandstorm.
+	if desert != null and freeze_left <= 0.0:
 		var desert_result: Dictionary = desert.step(delta, damage, message)
 		if desert_result.ended:
 			return
@@ -1294,6 +1321,9 @@ func step(delta: float) -> void:
 	message = _step_surges(delta, message)
 	message = _apex_schedule(delta, message)
 	message = _max_heal_message(message, delta)
+	# Etappe 31 D: during a Zeitstarre the hint says why nothing moves.
+	if freeze_left > 0.0:
+		message = "ZEITSTARRE · %d s · jetzt zubeißen!" % ceili(freeze_left)
 	_update_hud(message)
 
 
@@ -1607,6 +1637,10 @@ func _create_world_views() -> void:
 	loot_nodes.name = "LootNodes"
 	add_child(loot_nodes)
 	loot_nodes.setup(self, get_parent().get_node_or_null("Arena") as Node3D)
+	map_items = MAP_ITEMS.new()
+	map_items.name = "MapItems"
+	add_child(map_items)
+	map_items.setup(self, get_parent().get_node_or_null("Arena") as Node3D)
 	_create_arsenal_world()
 	eruptions = ERUPTIONS.new()
 	eruptions.name = "Eruptions"
@@ -1628,6 +1662,11 @@ func _piece(parent: Node3D, mesh: Mesh, material: Material, location: Vector3) -
 
 ## Melee damage the swarm dealt this step (Lebensraub counts it with the forms).
 var melee_dealt := 0.0
+## Stage 31 C: melee damage of the whole run (result screen "DEIN BUILD").
+var melee_total := 0.0
+## Stage 31 C: order of choices this run, entries [seconds, kind, id, rarity, level]
+## (kind "stat"/"shrine" for level cards, "weapon"/"relic"/"evolution" for cocoons).
+var run_picks: Array = []
 var _forms_dealt_seen := 0.0
 var _heal_pool := 0.0
 ## Last visible heal ("+N" over the leader) and when it happened.
@@ -1685,6 +1724,7 @@ func _step_leader_heal(delta: float) -> void:
 	var forms_now := maxf(0.0, forms_total - _forms_dealt_seen)
 	_forms_dealt_seen = forms_total
 	var dealt := melee_dealt + forms_now
+	melee_total += melee_dealt
 	melee_dealt = 0.0
 	if model.extinct or model.leader_hp >= model.leader_max_hp:
 		_heal_pool = 0.0
@@ -1725,6 +1765,8 @@ func _step_arsenal_world(delta: float) -> bool:
 		chests.step(delta, centre)
 	if powerups != null:
 		powerups.step(delta, centre, _unit_points())
+	if map_items != null:
+		map_items.step(delta, centre, _unit_points())
 	if shrines != null:
 		shrines.step(delta, centre)
 		# A shrine with every stat maxed heals the leader instead (evolution.max_heals).
@@ -1758,6 +1800,11 @@ func _arsenal_hud() -> Dictionary:
 		state.merge(chests.hud_state(camera, swarm.position), true)
 	if powerups != null:
 		state.merge(powerups.hud_state(), true)
+	# Etappe 31 D: a fresh map item band ("ZEITSTARRE!") uses the same ribbon.
+	if map_items != null:
+		var item_band: Dictionary = map_items.band_state()
+		if not item_band.is_empty():
+			state["band"] = item_band
 	if shrines != null:
 		state["shrines"] = shrines.hud_state(camera, swarm.position)
 	return state
@@ -2135,15 +2182,17 @@ func _step_apex(delta: float, damage: float, pressure: float, message: String) -
 	# Etappe 26: phase 2 hits harder (on top of the faster phase-2 patterns).
 	if int(apex.get("phase")) >= 2:
 		apex_pressure *= TUNING.APEX_PHASE_TWO_DAMAGE
-	apex.step(delta, _aim_point(), apex_pressure)
-	if _resolve_area_hit(apex, apex.attack_center, 0.5):
-		result.ended = true
-		return result
-	# Aschenkröte: the lingering Glutpfützen tick like an announced enemy area.
-	var puddles: Variant = apex.get("puddles")
-	if puddles != null and is_instance_valid(puddles) and _resolve_area_hit(puddles, puddles.last_center, 0.2):
-		result.ended = true
-		return result
+	# Etappe 31 D: Zeitstarre holds the apex, its telegraphs and puddles.
+	if freeze_left <= 0.0:
+		apex.step(delta, _aim_point(), apex_pressure)
+		if _resolve_area_hit(apex, apex.attack_center, 0.5):
+			result.ended = true
+			return result
+		# Aschenkröte: the lingering Glutpfützen tick like an announced enemy area.
+		var puddles: Variant = apex.get("puddles")
+		if puddles != null and is_instance_valid(puddles) and _resolve_area_hit(puddles, puddles.last_center, 0.2):
+			result.ended = true
+			return result
 	var text: String = apex.hud_message()
 	if apex.state == APEX_BOSS.State.WINDUP or apex.state == APEX_BOSS.State.PHASE_SHIFT:
 		result.message = text
@@ -3306,7 +3355,28 @@ func run_stats() -> Dictionary:
 		"seed": int(config.get("seed", 0)),
 		"daily": bool(config.get("daily", false)),
 		"daily_date": str(config.get("daily_date", "")),
+		# Stage 31 C: damage per source and the order of choices ("DEIN BUILD").
+		"damage": _damage_by_source(),
+		"picks": run_picks.duplicate(true),
+		"level": evolution.level,
 	}
+
+
+## Stage 31 C: total damage per source this run. Keys: attack form / relic ids
+## (attack_forms.damage_dealt), "melee" (swarm bites) and "ability:<id>".
+func _damage_by_source() -> Dictionary:
+	var out := {}
+	if attack_forms != null and is_instance_valid(attack_forms) and "damage_dealt" in attack_forms:
+		for id in attack_forms.damage_dealt:
+			var value := float(attack_forms.damage_dealt[id])
+			if value > 0.0:
+				out[String(id)] = snappedf(value, 0.1)
+	var melee := melee_total + melee_dealt
+	if melee > 0.0:
+		out["melee"] = snappedf(melee, 0.1)
+	if abilities != null and is_instance_valid(abilities) and float(abilities.damage_dealt) > 0.0:
+		out["ability:" + String(abilities.ability_id)] = snappedf(float(abilities.damage_dealt), 0.1)
+	return out
 
 
 # Hands the finished run to the menu exactly once.
@@ -3466,6 +3536,7 @@ func choosing() -> bool:
 
 
 func _award_dna(amount: int) -> void:
+	_link_leader_share()
 	evolution.earn(amount)
 	if _apply_max_heals():
 		return
@@ -3475,25 +3546,44 @@ func _award_dna(amount: int) -> void:
 	_update_hud("")
 
 
-# Build slots (user decision 28.09.2026): with every stat slot maxed a level-up
-# (or a shrine) heals the leader by evolution.MAX_HEAL_SHARE of max LP instead
-# of offering a card; the green "+N" over the leader (_heal_leader) and a short
-# hint show it. True when a heal was applied (the HUD is already updated).
+# Build slots (user decision 28.09.2026) + stage 31 A: with every stat maxed a
+# level-up (or a shrine) opens the overdrive choice ("Überladung", evolution);
+# its "Anführer heilen" card (leader below 60 % LP) and, once every overdrive
+# is capped, each level-up heal the leader by evolution.MAX_HEAL_SHARE of max
+# LP. The green "+N" over the leader (_heal_leader) and a short hint show it.
+# Runs after DNA and every arsenal step (shrines, a picked heal card). True
+# when a heal was applied (the HUD is already updated).
 var max_heal_hint := 0.0
 var max_heal_text := ""
 
 
 func _apply_max_heals() -> bool:
+	_link_leader_share()
 	var count: int = evolution.take_max_heals()
 	if count <= 0:
 		return false
 	var amount := maxi(1, int(round(float(model.leader_max_hp) * evolution.MAX_HEAL_SHARE))) * count
 	var gained := _heal_leader(amount)
-	max_heal_text = ("WERTE MAXIMAL · Anführer +%d LP" % gained) if gained > 0 else "WERTE MAXIMAL · Anführer bei vollen LP"
+	var head := "HEILUNG" if bool(evolution.max_heal_card) else "WERTE MAXIMAL"
+	evolution.max_heal_card = false
+	max_heal_text = ("%s · Anführer +%d LP" % [head, gained]) if gained > 0 else "%s · Anführer bei vollen LP" % head
 	max_heal_hint = 2.5
 	_sfx("mutate")
 	_update_hud(max_heal_text)
 	return true
+
+
+# Stage 31 A: the overdrive choice offers "Anführer heilen" only while the
+# leader is below evolution.OVERDRIVE_HEAL_BELOW of max LP; it asks here.
+func _link_leader_share() -> void:
+	if not evolution.leader_share_source.is_valid():
+		evolution.leader_share_source = _leader_share
+
+
+func _leader_share() -> float:
+	if model == null or model.extinct or model.leader_max_hp <= 0:
+		return 1.0
+	return float(model.leader_hp) / float(model.leader_max_hp)
 
 
 func _max_heal_message(message: String, delta: float) -> String:
@@ -3512,6 +3602,8 @@ func choose_mutation(slot: int) -> void:
 		var picked: Dictionary = evolution.choose_chest(slot)
 		if picked.is_empty():
 			return
+		if bool(picked.get("applied", false)):
+			_record_pick(String(picked.get("type", "")), String(picked.get("id", "")), String(picked.get("rarity", "common")))
 		# An evolution has its own moment (EVOLUTION banner); other loot shows its card.
 		if chests != null and String(picked.get("type", "")) != "evolution":
 			chests.show_card(picked)
@@ -3519,12 +3611,24 @@ func choose_mutation(slot: int) -> void:
 		_sfx("mutate")
 		_try_evolve()
 		return
+	# Stage 31 C: remember the card before choose() rolls the next offer.
+	var entry: Array = evolution.offers[slot] if slot >= 0 and slot < evolution.offers.size() else []
+	var from_shrine: bool = evolution.offer_source == "shrine"
 	if paused or model.extinct or not evolution.choose(slot):
 		return
+	if not entry.is_empty():
+		_record_pick("shrine" if from_shrine else "stat", String(entry[0]), String(entry[3]) if entry.size() > 3 else "common")
 	_after_offer_change("Mutation aktiv · weiter jagen!")
 	_sfx("mutate")
 	# A stored Alpha-Kern evolves as soon as the rules are met.
 	_try_evolve()
+
+
+## Stage 31 C: one entry of the pick timeline on the result screen.
+func _record_pick(kind: String, id: String, rarity: String) -> void:
+	if id == "":
+		return
+	run_picks.append([snappedf(model.elapsed, 0.1), kind, id, rarity, evolution.level])
 
 
 func reroll_mutations() -> void:
@@ -3690,4 +3794,16 @@ func _map_state() -> Dictionary:
 		"chests": _arsenal_marks(chests),
 		"powerups": _arsenal_marks(powerups),
 		"shrines": _arsenal_marks(shrines),
+		# Etappe 31 D: Glutpilze and lying items, once discovered.
+		"items": _item_marks(),
 	}
+
+
+func _item_marks() -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if map_items == null:
+		return out
+	for point in map_items.map_points():
+		if _found(point):
+			out.append(point)
+	return out

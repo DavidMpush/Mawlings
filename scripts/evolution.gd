@@ -71,6 +71,9 @@ const ICON_IDS = {
 	"evade": "scatter", "vigor": "vigor", "regen": "regeneration", "magnet": "magnet",
 	"gene": "gene", "speed": "speed", "luck": "luck", "lifesteal": "regeneration", "blutzahn": "jaws",
 	"pilzreich": "pilzreich", "dornenwall": "dornenwall",
+	# Stage 31 A: overdrive cards use their stat's icon.
+	"od_bite": "jaws", "od_haste": "haste", "od_reach": "reach", "od_speed": "speed", "od_magnet": "magnet",
+	"od_brood": "brood", "od_armor": "armor", "od_lifesteal": "regeneration", "od_vigor": "vigor", "od_heal": "vigor",
 	"hungerstein": "glutton", "zaehe_haut": "armor", "scharfe_zaehne": "jaws", "flinke_beine": "scatter",
 	"witterungsnase": "branch_growth", "dna_splitter": "dna", "sporenherz": "sporenwolke",
 	"aetzdruese": "saeurespucker", "rudelhorn": "pack", "gewitterfell": "blitzbiss", "grabkralle": "graeber",
@@ -84,9 +87,38 @@ const ICON_IDS = {
 ## Build slots (user decision 28.09.2026): 4 weapons · 6 stats · 6 relics. The
 ## stat and relic slots are fixed (old configs with "trait": 14 still load).
 const DEFAULT_SLOTS = {"attack": ARSENAL.BASE_SLOTS, "trait": STATS.SLOTS, "relic": ARSENAL.RELIC_SLOTS}
-## Every stat slot maxed: a level-up heals the leader by this share of max LP
-## instead of offering a card (HuntWorld applies take_max_heals()).
+## Leader heal of a maxed level-up: the "Anführer heilen" overdrive card, or
+## automatic once every overdrive is capped too (HuntWorld applies
+## take_max_heals()).
 const MAX_HEAL_SHARE := 0.2
+## Stage 31 A – Limit Break ("Überladung"): with every stat at rank 5
+## (complete()), a level-up or shrine offers 1 of 3 small permanent bonuses
+## without slot or rank cap. step = value per pick of a common card (× the
+## stat rarity factor STATS.RARITY_FACTOR); "neg" bonuses reduce something.
+## Card ids "od_<stat>"; `overdrive` holds stat id -> summed value.
+const OVERDRIVE := [
+	{"id": "bite", "step": 0.02, "unit": "pct", "label": "Schaden"},
+	{"id": "haste", "step": 0.015, "unit": "neg", "label": "Abklingzeit der Waffen"},
+	{"id": "reach", "step": 0.02, "unit": "pct", "label": "Fläche und Reichweite"},
+	{"id": "speed", "step": 0.01, "unit": "pct", "label": "Tempo"},
+	{"id": "magnet", "step": 0.03, "unit": "pct", "label": "Sammelradius"},
+	{"id": "brood", "step": 0.02, "unit": "pct", "label": "Biomasse je Kristall"},
+	{"id": "armor", "step": 0.015, "unit": "neg", "label": "Verluste"},
+	{"id": "lifesteal", "step": 0.003, "unit": "pct", "label": "des Schwarm-Schadens heilt den Anführer"},
+	{"id": "vigor", "step": 0.04, "unit": "pct", "label": "Anführer-Max-LP"},
+]
+const OVERDRIVE_PREFIX := "od_"
+## Cap of the summed value per overdrive: +50 % for bonuses, −30 % for reductions.
+const OVERDRIVE_CAP := 0.5
+const OVERDRIVE_CAP_NEG := 0.3
+## Heal card "Anführer heilen" (heals MAX_HEAL_SHARE), only while the leader is
+## below this share of max LP. The choice screen holds three cards, so it takes
+## the third place (two bonuses + heal) instead of a fourth card.
+const OVERDRIVE_HEAL_ID := "od_heal"
+const OVERDRIVE_HEAL_BELOW := 0.6
+## Stage 31 B: fewer unsealed candidates of a kind (stats, weapons, relics) than
+## this -> that kind's seals are ignored for the run.
+const SEAL_MINIMUM := 3
 ## Etappe 17 Welle 2: Die Startwaffe beginnt auf Rang 1; weitere Ränge kommen
 ## nur aus Kokons (Welle 1 hatte sie ohne Kokons auf Rang 4 gesetzt).
 const SIGNATURE_START_RANK = 1
@@ -139,6 +171,24 @@ var max_heals := 0
 ## Etappe 17: Alpha-Kern entfällt; bleibt 0 (Altaufrufer, HUD-Chip).
 var alpha_cores := 0
 var signature := ""
+## Stage 31 B: effective seals of this run (RunConfig "sealed" minus the start
+## weapon and minus kinds whose seals had to be ignored); never offered.
+var sealed: Array[String] = []
+## True when some seals were ignored (a kind would have < SEAL_MINIMUM candidates).
+var seals_ignored := false
+## Stage 31 A: stat id -> summed overdrive value (e.g. "bite": 0.06 = +6 %;
+## "haste"/"armor" hold their reduction as a positive value).
+var overdrive: Dictionary = {}
+## True while the open offers are overdrive cards (level or shrine).
+var offer_overdrive := false
+## Shrines charged with every stat maxed while another choice was open; they
+## open their overdrive choice once that one closes.
+var queued_shrines := 0
+## Returns the leader's LP share (0..1); HuntWorld sets it. Invalid = full LP
+## (no heal card).
+var leader_share_source: Callable
+## True when the last pending heal came from the "Anführer heilen" card.
+var max_heal_card := false
 # Meta-Multiplikatoren (1.0 neutral); armor = additiver Verlust-Abzug.
 var mods: Dictionary = {"damage": 1.0, "armor": 0.0, "harvest": 1.0, "dna": 1.0, "growth": 1.0, "rally_damage": 1.0, "magnet": 1.0, "speed": 1.0}
 ## Kurzzeit-Multiplikatoren (Welle 2: Power-ups). damage/speed/magnet ×,
@@ -229,7 +279,38 @@ func configure(config: Dictionary) -> void:
 			pool.append(signature)
 		if not arsenal.weapon_pool.has(signature):
 			arsenal.weapon_pool.append(signature)
+	_configure_seals(config.get("sealed", []))
 	revision += 1
+
+
+# Stage 31 B: keeps the seals whose kind still has >= SEAL_MINIMUM unsealed
+# candidates in the pool (else that kind's seals are ignored, seals_ignored);
+# the start weapon can never be sealed.
+func _configure_seals(raw: Variant) -> void:
+	sealed = []
+	seals_ignored = false
+	var wanted: Array[String] = []
+	if raw is Array:
+		for entry in raw:
+			var id := migrate_id(str(entry))
+			if id != "" and id != signature and kind_of(id) in ["trait", "attack", "relic"] and not wanted.has(id):
+				wanted.append(id)
+	for kind in ["trait", "attack", "relic"]:
+		var of_kind: Array = wanted.filter(func(id): return kind_of(id) == kind)
+		if of_kind.is_empty():
+			continue
+		var open := pool.filter(func(id): return kind_of(id) == kind and not of_kind.has(id)).size()
+		if open < SEAL_MINIMUM:
+			seals_ignored = true
+			continue
+		for id in of_kind:
+			sealed.append(String(id))
+	stats.sealed = sealed.filter(func(id): return kind_of(id) == "trait")
+	arsenal.sealed = sealed.filter(func(id): return kind_of(id) != "trait")
+
+
+func is_sealed(id: String) -> bool:
+	return sealed.has(id)
 
 
 # ---------------------------------------------------------------- Level (Werte)
@@ -243,7 +324,8 @@ func threshold() -> int:
 
 # True when no further stat can ever be offered in this run (every owned stat
 # at rank 5 with all 6 stat slots taken, or the pool is exhausted). The XP bar
-# then shows MAX; further level-ups heal the leader instead (take_max_heals()).
+# then shows MAX; further level-ups offer overdrive cards (stage 31 A) or, with
+# every overdrive capped, heal the leader (take_max_heals()).
 func complete() -> bool:
 	return _stat_candidates().is_empty()
 
@@ -270,13 +352,22 @@ func _prepare(exclude: Array = []) -> void:
 	if not offers.is_empty() or dna < threshold():
 		return
 	if complete():
-		# Nothing new may come and nothing can rise: each level heals the leader.
+		if _open_queued_shrine():
+			return
+		var cards := overdrive_offers(exclude)
+		if not cards.is_empty():
+			offer_source = "level"
+			offer_overdrive = true
+			offers = cards
+			return
+		# Every overdrive capped as well: each level heals the leader.
 		while dna >= threshold():
 			dna -= threshold()
 			level += 1
 			max_heals += 1
 		return
 	offer_source = "level"
+	offer_overdrive = false
 	offers = _roll_stats(exclude)
 
 
@@ -288,15 +379,138 @@ func take_max_heals() -> int:
 	return count
 
 
+# ---------------------------------------------------------------- Überladung
+
+static func overdrive_def(stat_id: String) -> Dictionary:
+	for entry in OVERDRIVE:
+		if entry.id == stat_id:
+			return entry
+	return {}
+
+
+static func overdrive_cap(stat_id: String) -> float:
+	return OVERDRIVE_CAP_NEG if String(overdrive_def(stat_id).get("unit", "")) == "neg" else OVERDRIVE_CAP
+
+
+## Stat id of an overdrive card id ("od_bite" -> "bite"), else "".
+static func overdrive_stat(card_id: String) -> String:
+	if not card_id.begins_with(OVERDRIVE_PREFIX) or card_id == OVERDRIVE_HEAL_ID:
+		return ""
+	var stat_id := card_id.substr(OVERDRIVE_PREFIX.length())
+	return stat_id if not overdrive_def(stat_id).is_empty() else ""
+
+
+## Summed overdrive value of a stat (0.0 without picks).
+func overdrive_amount(stat_id: String) -> float:
+	return float(overdrive.get(stat_id, 0.0))
+
+
+## Value one pick of this rarity adds (clamped to the cap).
+func overdrive_gain(stat_id: String, rarity: String) -> float:
+	var d := overdrive_def(stat_id)
+	if d.is_empty():
+		return 0.0
+	var gain := float(d.step) * float(STATS.RARITY_FACTOR.get(rarity, 1.0))
+	return clampf(gain, 0.0, maxf(0.0, overdrive_cap(stat_id) - overdrive_amount(stat_id)))
+
+
+## Overdrive stats that can still grow (below the cap, not sealed; seals are
+## ignored when fewer than three would remain).
+func overdrive_candidates() -> Array:
+	var open: Array = []
+	for entry in OVERDRIVE:
+		if overdrive_amount(entry.id) < overdrive_cap(entry.id) - 0.00001:
+			open.append(String(entry.id))
+	var unsealed := open.filter(func(id): return not sealed.has(id))
+	return unsealed if unsealed.size() >= mini(SEAL_MINIMUM, open.size()) else open
+
+
+## Card of one overdrive pick: ["od_<stat>", Name, "+3 % Schaden · gesamt +15 %",
+## rarity]; "gesamt" is the sum after this pick ("(max.)" at the cap).
+func overdrive_card(stat_id: String, rarity: String) -> Array:
+	var d := overdrive_def(stat_id)
+	var gain := overdrive_gain(stat_id, rarity)
+	var sign := "−" if String(d.unit) == "neg" else "+"
+	var total := overdrive_amount(stat_id) + gain
+	var desc := "%s%s %% %s · gesamt %s%s %%" % [sign, STATS._num(gain * 100.0), d.label, sign, STATS._num(total * 100.0)]
+	if total >= overdrive_cap(stat_id) - 0.00001:
+		desc += " (max.)"
+	return [OVERDRIVE_PREFIX + stat_id, String(STATS.definition(stat_id).get("name", stat_id)), desc, rarity]
+
+
+func heal_card() -> Array:
+	return [OVERDRIVE_HEAL_ID, "Anführer heilen", "Anführer +%d %% der Max-LP" % int(round(MAX_HEAL_SHARE * 100.0)), "common"]
+
+
+func leader_share() -> float:
+	if leader_share_source.is_valid():
+		return float(leader_share_source.call())
+	return 1.0
+
+
+## Up to three overdrive cards (rarity rolled with luck, at least `minimum`).
+## `exclude` (card or stat ids) prefers fresh cards. While the leader is below
+## OVERDRIVE_HEAL_BELOW of max LP, "Anführer heilen" takes the last place.
+## Empty when every overdrive is capped.
+func overdrive_offers(exclude: Array = [], minimum: String = "common") -> Array:
+	var source := overdrive_candidates()
+	if source.is_empty():
+		return []
+	var fresh: Array = source.filter(func(id): return not exclude.has(id) and not exclude.has(OVERDRIVE_PREFIX + id))
+	if fresh.size() >= mini(3, source.size()):
+		source = fresh
+	var heal := leader_share() < OVERDRIVE_HEAL_BELOW
+	var count := 2 if heal else 3
+	var cards: Array = []
+	while cards.size() < count and not source.is_empty():
+		var id: String = source.pop_at(rng.randi_range(0, source.size() - 1))
+		cards.append(overdrive_card(id, STATS.roll_rarity(rng, luck(), minimum)))
+	if heal:
+		cards.append(heal_card())
+	return cards
+
+
+# Applies an overdrive card; true when it changed something.
+func _apply_overdrive(card_id: String, rarity: String) -> bool:
+	if card_id == OVERDRIVE_HEAL_ID:
+		max_heals += 1
+		max_heal_card = true
+		return true
+	var stat_id := overdrive_stat(card_id)
+	if stat_id == "":
+		return false
+	overdrive[stat_id] = overdrive_amount(stat_id) + overdrive_gain(stat_id, rarity)
+	return true
+
+
+# A shrine that charged while another choice was open (every stat maxed).
+func _open_queued_shrine() -> bool:
+	if queued_shrines <= 0 or not offers.is_empty() or not chest_offers.is_empty():
+		return false
+	queued_shrines -= 1
+	return open_shrine()
+
+
 ## Schrein (Etappe 17 Welle 2): 1 aus 3 Werten, mindestens selten, kostenlos.
-## Liefert false, wenn gerade eine andere Wahl offen ist oder kein Wert mehr steigt
-## (dann heilt der Schrein den Anführer wie ein maximales Level: max_heals).
+## Liefert false, wenn gerade eine andere Wahl offen ist oder kein Wert mehr steigt.
+## Stage 31 A: with every stat maxed the shrine offers overdrive cards (at least
+## rare); while another choice is open it is queued (queued_shrines) and opens
+## after that one. Only with every overdrive capped it heals the leader (max_heals).
 func open_shrine() -> bool:
 	if complete():
-		max_heals += 1
-		return false
+		if overdrive_candidates().is_empty():
+			max_heals += 1
+			return false
+		if not offers.is_empty() or not chest_offers.is_empty():
+			queued_shrines += 1
+			return false
+		offers = overdrive_offers([], SHRINE_MINIMUM)
+		offer_overdrive = not offers.is_empty()
+		offer_source = "shrine" if not offers.is_empty() else "level"
+		return not offers.is_empty()
 	if not offers.is_empty() or not chest_offers.is_empty():
 		return false
+	offer_overdrive = false
 	offers = _roll_stats([], SHRINE_MINIMUM)
 	offer_source = "shrine" if not offers.is_empty() else "level"
 	return not offers.is_empty()
@@ -304,6 +518,13 @@ func open_shrine() -> bool:
 
 # Refills after reroll/banish in the same mode (shrine cards stay shrine cards).
 func _refill(exclude: Array = []) -> void:
+	if offer_overdrive and offer_source == "shrine":
+		offers = overdrive_offers(exclude, SHRINE_MINIMUM)
+		if offers.is_empty():
+			offer_source = "level"
+			offer_overdrive = false
+			_prepare()
+		return
 	if offer_source == "shrine":
 		offers = _roll_stats(exclude, SHRINE_MINIMUM)
 		if offers.is_empty():
@@ -321,11 +542,17 @@ func choose(slot: int) -> bool:
 	if not shrine:
 		dna -= threshold()
 		level += 1
-	stats.apply(str(entry[0]), str(entry[3]) if entry.size() > 3 else "common")
+	var rarity := str(entry[3]) if entry.size() > 3 else "common"
+	if offer_overdrive:
+		_apply_overdrive(str(entry[0]), rarity)
+	else:
+		stats.apply(str(entry[0]), rarity)
 	revision += 1
 	offers.clear()
 	offer_source = "level"
+	offer_overdrive = false
 	_prepare()
+	_open_queued_shrine()
 	return true
 
 
@@ -341,7 +568,8 @@ func reroll() -> bool:
 
 # Removes the offered stat from this run's pool and refills the offer.
 func banish(slot: int) -> bool:
-	if banishes <= 0 or slot < 0 or slot >= offers.size():
+	# Overdrive cards cannot be banished (small pool, no slots).
+	if offer_overdrive or banishes <= 0 or slot < 0 or slot >= offers.size():
 		return false
 	banishes -= 1
 	var id: String = offers[slot][0]
@@ -369,7 +597,9 @@ func skip() -> bool:
 		dna -= threshold()
 	offers.clear()
 	offer_source = "level"
+	offer_overdrive = false
 	_prepare()
+	_open_queued_shrine()
 	return true
 
 
@@ -420,7 +650,9 @@ func choose_chest(slot: int) -> Dictionary:
 	var entry: Array = chest_offers[slot]
 	chest_offers.clear()
 	chest_kind = ""
-	return grant(entry[4] if entry.size() > 4 else {})
+	var result := grant(entry[4] if entry.size() > 4 else {})
+	_open_queued_shrine()
+	return result
 
 
 ## Wendet ein Beute-Teil an (Waffe/Relikt/Evolution) und meldet die Änderung.
@@ -512,12 +744,21 @@ func kind_of(id: String) -> String:
 		return "evolved"
 	if ARSENAL.is_relic(id):
 		return "relic"
+	if id == OVERDRIVE_HEAL_ID or overdrive_stat(id) != "":
+		return "overdrive"
 	return ""
 
 
 func info(id: String) -> Array:
 	if STATS.has(id):
 		return STATS.info(id)
+	if id == OVERDRIVE_HEAL_ID:
+		return heal_card().slice(0, 3)
+	var stat_id := overdrive_stat(id)
+	if stat_id != "":
+		var d := overdrive_def(stat_id)
+		var sign := "−" if String(d.unit) == "neg" else "+"
+		return [id, "Überladung: %s" % STATS.definition(stat_id).name, "%s%s %% %s je Wahl" % [sign, STATS._num(float(d.step) * 100.0), d.label]]
 	return ARSENAL.info(id)
 
 
@@ -574,6 +815,7 @@ func damage_multiplier(rally: bool) -> float:
 		value *= (1.0 + stats.amount("rally")) * float(mods.rally_damage)
 	value *= 1.0 + RELIC.scharfe_zaehne * stacks("scharfe_zaehne")
 	value *= 1.0 + RELIC.blutmond * stacks("blutmond")
+	value *= 1.0 + overdrive_amount("bite")
 	return value * float(mods.damage) * float(boosts.damage)
 
 
@@ -584,27 +826,28 @@ func speed_multiplier(rally: bool = false) -> float:
 	value *= maxf(0.5, 1.0 + RELIC.hungerstein_speed * stacks("hungerstein"))
 	if rally:
 		value *= 1.0 + RELIC.rudelhorn * stacks("rudelhorn")
+	value *= 1.0 + overdrive_amount("speed")
 	return value * float(boosts.speed)
 
 
 ## Faktor auf alle Waffen-Abklingzeiten (Angriffstempo, Power-up).
 func cooldown_scale() -> float:
-	return maxf(HASTE_FLOOR, 1.0 - stats.amount("haste")) * float(boosts.cooldown)
+	return maxf(HASTE_FLOOR, 1.0 - stats.amount("haste")) * (1.0 - overdrive_amount("haste")) * float(boosts.cooldown)
 
 
 ## Faktor auf Fläche und Reichweite der Waffen.
 func area_scale() -> float:
-	return 1.0 + stats.amount("reach")
+	return (1.0 + stats.amount("reach")) * (1.0 + overdrive_amount("reach"))
 
 
 # Biomasse je eingesammeltem Kristall (Brutrate, Hungerstein, Meta "harvest" = Verdauung).
 func harvest_multiplier() -> float:
-	return (1.0 + stats.amount("brood")) * (1.0 + RELIC.hungerstein_harvest * stacks("hungerstein")) * float(mods.harvest)
+	return (1.0 + stats.amount("brood")) * (1.0 + RELIC.hungerstein_harvest * stacks("hungerstein")) * (1.0 + overdrive_amount("brood")) * float(mods.harvest)
 
 
 # Magnetradius-Faktor (Lockduft, Witterungsnase, Meta "magnet" = Witterung, Power-up).
 func magnet_multiplier() -> float:
-	return (1.0 + stats.amount("magnet")) * (1.0 + RELIC.witterungsnase * stacks("witterungsnase")) * float(mods.magnet) * float(boosts.magnet)
+	return (1.0 + stats.amount("magnet")) * (1.0 + RELIC.witterungsnase * stacks("witterungsnase")) * (1.0 + overdrive_amount("magnet")) * float(mods.magnet) * float(boosts.magnet)
 
 
 # Biomasse künftiger Kills (Stamm "growth"; Vielfraß ist in Brutrate aufgegangen).
@@ -621,16 +864,16 @@ func lure_multiplier() -> float:
 	return 1.0 + float(stacks("magnetkern"))
 
 
-## Zusätzliche Anführer-LP: Anführerherz minus Blutmond.
 ## Zusätzliche Anführer-LP (Etappe 17c): Anführerherz +15 % des Grund-Maximums je
-## Wert, Blutmond −BLOODMOON_LP je Stapel.
+## Wert, Blutmond −BLOODMOON_LP je Stapel; stage 31 A: overdrive "vigor" adds its
+## share of the base.
 func leader_hp_bonus(base: int = 100) -> int:
-	return int(round(float(base) * stats.amount("vigor"))) - BLOODMOON_LP * stacks("blutmond")
+	return int(round(float(base) * (stats.amount("vigor") + overdrive_amount("vigor")))) - BLOODMOON_LP * stacks("blutmond")
 
 
 ## Anteil des ausgeteilten Schwarm-Schadens, der den Anführer heilt (Lebensraub + Blutzahn).
 func lifesteal() -> float:
-	return stats.amount("lifesteal") + RELIC.blutzahn * stacks("blutzahn")
+	return stats.amount("lifesteal") + RELIC.blutzahn * stacks("blutzahn") + overdrive_amount("lifesteal")
 
 
 ## Regeneration in LP je Sekunde.
@@ -642,7 +885,7 @@ func loss_after_armor(amount: int, rally: bool) -> int:
 	if amount <= 0:
 		return 0
 	var reduction := stats.amount("armor") + (0.0 if rally else stats.amount("evade")) + RELIC.zaehe_haut * stacks("zaehe_haut") + float(mods.armor)
-	var scaled := float(amount) * (1.0 - clampf(reduction, -0.5, 0.85)) * float(boosts.loss)
+	var scaled := float(amount) * (1.0 - clampf(reduction, -0.5, 0.85)) * (1.0 - overdrive_amount("armor")) * float(boosts.loss)
 	return maxi(1, ceili(scaled - 0.0001))
 
 

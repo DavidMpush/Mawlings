@@ -6,7 +6,7 @@ extends SceneTree
 const TEST_PROFILE := "user://test_menu_profile.json"
 const TEST_CHRONICLE := "user://test_menu_chronicle.json"
 const TEST_SHARES := "user://test_menu_shares/"
-const CONFIG_KEYS := ["strain_id", "biome_id", "difficulty", "start_population", "tint", "signature_attack", "mods", "enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool"]
+const CONFIG_KEYS := ["strain_id", "biome_id", "difficulty", "start_population", "tint", "signature_attack", "mods", "enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool", "sealed"]
 const MOD_KEYS := ["damage", "armor", "speed", "harvest", "dna", "growth"]
 
 var session: Variant
@@ -112,14 +112,14 @@ func _run() -> void:
 		_fail("Purchase was not saved")
 		return
 	# Instinct tab.
-	menu.tap(menu.tab_rect(2).get_center())
+	menu.tap(menu.tab_rect(menu.TABS.find("instinct")).get_center())
 	var essence_before: int = menu.profile.essence
 	menu.tap(menu.instinct_buy_rect().get_center())
 	if menu.profile.instinct_level != 1 or menu.profile.essence >= essence_before:
 		_fail("Urinstinkt purchase failed")
 		return
 	# Trophies tab scrolls.
-	menu.tap(menu.tab_rect(1).get_center())
+	menu.tap(menu.tab_rect(menu.TABS.find("trophies")).get_center())
 	if menu.tab != "trophies":
 		_fail("Trophy tab did not open")
 		return
@@ -262,9 +262,11 @@ func _run() -> void:
 		return
 	if not _check_codex(menu):
 		return
+	if not _check_seals(menu):
+		return
 	menu.queue_free()
 	_delete_test_profile()
-	print("PASS: menu loads, strain switch/swipe/buy, difficulty/biome locks, upgrades, instinct, trophies, SPIELEN config, reward overlay, fresh seed per start, TAGES-BRUT + daily record, settings, pressed state, layout incl. sheets/settings, UI style, chronicle booking/sheet, share card, strain ability, KODEX")
+	print("PASS: menu loads, strain switch/swipe/buy, difficulty/biome locks, upgrades, instinct, trophies, SPIELEN config, reward overlay, fresh seed per start, TAGES-BRUT + daily record, settings, pressed state, layout incl. sheets/settings, UI style, chronicle booking/sheet, share card, strain ability, KODEX, SIEGEL")
 	quit(0)
 
 
@@ -306,7 +308,7 @@ func _check_layout(menu: Control) -> bool:
 		_fail("Share button overlaps WEITER or is too small")
 		return false
 	if not screen.encloses(menu.tab_rect(menu.TABS.size() - 1)) or menu.tab_rect(0).size.x < 96.0:
-		_fail("Four tabs must fit the dock")
+		_fail("All tabs must fit the dock")
 		return false
 	for i in menu.CHRONICLE_VIEWS.size():
 		if menu.chronicle_segment_rect(i).size.y < 96.0 or menu.chronicle_segment_rect(i).size.x < 96.0:
@@ -404,6 +406,105 @@ func _check_codex(menu: Control) -> bool:
 	var reread: Variant = load("res://scripts/meta/profile.gd").load_or_create(TEST_PROFILE)
 	if not reread.codex_seen.has("relic:blutzahn") or not reread.codex_seen.has("stat:bite"):
 		_fail("codex_seen was not saved")
+		return false
+	return true
+
+
+## Stage 31 B: SIEGEL sheet - tab, grouped grid of stats/weapons/relics, tap
+## seals and unseals, limit 2 + Siegelring, start weapon and undiscovered
+## entries refused, saved in the profile and carried in the RunConfig.
+func _check_seals(menu: Control) -> bool:
+	var profile_script: Variant = load("res://scripts/meta/profile.gd")
+	var stats_script: Variant = load("res://scripts/progression/stats.gd")
+	var arsenal: Variant = load("res://scripts/progression/arsenal.gd")
+	menu.profile.sealed.clear()
+	var tab_i: int = menu.TABS.find("seals")
+	if tab_i != 1:
+		_fail("SIEGEL tab must sit next to BRUTKAMMER: %s" % [menu.TABS])
+		return false
+	menu.tap(menu.tab_rect(tab_i).get_center())
+	if menu.tab != "seals":
+		_fail("SIEGEL tab did not open (tab %s)" % menu.tab)
+		return false
+	var entries: Array = menu.seal_entries()
+	var counts := {"stats": 0, "weapons": 0, "relics": 0}
+	for e in entries:
+		counts[e.group] += 1
+		if arsenal.is_evolved(String(e.id)):
+			_fail("Evolutions must not be sealable: %s" % e.id)
+			return false
+	if counts.stats != stats_script.STATS.size() or counts.weapons != arsenal.WEAPONS.size() or counts.relics != arsenal.RELICS.size():
+		_fail("SIEGEL must list every stat, weapon and relic: %s" % counts)
+		return false
+	var area: Rect2 = menu.seal_list_rect()
+	var sheet: Rect2 = menu.sheet_rect()
+	if not sheet.encloses(area) or area.position.y < menu.seal_summary_rect().end.y or menu._trophy_scroll_max() <= 0.0:
+		_fail("SIEGEL list must sit in the sheet and scroll: %s" % area)
+		return false
+	var tiles: Array = menu.seal_tile_rects()
+	for i in tiles.size():
+		var r: Rect2 = tiles[i]
+		if r.size.x < 96.0 or r.size.y < 96.0:
+			_fail("Seal tile %d below the touch target: %s" % [i, r])
+			return false
+		for k in range(i + 1, tiles.size()):
+			if r.intersects(tiles[k]):
+				_fail("Seal tiles %d and %d overlap" % [i, k])
+				return false
+	var bite: int = entries.map(func(e: Dictionary) -> String: return e.id).find("bite")
+	var luck: int = entries.map(func(e: Dictionary) -> String: return e.id).find("luck")
+	if bite < 0 or not entries[bite].seen or not area.encloses(tiles[bite]):
+		_fail("Biss must be discovered and visible at the top of the grid")
+		return false
+	# Undiscovered: refused.
+	menu.profile.codex_seen.erase("stat:luck")
+	if luck < 0 or menu.toggle_seal("luck") or menu.profile.is_sealed("luck"):
+		_fail("Undiscovered entries must not be sealable")
+		return false
+	# Tap seals and unseals; saved at once.
+	menu.tap(tiles[bite].get_center())
+	if not menu.profile.is_sealed("bite") or not profile_script.load_or_create(TEST_PROFILE).sealed.has("bite"):
+		_fail("Tapping Biss must seal it and save")
+		return false
+	menu.tap(tiles[bite].get_center())
+	if menu.profile.is_sealed("bite"):
+		_fail("Tapping a sealed entry must unseal it")
+		return false
+	# Start weapon of the current strain: tagged and refused.
+	var signature := String(menu.meta.STRAINS[menu.current_strain()].signature)
+	var start: Array = entries.filter(func(e: Dictionary) -> bool: return e.start)
+	if start.size() != 1 or start[0].id != signature:
+		_fail("Exactly the start weapon %s must carry the START tag: %s" % [signature, start])
+		return false
+	menu.profile.codex_seen.append("weapon:" + signature)
+	if menu.toggle_seal(signature) or menu.profile.is_sealed(signature):
+		_fail("The start weapon must not be sealable")
+		return false
+	# Limit: 2 seals, then the Siegelring adds one per rank.
+	for key in ["stat:crit", "relic:blutzahn", "stat:speed"]:
+		if not menu.profile.codex_seen.has(key):
+			menu.profile.codex_seen.append(key)
+	if menu.profile.seal_limit() != 2 or not menu.toggle_seal("crit") or not menu.toggle_seal("blutzahn"):
+		_fail("Two seals must be free at the start")
+		return false
+	if menu.toggle_seal("speed") or menu.profile.sealed.size() != 2:
+		_fail("A third seal must be refused without the Siegelring")
+		return false
+	menu.profile.essence = 100000
+	if not menu.profile.buy_upgrade("seal_ring") or menu.profile.seal_limit() != 3 or not menu.toggle_seal("speed"):
+		_fail("Siegelring rank 1 must allow a third seal")
+		return false
+	# RunConfig: sealed ids, never the start weapon (even if stored), clamped.
+	menu.profile.sealed.append(signature)
+	var config: Dictionary = menu.profile.build_run_config(menu.current_strain(), "verdant_maw", 0)
+	var sealed: Array = config.get("sealed", [])
+	if sealed.has(signature) or not sealed.has("crit") or not sealed.has("blutzahn") or not sealed.has("speed"):
+		_fail("RunConfig sealed wrong: %s" % [sealed])
+		return false
+	menu.profile.sealed.erase(signature)
+	menu.tap(menu.sheet_close_rect().get_center())
+	if menu.tab != "":
+		_fail("Close did not close the SIEGEL sheet")
 		return false
 	return true
 
@@ -622,7 +723,7 @@ func _check_chronicle(menu: Control, today: String) -> bool:
 		_fail("Daily segment must list today's rank")
 		return false
 	menu.tap(menu.sheet_close_rect().get_center())
-	menu.tap(menu.tab_rect(3).get_center())
+	menu.tap(menu.tab_rect(menu.TABS.find("chronicle")).get_center())
 	if menu.tab != "chronicle":
 		_fail("CHRONIK tab did not open")
 		return false

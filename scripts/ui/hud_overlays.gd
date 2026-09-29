@@ -1395,7 +1395,9 @@ const BRANCH_OF := {
 const BRANCH_TONE := {"attack": "ember", "growth": "info", "protect": "action", "special": "special"}
 const ROMAN := ["I", "II", "III", "IV", "V"]
 # Section -> start time of its entry on the result screen.
-const R_SECTIONS := {"r_title": 0.45, "r_hero": 0.8, "r_stats": 1.15, "r_build": 1.55, "r_tasks": 1.85, "r_buttons": 0.9}
+const R_SECTIONS := {"r_title": 0.45, "r_hero": 0.8, "r_stats": 1.15, "r_build": 1.55, "r_tasks": 1.85, "r_buttons": 0.9, "r_dmg": 1.15}
+# Stage 31 C: result page of each switched section (0 = overview, 1 = DEIN BUILD).
+const PAGE_OF := {"r_stats": 0, "r_build": 0, "r_tasks": 0, "r_dmg": 1}
 const R_COUNT := 0.7             # count-up duration of numbers
 const R_BARS := 0.35             # task bars start this long after the task panel
 
@@ -1414,6 +1416,10 @@ var _flash := {}
 var _seen: Dictionary = {}
 var _share_state := ""
 var _share_t := 0.0
+## Stage 31 C: shown result page (0 = overview, 1 = "DEIN BUILD"); the BUILD
+## button (touch_controls._build_rect) calls toggle_result_page().
+var result_page := 0
+var _page_time := 99.0
 var _world_node: Node
 
 
@@ -1422,7 +1428,7 @@ var _world_node: Node
 func _ensure_layers() -> void:
 	if not _b.is_empty():
 		return
-	for id in ["r_title", "r_hero", "r_stats", "r_build", "r_tasks", "r_buttons", "pause", "banner"]:
+	for id in ["r_title", "r_hero", "r_stats", "r_build", "r_tasks", "r_buttons", "r_dmg", "pause", "banner"]:
 		# Etappe 22b: cached - a banner or result section that holds still is ONE
 		# texture (pop-in, slide and fade are transforms/modulate, not repaints).
 		var layer := UiLayer.make(self, "B_" + id, Callable(self, "_paint_" + id), true)
@@ -1447,6 +1453,8 @@ func _step_brawl(hud: Control, delta: float) -> void:
 	elif not hud.extinct:
 		_res = {}
 		_share_state = ""
+		result_page = 0
+	_page_time += real
 	if _share_state in ["saved", "failed"]:
 		_share_t += real
 		if _share_t > 2.5:
@@ -1472,6 +1480,8 @@ func _step_section(id: String, shown: bool) -> void:
 	var layer: Control = _b[id]
 	var t := _result_time
 	var a := clampf((t - float(R_SECTIONS[id])) / 0.28, 0.0, 1.0) if shown else 0.0
+	if PAGE_OF.has(id):
+		a = minf(a, clampf(_page_time / 0.22, 0.0, 1.0)) if int(PAGE_OF[id]) == result_page else 0.0
 	layer.visible = a > 0.0
 	if not layer.visible:
 		return
@@ -1493,8 +1503,10 @@ func _step_section(id: String, shown: bool) -> void:
 			key.append(int(clampf((t - 1.55) / 0.6, 0.0, 1.0) * 20.0))
 		"r_tasks":
 			key.append(int(_count(float(R_SECTIONS.r_tasks) + R_BARS, 0.8) * 120.0))
+		"r_dmg":
+			key.append(int(_page_fill() * 40.0))
 		"r_buttons":
-			key.append(_share_state)
+			key.append_array([_share_state, result_page])
 	layer.refresh(key)
 
 
@@ -1530,6 +1542,9 @@ func _result_data(hud: Control) -> Dictionary:
 		"bosses": int(stats.get("bosses", 0)) + int(stats.get("apex_kills", 0)),
 		"lost": int(stats.get("lost", 0)),
 		"build": _build(hud, stats),
+		"sources": _damage_rows(stats.get("damage", {})),
+		"picks": stats.get("picks", []) if stats.get("picks", []) is Array else [],
+		"level": int(stats.get("level", 0)),
 		"record": false, "record_peak": false, "tasks": [],
 		"essence": 0, "crowns": 0, "context": "",
 	}
@@ -1674,6 +1689,8 @@ func _paint_r_build(c: CanvasItem) -> void:
 	var rect := Rect2(cx - 390.0, _oy() + 578.0, 780.0, 140.0)
 	Kit.panel(c, rect, "dark", UiStyle.R_L)
 	Kit.text_outlined(c, Vector2(rect.position.x + 24.0, rect.position.y + 30.0), "BUILD", UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+	# Stage 31 C: the panel opens the page "DEIN BUILD" (touch_controls._build_panel_rect).
+	Kit.text_outlined(c, Vector2(rect.end.x - 24.0, rect.position.y + 30.0), "SCHADEN & WAHLEN ›", UiStyle.T_LABEL, UiStyle.brawl_tone("loot")["light"], -1, -1, null, Kit.RIGHT | Kit.MIDDLE)
 	_paint_build(c, Rect2(rect.position.x + 20.0, rect.position.y + 40.0, rect.size.x - 40.0, 94.0), _res.build, 76.0, (_result_time - 1.55) / 0.6)
 	# Essence (and crowns) this run earns, as reward pills under the build.
 	var crowns := int(_res.crowns)
@@ -1698,6 +1715,277 @@ func _paint_r_build(c: CanvasItem) -> void:
 		_b_icon(c, pills[i][0], Kit.plate_center(pc, 54.0), 40.0)
 		Kit.text_outlined(c, Vector2(r.position.x + 66.0, r.get_center().y), pills[i][1], UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
 		x += widths[i] + UiStyle.SPACE_L
+
+
+# ---------------------------------------------------------------- page "DEIN BUILD" (stage 31 C)
+#
+# Second result page (BUILD button or a tap on the build panel): damage per
+# source (weapon/evolution form, relic effect, melee, tribe ability) as ranked
+# bars in the source's colour, then every choice of the run in order (round
+# plates = level cards with their level, square plates = cocoon loot with the
+# run time). Replaces stats, build and tasks; title, time and buttons stay.
+
+const ARSENAL_PATH := "res://scripts/progression/arsenal.gd"
+const STATS_PATH := "res://scripts/progression/stats.gd"
+const EVOLUTION_PATH := "res://scripts/evolution.gd"
+const ABILITIES_PATH := "res://scripts/abilities.gd"
+const DMG_ROWS := 7              # more sources are merged into "Sonstige"
+const DMG_TOP := 418.0           # page area (900 x 1600 grid) between hero and buttons
+const DMG_BOTTOM := 1228.0
+const RANK_COLORS := [Color("ffd34d"), Color("dfe6f5"), Color("f0a468")]
+# Bar colour per weapon (evolutions: special, relics: their rarity).
+const SOURCE_COLOR := {
+	"rudelbiss": Color("ffb040"), "sporenwolke": Color("86d943"), "saeurespucker": Color("d4e636"),
+	"stachelruecken": Color("e9d19a"), "graeber": Color("c08850"), "blitzbiss": Color("58c6ff"),
+	"brutsack": Color("f46fb4"), "klauenwirbel": Color("cfd6f0"), "giftbiss": Color("a86cf2"),
+	"schallbrueller": Color("46e0cf"), "melee": Color("f2358f"), "ability": Color("ff6a1f"),
+}
+
+var _scripts: Dictionary = {}
+var _source_cache: Dictionary = {}
+
+
+func toggle_result_page() -> void:
+	result_page = 1 - result_page
+	_page_time = 0.0
+
+
+# 0..1 growth of the bars after the page was opened.
+func _page_fill() -> float:
+	return _ease_out(clampf((_page_time - 0.08) / 0.5, 0.0, 1.0))
+
+
+func _script(path: String) -> Script:
+	if not _scripts.has(path):
+		_scripts[path] = load(path) if ResourceLoader.exists(path) else null
+	return _scripts[path]
+
+
+func _script_const(path: String, key: String, fallback: Variant) -> Variant:
+	var s := _script(path)
+	return s.get_script_constant_map().get(key, fallback) if s != null else fallback
+
+
+## Name, icon, kind label and bar tone of a damage source or pick id.
+func _source_info(id: String) -> Dictionary:
+	if _source_cache.has(id):
+		return _source_cache[id]
+	var info := {"name": id.capitalize(), "icon": id, "kind": "", "tone": "neutral"}
+	if id == "melee":
+		info = {"name": "Nahkampf", "icon": "jaws", "kind": "SCHWARM", "tone": SOURCE_COLOR.melee}
+	elif id == "other":
+		info = {"name": "Sonstige", "icon": "branch_special", "kind": "", "tone": "neutral"}
+	elif id.begins_with("ability:"):
+		var aid := id.substr(8)
+		var d: Dictionary = (_script_const(ABILITIES_PATH, "DEFS", {}) as Dictionary).get(aid, {})
+		info = {"name": String(d.get("name", aid.capitalize())), "icon": String(d.get("icon", "mawling_head_color")), "kind": "FÄHIGKEIT", "tone": SOURCE_COLOR.ability}
+	else:
+		var found := false
+		for table in [["WEAPONS", "WAFFE"], ["EVOLVED", "EVOLUTION"], ["RELICS", "RELIKT"]]:
+			for row in _script_const(ARSENAL_PATH, table[0], []):
+				if String(row[0]) != id:
+					continue
+				info.name = String(row[1])
+				info.kind = table[1]
+				match table[1]:
+					"WAFFE":
+						info.tone = SOURCE_COLOR.get(id, "ember")
+					"EVOLUTION":
+						info.tone = "special"
+					_:
+						info.tone = String(row[3]) if row.size() > 3 else "rare"
+				found = true
+				break
+			if found:
+				break
+		var stats_script := _script(STATS_PATH)
+		if not found and stats_script != null and bool(stats_script.call("has", id)):
+			var row: Array = stats_script.call("info", id)
+			if row.size() > 1:
+				info.name = String(row[1])
+			info.kind = "WERT"
+			info.tone = "info"
+		# Icon: own art, else the shared evolution icon map, else by kind.
+		if not _icon_exists(id):
+			var mapped := String((_script_const(EVOLUTION_PATH, "ICON_IDS", {}) as Dictionary).get(id, ""))
+			if mapped != "" and _icon_exists(mapped):
+				info.icon = mapped
+			else:
+				info.icon = {"RELIKT": "cocoon", "WERT": "branch_special"}.get(info.kind, "mawling_head_color")
+	_source_cache[id] = info
+	return info
+
+
+func _icon_exists(id: String) -> bool:
+	return _icons != null and bool(_icons.call("has", id))
+
+
+## Result rows [{id, damage, share, info}] strongest first; sources beyond
+## DMG_ROWS - 1 are merged into one "Sonstige" row.
+func _damage_rows(damage: Variant) -> Array:
+	var rows: Array = []
+	if not (damage is Dictionary):
+		return rows
+	var total := 0.0
+	for id in damage:
+		var value := float(damage[id]) if (damage[id] is float or damage[id] is int) else 0.0
+		if value > 0.0:
+			total += value
+			rows.append({"id": String(id), "damage": value})
+	rows.sort_custom(func(a, b): return float(a.damage) > float(b.damage))
+	if rows.size() > DMG_ROWS:
+		var rest := 0.0
+		for i in range(DMG_ROWS - 1, rows.size()):
+			rest += float(rows[i].damage)
+		rows = rows.slice(0, DMG_ROWS - 1)
+		rows.append({"id": "other", "damage": rest})
+	for row in rows:
+		row["share"] = float(row.damage) / total if total > 0.0 else 0.0
+		row["info"] = _source_info(String(row.id))
+	return rows
+
+
+## Compact damage number: 9.870 / 45,2K / 312K / 1,4M.
+static func _short_num(value: float) -> String:
+	if value < 10000.0:
+		return Kit.format_int(int(roundf(value)))
+	if value < 100000.0:
+		return ("%.1fK" % (value / 1000.0)).replace(".", ",")
+	if value < 1000000.0:
+		return "%dK" % int(roundf(value / 1000.0))
+	return ("%.1fM" % (value / 1000000.0)).replace(".", ",")
+
+
+func _paint_r_dmg(c: CanvasItem) -> void:
+	if _res.is_empty():
+		return
+	var cx := size.x * 0.5
+	var rows: Array = _res.get("sources", [])
+	var n := rows.size()
+	var head := 76.0
+	var row_h := 60.0
+	var rect := Rect2(cx - 390.0, _oy() + DMG_TOP, 780.0, head + maxf(1.0, float(n)) * row_h + 12.0)
+	Kit.panel(c, rect, "dark", UiStyle.R_L)
+	var hx := rect.position.x + 24.0
+	var hy := rect.position.y + 40.0
+	_b_icon(c, "jaws", Vector2(hx + 20.0, hy), 44.0)
+	Kit.text_outlined(c, Vector2(hx + 52.0, hy), "DEIN BUILD", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+	var total := 0.0
+	for row in rows:
+		total += float(row.damage)
+	Kit.text_outlined(c, Vector2(rect.end.x - 24.0, hy), "SCHADEN GESAMT  " + _short_num(total), UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.RIGHT | Kit.MIDDLE)
+	if n == 0:
+		Kit.text_outlined(c, Vector2(cx, rect.position.y + head + row_h * 0.5), "Kein Schaden verbucht", UiStyle.T_BODY, UiStyle.BRAWL_TEXT_DIM, 7, 3, UiStyle.body_bold_font(), Kit.CENTER | Kit.MIDDLE)
+	else:
+		var fill := _page_fill()
+		var top_value := maxf(1.0, float(rows[0].damage))
+		var body := UiStyle.body_bold_font()
+		for i in n:
+			var row: Dictionary = rows[i]
+			var info: Dictionary = row.info
+			var y := rect.position.y + head + i * row_h
+			var mid := y + row_h * 0.5
+			var rank_color: Color = RANK_COLORS[i] if i < RANK_COLORS.size() and String(row.id) != "other" else UiStyle.BRAWL_TEXT_DIM
+			Kit.text_outlined(c, Vector2(rect.position.x + 40.0, mid), str(i + 1), UiStyle.T_HEAD, rank_color, -1, -1, UiStyle.number_font(), Kit.CENTER | Kit.MIDDLE)
+			var pc := Vector2(rect.position.x + 100.0, mid)
+			Kit.icon_plate(c, pc, 54.0, info.tone)
+			_b_icon(c, String(info.icon), Kit.plate_center(pc, 54.0), 42.0)
+			var x := rect.position.x + 144.0
+			var right := rect.end.x - 24.0
+			var pct := "%d %%" % int(roundf(float(row.share) * 100.0))
+			var value_text := _short_num(float(row.damage))
+			var pw := UiStyle.number_font().get_string_size(pct, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_BODY).x
+			Kit.text_outlined(c, Vector2(right, y + 18.0), pct, UiStyle.T_BODY, Color.WHITE, -1, -1, UiStyle.number_font(), Kit.RIGHT | Kit.MIDDLE)
+			var vx := right - pw - 16.0
+			var vw := UiStyle.number_font().get_string_size(value_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x
+			Kit.text_outlined(c, Vector2(vx, y + 19.0), value_text, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, UiStyle.number_font(), Kit.RIGHT | Kit.MIDDLE)
+			var name_room := vx - vw - 16.0 - x
+			var nw := minf(body.get_string_size(String(info.name), HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_BODY).x, name_room)
+			Kit.text_outlined(c, Vector2(x, y + 18.0), String(info.name), UiStyle.T_BODY, Color.WHITE, 7, 3, body, Kit.LEFT | Kit.MIDDLE, name_room)
+			var kind := String(info.kind)
+			if kind != "" and name_room - nw > 90.0:
+				Kit.text_outlined(c, Vector2(x + nw + 12.0, y + 19.0), kind, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.LEFT | Kit.MIDDLE, name_room - nw - 12.0)
+			Kit.bar(c, Rect2(x, y + 35.0, right - x, 20.0), fill * float(row.damage) / top_value, info.tone)
+	# Choices of the run below, down to the buttons.
+	var tl_top := rect.end.y + UiStyle.SPACE_L
+	var tl := Rect2(cx - 390.0, tl_top, 780.0, _oy() + DMG_BOTTOM - tl_top)
+	if tl.size.y >= 120.0:
+		_paint_picks(c, tl, _res.get("picks", []))
+
+
+func _paint_picks(c: CanvasItem, rect: Rect2, picks: Array) -> void:
+	Kit.panel(c, rect, "dark", UiStyle.R_L)
+	var hy := rect.position.y + 38.0
+	_b_icon(c, "cocoon", Vector2(rect.position.x + 44.0, hy), 44.0)
+	Kit.text_outlined(c, Vector2(rect.position.x + 76.0, hy), "WAHLEN", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE)
+	# Legend: round = level card, square = cocoon loot.
+	var lx := rect.end.x - 24.0
+	var lw := UiStyle.display_font().get_string_size("KOKON", HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x
+	Kit.text_outlined(c, Vector2(lx, hy), "KOKON", UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.RIGHT | Kit.MIDDLE)
+	Kit.icon_plate(c, Vector2(lx - lw - 22.0, hy), 28.0, "neutral", "square")
+	lx -= lw + 50.0
+	lw = UiStyle.display_font().get_string_size("LEVEL", HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x
+	Kit.text_outlined(c, Vector2(lx, hy), "LEVEL", UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, -1, -1, null, Kit.RIGHT | Kit.MIDDLE)
+	Kit.icon_plate(c, Vector2(lx - lw - 22.0, hy), 28.0, "neutral")
+	var area := Rect2(rect.position.x + 20.0, rect.position.y + 72.0, rect.size.x - 40.0, rect.size.y - 84.0)
+	var list: Array = picks.filter(func(p): return p is Array and p.size() >= 3)
+	if list.is_empty():
+		Kit.text_outlined(c, area.get_center(), "Keine Wahlen getroffen", UiStyle.T_BODY, UiStyle.BRAWL_TEXT_DIM, 7, 3, UiStyle.body_bold_font(), Kit.CENTER | Kit.MIDDLE, area.size.x)
+		return
+	# Largest cell (plate, width, height, label) that fits every pick.
+	var cells := [[58.0, 70.0, 94.0, true], [50.0, 60.0, 84.0, true], [46.0, 56.0, 78.0, true], [44.0, 52.0, 56.0, false], [36.0, 43.0, 46.0, false]]
+	var cell: Array = cells[cells.size() - 1]
+	for option in cells:
+		var fit_cols := floori(area.size.x / float(option[1]))
+		var fit_rows := floori(area.size.y / float(option[2]))
+		if fit_cols * fit_rows >= list.size():
+			cell = option
+			break
+	var plate: float = cell[0]
+	var cw: float = cell[1]
+	var ch: float = cell[2]
+	var labelled: bool = cell[3]
+	var cols := maxi(1, floori(area.size.x / cw))
+	var capacity := cols * maxi(1, floori(area.size.y / ch))
+	var hidden := maxi(0, list.size() - capacity)
+	if hidden > 0:
+		hidden += 1   # the first cell becomes "+N"
+		list = list.slice(hidden)
+	var shown := list.size() + (1 if hidden > 0 else 0)
+	var used_rows := ceili(float(shown) / float(cols))
+	var x0 := area.position.x + (area.size.x - cols * cw) * 0.5 + cw * 0.5
+	var y0 := area.position.y + maxf(0.0, (area.size.y - used_rows * ch) * 0.5) + plate * 0.5 + 4.0
+	# Timeline spine per row behind the plates.
+	for r in used_rows:
+		var in_row := mini(cols, shown - r * cols)
+		var ly := y0 + r * ch
+		if in_row > 1:
+			c.draw_line(Vector2(x0, ly), Vector2(x0 + (in_row - 1) * cw, ly), UiStyle.BRAWL_WELL, 6.0, true)
+	var reveal := _page_fill()
+	for i in shown:
+		if reveal * shown < i * 0.5:
+			break
+		var center := Vector2(x0 + (i % cols) * cw, y0 + (i / cols) * ch)
+		if hidden > 0 and i == 0:
+			Kit.icon_plate(c, center, plate, "neutral")
+			Kit.text_outlined(c, Kit.plate_center(center, plate), "+%d" % hidden, UiStyle.T_LABEL, Color.WHITE, -1, -1, UiStyle.number_font(), Kit.CENTER | Kit.MIDDLE, plate - 6.0)
+			continue
+		var p: Array = list[i - (1 if hidden > 0 else 0)]
+		var kind := String(p[1])
+		var id := String(p[2])
+		var rarity := String(p[3]) if p.size() > 3 else "common"
+		var cocoon := kind in ["weapon", "relic", "evolution"]
+		var tone: Variant = "special" if kind == "evolution" else (rarity if UiStyle.RARITY_TONES.has(rarity) else "common")
+		Kit.icon_plate(c, center, plate, tone, "square" if cocoon else "round")
+		_b_icon(c, String(_source_info(id).icon), Kit.plate_center(center, plate), plate * 0.74)
+		if labelled:
+			var label := ""
+			if cocoon or kind == "shrine" or p.size() < 5:
+				label = _short_time(float(p[0]))
+			else:
+				label = "L%d" % int(p[4])
+			var tint: Color = UiStyle.brawl_tone("loot")["light"] if cocoon else UiStyle.BRAWL_TEXT_DIM
+			Kit.text_outlined(c, Vector2(center.x, center.y + plate * 0.5 + 16.0), label, UiStyle.T_LABEL, tint, -1, -1, UiStyle.number_font(), Kit.CENTER | Kit.MIDDLE, cw - 2.0)
 
 
 func _paint_r_tasks(c: CanvasItem) -> void:
@@ -1777,6 +2065,13 @@ func _paint_r_buttons(c: CanvasItem) -> void:
 	var hub: Rect2 = hud._hub_rect()
 	Kit.button(c, hub, "neutral", false, UiStyle.R_L)
 	_button_label(c, hub, false, "hub", "BRUTSTÄTTE", UiStyle.T_HEAD, 52.0)
+	# Stage 31 C: page toggle "DEIN BUILD" <-> overview.
+	if hud.has_method("_build_rect"):
+		var build: Rect2 = hud._build_rect()
+		if build.size.x > 0.0:
+			var on_build := result_page == 1
+			Kit.button(c, build, "special" if not on_build else "neutral", false, UiStyle.R_L)
+			Kit.text_outlined(c, Kit.button_label_center(build, false), "ÜBERSICHT" if on_build else "BUILD", UiStyle.T_HEAD if not on_build else UiStyle.T_BODY, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, build.size.x - 24.0)
 	if hud.has_method("_share_rect"):
 		var share: Rect2 = hud._share_rect()
 		if share.size.x > 0.0:

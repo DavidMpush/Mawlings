@@ -102,6 +102,33 @@ func _run() -> void:
 	world.choose_mutation(0)
 	_check(world._map_state().has("shrines"), "The minimap data carries shrines")
 
+	# ---- Stage 31 A: every stat maxed -> the shrine offers overdrive cards.
+	evo.stats.clear()
+	for stat_id in ["bite", "crit", "haste", "armor", "brood", "speed"]:
+		evo.ranks[stat_id] = 5
+	# Full leader LP: three bonus cards, no heal card.
+	world.model.leader_hp = world.model.leader_max_hp
+	var fourth: Dictionary = shrines.spawn(Vector3(-25, 0, -25))
+	_check(evo.complete() and shrines.charge_now(fourth) and evo.offer_overdrive and evo.offer_source == "shrine", "Maxed stats: shrine opens the overdrive choice")
+	var od_rare: bool = evo.offers.size() == 3
+	for entry in evo.offers:
+		if evo.kind_of(String(entry[0])) != "overdrive" or not STATS.rarity_at_least(String(entry[3]), "rare"):
+			od_rare = false
+	_check(od_rare, "Shrine overdrive cards, each at least rare (%s)" % str(evo.offers))
+	var od_level: int = evo.level
+	world.choose_mutation(0)
+	_check(not world.choosing() and evo.overdrive.size() == 1 and evo.level == od_level and fourth.done, "Shrine overdrive applied without a level, shrine spent")
+	# A maxed shrine charged during an open overdrive level choice waits for it.
+	var fifth: Dictionary = shrines.spawn(Vector3(25, 0, 25))
+	evo.dna = evo.threshold()
+	evo.earn(0)
+	_check(world.choosing() and evo.offer_overdrive and evo.offer_source == "level", "Setup: overdrive level choice open")
+	shrines.charge_now(fifth)
+	_check(fifth.done and evo.queued_shrines == 1, "Maxed shrine during a choice is spent and queued")
+	world.choose_mutation(0)
+	_check(world.choosing() and evo.offer_source == "shrine" and evo.offer_overdrive, "Queued shrine choice opens after the level choice")
+	world.choose_mutation(0)
+
 	_finish()
 
 

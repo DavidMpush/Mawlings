@@ -35,6 +35,19 @@ func _run() -> void:
 	if e.seed_code != "00QGLJ" or e.flood_stage != 4 or e.date != "2026-09-20" or int(e.mutations.jaws) != 2:
 		_fail("Entry fields wrong: code %s flood %s date %s" % [e.seed_code, e.flood_stage, e.date])
 		return
+	# Stage 31 C: the three strongest damage sources are kept (old entries have none).
+	var dmg_entry: Dictionary = Chronicle.entry_from_stats(_stats("glutmaw", 0, 100.0, 10, {"damage": {"melee": 100.0, "saeurespucker": 500.0, "ability:glutsprung": 50.0, "rudelbiss": 350.0}}))
+	var top: Array = dmg_entry.top_sources
+	if top.size() != 3 or top[0].id != "saeurespucker" or top[1].id != "rudelbiss" or top[2].id != "melee" or not is_equal_approx(float(top[0].share), 0.5):
+		_fail("Top damage sources wrong: %s" % [top])
+		return
+	if not (Chronicle.entry_from_stats(_stats("glutmaw", 0, 100.0, 10)).top_sources as Array).is_empty():
+		_fail("A run without damage data must have no top sources")
+		return
+	var again: Dictionary = Chronicle.entry_from_stats(dmg_entry)
+	if again.top_sources.size() != 3 or again.top_sources[0].id != "saeurespucker":
+		_fail("Saved top sources must survive a reload: %s" % [again.top_sources])
+		return
 	if Chronicle.seed_code(1234567) != load("res://scripts/menu/menu.gd").seed_code(1234567):
 		_fail("Chronicle seed code must match the menu seed code")
 		return

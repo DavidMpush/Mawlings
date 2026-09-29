@@ -546,3 +546,25 @@ const GATE_OFFSET := 13.0
 # Etappe 30 (Nutzerwunsch): Endboss-LP mindestens dieses Vielfache der LP eines Bog King zum selben
 # Zeitpunkt (Bog King wächst mit sqrt(Druck)); Kampf damit ~3x so lang wie der Bog King (15-30 s -> 45-90 s).
 const APEX_KING_RATIO := 3.0
+
+# Etappe 31 D: Glutpilze (scripts/map_items.gd). Leuchtende Pilzkörbe ohne Kollision,
+# MAP_ITEM_COUNT je 4 x 4-Karte (größere Karten anteilig mehr); ein Biss bricht sie,
+# mit MAP_ITEM_CHANCE erscheint ein Sofort-Item (Gewichte), sonst ein paar Münzen.
+const MAP_ITEM_COUNT := Vector2i(8, 12)
+const MAP_ITEM_CHANCE := 0.6
+const MAP_ITEM_WEIGHTS := {"heilpilz": 1.0, "zeitstarre": 0.8, "bildschirmbiss": 0.8, "lockruf": 0.7}
+const MAP_ITEM_EMPTY_AMBER := 4
+# Heilpilz: Anteil der max. Anführer-LP.
+const MAP_ITEM_HEAL := 0.3
+# Zeitstarre: Sekunden, in denen alle Gegner, Bosse und die Brut stillstehen.
+const MAP_ITEM_FREEZE := 5.0
+# Bildschirm-Biss: Radius (m, etwa das sichtbare Bild) und Boss-Anteil der max. LP.
+const MAP_ITEM_BITE_RADIUS := 18.0
+const MAP_ITEM_BITE_BOSS := 0.1
+# Platzierung: Mindestabstand zueinander (m, 4 x 4-Karte), zum Start, freie Fläche.
+const MAP_ITEM_SPACING := 30.0
+const MAP_ITEM_START_GAP := 16.0
+const MAP_ITEM_CLEARANCE := 2.2
+# Darstellung: Korbgröße (x ~1,6 m Breite) und Item-Symbol.
+const MAP_ITEM_SIZE := 1.25
+const MAP_ITEM_ICON_SIZE := 1.5

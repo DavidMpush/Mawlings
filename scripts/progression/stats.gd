@@ -68,6 +68,8 @@ const VIGOR_STEPS := [1.0, 3.0, 5.0]
 
 var ranks: Dictionary = {}
 var units: Dictionary = {}
+## Stage 31 B: sealed stat ids (evolution.configure); never offered.
+var sealed: Array = []
 
 
 static func ids() -> Array:
@@ -198,13 +200,13 @@ static func rarity_at_least(rarity: String, minimum: String) -> bool:
 
 # ---------------------------------------------------------------- Angebote
 
-## Werte, die noch steigen können (Pool, nicht verbannt, unter Rang 5). Mit
-## `slots` > 0 und belegten Plätzen nur noch eigene Werte (nie ein neuer).
+## Werte, die noch steigen können (Pool, nicht verbannt, nicht versiegelt, unter
+## Rang 5). Mit `slots` > 0 und belegten Plätzen nur noch eigene Werte (nie ein neuer).
 func candidates(pool: Array, banished: Array, slots: int = 0) -> Array:
 	var full := slots > 0 and owned_count() >= slots
 	var out: Array = []
 	for id in pool:
-		if has(String(id)) and not banished.has(id) and rank(String(id)) < MAX_RANK and not out.has(id):
+		if has(String(id)) and not banished.has(id) and not sealed.has(String(id)) and rank(String(id)) < MAX_RANK and not out.has(id):
 			if full and rank(String(id)) <= 0:
 				continue
 			out.append(String(id))

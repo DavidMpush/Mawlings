@@ -1,5 +1,6 @@
 extends RefCounted
 ## Statische Account-Daten: Stämme, Biome, Schwierigkeiten, Brutkammer-Upgrades, Trophäen-Quests.
+## Seals (stage 31 B): BASE_SEALS + rank of "seal_ring"; Profile.sealed holds the ids.
 ##
 ## Freischalt-Token (in Quest-Belohnungen und in Profile.record_run()["unlocked"]):
 ##   "strain:<id>"      Stamm wird kaufbar (Königszähne)
@@ -129,8 +130,13 @@ const UPGRADES := {
 	# Etappe 17: Werte haben kein Platzlimit mehr; die ID bleibt für gespeicherte Profile
 	# und gibt jetzt +1 Neu würfeln je Rang.
 	"trait_slot": {"name": "Mutationswurf", "description": "+1 Neu würfeln pro Run", "max": 2, "base": 800, "growth": 2.0, "requires": ""},
+	# Stage 31 B: +1 seal per rank (SIEGEL sheet); BASE_SEALS + 4 = 6 at most.
+	"seal_ring": {"name": "Siegelring", "description": "+1 Siegel", "max": 4, "base": 300, "growth": 2.0, "requires": ""},
 }
-const UPGRADE_ORDER := ["brood_size", "rending", "chitin", "sprinter", "digestion", "witterung", "geneflow", "attack_slot", "trait_slot"]
+const UPGRADE_ORDER := ["brood_size", "rending", "chitin", "sprinter", "digestion", "witterung", "geneflow", "attack_slot", "trait_slot", "seal_ring"]
+## Stage 31 B: seals without the Siegelring upgrade. A sealed stat, weapon or
+## relic id is never offered in a run (RunConfig "sealed").
+const BASE_SEALS := 2
 const INSTINCT_ID := "instinct"
 const INSTINCT := {"name": "Urinstinkt", "description": "Endlos: je Stufe +1 % Schaden und Biomasse", "base": 500, "step": 50, "bonus": 0.01}
 

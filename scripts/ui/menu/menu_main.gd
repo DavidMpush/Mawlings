@@ -1567,12 +1567,12 @@ func _draw_tabs() -> void:
 		_fill_gradient(PackedVector2Array([dock.position, Vector2(dock.end.x, dock.position.y), dock.end, Vector2(dock.position.x, dock.end.y)]), Color(S.color("outline"), 0.55), Color(S.color("outline"), 0.95))
 		_cv.draw_line(dock.position, Vector2(dock.end.x, dock.position.y), Color(S.color("panel_edge"), 0.9), 2.0)
 	var names: Dictionary = menu.TAB_NAMES
-	var accents := [S.color("cyan"), S.color("gold"), S.color("ember"), S.color("violet")]
+	var accents := {"upgrades": S.color("cyan"), "seals": S.color("violet"), "trophies": S.color("gold"), "instinct": S.color("ember"), "chronicle": S.color("violet")}
 	for i in menu.TABS.size():
 		var id: String = menu.TABS[i]
 		var rect: Rect2 = menu.tab_rect(i)
 		var active: bool = menu.tab == id or (id == "trophies" and menu.tab == "codex")
-		var accent: Color = accents[i]
+		var accent: Color = accents.get(id, S.color("violet"))
 		var fill := S.color("panel").lerp(accent, 0.14) if active else S.color("panel")
 		var ic := Vector2(rect.get_center().x, rect.position.y + 42)
 		if _on("base"):
@@ -1580,7 +1580,7 @@ func _draw_tabs() -> void:
 			if active and not S.is_calm():
 				_glow(ic, Vector2(56, 40), Color(accent, 0.4))
 		if _on("top"):
-			if not _icon([["tab_brutkammer"], ["trophy"], ["tab_instinct"], ["tab_chronicle"]][i], Rect2(ic - Vector2(32, 32), Vector2(64, 64))):
+			if not _icon([String(TAB_ICONS.get(id, ""))], Rect2(ic - Vector2(32, 32), Vector2(64, 64))):
 				_tab_icon(id, ic, accent)
 			_txt(String(names[id]), Vector2(rect.get_center().x, rect.position.y + 96), LABEL + 1, S.color("text") if active else S.color("text").darkened(0.15), true, 5)
 		var badge := ""
@@ -1626,8 +1626,8 @@ func _tab_icon(id: String, c: Vector2, accent: Color) -> void:
 # TOP (cached plates, icons, text). The organic/calm drawing stays untouched.
 
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
-const TAB_TONES := ["info", "loot", "ember", "special"]
-const TAB_ICONS := ["tab_brutkammer", "trophy", "tab_instinct", "tab_chronicle"]
+const TAB_TONES := {"upgrades": "info", "seals": "special", "trophies": "loot", "instinct": "ember", "chronicle": "special"}
+const TAB_ICONS := {"upgrades": "tab_brutkammer", "seals": "lock", "trophies": "trophy", "instinct": "tab_instinct", "chronicle": "tab_chronicle"}
 const STRAIN_HEADER := 74.0
 const PORTRAIT_H := 230.0
 ## Etappe 17d: ground of the portrait below the body top (was 306 before the ability row).
@@ -2249,7 +2249,7 @@ func _b_tabs() -> void:
 		var id: String = menu.TABS[i]
 		var rect: Rect2 = menu.tab_rect(i)
 		var active: bool = menu.tab == id or (id == "trophies" and menu.tab == "codex")
-		var tone: String = TAB_TONES[i]
+		var tone: String = TAB_TONES.get(id, "info")
 		var pressed: bool = menu.is_pressed(rect)
 		if _on("base"):
 			if active:
@@ -2261,7 +2261,7 @@ func _b_tabs() -> void:
 		var plate := 68.0
 		var pc := Vector2(rect.get_center().x, rect.position.y + 44.0 + (3.0 if pressed and not active else 0.0))
 		Kit.icon_plate(_cv, pc, plate, "dark" if active else tone)
-		if not _b_icon(TAB_ICONS[i], Kit.plate_center(pc, plate), plate * 0.78):
+		if not _b_icon(String(TAB_ICONS.get(id, "")), Kit.plate_center(pc, plate), plate * 0.78):
 			_tab_icon(id, Kit.plate_center(pc, plate), Color.WHITE)
 		_b_text(Vector2(rect.get_center().x, rect.position.y + 100.0), String(names[id]), S.T_LABEL, Color.WHITE, Kit.CENTER | Kit.MIDDLE, rect.size.x - 16.0)
 		var badge := ""

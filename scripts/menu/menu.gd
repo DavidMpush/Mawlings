@@ -20,10 +20,10 @@ const CHRONICLE_VIEWS := ["runs", "daily", "best"]
 const CHRONICLE_VIEW_NAMES := {"runs": "LETZTE RUNS", "daily": "TAGES-BRUT", "best": "BESTWERTE"}
 const GAME_SCENE := "res://scenes/main.tscn"
 
-const TABS := ["upgrades", "trophies", "instinct", "chronicle"]
-const TAB_NAMES := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK"}
+const TABS := ["upgrades", "seals", "trophies", "instinct", "chronicle"]
+const TAB_NAMES := {"upgrades": "BRUTKAMMER", "seals": "SIEGEL", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK"}
 const DIFFICULTY_COLORS := [Color("8fd46a"), Color("f2a04a"), Color("ff5a44")]
-const UPGRADE_COLORS := {"brood_size": Color("68d8c7"), "rending": Color("f58a4d"), "chitin": Color("b8d879"), "sprinter": Color("7cc3f0"), "digestion": Color("f6cc70"), "witterung": Color("7fe6ff"), "geneflow": Color("6ee4d4"), "attack_slot": Color("ff8a3d"), "trait_slot": Color("b798ec")}
+const UPGRADE_COLORS := {"brood_size": Color("68d8c7"), "rending": Color("f58a4d"), "chitin": Color("b8d879"), "sprinter": Color("7cc3f0"), "digestion": Color("f6cc70"), "witterung": Color("7fe6ff"), "geneflow": Color("6ee4d4"), "attack_slot": Color("ff8a3d"), "trait_slot": Color("b798ec"), "seal_ring": Color("c9a2ff")}
 const UI_STYLE_PATH := "res://scripts/ui/ui_style.gd"
 ## Einstellungen im Panel: [Profil-Schlüssel, Titel, Erklärung].
 ## Lautstärke-Regler über den Schaltern: [Profil-Schlüssel, Titel, Symbol]. Sie ersetzen
@@ -128,6 +128,7 @@ const COMPONENTS := [
 	["res://scripts/ui/menu/menu_sheets.gd", ["sheet", "reward", "toast", "settings"]],
 	["res://scripts/ui/menu/menu_chronicle.gd", []],
 	["res://scripts/ui/menu/menu_codex.gd", []],
+	["res://scripts/ui/menu/menu_seals.gd", []],
 ]
 
 
@@ -653,6 +654,37 @@ func open_codex(view: String = "") -> void:
 	queue_redraw()
 
 
+## SIEGEL sheet: seal or unseal the entry `id` (stat, weapon or relic). Only
+## discovered codex entries are sealable; the current strain's start weapon
+## never. Explains every refusal with a toast. Returns true on a change.
+func toggle_seal(id: String) -> bool:
+	if profile == null or codex == null:
+		return false
+	var entry := _seal_entry(id)
+	if entry.is_empty():
+		return false
+	if bool(entry.start):
+		_toast("Startwaffe des Stamms – nicht versiegelbar")
+		return false
+	if not bool(entry.seen) and not bool(entry.sealed):
+		_toast("Erst entdecken, dann versiegeln")
+		return false
+	if not bool(entry.sealed) and profile.sealed.size() >= profile.seal_limit():
+		_toast("Alle Siegel vergeben · mehr mit dem Siegelring")
+		return false
+	if not profile.toggle_seal(id, current_strain()):
+		return false
+	_toast("%s versiegelt" % String(entry.name) if profile.is_sealed(id) else "%s gelöst" % String(entry.name))
+	return true
+
+
+func _seal_entry(id: String) -> Dictionary:
+	for e in seal_entries():
+		if e.id == id:
+			return e
+	return {}
+
+
 func select_codex_view(view: String) -> void:
 	if codex != null and view in codex.CATEGORIES and view != codex_view:
 		codex_view = view
@@ -781,7 +813,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 
 ## Sheets with a swipe-scrolled list (all share trophy_scroll).
-const SCROLL_TABS := ["upgrades", "trophies", "chronicle", "codex"]
+const SCROLL_TABS := ["upgrades", "seals", "trophies", "chronicle", "codex"]
 
 
 func _scroll_trophies(amount: float) -> void:
@@ -900,6 +932,11 @@ func _button_rects() -> Array:
 	elif tab == "codex" and codex != null:
 		for i in codex.CATEGORIES.size():
 			rects.append(codex_segment_rect(i))
+	elif tab == "seals" and codex != null:
+		var area := seal_list_rect()
+		for r in seal_tile_rects():
+			if r.intersects(area):
+				rects.append(r.intersection(area))
 	if tab != "":
 		rects.append(sheet_close_rect())
 	else:
@@ -928,6 +965,15 @@ func _tap_sheet(location: Vector2) -> void:
 		for i in codex.CATEGORIES.size():
 			if codex_segment_rect(i).has_point(location):
 				select_codex_view(codex.CATEGORIES[i])
+				return
+	elif tab == "seals":
+		if codex == null or not seal_list_rect().has_point(location):
+			return
+		var entries := seal_entries()
+		var tiles := seal_tile_rects()
+		for i in entries.size():
+			if (tiles[i] as Rect2).has_point(location):
+				toggle_seal(String(entries[i].id))
 				return
 	elif tab == "chronicle":
 		for i in CHRONICLE_VIEWS.size():
@@ -1183,6 +1229,102 @@ func codex_row_rect(i: int) -> Rect2:
 	var area := codex_list_rect()
 	return Rect2(area.position.x, area.position.y + i * (CODEX_ROW_H + CODEX_ROW_GAP) - trophy_scroll, area.size.x, CODEX_ROW_H)
 
+# ---------------------------------------------------------------- seals layout
+
+## SIEGEL sheet (stage 31 B): groups in list order, [codex category, header].
+const SEAL_GROUPS := [["stats", "WERTE"], ["weapons", "WAFFEN"], ["relics", "RELIKTE"]]
+const SEAL_COLS := 4
+const SEAL_TILE_H := 184.0
+const SEAL_GAP := 12.0
+const SEAL_HEAD_H := 58.0
+## Room right of the grid for the scroll thumb.
+const SEAL_SCROLLBAR := 14.0
+
+var _seal_catalog: Array = []
+
+
+## Counter strip with the hint (not tappable).
+func seal_summary_rect() -> Rect2:
+	var s := sheet_rect()
+	return Rect2(s.position.x + 24, _sheet_body_top(), s.size.x - 48, 112)
+
+
+func seal_list_rect() -> Rect2:
+	var s := sheet_rect()
+	var top := seal_summary_rect().end.y + 14
+	return Rect2(s.position.x + 24, top, s.size.x - 48, s.end.y - 22 - top)
+
+
+## Sealable entries in list order: codex entries (stats, base weapons, relics)
+## plus group, seen (discovered), sealed and start (current strain's weapon).
+func seal_entries() -> Array:
+	if codex == null or profile == null:
+		return []
+	if _seal_catalog.is_empty():
+		for g in SEAL_GROUPS:
+			for e in codex.entries(g[0]):
+				if g[0] == "weapons" and String(e.chip) == "EVOLUTION":
+					continue
+				e["group"] = g[0]
+				_seal_catalog.append(e)
+	var signature := String(_strain(current_strain()).get("signature", ""))
+	var out: Array = []
+	for base in _seal_catalog:
+		var e: Dictionary = base.duplicate()
+		e["seen"] = profile.codex_seen.has(e.key)
+		e["sealed"] = profile.is_sealed(e.id)
+		e["start"] = e.group == "weapons" and e.id == signature
+		out.append(e)
+	return out
+
+
+## Layout in list coordinates (unscrolled): [{kind "header", rect, group, text}
+## or {kind "tile", rect, index}] where index points into seal_entries().
+func seal_layout() -> Array:
+	var out: Array = []
+	var entries := seal_entries()
+	var w := seal_list_rect().size.x - SEAL_SCROLLBAR
+	var tw := (w - SEAL_GAP * (SEAL_COLS - 1)) / float(SEAL_COLS)
+	var y := 0.0
+	for g in SEAL_GROUPS:
+		out.append({"kind": "header", "rect": Rect2(0, y, w, SEAL_HEAD_H), "group": g[0], "text": g[1]})
+		y += SEAL_HEAD_H
+		var col := 0
+		for i in entries.size():
+			if entries[i].group != g[0]:
+				continue
+			if col == SEAL_COLS:
+				col = 0
+				y += SEAL_TILE_H + SEAL_GAP
+			out.append({"kind": "tile", "rect": Rect2(col * (tw + SEAL_GAP), y, tw, SEAL_TILE_H), "index": i})
+			col += 1
+		y += SEAL_TILE_H + SEAL_GAP + 6.0
+	return out
+
+
+func _seal_content_height() -> float:
+	var h := 0.0
+	for item in seal_layout():
+		h = maxf(h, (item.rect as Rect2).end.y)
+	return h
+
+
+## Tile of every entry (index as in seal_entries()) in menu coordinates, scroll applied.
+func seal_tile_rects() -> Array:
+	var area := seal_list_rect()
+	var out: Array = []
+	out.resize(seal_entries().size())
+	for item in seal_layout():
+		if item.kind == "tile":
+			var r: Rect2 = item.rect
+			out[int(item.index)] = Rect2(area.position + r.position - Vector2(0, trophy_scroll), r.size)
+	return out
+
+
+func seal_tile_rect(i: int) -> Rect2:
+	var rects := seal_tile_rects()
+	return rects[i] if i >= 0 and i < rects.size() else Rect2()
+
 # ---------------------------------------------------------------- chronicle layout
 
 func chronicle_segment_rect(i: int) -> Rect2:
@@ -1274,6 +1416,8 @@ func _trophy_scroll_max() -> float:
 	if tab == "codex":
 		var n: int = codex.entries(codex_view).size() if codex != null else 0
 		return maxf(0.0, n * (CODEX_ROW_H + CODEX_ROW_GAP) - CODEX_ROW_GAP - codex_list_rect().size.y)
+	if tab == "seals":
+		return maxf(0.0, _seal_content_height() - seal_list_rect().size.y)
 	if tab == "upgrades":
 		var rows: int = meta.UPGRADE_ORDER.size()
 		return maxf(0.0, rows * (UPGRADE_ROW_H + UPGRADE_ROW_GAP) - UPGRADE_ROW_GAP - upgrade_list_rect().size.y)
@@ -1655,7 +1799,7 @@ func _draw_tabs() -> void:
 		var id: String = TABS[i]
 		var rect := tab_rect(i)
 		var active := tab == id
-		var accent: Color = [GOLD, Color("b798ec"), CYAN, Color("b798ec")][i]
+		var accent: Color = {"upgrades": GOLD, "seals": Color("c9a2ff"), "trophies": Color("b798ec"), "instinct": CYAN}.get(id, Color("b798ec"))
 		_frame(rect, Color("1a3a2c") if active else Color("0c1c17f0"), accent if active else Color(accent, 0.55), 1 | 2 if active else 0, 4.0 if active else 2.0)
 		var ic := Vector2(rect.get_center().x, rect.position.y + 40)
 		if id == "upgrades":

@@ -112,6 +112,9 @@ var active_left := 0.0
 var grace_left := 0.0
 var direction := Vector3(0, 0, -1)
 var uses := 0
+## Stage 31 C: total damage this ability dealt in the run (enemies + brood),
+## shown as the ability source on the result screen.
+var damage_dealt := 0.0
 var modifiers := {"cooldown": 1.0, "duration": 1.0, "radius": 1.0, "power": 1.0, "fire_trail": false}
 var decoy := Vector3.INF
 # Leap in progress.
@@ -342,12 +345,17 @@ func _hit(target: Object, amount: float) -> void:
 		target.take_damage(amount)
 	elif "health" in target:
 		target.set("health", float(target.get("health")) - amount)
+	else:
+		return
+	damage_dealt += amount
 
 
 func _brood_circle(center: Vector3, radius: float, amount: float) -> void:
 	var brood: Variant = _call("ability_brood")
 	if brood != null and is_instance_valid(brood) and brood.has_method("damage_circle"):
-		brood.damage_circle(center, radius, amount)
+		var hits: Variant = brood.damage_circle(center, radius, amount)
+		if hits is int and amount > 0.0:
+			damage_dealt += amount * float(hits)
 
 
 func _flat_distance(a: Vector3, b: Vector3) -> float:

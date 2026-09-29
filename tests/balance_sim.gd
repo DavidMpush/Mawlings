@@ -409,6 +409,13 @@ func _pick(evolution: Variant, strategy: String) -> int:
 		# only when nothing else is on offer or it already owns it.
 		if id == "lockduft" and evolution.rank(id) == 0:
 			score -= 0.5
+		# Stage 31 A (every stat maxed): overdrive cards score equally (random
+		# pick); the heal card (leader below 60 % LP) wins, damage comes next.
+		if kind == "overdrive":
+			if id == "od_heal":
+				score += 5.0
+			elif id == "od_bite":
+				score += 0.05
 		if strategy == "attack_first" and kind in ["attack", "evolved"]:
 			score += 10.0
 		elif strategy.begins_with("form:"):

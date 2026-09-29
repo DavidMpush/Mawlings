@@ -120,6 +120,7 @@ var _time := 0.0
 var sealed := false
 var cap: MeshInstance3D
 var _unseal := 0.0
+var _rune_material: StandardMaterial3D
 
 
 func setup(target: String, source := "") -> void:
@@ -186,6 +187,19 @@ func _ready() -> void:
 	stone.emission_enabled = true
 	stone.emission = Color(core, 1.0) * 0.18
 	cap = _part(self, "Seal", dome, stone, Vector3(0, 0.21, 0))
+	# Two glowing rune rings on the seal (destination colour) read as 'locked'.
+	var rune := StandardMaterial3D.new()
+	rune.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rune.albedo_color = Color(core, 1.0).lightened(0.15)
+	_rune_material = rune
+	for ring in [[0.62, 0.7], [0.3, 0.36]]:
+		var torus := TorusMesh.new()
+		torus.inner_radius = radius * float(ring[0])
+		torus.outer_radius = radius * float(ring[1])
+		torus.rings = 36
+		torus.ring_segments = 4
+		var part := _part(cap, "Rune", torus, rune, Vector3(0, 0.2, 0))
+		part.scale = Vector3(1.0, 0.25, 1.0)
 	cap.visible = sealed
 	_animate(0.0)
 
@@ -361,6 +375,10 @@ func _animate(delta: float) -> void:
 	# A sealed gate shows its full rim (a landmark), only the vortex waits.
 	var rim_grow := 1.0 if (sealed or cap != null and cap.visible) else grow
 	rim.scale = Vector3(breath if not sealed else 1.0, 1.0, breath if not sealed else 1.0) * maxf(0.01, rim_grow)
+	if _rune_material != null and sealed:
+		var glow := 0.75 + 0.25 * sin(_time * 2.2)
+		var tone := Color(vortex_material.get_shader_parameter("core_color")).lightened(0.15) * glow
+		_rune_material.albedo_color = Color(tone.r, tone.g, tone.b, 1.0)
 	if cap != null and cap.visible:
 		# The seal sinks and fades while the gate unseals.
 		cap.position.y = 0.21 - 0.5 * _unseal

@@ -120,17 +120,19 @@ void fragment() {
 		float plates = ember_noise(w * 0.3 + drift + warp * 1.7) * 0.65 + ember_noise(turned * 0.62 - drift) * 0.35;
 		float heat = smoothstep(0.3, 6.0, into + (warp - 0.5) * 1.5);
 		float pulse = 0.5 + 0.5 * sin(TIME * 1.3 + warp * 9.0);
-		float vein_width = 0.05 + 0.1 * heat;
+		// Etappe 31: wider, brighter veins and darker plates - it glows, not caramel.
+		float vein_width = 0.07 + 0.14 * heat;
 		float vein = 1.0 - smoothstep(vein_width, vein_width + 0.1, abs(plates - 0.5) * 3.5);
 		vec3 hot = mix(lava_mid.rgb, lava_core.rgb, heat * (0.6 + 0.4 * pulse));
-		vec3 cooled = lava_crust.rgb * (0.55 + 0.35 * heat + 0.25 * n2);
-		vec3 molten = mix(cooled * (1.0 - 0.35 * plate_amount), hot, max(vein, 1.0 - plate_amount));
+		vec3 cooled = lava_crust.rgb * (0.55 + 0.3 * n2) + lava_mid.rgb * 0.05 * heat;
+		// Plates stay dark (a faint ember haze only); the veins carry the glow.
+		vec3 molten = mix(cooled + hot * 0.07 * (1.0 - plate_amount + heat * 0.5), hot, vein);
 		// Bright seam right inside the edge, dark crust lip right outside it.
 		molten = mix(molten, hot, (1.0 - smoothstep(0.0, 0.5, into)) * 0.85);
 		float lip = (1.0 - smoothstep(0.0, 0.4, max(deep, 0.0))) * (1.0 - drop);
 		crust *= 1.0 - 0.45 * lip;
 		albedo = mix(crust, vec3(0.0), drop);
-		glow = mix(crack_color.rgb * cracks * 0.9, molten * (0.92 + 0.12 * pulse), drop);
+		glow = mix(crack_color.rgb * cracks * 0.9, molten * (1.1 + 0.2 * pulse), drop);
 		vec3 ash = rim_color.rgb * (0.9 + 0.2 * n1);
 		albedo = mix(ash, albedo, wet);
 		glow *= wet;

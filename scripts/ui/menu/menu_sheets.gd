@@ -19,16 +19,16 @@ const UiFramesRef := preload("res://scripts/ui/ui_frames.gd")
 const ICONS_PATH := "res://scripts/ui/ui_icons.gd"
 const FRAMES_PATH := "res://scripts/ui/ui_frames.gd"
 
-const TAB_TITLE := {"upgrades": "BRUTKAMMER", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK", "codex": "KODEX"}
-const TAB_ACCENT := {"upgrades": S.GOLD, "trophies": S.VIOLET, "instinct": S.CYAN, "chronicle": S.VIOLET, "codex": S.GOLD}
+const TAB_TITLE := {"upgrades": "BRUTKAMMER", "seals": "SIEGEL", "trophies": "TROPHÄEN", "instinct": "URINSTINKT", "chronicle": "CHRONIK", "codex": "KODEX"}
+const TAB_ACCENT := {"upgrades": S.GOLD, "seals": S.VIOLET, "trophies": S.VIOLET, "instinct": S.CYAN, "chronicle": S.VIOLET, "codex": S.GOLD}
 ## Kategorie-Farbe je Brutkammer-Upgrade (Angriff Ember, Wachstum Cyan, Spezial Violett, Schutz Toxic).
 const UPGRADE_ACCENT := {"brood_size": S.CYAN, "rending": S.EMBER, "chitin": S.TOXIC, "sprinter": S.CYAN,
-	"digestion": S.AMBER, "geneflow": S.CYAN, "attack_slot": S.EMBER, "trait_slot": S.VIOLET}
+	"digestion": S.AMBER, "geneflow": S.CYAN, "attack_slot": S.EMBER, "trait_slot": S.VIOLET, "seal_ring": S.VIOLET}
 ## Icon-Wunschliste je Upgrade für UiIcons (erste vorhandene ID gewinnt), sonst eigene Zeichnung.
 const UPGRADE_ICONS := {"brood_size": ["brood", "trait_brood"], "rending": ["jaws", "trait_jaws"],
 	"chitin": ["armor", "trait_armor"], "sprinter": ["scatter", "trait_scatter"],
 	"digestion": ["glutton", "trait_glutton"], "geneflow": ["dna", "dna_helix"],
-	"attack_slot": ["rudelbiss", "attack_rudelbiss"], "trait_slot": ["pack", "trait_pack"]}
+	"attack_slot": ["rudelbiss", "attack_rudelbiss"], "trait_slot": ["pack", "trait_pack"], "seal_ring": ["lock"]}
 
 var role := "sheets"
 var menu = null
@@ -471,6 +471,9 @@ func _upgrade_effect(id: String, rank: int) -> String:
 		"trait_slot":
 			# Etappe 17: ehemals Anlagenslot, jetzt +1 Neu würfeln je Rang.
 			return "+%d Neu würfeln" % rank
+		"seal_ring":
+			# Stage 31 B: total seals (SIEGEL sheet).
+			return "%d Siegel" % (int(menu.meta.BASE_SEALS) + rank)
 	return "Rang %d" % rank
 
 
@@ -1368,13 +1371,13 @@ func _claw(base: Vector2, direction: Vector2, length: float, width: float, color
 
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
 const UiArtRef := preload("res://scripts/ui/ui_art.gd")
-const B_TAB_TONE := {"upgrades": "info", "trophies": "loot", "instinct": "ember", "chronicle": "special", "codex": "loot"}
-const B_TAB_ICON := {"upgrades": "tab_brutkammer", "trophies": "trophy", "instinct": "tab_instinct", "chronicle": "tab_chronicle", "codex": "evo_badge"}
+const B_TAB_TONE := {"upgrades": "info", "seals": "special", "trophies": "loot", "instinct": "ember", "chronicle": "special", "codex": "loot"}
+const B_TAB_ICON := {"upgrades": "tab_brutkammer", "seals": "lock", "trophies": "trophy", "instinct": "tab_instinct", "chronicle": "tab_chronicle", "codex": "evo_badge"}
 ## Plate tone per Brutkammer upgrade (own swarm ember, growth/DNA info, loot, evolution special).
 const B_UPGRADE_TONE := {"brood_size": "ember", "rending": "ember", "chitin": "action", "sprinter": "info",
-	"digestion": "loot", "witterung": "info", "geneflow": "info", "attack_slot": "special", "trait_slot": "special"}
+	"digestion": "loot", "witterung": "info", "geneflow": "info", "attack_slot": "special", "trait_slot": "special", "seal_ring": "special"}
 const B_UPGRADE_ICON := {"brood_size": "brood", "rending": "jaws", "chitin": "armor", "sprinter": "scatter",
-	"digestion": "glutton", "witterung": "branch_growth", "geneflow": "dna", "attack_slot": "rudelbiss", "trait_slot": "pack"}
+	"digestion": "glutton", "witterung": "branch_growth", "geneflow": "dna", "attack_slot": "rudelbiss", "trait_slot": "pack", "seal_ring": "lock"}
 const B_CATEGORY_TONE := {"time": "info", "swarm": "ember", "boss": "danger", "evolution": "special", "biomass": "loot", "runs": "action", "hunt": "ember"}
 const B_CATEGORY_ICON := {"time": "clock", "swarm": "mawling_head_color", "boss": "crown", "evolution": "branch_special", "biomass": "biomass", "runs": "trophy", "hunt": "skull"}
 const B_SETTING_TONE := {"sound": "info", "vibration": "ember", "colorblind": "special", "music_v1": "loot", "speech": "action"}

@@ -1235,7 +1235,9 @@ func _xp_fill() -> float:
 	var evo := _evolution()
 	if evo == null:
 		return 0.0
-	if bool(evo.complete()):
+	# Etappe 31: with every stat maxed the levels go on (overdrive choices), so
+	# the bar keeps filling; MAX only once no overdrive bonus is left either.
+	if bool(evo.complete()) and evo.has_method("overdrive_candidates") and (evo.overdrive_candidates() as Array).is_empty():
 		return 1.0
 	return clampf(float(evo.get("dna")) / maxf(1.0, float(evo.threshold())), 0.0, 1.0)
 

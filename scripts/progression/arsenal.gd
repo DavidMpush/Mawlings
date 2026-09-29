@@ -120,6 +120,9 @@ var slots := BASE_SLOTS
 var relic_slots := RELIC_SLOTS
 var weapon_pool: Array = []
 var relic_pool: Array = []
+## Stage 31 B: sealed weapon/relic ids (evolution.configure); never offered by
+## any cocoon (the start weapon is never in here).
+var sealed: Array = []
 ## Geöffnete Karten-Kokons (Preis steigt je Kokon).
 var chests_opened := 0
 
@@ -344,7 +347,7 @@ func _weapon_candidates(taken: Array) -> Array:
 	var out: Array = []
 	var free := slots_free() > 0
 	for id in weapon_pool:
-		if skip.has(id) or not is_weapon(String(id)) or _evolved_from(String(id)):
+		if skip.has(id) or sealed.has(String(id)) or not is_weapon(String(id)) or _evolved_from(String(id)):
 			continue
 		var current := rank(String(id))
 		if current >= MAX_RANK:
@@ -376,7 +379,7 @@ func _pick_relic(rng: RandomNumberGenerator, rarity: String, taken: Array, any: 
 	for tier in order:
 		var ids: Array = []
 		for id in relic_pool:
-			if is_relic(String(id)) and relic_rarity(String(id)) == tier and not skip.has(id) and relic_open(String(id)) and not ids.has(String(id)):
+			if is_relic(String(id)) and relic_rarity(String(id)) == tier and not skip.has(id) and not sealed.has(String(id)) and relic_open(String(id)) and not ids.has(String(id)):
 				ids.append(String(id))
 		if not ids.is_empty():
 			return relic_item(String(ids[rng.randi_range(0, ids.size() - 1)]))

@@ -18,7 +18,9 @@ const PILL_H := 46.0
 const CARD_W := 560.0
 const CARD_H := 150.0
 const CARD_Y := 0.25
-const BAND_Y := 0.32
+# Etappe 31: below the swarm (between swarm and hint line) - at 0.32 it covered
+# the speech bubbles on the left and the loss popups.
+const BAND_Y := 0.64
 const BAND_H := 66.0
 
 var _time := 0.0

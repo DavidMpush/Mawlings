@@ -3,6 +3,7 @@ extends RefCounted
 
 const DATA = preload("res://scripts/meta/meta_data.gd")
 const CODEX = preload("res://scripts/meta/codex.gd")
+const STATS = preload("res://scripts/progression/stats.gd")
 const AUDIO_SETTINGS = preload("res://scripts/audio_settings.gd")
 const SCRIPT_PATH := "res://scripts/meta/profile.gd"
 const DEFAULT_PATH := "user://mawlings_profile.json"
@@ -34,6 +35,9 @@ var settings: Dictionary = {}
 var seen_tips: Array = []
 ## KODEX: entdeckte Einträge "<art>:<id>" (scripts/meta/codex.gd), nie wieder vergessen.
 var codex_seen: Array = []
+## Stage 31 B: sealed stat/weapon/relic ids (SIEGEL sheet); never offered in a run.
+## At most seal_limit() entries; old profiles load with [].
+var sealed: Array[String] = []
 
 ## Lautstärke-Regler (volume_*, 0,0-1,0 in 5-%-Schritten, scripts/audio_settings.gd)
 ## ersetzen den alten Schalter "sound"; get_setting("sound") = Gesamt > 0.
@@ -71,6 +75,7 @@ func _reset_defaults() -> void:
 	settings = DEFAULT_SETTINGS.duplicate()
 	seen_tips = []
 	codex_seen = []
+	sealed.clear()
 
 static func _default_records() -> Dictionary:
 	return {
@@ -119,7 +124,7 @@ func to_dict() -> Dictionary:
 		"unlocked_mutations": unlocked_mutations, "bonus_rerolls": bonus_rerolls,
 		"bonus_banishes": bonus_banishes, "bonus_skips": bonus_skips, "next_seed": next_seed,
 		"daily_records": daily_records, "settings": settings, "seen_tips": seen_tips,
-		"codex_seen": codex_seen,
+		"codex_seen": codex_seen, "sealed": sealed,
 	}
 
 func _apply(d: Dictionary) -> void:
@@ -218,6 +223,13 @@ func _apply(d: Dictionary) -> void:
 		if not saved_records.has("total_moss"):
 			records.total_moss = maxi(0, int(records.total_apex) - int(records.total_toads))
 	_merge_strings(codex_seen, d.get("codex_seen"), [])
+	# Stage 31 B: seals (known ids only, no duplicates, at most seal_limit()).
+	var saved_sealed: Variant = d.get("sealed")
+	if saved_sealed is Array:
+		var known := seal_ids()
+		for item in saved_sealed:
+			if item is String and known.has(item) and not sealed.has(item) and sealed.size() < seal_limit():
+				sealed.append(item)
 	# Ältere Profile: Evolutionen und besiegte Bosse aus den Rekorden nachtragen.
 	for key in CODEX.keys_from_records(records):
 		if not codex_seen.has(key):
@@ -276,6 +288,44 @@ func buy_upgrade(id: String) -> bool:
 		instinct_level += 1
 	else:
 		upgrades[id] = upgrade_rank(id) + 1
+	save()
+	return true
+
+# --- Seals (stage 31 B) ----------------------------------------------------------
+
+## Every id that can be sealed: all stats, base weapons (no evolutions) and relics.
+static func seal_ids() -> Array:
+	var out: Array = []
+	for d in STATS.STATS:
+		out.append(String(d.id))
+	for row in DATA.ARSENAL.WEAPONS:
+		out.append(String(row[0]))
+	for row in DATA.ARSENAL.RELICS:
+		out.append(String(row[0]))
+	return out
+
+
+## Seals available: BASE_SEALS + one per Siegelring rank.
+func seal_limit() -> int:
+	return int(DATA.BASE_SEALS) + upgrade_rank("seal_ring")
+
+
+func is_sealed(id: String) -> bool:
+	return sealed.has(id)
+
+
+## Seals or unseals `id` and saves; false when nothing changed (unknown id, all
+## seals used, or `id` is the start weapon of `strain_id`).
+func toggle_seal(id: String, strain_id: String = "") -> bool:
+	if sealed.has(id):
+		sealed.erase(id)
+		save()
+		return true
+	if not seal_ids().has(id) or sealed.size() >= seal_limit():
+		return false
+	if strain_id != "" and String(DATA.STRAINS.get(strain_id, {}).get("signature", "")) == id:
+		return false
+	sealed.append(id)
 	save()
 	return true
 
@@ -443,7 +493,13 @@ func build_run_config(strain_id: String, biome_id: String, difficulty: int, run_
 	var signature := String(strain.signature)
 	if not pool.has(signature):
 		pool.append(signature)
+	# Stage 31 B: the strain's start weapon is never sealed; clamp to the limit.
+	var seals: Array[String] = []
+	for id in sealed:
+		if id != signature and seals.size() < seal_limit():
+			seals.append(id)
 	return {
+		"sealed": seals,
 		"strain_id": strain_id, "biome_id": biome_id, "difficulty": difficulty,
 		"start_population": mini(DATA.MAX_POPULATION, int(strain.start_population) + mini(upgrade_rank("brood_size"), int(DATA.UPGRADES.brood_size.max))),
 		"tint": Color(String(strain.tint)),

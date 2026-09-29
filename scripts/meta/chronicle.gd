@@ -20,6 +20,8 @@ const DAILY_DAYS := 30
 const FLOOD_DOUBLING_SECONDS := 40.0
 const TUNING_PATH := "res://scripts/tuning.gd"
 const SEED_ALPHABET := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+## Stage 31 C: damage sources kept per run (id, damage, share).
+const TOP_SOURCES := 3
 
 var path := DEFAULT_PATH
 var runs: Array = []            # neueste zuerst
@@ -203,6 +205,8 @@ static func entry_from_stats(stats: Dictionary, context: Dictionary = {}) -> Dic
 		"seed": run_seed, "seed_code": seed_code(run_seed) if run_seed > 0 else "",
 		"daily": is_daily, "daily_date": daily_date if is_daily else "",
 		"daily_rank": maxi(0, _int(stats.get("daily_rank"), 0)),
+		# Stage 31 C: the three strongest damage sources (older files have none).
+		"top_sources": _clean_sources(stats.get("top_sources")) if stats.has("top_sources") else top_sources(stats.get("damage", {}), TOP_SOURCES),
 	}
 	entry["flood_stage"] = flood_stage(entry)
 	return entry
@@ -255,6 +259,37 @@ func daily_dates() -> Array:
 	return keys
 
 # ---------------------------------------------------------------- helpers
+
+## Stage 31 C: the `count` strongest damage sources of a RunStats "damage"
+## dictionary (source id -> damage) as [{id, damage, share}], strongest first.
+static func top_sources(damage: Variant, count: int = TOP_SOURCES) -> Array:
+	var list: Array = []
+	if not (damage is Dictionary):
+		return list
+	var total := 0.0
+	for id in damage:
+		var value := maxf(0.0, _float(damage[id], 0.0))
+		if value > 0.0:
+			total += value
+			list.append({"id": String(id), "damage": snappedf(value, 0.1)})
+	list.sort_custom(func(a, b): return float(a.damage) > float(b.damage) if not is_equal_approx(float(a.damage), float(b.damage)) else String(a.id) < String(b.id))
+	list = list.slice(0, maxi(0, count))
+	for item in list:
+		item["share"] = snappedf(float(item.damage) / total, 0.001) if total > 0.0 else 0.0
+	return list
+
+
+static func _clean_sources(raw: Variant) -> Array:
+	var out: Array = []
+	if not (raw is Array):
+		return out
+	for item in raw:
+		if item is Dictionary and String(item.get("id", "")) != "":
+			out.append({"id": String(item.id), "damage": maxf(0.0, _float(item.get("damage"), 0.0)), "share": clampf(_float(item.get("share"), 0.0), 0.0, 1.0)})
+		if out.size() >= TOP_SOURCES:
+			break
+	return out
+
 
 static func seed_code(value: int) -> String:
 	var n := maxi(0, value)

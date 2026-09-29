@@ -136,6 +136,8 @@ func _input(event: InputEvent) -> void:
 			restart_requested.emit()
 		elif extinct and event.keycode in [KEY_H, KEY_M]:
 			hub_requested.emit()
+		elif extinct and event.keycode in [KEY_B, KEY_TAB]:
+			_toggle_result_page()
 		elif not extinct and not paused and not _choosing() and event.keycode in [KEY_M, KEY_TAB]:
 			set_map_open(not map_open)
 		elif not extinct and not paused and not _choosing() and event.keycode in [KEY_Q, KEY_SHIFT]:
@@ -179,6 +181,9 @@ func _press(pointer: int, location: Vector2) -> void:
 			var overlays := get_node_or_null("hud_overlays")
 			if overlays != null and overlays.has_method("share_result"):
 				overlays.share_result()
+		elif extinct and (_build_rect().has_point(location) or _build_panel_rect().has_point(location)):
+			_tap_sound()
+			_toggle_result_page()
 		elif paused and _restart_rect().has_point(location):
 			_tap_sound()
 			restart_requested.emit()
@@ -202,7 +207,8 @@ func _press(pointer: int, location: Vector2) -> void:
 			return
 		for slot in evolution.offers.size():
 			var banish_area: Rect2 = ms.banish_rect(slot) if ms != null else _banish_rect(slot)
-			if _count("banishes") > 0 and banish_area.has_point(location):
+			# Etappe 31: overdrive cards cannot be banished (the button is hidden).
+			if _count("banishes") > 0 and not bool(evolution.get("offer_overdrive")) and banish_area.has_point(location):
 				_tap_sound()
 				banish_requested.emit(slot)
 				return
@@ -365,7 +371,7 @@ func _pause_rect() -> Rect2:
 
 # Stage 15 (brawl skin): result and pause buttons of hud_overlays.gd. The
 # layout is the 900 x 1600 base, centred vertically on taller screens.
-#   result: NOCHMAL (action, full width), below BRUTSTÄTTE + TEILEN
+#   result: NOCHMAL (action, full width), below BRUTSTÄTTE + BUILD + TEILEN
 #   pause:  WEITER (action, full width), below NEUSTART + BRUTSTÄTTE
 func _overlay_top() -> float:
 	return (size.y - 1600.0) * 0.5
@@ -382,9 +388,28 @@ func _action_rect() -> Rect2:
 func _hub_rect() -> Rect2:
 	if (extinct or paused) and UiStyle.is_brawl():
 		if extinct:
-			return Rect2(Vector2(size.x * 0.5 - 390, _overlay_top() + 1404), Vector2(560, 104))
+			return Rect2(Vector2(size.x * 0.5 - 390, _overlay_top() + 1404), Vector2(340, 104))
 		return Rect2(Vector2(size.x * 0.5 + 10, _overlay_top() + 930), Vector2(330, 104))
 	return Rect2(Vector2(size.x * 0.5 + 10, size.y * 0.5 + 235), Vector2(330, 88))
+
+# Stage 31 C (brawl result): toggles the page "DEIN BUILD" (damage per source,
+# pick timeline) and back; between BRUTSTÄTTE and TEILEN.
+func _build_rect() -> Rect2:
+	if extinct and UiStyle.is_brawl():
+		return Rect2(Vector2(size.x * 0.5 - 30, _overlay_top() + 1404), Vector2(200, 104))
+	return Rect2()
+
+# Stage 31 C: on the overview page the BUILD panel itself opens the build page.
+func _build_panel_rect() -> Rect2:
+	var overlays := get_node_or_null("hud_overlays")
+	if extinct and UiStyle.is_brawl() and overlays != null and overlays.has_method("toggle_result_page") and int(overlays.result_page) == 0:
+		return Rect2(Vector2(size.x * 0.5 - 390, _overlay_top() + 578), Vector2(780, 140))
+	return Rect2()
+
+func _toggle_result_page() -> void:
+	var overlays := get_node_or_null("hud_overlays")
+	if overlays != null and overlays.has_method("toggle_result_page"):
+		overlays.toggle_result_page()
 
 # Result only (brawl): renders the share card (hud_overlays.share_result()).
 func _share_rect() -> Rect2:

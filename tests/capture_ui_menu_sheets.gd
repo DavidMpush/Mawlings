@@ -69,6 +69,23 @@ func _capture_size(window: Vector2i, suffix: String) -> void:
 	await _settle(14)
 	await _shot("res://previews/preview_ui_menu_sheets_upgrades_toast%s.png" % suffix)
 	menu.toast_time = 0.0
+	menu._scroll_trophies(-99999.0)
+	await _settle(8)
+	await _shot("res://previews/preview_ui_menu_sheets_upgrades_end%s.png" % suffix)
+	# Stage 31 B: SIEGEL sheet with two seals, some discovered entries and the
+	# start weapon tag (Glutmaw: Rudelbiss); then scrolled to the relics.
+	menu.profile.codex_seen.append_array(["stat:bite", "stat:crit", "stat:haste", "stat:armor", "stat:vigor", "stat:magnet", "stat:speed",
+		"weapon:rudelbiss", "weapon:sporenwolke", "weapon:giftbiss", "relic:hungerstein", "relic:scharfe_zaehne", "relic:blutzahn", "relic:magnetkern"])
+	menu.select_strain(-menu.strain_index)
+	menu.toggle_seal("crit")
+	menu.toggle_seal("sporenwolke")
+	menu.open_tab("seals")
+	menu.toast_time = 0.0
+	await _settle(8)
+	await _shot("res://previews/preview_ui_menu_sheets_seals%s.png" % suffix)
+	menu._scroll_trophies(-99999.0)
+	await _settle(8)
+	await _shot("res://previews/preview_ui_menu_sheets_seals_end%s.png" % suffix)
 	menu.open_tab("trophies")
 	await _settle(8)
 	await _shot("res://previews/preview_ui_menu_sheets_trophies%s.png" % suffix)

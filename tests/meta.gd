@@ -30,7 +30,7 @@ func _clean() -> void:
 func _run() -> void:
 	_clean()
 	# Datenumfang
-	check(DATA.STRAINS.size() == 6 and DATA.UPGRADES.size() == 9 and DATA.DIFFICULTIES.size() == 3, "Data sizes")
+	check(DATA.STRAINS.size() == 6 and DATA.UPGRADES.size() == 10 and DATA.DIFFICULTIES.size() == 3, "Data sizes")
 	check(DATA.QUESTS.size() >= 30, "At least 30 quests")
 	var ids := {}
 	for q in DATA.QUESTS:
@@ -50,7 +50,7 @@ func _run() -> void:
 	# Config vollständig
 	var config: Dictionary = p.build_run_config("glutmaw", "verdant_maw", 0)
 	for key in ["strain_id", "biome_id", "difficulty", "start_population", "tint", "signature_attack", "mods",
-			"enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool"]:
+			"enemy_hp", "enemy_damage", "pressure_doubling", "slots", "rerolls", "banishes", "skips", "pool", "sealed"]:
 		check(config.has(key), "Config key %s" % key)
 	for key in ["damage", "armor", "speed", "harvest", "dna", "growth"]:
 		check(config.mods.has(key), "Mods key %s" % key)
@@ -201,6 +201,35 @@ func _run() -> void:
 	old_sound.save()
 	var reread_volume = PROFILE.load_or_create(TEST_PATH)
 	check(is_equal_approx(reread_volume.get_volume("volume_sfx"), 0.6) and reread_volume.get_volume("volume_master") == 1.0 and not reread_volume.settings.has("sound"), "Volumes saved as numbers: %s" % reread_volume.settings)
+	# Stage 31 B: seals - fresh [], limit 2 + Siegelring (max 6), toggle, start
+	# weapon refused, saved/loaded (unknown ids dropped, clamped), RunConfig.
+	_clean()
+	var sp = PROFILE.load_or_create(TEST_PATH)
+	check(sp.sealed.is_empty() and sp.seal_limit() == 2 and sp.build_run_config("glutmaw", "verdant_maw", 0).sealed.is_empty(), "Fresh profile: no seals, limit 2")
+	check(PROFILE.seal_ids().size() == PROFILE.STATS.STATS.size() + DATA.ARSENAL.WEAPONS.size() + DATA.ARSENAL.RELICS.size() and PROFILE.seal_ids().has("bite") and PROFILE.seal_ids().has("graeber") and PROFILE.seal_ids().has("urmutter") and not PROFILE.seal_ids().has("meute"), "Every stat, weapon and relic is sealable, no evolutions")
+	check(not sp.toggle_seal("rudelbiss", "glutmaw") and not sp.toggle_seal("meute") and not sp.toggle_seal("nonsense"), "Start weapon / evolution / unknown id refused")
+	check(sp.toggle_seal("bite") and sp.toggle_seal("hungerstein") and not sp.toggle_seal("crit"), "Two seals, the third is refused")
+	check(sp.toggle_seal("bite") and not sp.is_sealed("bite") and sp.toggle_seal("rudelbiss", "sporling"), "Unseal frees a seal; another strain may seal Rudelbiss")
+	var ring_cost: Array = []
+	sp.essence = 100000
+	for rank in 4:
+		ring_cost.append(sp.upgrade_cost("seal_ring"))
+		check(sp.buy_upgrade("seal_ring"), "Siegelring rank %d" % (rank + 1))
+	check(ring_cost == [300, 600, 1200, 2400] and not sp.buy_upgrade("seal_ring") and sp.seal_limit() == 6, "Siegelring: 4 ranks, 300/600/1200/2400, limit 6: %s" % [ring_cost])
+	for id in ["crit", "haste", "graeber", "blutzahn"]:
+		check(sp.toggle_seal(id), "Seal %s with the ring" % id)
+	check(sp.sealed.size() == 6 and not sp.toggle_seal("speed"), "At most 6 seals")
+	var sealed_config: Dictionary = sp.build_run_config("glutmaw", "verdant_maw", 0)
+	check(sealed_config.sealed.size() == 5 and not sealed_config.sealed.has("rudelbiss") and sealed_config.sealed.has("graeber"), "RunConfig drops the start weapon: %s" % [sealed_config.sealed])
+	sealed_config.sealed.append("x")
+	check(sp.sealed.size() == 6, "RunConfig gets a copy")
+	var sp2 = PROFILE.load_or_create(TEST_PATH)
+	check(sp2.sealed == sp.sealed and sp2.seal_limit() == 6, "Seals saved and loaded")
+	file = FileAccess.open(TEST_PATH, FileAccess.WRITE)
+	file.store_string("{\"version\":1,\"sealed\":[\"bite\",\"bite\",\"meute\",42,\"crit\",\"haste\"]}")
+	file.close()
+	var sp3 = PROFILE.load_or_create(TEST_PATH)
+	check(sp3.sealed.size() == 2 and sp3.sealed[0] == "bite" and sp3.sealed[1] == "crit", "Loaded seals: known ids only, no duplicates, clamped to the limit: %s" % [sp3.sealed])
 	_clean()
 	var missing = PROFILE.load_or_create(TEST_PATH)
 	check(missing.essence == 0 and not FileAccess.file_exists(TEST_PATH), "Missing file is not an error")
@@ -210,5 +239,5 @@ func _run() -> void:
 			push_error(failure)
 		quit(1)
 	else:
-		print("PASS meta: data, config fields, upgrades, quests once, strain unlock+buy, difficulty lock, save/load, broken file, apex trophies + total_moss migration, stage 17 pools + unlock migration, volume sliders + sound migration")
+		print("PASS meta: data, config fields, upgrades, quests once, strain unlock+buy, difficulty lock, save/load, broken file, apex trophies + total_moss migration, stage 17 pools + unlock migration, volume sliders + sound migration, seals")
 		quit(0)

@@ -35,7 +35,7 @@ const LINES := {
 	"milestone": ["Mehr Mäuler, mehr Futter!", "Wir werden immer mehr!", "Der Hunger wächst mit!"],
 	"level": ["Ich spür's in den Zähnen!", "Stärker. Hungriger.", "Das schmeckt nach mehr!"],
 	"evolution": ["Wir verwandeln uns!", "Neue Zähne, neues Glück!"],
-	"low_hp": ["Autsch! Noch ein Biss und ich bin Futter!", "Nur noch ein Leben – deckt mich!"],
+	"low_hp": ["Autsch! Noch ein Biss, dann bin ich Futter!", "Nur noch ein Leben – deckt mich!"],
 	"swap": ["Der Alte ist hin. Ich führe jetzt!", "Ich übernehme. Weiterfressen!"],
 	"flood": ["Die Flut! Zusammenbleiben!", "Da kommt Nachschub – zum Fressen!"],
 	"victory": ["Mahlzeit!", "Der war zäh. Nächster!", "Satt? Noch lange nicht!"],

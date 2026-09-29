@@ -285,11 +285,16 @@ func entries() -> Array:
 	return evo.chest_offers if mode() == "chest" else evo.offers
 
 
-# Reroll/skip/banish counters; none in the chest choice.
+# Reroll/skip/banish counters; none in the chest choice, no banish for
+# overdrive cards (stage 31 A: evolution.offer_overdrive).
 func _counter(counter: String) -> int:
 	var hud := _hud()
 	if hud == null or mode() == "chest":
 		return 0
+	if counter == "banishes":
+		var evo := _evolution()
+		if evo != null and "offer_overdrive" in evo and bool(evo.offer_overdrive):
+			return 0
 	return hud._count(counter)
 
 
@@ -1824,6 +1829,10 @@ func _card_style(evo: RefCounted, id: String, entry: Array, rank: int) -> Dictio
 		st.badge = "NEU" if int(st.from) == 0 else "RANG %d" % int(st.to)
 		if int(st.from) > 0:
 			st.kind_label = "WAFFE · RANG +%d" % maxi(1, int(st.to) - int(st.from))
+	elif kind == "overdrive":
+		# Stage 31 A: Limit Break card; the running total is in its text
+		# ("+3 % Schaden · gesamt +15 %"), no rank pips.
+		st.kind_label = "HEILUNG" if id == "od_heal" else "ÜBERLADUNG"
 	elif kind == "relic":
 		st.kind_label = "RELIKT"
 		var owned: int = evo.stacks(id) if evo != null and evo.has_method("stacks") else 0

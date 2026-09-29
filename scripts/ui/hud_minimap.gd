@@ -65,7 +65,8 @@ const EDGE_COLORS := {
 # Marker kinds (tests read them through markers()).
 # CORPSE* = loot crystal clusters (Etappe 16: small / medium / big heap), LURE = Lockruf,
 # CHEST = Kokon, POWERUP = Pilzknolle (second wave; HUD meta "chests"/"powerups").
-enum Mark { PREY, HUNTER, ELITE, SKITTER, LEAPER, CORPSE, CORPSE_BIG, CORPSE_BOSS, ALPHA, NEST, TOTEM, PORTAL, BOSS, APEX, HORDE, LURE, CHEST, POWERUP }
+# ITEM = Glutpilz or a lying map item (Etappe 31 D, HUD meta "items").
+enum Mark { PREY, HUNTER, ELITE, SKITTER, LEAPER, CORPSE, CORPSE_BIG, CORPSE_BOSS, ALPHA, NEST, TOTEM, PORTAL, BOSS, APEX, HORDE, LURE, CHEST, POWERUP, ITEM }
 # Lockruf plate colour (scripts/loot.gd LURE_COLOR).
 const LURE_COLOR := Color("ff7ad9")
 
@@ -80,9 +81,10 @@ const PORTAL_COLOR := Color("ff9ccf")
 const APEX_COLOR := Color("b8e86a")
 const CHEST_COLOR := Color("ffc53a")
 const POWERUP_COLOR := Color("7be35a")
+const ITEM_COLOR := Color("ff8a2a")
 const FRAME_ACCENT := Color("d8c890")
 const POI_KEYS := [["nest", Mark.NEST], ["totem", Mark.TOTEM], ["portal", Mark.PORTAL], ["boss", Mark.BOSS], ["boss_site", Mark.APEX], ["apex", Mark.APEX]]
-const LIST_KEYS := [["alpha", Mark.ALPHA], ["chests", Mark.CHEST], ["powerups", Mark.POWERUP]]
+const LIST_KEYS := [["alpha", Mark.ALPHA], ["chests", Mark.CHEST], ["powerups", Mark.POWERUP], ["items", Mark.ITEM]]
 # Clearing types (arena.poi_slots) -> marker drawn as a quiet site symbol (18b).
 # Etappe 30: no "maw" site any more - the gate stands at the boss arena and shows as "portal" once found.
 const SITE_MARKS := {"boss": Mark.BOSS, "nest": Mark.NEST, "totem": Mark.TOTEM, "cocoon": Mark.CHEST, "cocoon_gold": Mark.CHEST, "grove": Mark.POWERUP, "elite": Mark.ELITE, "shrine": Mark.ALPHA}
@@ -991,6 +993,8 @@ func _mark_color(kind: int) -> Color:
 			return CHEST_COLOR
 		Mark.POWERUP:
 			return POWERUP_COLOR
+		Mark.ITEM:
+			return ITEM_COLOR
 	return UiStyle.color("text")
 
 
@@ -1066,6 +1070,12 @@ func _marker(cv: CanvasItem, kind: int, p: Vector2, k: float) -> void:
 			Kit.rrect(cv, stem, 1.5 * k, Color("f2ead0"))
 			Kit.disc(cv, p + Vector2(0, -1.5) * k, 6.0 * k, color)
 			cv.draw_circle(p + Vector2(-2.2, -3.2) * k, 1.4 * k, Color(1, 1, 1, 0.85))
+		Mark.ITEM:
+			# Glutpilz: soft ember glow, ink rim, ember cap with a bright spot.
+			Kit.glow(cv, p, 9.0 * k, color, 0.45)
+			Kit.disc(cv, p, 6.2 * k, UiStyle.BRAWL_INK)
+			Kit.disc(cv, p, 4.6 * k, color)
+			cv.draw_circle(p + Vector2(-1.4, -1.6) * k, 1.5 * k, Color("fff0b0"))
 
 
 func _drop(cv: CanvasItem, p: Vector2, r: float, color: Color) -> void:

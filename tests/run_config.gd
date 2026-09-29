@@ -147,6 +147,7 @@ func _run() -> void:
 	_check(world.choosing(), "An open Boss-Kokon choice holds the world")
 	world.choose_mutation(0)
 	_check(not world.choosing() and evo.chest_offers.is_empty(), "Card choice takes the Boss-Kokon item")
+	_check(world.run_picks.size() > 0 and String(world.run_picks[-1][1]) == "evolution" and String(world.run_picks[-1][2]) == "aetzflut", "Stage 31 C: the cocoon choice is recorded as a pick (%s)" % [world.run_picks])
 	world.step(0.01)
 	_check(evo.evolutions.has("aetzflut") and evo.rank("aetzflut") == 1 and evo.rank("saeurespucker") == 0, "Ätzflut replaces Säurespucker")
 	_check(world.attack_forms.rank("aetzflut") == 1 and world.attack_forms.rank("saeurespucker") == 0, "Evolution reaches AttackForms")
@@ -186,6 +187,9 @@ func _run() -> void:
 	_check(stats.get("strain_id") == "testmaw" and stats.get("difficulty") == 1 and stats.get("final_population") == 0, "RunStats carries config and outcome")
 	_check(stats.get("kills_by_type", {}).get("hunter", 0) == 1 and stats.get("used_rally") == true, "RunStats counts kills by type and Rally")
 	_check(stats.get("mutations", {}).get("saeurespucker", 0) == 3, "RunStats lists mutations")
+	# Stage 31 C: damage per source and picks for the result page "DEIN BUILD".
+	_check(stats.get("damage") is Dictionary and float(stats.damage.get("saeurespucker", 0.0)) > 0.0, "RunStats has damage per source (%s)" % [stats.get("damage")])
+	_check(stats.get("picks") is Array, "RunStats has the pick list")
 	var hub_calls := [0]
 	if hud.hub_requested.is_connected(scene._open_hub):
 		hud.hub_requested.disconnect(scene._open_hub)
@@ -196,12 +200,22 @@ func _run() -> void:
 	# Stage 15: brawl result/pause buttons are touch-sized and separate; the
 	# pause panel restarts the run (hud_overlays draws on these rects).
 	if brawl:
-		var result_rects: Array = [hud._action_rect(), hud._hub_rect(), hud._share_rect()]
+		var result_rects: Array = [hud._action_rect(), hud._hub_rect(), hud._share_rect(), hud._build_rect()]
 		for i in result_rects.size():
 			_check(result_rects[i].size.x >= 96.0 and result_rects[i].size.y >= 96.0, "Result button %d is at least TOUCH_MIN" % i)
 			for j in range(i + 1, result_rects.size()):
 				_check(not result_rects[i].intersects(result_rects[j]), "Result buttons %d/%d do not overlap" % [i, j])
 		_check(hud._restart_rect().size == Vector2.ZERO, "No pause restart button on the result screen")
+		var overlays: Variant = hud.get_node_or_null("hud_overlays")
+		if overlays != null:
+			var before_page := int(overlays.result_page)
+			hud._press(-2, hud._build_rect().get_center())
+			_check(int(overlays.result_page) == 1 - before_page, "BUILD button switches the result page")
+			hud._press(-2, hud._build_rect().get_center())
+			_check(int(overlays.result_page) == before_page, "BUILD button switches back")
+			hud._press(-2, hud._build_panel_rect().get_center())
+			_check(int(overlays.result_page) == 1 and hud._build_panel_rect().size == Vector2.ZERO, "Tap on the build panel opens DEIN BUILD")
+			hud._press(-2, hud._build_rect().get_center())
 		_check(hud._pause_rect().size.x >= 96.0 and hud._pause_rect().size.y >= 96.0, "Pause button is at least TOUCH_MIN")
 	SESSION.last_result = {}
 	if brawl:
